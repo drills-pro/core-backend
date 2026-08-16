@@ -1,0 +1,360 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>platform — dev console</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .3rem; }
+  input, button { font: inherit; padding: .3rem .5rem; margin: .2rem 0; }
+  input[type=text] { width: 240px; }
+  button { cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+  td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #eee; font-size: .85rem; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .note { color: #888; font-size: .8rem; }
+  pre { background: #f6f6f6; padding: .5rem; font-size: .75rem; overflow-x: auto; }
+  .builder { display: flex; gap: 1rem; margin-top: .5rem; }
+  .palette { display: flex; flex-direction: column; gap: .4rem; width: 220px; }
+  .block { border: 1px solid #ccc; border-radius: 6px; padding: .4rem .6rem; background: #fafafa; cursor: grab; font-size: .8rem; user-select: none; }
+  .block:active { cursor: grabbing; }
+  .canvas { flex: 1; min-height: 120px; border: 2px dashed #ccc; border-radius: 6px; padding: .5rem; display: flex; flex-direction: column; gap: .4rem; }
+  .canvas.dragover { border-color: #4a90d9; background: #f0f6ff; }
+  .canvas .block { background: #eaf3ff; border-color: #a9cdf0; cursor: pointer; }
+  .canvas .block::after { content: " ✕"; color: #a00; }
+</style>
+</head>
+<body>
+<h1>platform dev console</h1>
+<p class="note">
+  No-build-step (vanilla HTML/JS) console for the API built so far.
+  The training-config builder below is real HTML5 drag-and-drop, not a
+  mock — dragged blocks are compiled into the JSON config actually sent to
+  <code>POST /v1/projects/{id}/training-runs</code>, and different block
+  choices produce genuinely different fitted model metrics (see README).
+  Not the full labeling/dataset-canvas UX req/05 describes.
+</p>
+
+<h2>Session</h2>
+<div class="row">
+  <label>X-Tenant-Id <input type="text" id="tenantId" value="11111111-1111-1111-1111-111111111111"></label>
+  <label>X-User-Id <input type="text" id="userId" value="dev-user"></label>
+</div>
+
+<h2>Projects</h2>
+<div class="row">
+  <input type="text" id="newProjectName" placeholder="project name">
+  <button onclick="createProject()">Create</button>
+  <button onclick="loadProjects()">Refresh</button>
+</div>
+<table id="projectsTable"><thead><tr><th>id</th><th>name</th><th>status</th><th></th></tr></thead><tbody></tbody></table>
+
+<h2>Datasets</h2>
+<div class="row">
+  <select id="datasetProjectId"></select>
+  <input type="text" id="newDatasetName" placeholder="dataset name">
+  <button onclick="createDataset()">Create dataset</button>
+</div>
+<div class="row">
+  <select id="uploadDatasetId"></select>
+  <input type="text" id="uploadLabel" placeholder="class label (e.g. cat)">
+  <input type="file" id="uploadFile">
+  <button onclick="uploadFile()">Upload</button>
+  <button onclick="loadDatasetFiles()">List files</button>
+</div>
+<pre id="datasetFilesOut"></pre>
+
+<h2>Training runs</h2>
+<div class="row">
+  <select id="trainProjectId"></select>
+  <input type="text" id="datasetRef" placeholder="dataset ref / commit" value="demo-commit">
+  <select id="trainDatasetId"><option value="">(no dataset — synthetic)</option></select>
+</div>
+
+<p class="note">Drag blocks into the canvas to build the training config. Click a block in the canvas to remove it.</p>
+<div class="builder">
+  <div class="palette" id="palette">
+    <div class="block" draggable="true" data-key="trainer.epochs" data-value="10">Trainer: epochs = 10</div>
+    <div class="block" draggable="true" data-key="trainer.epochs" data-value="50">Trainer: epochs = 50</div>
+    <div class="block" draggable="true" data-key="trainer.epochs" data-value="200">Trainer: epochs = 200</div>
+    <div class="block" draggable="true" data-key="trainer.learning_rate" data-value="0.01">Trainer: learning_rate = 0.01</div>
+    <div class="block" draggable="true" data-key="trainer.learning_rate" data-value="0.1">Trainer: learning_rate = 0.1</div>
+    <div class="block" draggable="true" data-key="trainer.learning_rate" data-value="0.3">Trainer: learning_rate = 0.3</div>
+    <div class="block" draggable="true" data-key="model_type" data-value="classification">Task: classification</div>
+    <div class="block" draggable="true" data-key="backend" data-value="ultralytics">Backend: Ultralytics (real YOLO)</div>
+  </div>
+  <div class="canvas" id="canvas"></div>
+</div>
+<div class="row">
+  <button onclick="submitTrainingRun()">Submit run with this config</button>
+  <button onclick="loadTrainingRuns()">Refresh runs</button>
+</div>
+<pre id="configOut"></pre>
+<table id="runsTable"><thead><tr><th>id</th><th>status</th><th>dataset</th><th>config</th><th>mlflow run</th></tr></thead><tbody></tbody></table>
+
+<h2>Labeling canvas</h2>
+<p class="note">Minimal in-app labeling (a lighter alternative to the full Label Studio integration, see README). Upload a raw file, then click a class to label it.</p>
+<div class="row">
+  <select id="labelDatasetProjectId"></select>
+  <select id="labelDatasetId"></select>
+  <input type="file" id="unlabeledFile">
+  <button onclick="uploadUnlabeled()">Upload unlabeled</button>
+  <button onclick="loadUnlabeled()">Refresh queue</button>
+</div>
+<div id="labelCanvas" class="row"></div>
+
+<h2>Usage &amp; cost (customer-facing view)</h2>
+<p class="note">
+  Custom UI reading directly from <code>usage_events</code> (req/09's
+  billing source of truth) — not raw Grafana, per req/08's own resolution
+  to its "embed Grafana vs. custom UI" open question. Rate below is
+  illustrative only; req/09 explicitly defers the actual pricing model.
+</p>
+<div class="row">
+  <button onclick="loadUsage()">Refresh usage &amp; cost</button>
+</div>
+<table id="usageTable"><thead><tr><th>resource</th><th>unit</th><th>total quantity</th><th>est. cost*</th></tr></thead><tbody></tbody></table>
+<p class="note">* illustrative: $0.05/gpu-second, $0.01/GB-day — not a real price list.</p>
+
+<script>
+function headers() {
+  return {
+    'X-Tenant-Id': document.getElementById('tenantId').value,
+    'X-User-Id': document.getElementById('userId').value,
+  };
+}
+
+async function createProject() {
+  const name = document.getElementById('newProjectName').value;
+  if (!name) return;
+  await fetch(`/v1/projects?name=${encodeURIComponent(name)}`, { method: 'POST', headers: headers() });
+  document.getElementById('newProjectName').value = '';
+  loadProjects();
+}
+
+async function loadProjects() {
+  const res = await fetch('/v1/projects', { headers: headers() });
+  const projects = await res.json();
+  const tbody = document.querySelector('#projectsTable tbody');
+  tbody.innerHTML = '';
+  const select = document.getElementById('trainProjectId');
+  const datasetSelect = document.getElementById('datasetProjectId');
+  const labelProjectSelect = document.getElementById('labelDatasetProjectId');
+  select.innerHTML = '';
+  datasetSelect.innerHTML = '';
+  labelProjectSelect.innerHTML = '';
+  for (const p of projects) {
+    tbody.innerHTML += `<tr><td>${p.id}</td><td>${p.name}</td><td>${p.status}</td>
+      <td><button onclick="archiveProject('${p.id}')">archive</button>
+      <button onclick="deleteProject('${p.id}')">delete</button></td></tr>`;
+    select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+    datasetSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+    labelProjectSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+  }
+  if (projects.length) loadDatasets();
+}
+
+async function createDataset() {
+  const projectId = document.getElementById('datasetProjectId').value;
+  const name = document.getElementById('newDatasetName').value;
+  if (!projectId || !name) return;
+  await fetch(`/v1/projects/${projectId}/datasets?name=${encodeURIComponent(name)}`, { method: 'POST', headers: headers() });
+  document.getElementById('newDatasetName').value = '';
+  loadDatasets();
+}
+
+async function loadDatasets() {
+  const projectId = document.getElementById('datasetProjectId').value;
+  if (!projectId) return;
+  const res = await fetch(`/v1/projects/${projectId}/datasets`, { headers: headers() });
+  const datasets = await res.json();
+  const uploadSelect = document.getElementById('uploadDatasetId');
+  const trainSelect = document.getElementById('trainDatasetId');
+  const labelDatasetSelect = document.getElementById('labelDatasetId');
+  uploadSelect.innerHTML = '';
+  trainSelect.innerHTML = '<option value="">(no dataset — synthetic)</option>';
+  labelDatasetSelect.innerHTML = '';
+  for (const d of datasets) {
+    uploadSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+    labelDatasetSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+    trainSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+  }
+}
+
+async function uploadFile() {
+  const projectId = document.getElementById('datasetProjectId').value;
+  const datasetId = document.getElementById('uploadDatasetId').value;
+  const label = document.getElementById('uploadLabel').value;
+  const fileInput = document.getElementById('uploadFile');
+  const file = fileInput.files[0];
+  if (!projectId || !datasetId || !label || !file) return;
+  const resp = await fetch(
+    `/v1/projects/${projectId}/datasets/${datasetId}/upload-url?filename=${encodeURIComponent(file.name)}&label=${encodeURIComponent(label)}`,
+    { method: 'POST', headers: headers() }
+  );
+  const { url } = await resp.json();
+  // Real presigned PUT — the file bytes go straight to MinIO, never through core-api.
+  await fetch(url, { method: 'PUT', body: file });
+  fileInput.value = '';
+  loadDatasetFiles();
+}
+
+async function loadDatasetFiles() {
+  const projectId = document.getElementById('datasetProjectId').value;
+  const datasetId = document.getElementById('uploadDatasetId').value;
+  if (!projectId || !datasetId) return;
+  const res = await fetch(`/v1/projects/${projectId}/datasets/${datasetId}/files`, { headers: headers() });
+  document.getElementById('datasetFilesOut').textContent = JSON.stringify(await res.json(), null, 2);
+}
+
+async function archiveProject(id) {
+  await fetch(`/v1/projects/${id}?status=archived`, { method: 'PATCH', headers: headers() });
+  loadProjects();
+}
+
+async function deleteProject(id) {
+  await fetch(`/v1/projects/${id}`, { method: 'DELETE', headers: headers() });
+  loadProjects();
+}
+
+// --- drag-drop config builder (native HTML5 DnD, no library) ---
+const palette = document.getElementById('palette');
+const canvas = document.getElementById('canvas');
+
+for (const block of palette.querySelectorAll('.block')) {
+  block.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ key: block.dataset.key, value: block.dataset.value, label: block.textContent }));
+  });
+}
+
+canvas.addEventListener('dragover', (e) => { e.preventDefault(); canvas.classList.add('dragover'); });
+canvas.addEventListener('dragleave', () => canvas.classList.remove('dragover'));
+canvas.addEventListener('drop', (e) => {
+  e.preventDefault();
+  canvas.classList.remove('dragover');
+  const { key, value, label } = JSON.parse(e.dataTransfer.getData('text/plain'));
+  const dropped = document.createElement('div');
+  dropped.className = 'block';
+  dropped.textContent = label;
+  dropped.dataset.key = key;
+  dropped.dataset.value = value;
+  dropped.onclick = () => { dropped.remove(); renderConfig(); };
+  canvas.appendChild(dropped);
+  renderConfig();
+});
+
+function buildConfig() {
+  const config = {};
+  for (const block of canvas.querySelectorAll('.block')) {
+    const path = block.dataset.key.split('.');
+    let raw = block.dataset.value;
+    const value = isNaN(Number(raw)) ? raw : Number(raw);
+    let node = config;
+    for (let i = 0; i < path.length - 1; i++) node = (node[path[i]] ??= {});
+    node[path[path.length - 1]] = value;
+  }
+  return config;
+}
+
+function renderConfig() {
+  document.getElementById('configOut').textContent = JSON.stringify(buildConfig(), null, 2);
+}
+renderConfig();
+
+async function submitTrainingRun() {
+  const projectId = document.getElementById('trainProjectId').value;
+  const datasetRef = document.getElementById('datasetRef').value;
+  const datasetId = document.getElementById('trainDatasetId').value;
+  if (!projectId) return;
+  const qs = new URLSearchParams({ dataset_ref: datasetRef });
+  if (datasetId) qs.set('dataset_id', datasetId);
+  await fetch(`/v1/projects/${projectId}/training-runs?${qs}`, {
+    method: 'POST',
+    headers: { ...headers(), 'Idempotency-Key': crypto.randomUUID(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildConfig()),
+  });
+  loadTrainingRuns();
+}
+
+async function loadTrainingRuns() {
+  const projectId = document.getElementById('trainProjectId').value;
+  if (!projectId) return;
+  const res = await fetch(`/v1/projects/${projectId}/training-runs`, { headers: headers() });
+  const runs = await res.json();
+  const tbody = document.querySelector('#runsTable tbody');
+  tbody.innerHTML = '';
+  for (const r of runs) {
+    tbody.innerHTML += `<tr><td>${r.id}</td><td>${r.status}</td><td>${r.dataset_ref}</td><td>${JSON.stringify(r.config || {})}</td><td>${r.mlflow_run_id || ''}</td></tr>`;
+  }
+}
+
+const ILLUSTRATIVE_RATES = { gpu_seconds: 0.05, gb_days: 0.01 };
+
+const LABEL_CLASSES = ['classA', 'classB', 'cat', 'dog'];
+
+async function uploadUnlabeled() {
+  const projectId = document.getElementById('labelDatasetProjectId').value;
+  const datasetId = document.getElementById('labelDatasetId').value;
+  const fileInput = document.getElementById('unlabeledFile');
+  const file = fileInput.files[0];
+  if (!projectId || !datasetId || !file) return;
+  const resp = await fetch(
+    `/v1/projects/${projectId}/datasets/${datasetId}/unlabeled-upload-url?filename=${encodeURIComponent(file.name)}`,
+    { method: 'POST', headers: headers() }
+  );
+  const { url } = await resp.json();
+  await fetch(url, { method: 'PUT', body: file });
+  fileInput.value = '';
+  loadUnlabeled();
+}
+
+async function loadUnlabeled() {
+  const projectId = document.getElementById('labelDatasetProjectId').value;
+  const datasetId = document.getElementById('labelDatasetId').value;
+  if (!projectId || !datasetId) return;
+  const res = await fetch(`/v1/projects/${projectId}/datasets/${datasetId}/unlabeled`, { headers: headers() });
+  const items = await res.json();
+  const canvas = document.getElementById('labelCanvas');
+  canvas.innerHTML = '';
+  for (const item of items) {
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid #ccc;border-radius:6px;padding:.5rem;text-align:center;';
+    const img = document.createElement('img');
+    img.src = item.view_url;
+    img.style.cssText = 'width:96px;height:96px;object-fit:cover;display:block;margin-bottom:.3rem;';
+    card.appendChild(img);
+    for (const cls of LABEL_CLASSES) {
+      const btn = document.createElement('button');
+      btn.textContent = cls;
+      btn.onclick = () => labelItem(item.key, cls);
+      card.appendChild(btn);
+    }
+    canvas.appendChild(card);
+  }
+}
+
+async function labelItem(key, label) {
+  const projectId = document.getElementById('labelDatasetProjectId').value;
+  const datasetId = document.getElementById('labelDatasetId').value;
+  const qs = new URLSearchParams({ key, label });
+  await fetch(`/v1/projects/${projectId}/datasets/${datasetId}/label?${qs}`, { method: 'POST', headers: headers() });
+  loadUnlabeled();
+}
+
+async function loadUsage() {
+  const res = await fetch('/v1/usage', { headers: headers() });
+  const rows = await res.json();
+  const tbody = document.querySelector('#usageTable tbody');
+  tbody.innerHTML = '';
+  for (const r of rows) {
+    const rate = ILLUSTRATIVE_RATES[r.unit] || 0;
+    const cost = (r.total_quantity * rate).toFixed(4);
+    tbody.innerHTML += `<tr><td>${r.resource_type}</td><td>${r.unit}</td><td>${r.total_quantity}</td><td>$${cost}</td></tr>`;
+  }
+}
+
+loadProjects();
+</script>
+</body>
+</html>

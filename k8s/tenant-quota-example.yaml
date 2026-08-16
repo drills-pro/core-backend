@@ -1,0 +1,29 @@
+# req/07 FR4: hard resource quota per tenant, enforced at submission (K8s
+# rejects over-quota pods outright), not just billed after the fact.
+# One ResourceQuota per tenant namespace — core-api would create this at
+# tenant-provisioning time (see req/01) with limits from the tenant's plan
+# tier. Namespace-per-tenant also gives NetworkPolicy isolation for free
+# if that's ever needed, without redesigning anything here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-11111111-1111-1111-1111-111111111111
+  labels: { tenant_id: "11111111-1111-1111-1111-111111111111" }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: training-quota
+  namespace: tenant-11111111-1111-1111-1111-111111111111
+spec:
+  hard:
+    # example plan tier: 3 concurrent training pods, 8 CPU / 16Gi total.
+    pods: "3"
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    # req/08 FR2 "GPU node pool exhaustion": K8s ResourceQuota tracks
+    # resource *requests* at admission time regardless of whether real
+    # GPU hardware backs the extended resource — this is a real signal
+    # even with 0 physical GPUs, not a fabricated one. See README's
+    # Observability section for how this gets exercised and alerted on.
+    requests.nvidia.com/gpu: "2"

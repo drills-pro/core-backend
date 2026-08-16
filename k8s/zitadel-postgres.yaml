@@ -1,0 +1,32 @@
+# A separate, real Postgres instance for Zitadel — CloudNativePG, not the
+# shared docker-compose dev postgres (req/02's own NFR1 just requires
+# "Postgres already in the data layer", not this specific one; separating
+# it matches how a real platform would isolate the identity provider's
+# data store from the app database).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: zitadel-pg
+spec:
+  instances: 1
+  enableSuperuserAccess: true
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: zitadel
+      owner: zitadel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zitadel-pg-nodeport
+spec:
+  type: NodePort
+  selector:
+    cnpg.io/cluster: zitadel-pg
+    role: primary
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 30432

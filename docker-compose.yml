@@ -1,0 +1,209 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-multi-db.sql:/docker-entrypoint-initdb.d/init-multi-db.sql
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: AKIAIOSFODNN7EXAMPLE
+      MINIO_ROOT_PASSWORD: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    volumes:
+      - miniodata:/data
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  lakefs:
+    image: treeverse/lakefs:latest
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      LAKEFS_DATABASE_TYPE: postgres
+      LAKEFS_DATABASE_POSTGRES_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/lakefs?sslmode=disable
+      LAKEFS_AUTH_ENCRYPT_SECRET_KEY: local-dev-secret-change-me
+      LAKEFS_BLOCKSTORE_TYPE: s3
+      LAKEFS_BLOCKSTORE_S3_FORCE_PATH_STYLE: "true"
+      LAKEFS_BLOCKSTORE_S3_ENDPOINT: http://minio:9000
+      LAKEFS_BLOCKSTORE_S3_DISCOVER_BUCKET_REGION: "false"
+      AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+      AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      LAKEFS_LISTEN_ADDRESS: 0.0.0.0:8000
+    command: ["run"]
+    ports: ["8000:8000"]
+
+  zitadel-pat-init:
+    image: alpine:latest
+    command: sh -c "chmod 777 /pat"
+    volumes:
+      - zitadel-pat:/pat
+
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:latest
+    depends_on:
+      postgres: { condition: service_healthy }
+      zitadel-pat-init: { condition: service_completed_successfully }
+    command: >
+      start-from-init
+      --masterkey "MasterkeyNeedsToHave32Characters"
+      --tlsMode disabled
+      --steps /firstinstance.yaml
+    environment:
+      # Real Postgres cluster on the kind cluster via CloudNativePG (see
+      # k8s/zitadel-postgres.yaml) — not the shared docker-compose dev
+      # postgres. Reached via a NodePort service + this container being
+      # attached to the kind docker network directly (`docker network
+      # connect kind <container>`, done post-start — see README); more
+      # stable than `kubectl port-forward`, which repeatedly dropped
+      # connections under this environment's CNI.
+      ZITADEL_DATABASE_POSTGRES_HOST: "192.168.117.2"
+      ZITADEL_DATABASE_POSTGRES_PORT: "30432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: "B2uCkpIyblI1i0vWBI5SYLFctq6K9LXICDrvvg2BX0MahTyuWK7h5FJdgWWqnAdm"
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: "F4DPM53tfvI2BZ25zzHrLmuSaiYd5DeSMJ9Ghn14lfwGdaeQHePlKJWHQWAOqwfn"
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      # OrbStack resolves <service>.<project>.orb.local from both the host
+      # (browser) and other containers — no /etc/hosts edit needed, unlike
+      # a plain "zitadel" domain which only containers can resolve.
+      ZITADEL_EXTERNALDOMAIN: zitadel.monorepo.orb.local
+      ZITADEL_EXTERNALPORT: "8080"
+      ZITADEL_EXTERNALSECURE: "false"
+      # Auto-provisions a machine user + long-lived PAT on first init, so
+      # core-api can drive the Management API (create the platform's own
+      # OIDC client) without a human clicking through the console —
+      # req/02's own phasing notes IaC/Terraform as the intended path.
+    volumes:
+      - zitadel-pat:/pat
+      - ./scripts/zitadel-firstinstance.yaml:/firstinstance.yaml:ro
+    networks: [default, kind]
+    ports: ["8080:8080"]
+
+  ray-head:
+    build: ./ray-training
+    command: >
+      ray start --head --dashboard-host=0.0.0.0 --block
+    ports: ["8265:8265", "6379:6379", "10001:10001", "8100:8000"]
+    shm_size: 1g
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports: ["3000:3000"]
+
+  mlflow:
+    build: ./mlflow
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+      AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow,mlflow:5000,localhost,localhost:5001,127.0.0.1,127.0.0.1:5001"
+    command: >
+      sh -c "python -c \"import boto3; c = boto3.client('s3', endpoint_url='http://minio:9000'); b = [x['Name'] for x in c.list_buckets()['Buckets']]; c.create_bucket(Bucket='mlflow-artifacts') if 'mlflow-artifacts' not in b else None\" &&
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://postgres:postgres@postgres:5432/mlflow
+      --artifacts-destination s3://mlflow-artifacts
+      --serve-artifacts"
+    ports: ["5001:5000"]
+
+  labelstudio:
+    image: heartexlabs/label-studio:latest
+    environment:
+      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
+      LABEL_STUDIO_USERNAME: admin@platform.local
+      LABEL_STUDIO_PASSWORD: LabelStudioAdminPw1!
+      LABEL_STUDIO_USER_TOKEN: dev-label-studio-token-0123456789
+    ports: ["8110:8080"]
+
+  vault:
+    image: hashicorp/vault:latest
+    cap_add: ["IPC_LOCK"]
+    environment:
+      # ponytail: dev-mode server (in-memory, auto-unsealed, fixed root
+      # token) — fine for a laptop stack. Real deployment needs a storage
+      # backend + unseal process; not worth building before there's
+      # infra to point it at.
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    volumes:
+      - ./scripts/vault-setup.sh:/vault-setup.sh
+    ports: ["8200:8200"]
+
+  core-api:
+    build: ./core-api
+    depends_on:
+      - postgres
+      - lakefs
+      - zitadel
+      - ray-head
+      - lgtm
+      - vault
+      - mlflow
+      - labelstudio
+    environment:
+      # Ops liveness ping only (health/deps) — intentionally the one place
+      # still using a static superuser credential, since it's not on the
+      # app's data path. The actual app→DB connection is Vault-issued, see
+      # PG_HOST/PG_PORT/PG_DATABASE + VAULT_* below and app/db.py.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/core
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DATABASE: core
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+      ZITADEL_ISSUER: http://zitadel.monorepo.orb.local:8080
+      RAY_DASHBOARD: http://ray-head:8265
+      GRAFANA_URL: http://lgtm:3000
+      MLFLOW_URL: http://mlflow:5000
+      MAX_CONCURRENT_TRAINING_RUNS: "3"
+      # AUTH_MODE=dev stays the default (see app/tenancy.py — dev mode
+      # now also accepts a real Bearer token when present, so the new
+      # frontend's genuine Zitadel login works without breaking /ui or
+      # any of the X-Tenant-Id-based curl flows already verified above).
+      # req/08 FR2 "GPU node pool exhaustion" signal — see k8s/tenant-quota-example.yaml
+      # and the Observability section. Requires the kind cluster + the
+      # ksm-nodeport Service (see README) to already exist; not created here.
+      KSM_ENDPOINT: "http://192.168.117.2:32581/metrics"
+    volumes:
+      - zitadel-pat:/pat:ro
+    networks: [default, kind]
+    ports: ["8090:8000"]
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - core-api
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    ports: ["5173:5173"]
+
+volumes:
+  pgdata:
+  miniodata:
+  zitadel-pat:
+
+networks:
+  default: {}
+  kind:
+    external: true

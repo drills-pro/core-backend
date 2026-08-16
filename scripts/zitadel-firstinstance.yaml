@@ -1,0 +1,9 @@
+FirstInstance:
+  PatPath: /pat/zitadel-automation.pat
+  Org:
+    Machine:
+      Machine:
+        Username: automation
+        Name: automation
+      Pat:
+        ExpirationDate: "2035-01-01T00:00:00Z"
