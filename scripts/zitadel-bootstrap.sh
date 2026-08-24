@@ -11,7 +11,12 @@
 #   ./scripts/zitadel-bootstrap.sh
 set -eu
 
-PAT=$(docker run --rm -v monorepo_zitadel-pat:/pat alpine cat /pat/zitadel-automation.pat)
+# Read through core-api, which already mounts the PAT volume read-only.
+# The previous form named the volume literally (monorepo_zitadel-pat) and
+# so only worked while the checkout directory was called "monorepo" —
+# compose derives the prefix from the directory name.
+PAT=$(docker compose exec -T core-api cat /pat/zitadel-automation.pat | tr -d '\r')
+
 ZITADEL="http://localhost:8080"
 AUTH="Authorization: Bearer $PAT"
 HOST="Host: zitadel.monorepo.orb.local:8080"  # externaldomain-based routing, see README
@@ -77,15 +82,18 @@ echo "spa app: client_id=$SPA_CLIENT_ID"
 # Seed the tenant row this org maps to — req/01/02: every Zitadel org is a
 # platform tenant. Without this, real logins get 403 "organization not
 # provisioned" (see app/tenancy.py).
+# Addressed by service name, not the literal container name: the
+# monorepo-postgres-1 form only resolved while the checkout directory
+# was called "monorepo".
 ORG_ID=$(curl -s -4 "$ZITADEL/management/v1/orgs/me" -H "$AUTH" -H "$HOST" | python3 -c "import sys,json;print(json.load(sys.stdin)['org']['id'])")
-docker exec -i monorepo-postgres-1 psql -U postgres -d core -c "
+docker compose exec -T postgres psql -U postgres -d core -c "
 INSERT INTO tenants (zitadel_org_id, name) VALUES ('$ORG_ID', 'ZITADEL (real)')
 ON CONFLICT (zitadel_org_id) DO NOTHING;"
 echo "tenant seeded for org $ORG_ID"
 
 # FR1 (improvement/phase2/02-org-team-project-model.md): every org has >=1
 # team by default, created at the same provisioning step as the tenant row.
-docker exec -i monorepo-postgres-1 psql -U postgres -d core -c "
+docker compose exec -T postgres psql -U postgres -d core -c "
 INSERT INTO teams (tenant_id, name)
 SELECT id, 'Default' FROM tenants WHERE zitadel_org_id = '$ORG_ID'
 AND NOT EXISTS (SELECT 1 FROM teams WHERE teams.tenant_id = tenants.id);"

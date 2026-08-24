@@ -124,7 +124,7 @@ async def _start_preprocessing_reconcile_poller():
     asyncio.create_task(loop())
 
 
-KSM_ENDPOINT = os.environ.get("KSM_ENDPOINT", "http://192.168.117.2:32581/metrics")
+KSM_ENDPOINT = os.environ.get("KSM_ENDPOINT", "http://172.19.0.3:32581/metrics")
 
 
 @app.on_event("startup")

@@ -1,0 +1,7 @@
+# core.autocrlf=true on Windows checks these out with CRLF, which the
+# containers' `sh` chokes on ("set: illegal option -"). They only ever run
+# inside Linux containers, so pin them to LF regardless of platform.
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sql text eol=lf

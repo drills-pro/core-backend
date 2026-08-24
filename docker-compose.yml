@@ -5,7 +5,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # postgres:18+ stores data in /var/lib/postgresql/<major>/docker; the
+      # entrypoint hard-errors if it finds a mount at the legacy .../data
+      # path. Mount the parent and let the image pick the subdirectory.
+      - pgdata:/var/lib/postgresql
       - ./scripts/init-multi-db.sql:/docker-entrypoint-initdb.d/init-multi-db.sql
     ports: ["5432:5432"]
     healthcheck:
@@ -72,7 +75,7 @@ services:
       # connect kind <container>`, done post-start — see README); more
       # stable than `kubectl port-forward`, which repeatedly dropped
       # connections under this environment's CNI.
-      ZITADEL_DATABASE_POSTGRES_HOST: "192.168.117.2"
+      ZITADEL_DATABASE_POSTGRES_HOST: "172.19.0.3"
       ZITADEL_DATABASE_POSTGRES_PORT: "30432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
@@ -94,7 +97,17 @@ services:
     volumes:
       - zitadel-pat:/pat
       - ./scripts/zitadel-firstinstance.yaml:/firstinstance.yaml:ro
-    networks: [default, kind]
+    networks:
+      # The orb.local name is OrbStack's host+container resolvable domain.
+      # Under Docker Desktop nothing resolves it inside the network — the
+      # upstream resolver hands back 127.0.0.1, so core-api's JWKS/discovery
+      # calls hit themselves. This alias makes Docker's embedded DNS answer
+      # the same name with this container, on either runtime. Browsers on
+      # the host still need a hosts-file entry under Docker Desktop.
+      default:
+        aliases:
+          - zitadel.monorepo.orb.local
+      kind:
     ports: ["8080:8080"]
 
   ray-head:
@@ -183,7 +196,7 @@ services:
       # req/08 FR2 "GPU node pool exhaustion" signal — see k8s/tenant-quota-example.yaml
       # and the Observability section. Requires the kind cluster + the
       # ksm-nodeport Service (see README) to already exist; not created here.
-      KSM_ENDPOINT: "http://192.168.117.2:32581/metrics"
+      KSM_ENDPOINT: "http://172.19.0.3:32581/metrics"
     volumes:
       - zitadel-pat:/pat:ro
     networks: [default, kind]

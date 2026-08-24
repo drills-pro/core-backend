@@ -1,0 +1,7 @@
+# The image installs its own deps (pnpm install, above the COPY). Without
+# this, `COPY . .` overwrites that with the host's node_modules, whose pnpm
+# symlinks point at absolute host paths (/c/Users/.../.pnpm/...) that don't
+# exist in the container — vite then fails to resolve at startup.
+node_modules
+dist
+.git
