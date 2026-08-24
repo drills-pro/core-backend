@@ -21,6 +21,23 @@ ZITADEL="http://localhost:8080"
 AUTH="Authorization: Bearer $PAT"
 HOST="Host: zitadel.monorepo.orb.local:8080"  # externaldomain-based routing, see README
 
+# Zitadel v4 turns on LoginV2 for every new instance, but the v2 login UI is a
+# *separate* service (ghcr.io/zitadel/zitadel-login) that this compose stack
+# doesn't run — the console then sends the browser to /ui/v2/login/login and
+# gets {"code":5,"message":"Not Found"}. Fall back to the v1 login UI, which
+# is built into the core binary. Drop this once a login service is added to
+# docker-compose.yml; login v1 is deprecated and goes away in Zitadel v5.
+#
+# Instance-wide only: the core-api-web app below opts back in to login v2
+# per-app ("loginVersion"), because app/embedded_auth.py needs the V2_-prefixed
+# auth request id that only the v2 flow mints — it parses that id out of the
+# authorize redirect and never navigates to the (absent) v2 login UI, so no
+# login service is needed for it. Without the per-app override, /oauth/v2/authorize
+# hands back a v1 "?authRequestID=<numeric>" redirect and login 502s with
+# "could not start auth request".
+curl -s -4 -o /dev/null "$ZITADEL/v2/features/instance" -X PUT -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{"loginV2":{"required":false}}'
+echo "loginV2 requirement disabled (using built-in login v1)"
+
 PROJECT=$(curl -s -4 "$ZITADEL/management/v1/projects" -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{"name":"platform"}')
 PROJECT_ID=$(echo "$PROJECT" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 echo "project: $PROJECT_ID"
@@ -35,7 +52,8 @@ APP=$(curl -s -4 "$ZITADEL/management/v1/projects/$PROJECT_ID/apps/oidc" -X POST
   "grantTypes": ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
   "appType": "OIDC_APP_TYPE_WEB",
   "authMethodType": "OIDC_AUTH_METHOD_TYPE_BASIC",
-  "accessTokenType": "OIDC_TOKEN_TYPE_JWT"
+  "accessTokenType": "OIDC_TOKEN_TYPE_JWT",
+  "loginVersion": {"loginV2": {"baseUri": ""}}
 }')
 echo "app: $APP"
 CLIENT_ID=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['clientId'])")

@@ -14,6 +14,11 @@ docker compose up --build
 Then, one-time setup for two services that need it (see their sections
 below for why): **LakeFS** and **Vault**.
 
+```
+docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault sh /vault-setup.sh
+./scripts/lakefs-bootstrap.sh
+```
+
 | Service | URL |
 |---|---|
 | core-api | http://localhost:8090/health/deps |
@@ -22,7 +27,7 @@ below for why): **LakeFS** and **Vault**.
 | Ray dashboard | http://localhost:8265 |
 | MinIO console | http://localhost:9001 (AKIAIOSFODNN7EXAMPLE / wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY) |
 | LakeFS | http://localhost:8000 (see one-time setup below) |
-| Zitadel | http://zitadel:8080 — add `127.0.0.1 zitadel` to `/etc/hosts` first (default admin: zitadel-admin@zitadel.localhost / Password1!) |
+| Zitadel | http://zitadel:8080 — add `127.0.0.1 zitadel` to `/etc/hosts` first (default admin: zitadel-admin@zitadel.zitadel.monorepo.orb.local / Password1!) |
 | MLflow | http://localhost:5001 |
 | Grafana (LGTM) | http://localhost:3000 |
 | Vault | http://localhost:8200 (root token: `root`) |
@@ -587,13 +592,23 @@ own open question — deferred, not decided in the spec itself).
 
 ## LakeFS one-time setup
 
-On first boot, LakeFS has no admin user. Create one with credentials
-matching `secret/platform/lakefs` in Vault (see below):
+On first boot LakeFS has no admin user, no blockstore bucket, and no
+repository. `scripts/lakefs-bootstrap.sh` creates all three:
 
 ```
-curl -X POST http://localhost:8000/api/v1/setup_lakefs -H 'Content-Type: application/json' \
-  -d '{"username":"admin","key":{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_access_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}'
+./scripts/lakefs-bootstrap.sh
 ```
+
+The repository matters as much as the admin user: `app/lakefs_client.py`
+addresses exactly one (`REPO = "platform-datasets"`, one branch per
+platform dataset inside it), and without it every
+`POST /v1/projects/{id}/datasets` 500s in `ensure_branch` — creating a
+branch in a repo that doesn't exist is a 404. `/health/deps` will not
+catch this; its `lakefs_s3` probe only exercises the S3 gateway.
+
+Unlike `scripts/zitadel-bootstrap.sh`, this one is idempotent — re-running
+it after any `docker compose up` reports what already exists and exits 0.
+Credentials it installs match `secret/platform/lakefs` in Vault (below).
 
 ## Secrets management (Vault)
 

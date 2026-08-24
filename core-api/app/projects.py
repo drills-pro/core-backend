@@ -80,7 +80,8 @@ async def create_project(
 async def get_project(project_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)):
     async with TenantConn(tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT id, name, status, team_id, task_type, default_test_dataset_id, settings, created_at "
+            "SELECT id, name, status, team_id, task_type, default_test_dataset_id, settings, "
+            "visibility, publish_project_metadata, created_at "
             "FROM projects WHERE id = $1",
             project_id,
         )
