@@ -75,7 +75,14 @@ services:
       # connect kind <container>`, done post-start — see README); more
       # stable than `kubectl port-forward`, which repeatedly dropped
       # connections under this environment's CNI.
-      ZITADEL_DATABASE_POSTGRES_HOST: "172.19.0.3"
+      # The kind *node* IP, which Docker assigns and is not stable: while
+      # the cluster is down the address is free and the next container to
+      # join the kind network takes it (core-api took 172.19.0.3 on
+      # 2026-08-25, and Zitadel then failed to start because it was talking
+      # to core-api instead of Postgres). Run ./scripts/kind-node-ip.sh to
+      # refresh KIND_NODE_IP in .env after recreating/restarting the
+      # cluster; the fallback keeps a fresh checkout working.
+      ZITADEL_DATABASE_POSTGRES_HOST: "${KIND_NODE_IP:-172.19.0.2}"
       ZITADEL_DATABASE_POSTGRES_PORT: "30432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
@@ -196,7 +203,7 @@ services:
       # req/08 FR2 "GPU node pool exhaustion" signal — see k8s/tenant-quota-example.yaml
       # and the Observability section. Requires the kind cluster + the
       # ksm-nodeport Service (see README) to already exist; not created here.
-      KSM_ENDPOINT: "http://172.19.0.3:32581/metrics"
+      KSM_ENDPOINT: "http://${KIND_NODE_IP:-172.19.0.2}:32581/metrics"  # see the note on ZITADEL_DATABASE_POSTGRES_HOST
     volumes:
       - zitadel-pat:/pat:ro
     networks: [default, kind]
