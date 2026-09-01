@@ -11,8 +11,24 @@ mise install
 docker compose up --build
 ```
 
-Then, one-time setup for two services that need it (see their sections
-below for why): **LakeFS** and **Vault**.
+Then provision the services that need it — LakeFS, Vault, Zitadel's OIDC
+credentials, Label Studio, and the kind node IP:
+
+```
+./scripts/bootstrap.sh
+```
+
+**Run this after every `docker compose up`, not just the first time.**
+Vault runs in dev mode, which keeps everything in memory: restarting that
+one container empties it, and `core-api` then cannot obtain so much as a
+Postgres credential. Every step in `bootstrap.sh` is idempotent, so
+re-running it costs nothing and is the intended habit. It finishes by
+printing `/health/deps`.
+
+One thing it deliberately does not do: `./scripts/zitadel-bootstrap.sh`,
+which creates the Zitadel project, OIDC apps, roles and IdPs. That is
+first-time-only and would create duplicates if re-run — on a brand-new
+stack, run it once before `bootstrap.sh`.
 
 | Service | URL |
 |---|---|
@@ -22,7 +38,7 @@ below for why): **LakeFS** and **Vault**.
 | Ray dashboard | http://localhost:8265 |
 | MinIO console | http://localhost:9001 (AKIAIOSFODNN7EXAMPLE / wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY) |
 | LakeFS | http://localhost:8000 (see one-time setup below) |
-| Zitadel | http://zitadel:8080 — add `127.0.0.1 zitadel` to `/etc/hosts` first (default admin: zitadel-admin@zitadel.localhost / Password1!) |
+| Zitadel | http://zitadel:8080 — add `127.0.0.1 zitadel` to `/etc/hosts` first (default admin: zitadel-admin@zitadel.zitadel.monorepo.orb.local / Password1!) |
 | MLflow | http://localhost:5001 |
 | Grafana (LGTM) | http://localhost:3000 |
 | Vault | http://localhost:8200 (root token: `root`) |
@@ -58,6 +74,34 @@ uv run uvicorn app.main:app --reload
 uv run pytest tests/ -q
 ```
 
+### Layout (modular monolith)
+
+One deployable, but the code inside is split into bounded contexts with a
+one-directional dependency graph:
+
+```
+core-api/app/
+  main.py          composition root — mounts every module's router, nothing else
+  background.py    the pollers: each module owns the reconcile, this owns the timer
+  core/            shared kernel — config, db pool, tenancy/RLS, auth, audit, telemetry
+  integrations/    one client per outside system — Ray, LakeFS, MLflow, MinIO,
+                   Label Studio, Zitadel, Vault
+  modules/         one package per context: projects, datasets, labeling,
+                   preprocessing, training, model_registry, deployments, usage,
+                   teams, users, auth, public, health
+                     routes.py   HTTP surface
+                     service.py  domain logic shared by HTTP and background callers
+                     tasks.py    the reconcile loop body
+                     __init__.py the module's public API — what other code may import
+```
+
+The rules: `core/` depends on nothing above it, `integrations/` may use `core/`,
+and a module reaches another module **only** through its package root
+(`from app.modules.usage import record_usage`, never
+`app.modules.usage.service`). `tests/test_architecture.py` fails the build on
+any violation, so the boundaries can't quietly rot. Every environment variable
+the service reads is declared in `app/core/config.py`.
+
 ## Multi-tenancy (req/01)
 
 `core-api/migrations/0001_tenancy.sql` sets up real Postgres Row-Level
@@ -66,7 +110,7 @@ Security, not just an app-layer `WHERE tenant_id = ...`:
 - `core_app` role (non-superuser — RLS is a no-op for superusers) holds
   the grants; nothing connects as it directly (see Secrets section).
 - Every tenant-scoped table is scoped by an RLS policy reading
-  `app.tenant_id`, set per-request via `SET LOCAL` (`app/tenant_conn.py`).
+  `app.tenant_id`, set per-request via `SET LOCAL` (`app/core/tenant_conn.py`).
 - `GET /v1/projects/{id}` implements FR1 exactly: 403 (not 404) for a real
   project in another tenant, 404 for one that doesn't exist anywhere — via
   a `SECURITY DEFINER` existence check that bypasses RLS only to return a
@@ -80,7 +124,7 @@ curl "http://localhost:8090/v1/projects/<id>" -H "X-Tenant-Id: 22222222-2222-222
 
 ## Auth (req/02)
 
-`app/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS,
+`app/core/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS,
 checks the RS256 signature, issuer, and the Zitadel org-id claim. Covered
 by `core-api/tests/test_auth.py` (self-signed keypair — wrong signature
 and missing-claim cases both rejected).
@@ -126,7 +170,7 @@ string, so nothing downstream changes.
 ## Project & user management (req/03)
 
 `core-api/migrations/0002_projects_users.sql` +
-`app/projects.py`/`app/project_members.py`: project lifecycle
+`app/modules/projects/routes.py`/`app/modules/projects/members.py`: project lifecycle
 (create/rename/archive/soft-delete with a `pending_delete` grace state),
 per-project roles independent of org role, email invitations with 7-day
 expiry, and an append-only audit log (`INSERT`-only grant — the app
@@ -140,15 +184,15 @@ curl "http://localhost:8090/v1/projects/<id>/audit-log" -H "X-Tenant-Id: 1111111
 
 ## Training orchestration (req/06 + req/07)
 
-`app/training.py` submits a Ray job (Ray's HTTP Job Submission API, not
+`app/modules/training/routes.py` submits a Ray job (Ray's HTTP Job Submission API, not
 the Python SDK — core-api needs no Ray runtime) tagged with
 `tenant_id`/`project_id` metadata, polls it, and on completion logs
-metrics to MLflow (`app/mlflow_client.py`) and bills the run to
-`usage_events` (`app/usage.py`) — idempotently on both counts (retried
+metrics to MLflow (`app/integrations/mlflow_client.py`) and bills the run to
+`usage_events` (`app/modules/usage/service.py`) — idempotently on both counts (retried
 submission with the same `Idempotency-Key` returns the existing run;
 retried completion polling never double-bills).
 
-The Ray entrypoint (`app/ray_client.py::_build_entrypoint`) supports two
+The Ray entrypoint (`app/integrations/ray_client.py::_build_entrypoint`) supports two
 real backends, chosen by `config.backend`:
 
 - **default** — genuine gradient-descent logistic regression (numpy,
@@ -256,8 +300,8 @@ curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=v
 
 ## Dataset upload (req/04 + req/06)
 
-`core-api/migrations/0006_datasets.sql` + `app/datasets.py` +
-`app/object_storage.py`: real presigned-URL upload against MinIO, per
+`core-api/migrations/0006_datasets.sql` + `app/modules/datasets/routes.py` +
+`app/integrations/object_storage.py`: real presigned-URL upload against MinIO, per
 req/04's "upload returns presigned S3/MinIO URL, client PUTs directly —
 don't proxy large files through the app backend". A `datasets` bucket is
 created on first use; keys are prefixed `tenants/{tenant_id}/projects/{project_id}/datasets/{id}/{label}/{filename}`
@@ -289,7 +333,7 @@ curl -X POST "http://localhost:8090/v1/projects/<id>/datasets/<dsid>/manifest" -
 
 ## Labeling (req/04: "proxy/webhook to Label Studio project, pull labeled export")
 
-`app/labelstudio_client.py` + `app/labeling.py`: a real Label Studio
+`app/integrations/labelstudio_client.py` + `app/modules/labeling/routes.py`: a real Label Studio
 instance (`labelstudio` service), not a stub. `POST
 .../datasets/{id}/labeling` creates a real Label Studio project via its
 API and points it at the dataset; `GET .../labeling` reports real
@@ -302,25 +346,30 @@ Label Studio's newer versions disabled static API tokens org-wide by
 default — auth is short-lived JWT access tokens exchanged from a
 long-lived refresh token obtained once via an authenticated session
 login. That refresh token lives in Vault
-(`secret/platform/labelstudio`); `app/labelstudio_client.py` handles the
-exchange/caching transparently. One-time bootstrap (the LS session-login
-dance isn't scriptable from a fresh container without a browser, so it's
-a manual step once per deployment, same shape as the LakeFS/Vault setup
-above):
+(`secret/platform/labelstudio`); `app/integrations/labelstudio_client.py` handles the
+exchange/caching transparently. Bootstrap is fully scripted — the session
+login is a plain Django form post, so no browser is involved:
 
 ```
-# 1. log in via LS's session endpoint to get a refresh token (see git history
-#    for the exact curl sequence used to obtain it during development)
-# 2. store it:
-docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault vault kv put secret/platform/labelstudio \
-  refresh_token="<token>" url="http://labelstudio:8080"
+./scripts/labelstudio-bootstrap.sh
 ```
+
+It logs in (`/user/login/`, CSRF token echoed back), mints a refresh token
+(`POST /api/token/`), verifies it exchanges, and writes it to Vault.
+Re-run it after any Vault restart.
+
+Label Studio allows one refresh token per user and answers a second
+`POST /api/token/` with 409, so the script revokes the existing one first
+— any copy still in use stops working. `GET /api/token/` returns the
+current token *without its signature*: unusable for auth, but still
+accepted by `/api/token/blacklist/`, which is how the revoke works without
+knowing the original.
 
 There's also now a real, minimal **in-app labeling canvas** at `/ui` —
 distinct from the full Label Studio integration above, for teams that
 want something lighter: upload a raw file (lands in a dataset's
 `_unlabeled/` prefix), the UI displays it via a presigned GET URL, and
-clicking a class button (`app/datasets.py::label_file`) does a real S3
+clicking a class button (`app/modules/datasets/routes.py::label_file`) does a real S3
 copy into the class folder + delete of the original + manifest.csv
 append — the exact convention the Ultralytics training backend already
 reads. Verified live: uploaded a file, labeled it "cat", confirmed the
@@ -332,7 +381,7 @@ last connecting step doesn't).
 
 ## Deployments & inference (req/04 Deployments group, req/07 FR3)
 
-`app/deployments.py` + `app/serve_client.py`: a real Ray Serve deployment,
+`app/modules/deployments/routes.py` + `app/integrations/serve_client.py`: a real Ray Serve deployment,
 not a stub. The default (numpy) training backend now emits its fitted
 weights as a `model:{...}` log line; `POST /v1/projects/{id}/deployments`
 reads that artifact and submits a Ray job whose entrypoint calls
@@ -340,7 +389,7 @@ reads that artifact and submits a Ray job whose entrypoint calls
 outlive the submission job, which is the standard way to drive Serve from
 outside the cluster's own process. `POST /v1/predict/{deployment_id}`
 proxies to the deployed HTTP route and records **real** request latency
-(`app/metrics.py::inference_latency_ms`) — this is the actual signal
+(`app/core/metrics.py::inference_latency_ms`) — this is the actual signal
 behind req/08's "inference p99 latency" alert (see Observability).
 
 Verified live end-to-end: trained a model, deployed it, called
@@ -362,9 +411,9 @@ set explicitly via `serve.start(http_options=...)`), mapped to host
 Rate limiting is real and per-tenant-plan (req/04 FR4 verbatim: "per
 tenant plan tier"): `tenants.plan_tier` (`free`/`pro`/`enterprise`,
 migration 0013) drives each new deployment's default
-`rate_limit_per_minute` (`PLAN_TIER_RATE_LIMITS` in `app/deployments.py`
+`rate_limit_per_minute` (`PLAN_TIER_RATE_LIMITS` in `app/modules/deployments/routes.py`
 — 10/120/1000), still overridable per-deployment, enforced by an
-in-process sliding window (`app/rate_limit.py`) before every proxied
+in-process sliding window (`app/core/rate_limit.py`) before every proxied
 call. Verified live twice: a `pro`-tier tenant's new deployment got
 `rate_limit_per_minute: 120` automatically; a deployment throttled to
 3/min returned `200,200,200,429,429` on 5 requests.
@@ -411,7 +460,7 @@ so only the class definition gets distributed, not the loaded session object.
 
 ## Model registry (req/04 Models group, req/06 FR2)
 
-`app/models.py` wraps MLflow's real Model Registry — not a local table
+`app/modules/model_registry/routes.py` wraps MLflow's real Model Registry — not a local table
 pretending to be one. `POST .../models/{training_run_id}/register`
 creates (or reuses) a registered model and a real model version pointing
 at the run's MLflow artifact; `POST .../models/{id}/promote` calls
@@ -474,7 +523,7 @@ dropped connections under this environment's CNI, see Zitadel section).
   namespace + `ResourceQuota` (enforced by the K8s API server at admission,
   not app-level bookkeeping).
 
-`core-api`'s own job submission (`app/ray_client.py`) still targets the
+`core-api`'s own job submission (`app/integrations/ray_client.py`) still targets the
 docker-compose single-node Ray cluster for a fast dev loop — pointing
 `RAY_DASHBOARD` at the KubeRay head service instead is a config change,
 not new code, since both speak the same Ray Job Submission API.
@@ -515,20 +564,20 @@ of raw GPU-seconds rather than inventing a formula.
 
 ## Observability (req/08)
 
-`app/tracing.py` instruments `core-api` (FastAPI + httpx + asyncpg) with
+`app/core/tracing.py` instruments `core-api` (FastAPI + httpx + asyncpg) with
 OpenTelemetry and exports to the LGTM stack's built-in OTLP collector
 (`grafana/otel-lgtm` bundles Tempo + Loki + Prometheus + Grafana, one
 image — matches NFR2's "one coherent product surface" requirement). FR1's
 label convention (`tenant_id`/`project_id` on everything) is applied via
 `tag_current_span` at the point each request resolves its tenant
-(`app/tenancy.py`), verified live: query Tempo through Grafana's datasource
+(`app/core/tenancy.py`), verified live: query Tempo through Grafana's datasource
 proxy and every `core-api` span carries `tenant_id`.
 
 ```
 curl "http://localhost:3000/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3Dcore-api&limit=5"
 ```
 
-`app/metrics.py` also exports OTel metrics (same OTLP pipeline as traces)
+`app/core/metrics.py` also exports OTel metrics (same OTLP pipeline as traces)
 — `training_runs_total{status}`, incremented on every real training-run
 transition to a terminal state, is the signal for FR2's "training job
 failure rate" alert. Verified live in Prometheus:
@@ -538,7 +587,7 @@ curl "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query?qu
 ```
 
 `postgres_database_size_bytes` is a second real signal — a background
-task in `app/main.py` polls the actual `pg_database_size('core')` every
+task in `app/background.py` polls the actual `pg_database_size('core')` every
 30s (a real number, currently ~8.5MB) and exposes it as an OTel observable
 gauge.
 
@@ -561,7 +610,7 @@ genuine Kubernetes behavior, not simulated.
 The chain end to end: `kube-state-metrics` (installed via Helm, exposed
 through a NodePort Service) exposes the real `kube_resourcequota` series
 → a background poller in `core-api` (`KSM_ENDPOINT`, same pattern as the
-Postgres-size poller) scrapes it every 30s → `app/metrics.py`'s
+Postgres-size poller) scrapes it every 30s → `app/core/metrics.py`'s
 `gpu_quota_requests` OTel gauge → Prometheus → a Grafana alert on
 `used / hard > 0.8`.
 
@@ -587,13 +636,23 @@ own open question — deferred, not decided in the spec itself).
 
 ## LakeFS one-time setup
 
-On first boot, LakeFS has no admin user. Create one with credentials
-matching `secret/platform/lakefs` in Vault (see below):
+On first boot LakeFS has no admin user, no blockstore bucket, and no
+repository. `scripts/lakefs-bootstrap.sh` creates all three:
 
 ```
-curl -X POST http://localhost:8000/api/v1/setup_lakefs -H 'Content-Type: application/json' \
-  -d '{"username":"admin","key":{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_access_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}'
+./scripts/lakefs-bootstrap.sh
 ```
+
+The repository matters as much as the admin user: `app/integrations/lakefs_client.py`
+addresses exactly one (`REPO = "platform-datasets"`, one branch per
+platform dataset inside it), and without it every
+`POST /v1/projects/{id}/datasets` 500s in `ensure_branch` — creating a
+branch in a repo that doesn't exist is a 404. `/health/deps` will not
+catch this; its `lakefs_s3` probe only exercises the S3 gateway.
+
+Unlike `scripts/zitadel-bootstrap.sh`, this one is idempotent — re-running
+it after any `docker compose up` reports what already exists and exits 0.
+Credentials it installs match `secret/platform/lakefs` in Vault (below).
 
 ## Secrets management (Vault)
 
@@ -603,15 +662,28 @@ laptop-only, see the `ponytail:` note in `docker-compose.yml`). After
 
 ```
 docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault sh /vault-setup.sh
+./scripts/labelstudio-bootstrap.sh
+```
+
+Dev mode means **in-memory**: restarting the container empties Vault
+completely and every consumer fails at the first secret read (`core-api`
+cannot get Postgres credentials at all). Re-run both commands above, and
+re-issue the Zitadel OIDC client secret — the bootstrap script is not
+idempotent, so restore that one key rather than re-running it:
+
+```
+# read the existing app's ids, regenerate its secret, put it back in Vault
+# — see the Zitadel section for the project/app ids
+curl -s -4 "http://localhost:8080/management/v1/projects/<project_id>/apps/<app_id>/oidc_config/_generate_client_secret"   -X POST -H "Authorization: Bearer $PAT" -H "Host: zitadel.monorepo.orb.local:8080"
 ```
 
 Two distinct uses, on purpose:
 
 - **KV v2** (`secret/platform/{minio,lakefs,zitadel}`) — static dev
   credentials for the other containers. `core-api` reads LakeFS creds from
-  here (`app/vault.py::get_kv`) instead of env vars.
+  here (`app/core/vault.py::get_kv`) instead of env vars.
 - **Database secrets engine** (`database/creds/core-app`) — `core-api`'s
-  own Postgres connection is **not** a static password. `app/db.py`
+  own Postgres connection is **not** a static password. `app/core/db.py`
   fetches a fresh, short-lived Postgres role from Vault at startup
   (`CREATE ROLE ... IN ROLE core_app`, 1h default TTL) and re-rotates
   automatically at half the lease TTL, closing the old connection pool

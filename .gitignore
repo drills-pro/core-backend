@@ -290,3 +290,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+
+### Local setup notes (machine-specific, not part of the repo)
+readme-setupproject.md
+
+# The Python-packaging `lib/` rule above also swallows the frontend's own
+# source directory — frontend/src/lib is real source, not a build artifact.
+!frontend/src/lib/

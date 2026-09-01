@@ -4,7 +4,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app import auth
+from app.core import auth
 
 
 @pytest.fixture
