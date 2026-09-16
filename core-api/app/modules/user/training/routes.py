@@ -9,7 +9,7 @@ from app.core.config import MAX_CONCURRENT_TRAINING_RUNS
 from app.core.tenancy import get_tenant_id
 from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, mlflow_client, ray_client
-from app.modules.training.service import RAY_TO_STATUS, transition
+from app.modules.user.training.service import RAY_TO_STATUS, transition
 
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
 

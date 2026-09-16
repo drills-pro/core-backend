@@ -1,4 +1,4 @@
 """Liveness and dependency probes."""
-from app.modules.health.routes import router
+from app.modules.user.health.routes import router
 
 __all__ = ["router"]

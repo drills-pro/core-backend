@@ -11,7 +11,7 @@ from app.core import metrics as app_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import mlflow_client, ray_client
-from app.modules.usage import record_usage
+from app.modules.user.usage import record_usage
 
 logger = logging.getLogger(__name__)
 

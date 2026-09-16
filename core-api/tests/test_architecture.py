@@ -5,11 +5,15 @@ the rules the package structure encodes:
 
     app/core/         may import app.core only
     app/integrations/ may import app.core and app.integrations
-    app/modules/<m>/  may import app.core, app.integrations, its own package,
-                      and another module only through that module's public
-                      API (`from app.modules.other import thing`) — never
-                      `app.modules.other.routes`
+    a bounded context may import app.core, app.integrations, its own
+                      package, and another context only through that
+                      context's public API (`from app.modules.user.other
+                      import thing`) — never `...other.routes`
     app/main.py, app/background.py  are the composition root: no limits
+
+Contexts live at the leaves of app/modules. The directories above them
+(app/modules/user/) are groupings that own no routes, so the depth of the
+tree is free to change without touching this file.
 
 Run it directly (`python tests/test_architecture.py`) for the same checks
 without pytest.
@@ -19,11 +23,48 @@ import sys
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent / "app"
+MODULES = APP / "modules"
 ROOT_FILES = {"main.py", "background.py", "__init__.py"}
 
 
 def _iter_python_files():
     return sorted(p for p in APP.rglob("*.py") if "__pycache__" not in p.parts)
+
+
+def _package_dirs(root: Path) -> list[Path]:
+    return sorted(p for p in root.rglob("*") if p.is_dir() and "__pycache__" not in p.parts)
+
+
+def _subpackages(path: Path) -> list[Path]:
+    return [p for p in path.iterdir() if p.is_dir() and p.name != "__pycache__"]
+
+
+def _context_dirs() -> list[Path]:
+    """The bounded contexts: every leaf package under app/modules.
+
+    A directory that only holds other packages is a grouping, so it is the
+    leaves — app/modules/user/teams, not app/modules/user — that have to
+    publish a router and that the boundary rules are enforced between.
+    """
+    return [p for p in _package_dirs(MODULES) if not _subpackages(p)]
+
+
+def _dotted(path: Path) -> str:
+    return ".".join(path.relative_to(APP.parent).parts)
+
+
+def _contexts() -> set[str]:
+    return {_dotted(p) for p in _context_dirs()}
+
+
+def _context_of(module: str, contexts: set[str]) -> str | None:
+    """The bounded context a dotted module name belongs to, if any."""
+    parts = module.split(".")
+    for stop in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:stop])
+        if candidate in contexts:
+            return candidate
+    return None
 
 
 def _imported_modules(path: Path) -> list[tuple[str, int]]:
@@ -55,6 +96,7 @@ def _layer_of(module: str) -> str:
 
 
 def _violations() -> list[str]:
+    contexts = _contexts()
     problems = []
     for path in _iter_python_files():
         rel = path.relative_to(APP.parent)
@@ -62,7 +104,7 @@ def _violations() -> list[str]:
         if len(parts) == 1 and path.name in ROOT_FILES:
             continue  # composition root
         layer = parts[0] if parts[0] in ("core", "integrations", "modules") else "root"
-        own_module = parts[1] if layer == "modules" and len(parts) > 1 else None
+        own_context = _context_of(_dotted(path.parent), contexts)
 
         for target, lineno in _imported_modules(path):
             target_layer = _layer_of(target)
@@ -73,12 +115,13 @@ def _violations() -> list[str]:
             elif layer == "integrations" and target_layer == "modules":
                 problems.append(f"{where} — app/integrations may not depend on a bounded context")
             elif layer == "modules" and target_layer == "modules":
-                target_parts = target.split(".")
-                other = target_parts[2] if len(target_parts) > 2 else None
-                if other is not None and other != own_module and len(target_parts) > 3:
+                other = _context_of(target, contexts)
+                # Importing the other context itself is its public API;
+                # anything below that name is its internals.
+                if other is not None and other != own_context and target != other:
                     problems.append(
-                        f"{where} — reaches into {other}'s internals; import it from "
-                        f"app.modules.{other} instead"
+                        f"{where} — reaches into {other}'s internals; import it "
+                        f"from {other} instead"
                     )
     return problems
 
@@ -88,27 +131,43 @@ def test_layer_boundaries_hold():
     assert not problems, "architecture boundary violations:\n  " + "\n  ".join(problems)
 
 
+def test_every_package_is_a_real_package():
+    missing = [
+        str(pkg.relative_to(APP.parent))
+        for pkg in _package_dirs(MODULES)
+        if not (pkg / "__init__.py").exists()
+    ]
+    assert not missing, (
+        "every directory under app/modules needs an __init__.py:\n  " + "\n  ".join(missing)
+    )
+
+
 def test_every_module_exports_a_router():
     missing = []
-    for pkg in sorted(p for p in (APP / "modules").iterdir() if p.is_dir() and p.name != "__pycache__"):
+    for pkg in _context_dirs():
+        name = str(pkg.relative_to(MODULES))
         init = pkg / "__init__.py"
         if not init.exists():
-            missing.append(f"{pkg.name}: no __init__.py")
+            missing.append(f"{name}: no __init__.py")
         elif "router" not in init.read_text(encoding="utf-8"):
-            missing.append(f"{pkg.name}: __init__ exports no router")
+            missing.append(f"{name}: __init__ exports no router")
     assert not missing, "modules must publish their router:\n  " + "\n  ".join(missing)
 
 
 def test_composition_root_registers_every_module():
     main = (APP / "main.py").read_text(encoding="utf-8")
-    declared = {p.name for p in (APP / "modules").iterdir() if p.is_dir() and p.name != "__pycache__"}
-    unwired = sorted(name for name in declared if f"{name}.router" not in main)
+    unwired = sorted(
+        str(pkg.relative_to(MODULES))
+        for pkg in _context_dirs()
+        if f"{pkg.name}.router" not in main
+    )
     assert not unwired, f"modules exist but are never mounted in main.py: {unwired}"
 
 
 if __name__ == "__main__":
     failures = 0
-    for check in (test_layer_boundaries_hold, test_every_module_exports_a_router,
+    for check in (test_layer_boundaries_hold, test_every_package_is_a_real_package,
+                  test_every_module_exports_a_router,
                   test_composition_root_registers_every_module):
         try:
             check()

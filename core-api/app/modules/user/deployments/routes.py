@@ -12,7 +12,7 @@ from app.core.db import get_pool
 from app.core.tenancy import get_tenant_id
 from app.core.tenant_conn import TenantConn
 from app.integrations import ray_client, serve_client
-from app.modules.usage import record_usage
+from app.modules.user.usage import record_usage
 
 router = APIRouter(tags=["deployments"])
 

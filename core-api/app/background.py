@@ -12,10 +12,10 @@ import httpx
 
 from app.core import config, metrics
 from app.core.db import get_pool
-from app.modules.datasets import reconcile_inflight_imports
-from app.modules.deployments import reconcile_inflight_deployments
-from app.modules.preprocessing import reconcile_inflight_preprocessing
-from app.modules.training import reconcile_inflight_runs
+from app.modules.user.datasets import reconcile_inflight_imports
+from app.modules.user.deployments import reconcile_inflight_deployments
+from app.modules.user.preprocessing import reconcile_inflight_preprocessing
+from app.modules.user.training import reconcile_inflight_runs
 
 logger = logging.getLogger(__name__)
 
