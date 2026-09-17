@@ -12,9 +12,10 @@ Layering, enforced by tests/test_architecture.py:
 
 core/         shared kernel: config, db pool, tenancy, auth, audit, telemetry
 integrations/ clients for the systems outside this process (Ray, LakeFS, ...)
-modules/      one package per bounded context, talking to the outside world
-              only through its own router and to each other only through the
-              package's public API (its __init__).
+modules/      bounded contexts, grouped by audience (user/, admin/). One package
+              per context, talking to the outside world only through its own
+              router and to each other only through the package's public
+              API (its __init__).
 """
 import contextlib
 
@@ -24,7 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app import background
 from app.core import tracing
-from app.modules import (
+from app.modules.admin import tenants as admin_tenants
+from app.modules.user import (
     auth,
     datasets,
     deployments,
@@ -44,6 +46,11 @@ from app.modules import (
 # they are added, so the more specific prefixes stay ahead of the ones that
 # could shadow them.
 ROUTERS = (
+    admin_tenants.router,
+    # After the listing, never before it: the detail router owns
+    # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the
+    # listing's own /v1/admin/tenants/summary.
+    admin_tenants.detail_router,
     projects.router,
     datasets.router,
     deployments.router,

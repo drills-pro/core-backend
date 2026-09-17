@@ -72,3 +72,35 @@ def require_role(*allowed: str):
         return claims
 
     return _dep
+
+
+# The platform's own operators, not a tenant's users. req/02 FR3 fixes the
+# org-scoped role set "at minimum"; this is the one role above it, held by
+# whoever runs the platform, and it is what every /v1/admin route requires.
+PLATFORM_ADMIN_ROLE = "platform_admin"
+
+
+async def get_platform_admin(
+    authorization: str | None = Header(default=None),
+    x_admin_user: str | None = Header(default=None),
+) -> str:
+    """The actor behind a cross-tenant /v1/admin call.
+
+    Same two-path shape as core.tenancy.get_tenant_id: a real Zitadel
+    token when the caller has one — and it has to carry the
+    platform_admin project role, since these routes read across every
+    tenant — falling back to the X-Admin-User dev header when there is no
+    Authorization header at all, so curl and the admin dashboard keep
+    working until that dashboard has a login of its own.
+    """
+    if authorization and authorization.startswith("Bearer "):
+        claims = verify_token(authorization.removeprefix("Bearer "))
+        if PLATFORM_ADMIN_ROLE not in claims.roles:
+            raise HTTPException(status_code=403, detail=f"requires the {PLATFORM_ADMIN_ROLE} role")
+        return claims.subject
+
+    if not x_admin_user:
+        raise HTTPException(
+            status_code=401, detail="missing Authorization bearer token or X-Admin-User"
+        )
+    return x_admin_user
