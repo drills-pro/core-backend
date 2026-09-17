@@ -62,12 +62,14 @@ CLIENT_ID=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)
 CLIENT_SECRET=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['clientSecret'])")
 APP_ID=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['appId'])")
 
-# req/02 FR3: minimum role set, provisioned as project roles.
-for role in org_owner org_admin project_editor project_viewer; do
+# req/02 FR3: minimum role set, provisioned as project roles. platform_admin
+# is the one above them: it belongs to whoever runs the platform, not to a
+# tenant, and gates the cross-tenant /v1/admin routes (app/modules/admin).
+for role in org_owner org_admin project_editor project_viewer platform_admin; do
   curl -s -4 "$ZITADEL/management/v1/projects/$PROJECT_ID/roles" -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" \
     -d "{\"roleKey\":\"$role\",\"displayName\":\"$role\",\"group\":\"platform\"}" > /dev/null
 done
-echo "roles: org_owner org_admin project_editor project_viewer"
+echo "roles: org_owner org_admin project_editor project_viewer platform_admin"
 
 # req/02's embedded login (app/embedded_auth.py) needs the automation
 # machine user to hold IAM_LOGIN_CLIENT — the specific instance-level role
