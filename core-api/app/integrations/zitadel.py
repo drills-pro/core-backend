@@ -71,6 +71,92 @@ async def list_org_states(client: httpx.AsyncClient) -> dict[str, str]:
     }
 
 
+USER_STATE_TO_STATUS = {
+    "USER_STATE_ACTIVE": "active",
+    "USER_STATE_INACTIVE": "suspended",
+    "USER_STATE_LOCKED": "suspended",
+    # Invited but never signed in: a real state of its own, not "active".
+    "USER_STATE_INITIAL": "pending",
+}
+
+
+async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, dict]:
+    """{user_id: {display_name, email, login_name, status}} for one org.
+
+    One call for the whole org rather than a lookup per member: the
+    back-office joins this onto its own project_members rows, which only
+    hold the Zitadel subject. Returns {} when the org is gone or Zitadel is
+    down, and callers fall back to showing the bare user id.
+    """
+    try:
+        resp = await client.post(
+            f"{ISSUER}/management/v1/users/_search",
+            headers={**auth_header(), "x-zitadel-orgid": org_id},
+            json={"query": {"limit": 1000}},
+        )
+        resp.raise_for_status()
+    except (httpx.HTTPError, OSError):
+        logger.warning("zitadel user search failed for org %s", org_id, exc_info=True)
+        return {}
+
+    users = {}
+    for user in resp.json().get("result") or []:
+        human = user.get("human") or {}
+        users[user["id"]] = {
+            "display_name": (human.get("profile") or {}).get("displayName")
+            or user.get("preferredLoginName"),
+            "email": (human.get("email") or {}).get("email"),
+            "login_name": user.get("preferredLoginName"),
+            "status": USER_STATE_TO_STATUS.get(user.get("state"), "unknown"),
+        }
+    return users
+
+
+async def create_org(client: httpx.AsyncClient, name: str) -> str:
+    """Create an org and return its id — the id a tenant row maps to.
+
+    The caller of this API is the platform's own machine user, so it is
+    the org's first ORG_OWNER; a human owner is added afterwards, and
+    until then get_org_owner falls back to naming the machine user rather
+    than claiming the org has none.
+
+    Raises, like the other writes here: an org that may or may not exist
+    is not something to guess about.
+    """
+    resp = await client.post(
+        f"{ISSUER}/management/v1/orgs",
+        headers=auth_header(),
+        json={"name": name},
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+async def delete_org(client: httpx.AsyncClient, org_id: str) -> None:
+    """Remove an org. Only used to clean up one this process just made and
+    could not finish provisioning."""
+    resp = await client.delete(
+        f"{ISSUER}/admin/v1/orgs/{org_id}", headers=auth_header()
+    )
+    resp.raise_for_status()
+
+
+async def set_org_state(client: httpx.AsyncClient, org_id: str, active: bool) -> None:
+    """Deactivate or reactivate one org — what suspending a tenant means.
+
+    Unlike the reads above this one raises: a suspension that silently did
+    nothing is worse than an error, because the operator would go on
+    believing the tenant is locked out.
+    """
+    action = "_reactivate" if active else "_deactivate"
+    resp = await client.post(
+        f"{ISSUER}/management/v1/orgs/me/{action}",
+        headers={**auth_header(), "x-zitadel-orgid": org_id},
+        json={},
+    )
+    resp.raise_for_status()
+
+
 async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> dict | None:
     """The human ORG_OWNER of one org, as {user_id, display_name, login_name}.
 

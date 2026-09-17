@@ -47,6 +47,10 @@ from app.modules.user import (
 # could shadow them.
 ROUTERS = (
     admin_tenants.router,
+    # After the listing, never before it: the detail router owns
+    # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the
+    # listing's own /v1/admin/tenants/summary.
+    admin_tenants.detail_router,
     projects.router,
     datasets.router,
     deployments.router,

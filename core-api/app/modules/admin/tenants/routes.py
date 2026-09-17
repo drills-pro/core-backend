@@ -22,15 +22,23 @@ totals instead of rows — the stat strip above the listing.
 import asyncio
 import collections
 import json
+import logging
 
+import asyncpg
 import httpx
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
+from app.core.tenant_conn import TenantConn
 from app.integrations import zitadel
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
+
+# The plan tiers tenants.plan_tier accepts (0013).
+PLAN_TIERS = ("free", "pro", "enterprise")
 
 # Status lives in Zitadel, so it can only be filtered on after enrichment —
 # which means the status-filtered page has to be cut from the whole matching
@@ -94,6 +102,117 @@ async def list_tenants(
         for tenant, owner in zip(page, await _owners(client, page)):
             tenant["owner"] = owner
     return page
+
+
+@router.post("", status_code=201)
+async def create_tenant(
+    name: str = Body(..., embed=True),
+    plan_tier: str = Body(default="free", embed=True),
+    zitadel_org_id: str | None = Body(default=None, embed=True),
+    _actor: str = Depends(get_platform_admin),
+):
+    """Provision an organisation.
+
+    Three steps, in the order scripts/zitadel-bootstrap.sh does them by
+    hand: the Zitadel org, the tenant row that maps to it, and the Default
+    team every tenant is assumed to have (0017 FR1 — project creation
+    falls back to it, so a tenant without one cannot hold a project).
+
+    `zitadel_org_id` adopts an org that already exists rather than making
+    a new one, which is the case the bootstrap script covers: the org came
+    first and only the platform-side mapping is missing.
+
+    Zitadel and Postgres cannot be written in one transaction. The org
+    goes first, because a tenant row pointing at an org that does not
+    exist is the worse half-state — every listing would show it as
+    "unknown" forever. If the row then fails to land, an org this request
+    created is deleted again on the way out; an adopted one is left alone,
+    since it was not this request's to remove.
+    """
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if plan_tier not in PLAN_TIERS:
+        raise HTTPException(status_code=400, detail=f"plan_tier must be one of {PLAN_TIERS}")
+
+    async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
+        adopted = zitadel_org_id is not None
+        if not adopted:
+            try:
+                zitadel_org_id = await zitadel.create_org(client, name)
+            except httpx.HTTPStatusError as error:
+                raise zitadel_refused(error) from error
+            except (httpx.HTTPError, OSError) as error:
+                raise HTTPException(
+                    status_code=502, detail=f"zitadel unreachable: {error}"
+                ) from error
+
+        try:
+            tenant = await _insert_tenant(zitadel_org_id, name, plan_tier)
+        except Exception:
+            if not adopted:
+                await _discard_org(client, zitadel_org_id)
+            raise
+
+    # A freshly created org is active, and an adopted one is whatever
+    # Zitadel already says it is — but that is one more round trip for a
+    # value the caller is about to read from the listing anyway.
+    return dict(tenant, status="active" if not adopted else "unknown")
+
+
+async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                "INSERT INTO tenants (zitadel_org_id, name, plan_tier) VALUES ($1, $2, $3) "
+                "RETURNING id, name, zitadel_org_id, plan_tier, created_at",
+                zitadel_org_id,
+                name,
+                plan_tier,
+            )
+        except asyncpg.UniqueViolationError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=f"org {zitadel_org_id} is already mapped to a tenant",
+            ) from error
+
+    # teams is RLS-protected, so the Default team is written as the tenant
+    # rather than around it — the same connection its own members get.
+    async with TenantConn(str(row["id"])) as conn:
+        await conn.execute(
+            "INSERT INTO teams (tenant_id, name) VALUES ($1, 'Default')", row["id"]
+        )
+    return dict(row)
+
+
+async def _discard_org(client: httpx.AsyncClient, org_id: str) -> None:
+    """Best effort: an org nobody can reach through this platform is
+    better deleted, but failing to delete it must not replace the error
+    that got us here."""
+    try:
+        await zitadel.delete_org(client, org_id)
+    except (httpx.HTTPError, OSError):
+        logger.warning(
+            "left an orphan zitadel org %s: its tenant row failed to insert",
+            org_id,
+            exc_info=True,
+        )
+
+
+def zitadel_refused(error: httpx.HTTPStatusError) -> HTTPException:
+    """Zitadel's own refusal, at the status the caller should see.
+
+    Its message says what happened — the org name is taken, the org is
+    already deactivated, it doesn't exist — better than anything this
+    layer could infer from a status code.
+    """
+    try:
+        detail = error.response.json().get("message", error.response.text)
+    except ValueError:
+        detail = error.response.text
+    status = 409 if error.response.status_code < 500 else 502
+    return HTTPException(status_code=status, detail=detail)
 
 
 @router.get("/summary", dependencies=[Depends(get_platform_admin)])
