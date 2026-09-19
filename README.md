@@ -58,7 +58,7 @@ Ray, Grafana, MLflow) — `"ok"` per service once everything is wired.
 | 04 API | ✅ by construction (FastAPI → OpenAPI, path-versioned `/v1`, 202+idempotency on training runs, pagination) + real Deployments group, Models group (MLflow registry wrapper), `POST /v1/predict/{deployment_id}` with its own separate auth scope and real **per-plan-tier** rate limiting (verified: `pro` tenant → 120/min default; a 3/min-throttled deployment → `200,200,200,429,429`) |
 | 05 UI/no-code builder | 🟡 working console at `/ui`: project/training CRUD, a **real native HTML5 drag-and-drop** block builder, real dataset upload + manifest CSV ingestion, a real **in-app labeling canvas** (upload → view → click-to-label → real S3 move + manifest append), real Label Studio labeling project creation, and a real customer-facing usage/cost dashboard. No in-app model-promotion UI |
 | 06 ML training (MLflow/Ludwig/Ultralytics) | ✅ orchestration + MLflow logging real and tested; **three real training backends** — numpy default (deployable via fitted weights), literal `ultralytics.YOLO(...).train()` on real uploaded files (deployable via real ONNX export served through `onnxruntime`, verified on real photos), and literal `LudwigModel(...).train()` (real, non-canned accuracy logged to MLflow). Manifest CSV ingestion and MLflow Model Registry promotion both real |
-| 07 compute (Ray/K8s) | ✅ real KubeRay on a local kind cluster (`k8s/`) — 3 labeled node pools, priority classes, scale-to-zero training pool, per-tenant namespace+quota, all live-verified |
+| 07 compute (Ray/K8s) | ✅ real KubeRay on a local kind cluster — 3 labeled node pools, priority classes, scale-to-zero training pool, per-tenant namespace+quota, all live-verified |
 | 08 observability (LGTM) | ✅ OTel traces + metrics verified live in Tempo/Prometheus; **all 4 of FR2's named alerts real and actively evaluating**, including GPU node pool exhaustion — verified to actually fire, not just evaluate, via real K8s `ResourceQuota` tracking of `nvidia.com/gpu` requests (real even at 0 physical GPUs) relayed through `kube-state-metrics`. Plus a real customer-facing usage dashboard (see req/05) |
 | 09 usage metering | ✅ append-only `usage_events`, idempotent writes, wired to real training-run completion, queryable via API and the customer dashboard |
 
@@ -481,28 +481,9 @@ curl -X POST "http://localhost:8090/v1/projects/<id>/models/<model_version_id>/p
 
 ## Kubernetes / KubeRay (req/07)
 
-`k8s/` is a real, live-verified KubeRay deployment — not just written
-manifests:
-
-```
-mise install   # installs kind + helm
-kind create cluster --name platform --config k8s/kind-cluster.yaml
-helm repo add kuberay https://ray-project.github.io/kuberay-helm/
-helm install kuberay-operator kuberay/kuberay-operator --version 1.2.2 --create-namespace -n kuberay-system
-kubectl apply -f k8s/priority-classes.yaml
-kubectl apply -f k8s/raycluster.yaml
-
-# CloudNativePG (Zitadel's Postgres, see Zitadel section) + kube-state-metrics
-# (GPU-exhaustion alert signal, see Observability section):
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
-kubectl apply -f k8s/zitadel-postgres.yaml
-kubectl apply -f k8s/tenant-quota-example.yaml
-
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install ksm prometheus-community/kube-state-metrics -n kube-system
-kubectl expose deployment ksm-kube-state-metrics -n kube-system --type=NodePort --name=ksm-nodeport --port=8080 --target-port=8080
-```
+This was a real, live-verified KubeRay deployment on a local `kind`
+cluster (manifests since removed from this repo — infra now lives in the
+separate `k8s` Flux repo).
 
 `core-api` and `zitadel` are both attached to the kind cluster's own
 Docker network (`networks: [default, kind]` in `docker-compose.yml`) so
@@ -510,18 +491,16 @@ they can reach cluster services directly by node IP + NodePort — no
 `kubectl port-forward` (tried first for Zitadel's Postgres; repeatedly
 dropped connections under this environment's CNI, see Zitadel section).
 
-- `kind-cluster.yaml` — 3 worker nodes labeled `node-pool: {system,training,serving}`,
-  matching the doc's node-pool table exactly.
-- `raycluster.yaml` — head on the system pool; a `training` worker group
-  (`minReplicas: 0`, scale-to-zero — verified: no pods exist for the group
-  until a job needs it) and a `serving` worker group (`minReplicas: 1`,
-  `serving-priority` PriorityClass so it can't be preempted by training —
-  NFR2), each pinned to its node pool via `nodeSelector`.
-- `rayjob-example.yaml` — shows FR1's tenant_id/project_id pod-label
-  requirement applied at the RayJob level.
-- `tenant-quota-example.yaml` — FR4's hard per-tenant quota as a
-  namespace + `ResourceQuota` (enforced by the K8s API server at admission,
-  not app-level bookkeeping).
+The cluster had 3 worker nodes labeled `node-pool: {system,training,serving}`,
+matching the doc's node-pool table exactly. The RayCluster ran its head on
+the system pool, with a `training` worker group (`minReplicas: 0`,
+scale-to-zero — verified: no pods exist for the group until a job needs
+it) and a `serving` worker group (`minReplicas: 1`, `serving-priority`
+PriorityClass so it can't be preempted by training — NFR2), each pinned to
+its node pool via `nodeSelector`. A RayJob example demonstrated FR1's
+tenant_id/project_id pod-label requirement applied at the RayJob level.
+FR4's hard per-tenant quota was enforced as a namespace + `ResourceQuota`
+(enforced by the K8s API server at admission, not app-level bookkeeping).
 
 `core-api`'s own job submission (`app/integrations/ray_client.py`) still targets the
 docker-compose single-node Ray cluster for a fast dev loop — pointing
@@ -531,14 +510,9 @@ not new code, since both speak the same Ray Job Submission API.
 ## Zitadel on CloudNativePG (req/02)
 
 Zitadel now runs against a real, separate Postgres cluster on the kind
-cluster — CloudNativePG (`k8s/zitadel-postgres.yaml`), not the shared
-docker-compose dev postgres:
-
-```
-mise exec -- helm repo add cnpg https://cloudnative-pg.github.io/charts
-mise exec -- helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
-kubectl apply -f k8s/zitadel-postgres.yaml
-```
+cluster — CloudNativePG, not the shared docker-compose dev postgres
+(manifest since removed from this repo — infra now lives in the separate
+`k8s` Flux repo).
 
 Reached via a `NodePort` Service + `zitadel` being attached to the kind
 Docker network directly (`networks: [default, kind]` in
@@ -600,8 +574,8 @@ including GPU node pool exhaustion, initially (wrongly) written off as
 impossible without physical GPU hardware. The actual insight: Kubernetes
 `ResourceQuota` tracks resource *requests* — including extended resources
 like `nvidia.com/gpu` — at admission time, regardless of whether real
-hardware backs them. `k8s/tenant-quota-example.yaml` sets
-`requests.nvidia.com/gpu: "2"` on the tenant namespace; a real pod
+hardware backs them. The tenant namespace's `ResourceQuota` set
+`requests.nvidia.com/gpu: "2"`; a real pod
 requesting `nvidia.com/gpu: "1"` gets admitted and quota-tracked even
 though it stays `Pending` forever (no device plugin registers real GPUs
 to schedule it onto) — that acceptance and Pending state are both
@@ -627,7 +601,6 @@ with `/ ignoring(type)`.
 
 ```
 curl "http://localhost:3000/api/prometheus/grafana/api/v1/rules"   # all four show state, health=ok
-kubectl apply -f k8s/gpu-training-job-example.yaml   # watch gpu_quota_requests{type="used"} move
 ```
 
 Not built: OpenCost (cost tracking — distinct from usage_events, req/09),
