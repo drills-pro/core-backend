@@ -79,7 +79,10 @@ async def lifespan(_app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="core-api", version="0.1.0", lifespan=lifespan)
+    # Telemetry is configured manually below (app/core/tracing.py, app/core/metrics.py) —
+    # FastAPI's own auto-detection sees the OpenTelemetry packages installed for that and
+    # tries to self-configure too, which errors without the fastapi[opentelemetry] extra.
+    app = FastAPI(title="core-api", version="0.1.0", lifespan=lifespan, telemetry={"auto_configure": False})
     app.add_middleware(
         CORSMiddleware,
         # Wildcard is safe here: the frontend authenticates with a Bearer
