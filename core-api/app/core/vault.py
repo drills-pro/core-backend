@@ -21,8 +21,8 @@ def _client() -> hvac.Client:
     return hvac.Client(url=VAULT_ADDR, token=_token())
 
 
-def get_kv(path: str) -> dict:
-    resp = _client().secrets.kv.v2.read_secret_version(path=path, mount_point=config.VAULT_KV_MOUNT)
+def get_kv(path: str, mount: str = config.VAULT_KV_MOUNT) -> dict:
+    resp = _client().secrets.kv.v2.read_secret_version(path=path, mount_point=mount)
     return resp["data"]["data"]
 
 

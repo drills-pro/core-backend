@@ -1,5 +1,5 @@
 -- Multi-tenancy baseline (req/01-multi-tenancy.md).
--- Run against the `core` database as the postgres superuser.
+-- Run against this app's database as the postgres superuser.
 
 -- core_app is a NOLOGIN group role: it holds the actual table grants, and
 -- Vault's database secrets engine creates short-lived LOGIN users
@@ -14,7 +14,11 @@ END
 $$;
 ALTER ROLE core_app NOLOGIN;
 
-GRANT CONNECT ON DATABASE core TO core_app;
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO core_app', current_database());
+END
+$$;
 GRANT USAGE, CREATE ON SCHEMA public TO core_app;
 
 CREATE TABLE IF NOT EXISTS tenants (

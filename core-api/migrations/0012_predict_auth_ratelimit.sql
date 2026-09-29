@@ -1,6 +1,9 @@
 -- Extend deployment_for_predict to also return rate_limit_per_minute so
 -- app/deployments.py::predict can enforce it without a second query.
-CREATE OR REPLACE FUNCTION deployment_for_predict(p_id uuid, p_key_hash text)
+-- CREATE OR REPLACE can't change a function's OUT-parameter-defined return
+-- type (the RETURNS TABLE shape here), so the old signature must go first.
+DROP FUNCTION IF EXISTS deployment_for_predict(uuid, text);
+CREATE FUNCTION deployment_for_predict(p_id uuid, p_key_hash text)
 RETURNS TABLE(route_prefix text, status text, rate_limit_per_minute integer)
 LANGUAGE sql SECURITY DEFINER AS $$
   SELECT route_prefix, status, rate_limit_per_minute FROM deployments

@@ -40,12 +40,14 @@ def _zitadel_client_creds() -> tuple[str, str]:
 
     Unrelated to zitadel.auth_header()'s Service User credential above —
     this is a separate, plain-secret confidential client used only for this
-    flow's own authorization_code exchange. Still a direct Vault KV read
-    (ponytail: this one wasn't part of the disk-based-secrets move — the
-    Service User key was the piece that needed fixing this round; move this
-    to the same Vault Agent Injector file if/when it also needs it).
+    flow's own authorization_code exchange. Lives under app-secret (this
+    app's own org/client), never platform-secret — see the module docstring
+    in app/integrations/zitadel.py for why the two must stay separate.
+    Still a direct Vault KV read (ponytail: this one wasn't part of the
+    disk-based-secrets move — move it to the same Vault Agent Injector file
+    if/when it also needs to live-reload).
     """
-    creds = vault.get_kv("platform/zitadel-oidc")
+    creds = vault.get_kv("app-backend/zitadel-oidc", mount="app-secret")
     return creds["client_id"], creds["client_secret"]
 
 

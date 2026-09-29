@@ -26,7 +26,7 @@ TELEMETRY_INTERVAL_SECONDS = 30
 async def _poll_pg_size() -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
-        size = await conn.fetchval("SELECT pg_database_size('core')")
+        size = await conn.fetchval("SELECT pg_database_size(current_database())")
     metrics.set_pg_size_bytes(size)
 
 
