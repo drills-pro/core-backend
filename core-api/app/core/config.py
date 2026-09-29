@@ -8,6 +8,7 @@ block is the other half — the two should stay in sync).
 Values are read once at import time, exactly as the pre-modular code did:
 nothing here re-reads the environment later.
 """
+import json
 import os
 
 # --- Postgres -------------------------------------------------------------
@@ -37,35 +38,25 @@ VAULT_KV_MOUNT = os.environ.get("VAULT_KV_MOUNT", "secret")
 # 7523 JWT Profile, a self-signed assertion, not a shared secret. Zitadel's
 # service-account key JSON is {type, keyId, key, expirationDate, userId} —
 # no client_id involved; userId doubles as the assertion's iss/sub (see
-# app/integrations/zitadel.py). The scalar fields are rendered to disk by
-# the cluster's Vault Agent Injector sidecar (policy-scoped per service
-# account, live-reload without a pod restart); the RSA private key gets its
-# own file since it's multi-line and awkward in a KEY=value line format.
-# Local dev's self-hosted Zitadel app predates this and is a plain PAT file
-# instead — when these files are absent, ZITADEL_USER_ID/KEY_ID/PRIVATE_KEY
-# fall back to "" and app/integrations/zitadel.py falls back in turn to
-# that PAT file.
-_ZITADEL_CREDS_PATH = os.environ.get("ZITADEL_CREDS_PATH", "/var/app-secret/zitadel.env")
-_ZITADEL_KEY_PATH = os.environ.get("ZITADEL_KEY_PATH", "/var/app-secret/zitadel_key.pem")
+# app/integrations/zitadel.py). Rendered by the cluster's Vault Agent Injector sidecar to
+# /var/app-secret/app-backend/zitadel as that secret's data verbatim, JSON-encoded — see
+# k8s/apps/backend/deployment.yaml. JSON handles the RSA private key's embedded newlines fine,
+# so it doesn't need its own file the way a KEY=value line would have.
+# Local dev's self-hosted Zitadel app predates this and is a plain PAT file instead — when this
+# file is absent, ZITADEL_USER_ID/KEY_ID/PRIVATE_KEY fall back to "" and
+# app/integrations/zitadel.py falls back in turn to that PAT file.
+_ZITADEL_CREDS_PATH = os.environ.get("ZITADEL_CREDS_PATH", "/var/app-secret/app-backend/zitadel")
 
 
-def _read_env_file(path: str) -> dict[str, str]:
+def _read_json_file(path: str) -> dict:
     try:
         with open(path) as f:
-            return dict(line.strip().split("=", 1) for line in f if "=" in line)
+            return json.load(f)
     except FileNotFoundError:
         return {}
 
 
-def _read_file(path: str) -> str:
-    try:
-        with open(path) as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
-
-
-_zitadel_creds = _read_env_file(_ZITADEL_CREDS_PATH)
+_zitadel_creds = _read_json_file(_ZITADEL_CREDS_PATH)
 
 # Token verification (JWKS/discovery) reaches Zitadel over the compose
 # network name.
@@ -78,7 +69,18 @@ ZITADEL_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISS
 ZITADEL_LOGIN_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel.monorepo.orb.local:8080")
 ZITADEL_USER_ID = _zitadel_creds.get("USER_ID", "")
 ZITADEL_KEY_ID = _zitadel_creds.get("KEY_ID", "")
-ZITADEL_PRIVATE_KEY = _read_file(_ZITADEL_KEY_PATH)
+ZITADEL_PRIVATE_KEY = _zitadel_creds.get("PRIVATE_KEY", "")
+
+# --- Object storage --------------------------------------------------------
+# Backend's own gs://drills-pro bucket, accessed via GCS's S3-compatible interoperability
+# API (not the AWS S3 lakefs/mlflow use) — app-secret/app-backend/s3, rendered the same way
+# as the Zitadel creds above, to /var/app-secret/app-backend/s3.
+_S3_CREDS_PATH = os.environ.get("S3_CREDS_PATH", "/var/app-secret/app-backend/s3")
+_s3_creds = _read_json_file(_S3_CREDS_PATH)
+AWS_ACCESS_KEY_ID = _s3_creds.get("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = _s3_creds.get("AWS_SECRET_ACCESS_KEY", "")
+S3_ENDPOINT = _s3_creds.get("S3_ENDPOINT", "")
+S3_BUCKET = _s3_creds.get("S3_BUCKET", "")
 
 # --- Ray ------------------------------------------------------------------
 RAY_DASHBOARD = os.environ.get("RAY_DASHBOARD", "http://ray-head:8265")
