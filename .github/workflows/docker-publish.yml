@@ -66,3 +66,5 @@ jobs:
       app: backend
       image: ghcr.io/drills-pro/core-backend/core-api
       tag: ${{ needs.changes.outputs.tag }}
+    secrets:
+      repo-token: ${{ secrets.K8S_REPO_PAT }}
