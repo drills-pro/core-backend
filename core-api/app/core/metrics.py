@@ -1,23 +1,23 @@
-"""OTel metrics → LGTM's OTLP collector → its bundled Prometheus.
+"""OTel metrics -> Prometheus, scraped, not pushed.
 req/08 FR2: alerting needs a real signal for training job failure rate;
-this is that signal."""
+this is that signal.
+
+ponytail: this used to push to the same OTLP endpoint as traces, but that
+endpoint is Tempo (traces-only) — it has no metrics service, so every push
+failed with UNIMPLEMENTED. This cluster's real metrics backend is
+Prometheus, which scrapes rather than receives pushes, so PrometheusMetricReader
+(the OTel-maintained bridge into prometheus_client's default registry) is the
+correct reader here, not another push exporter. See app/main.py's /metrics
+mount for the scrape endpoint.
+"""
 from opentelemetry import metrics
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
-
-from app.core import config
-
-OTLP_ENDPOINT = config.OTLP_ENDPOINT
 
 _provider = MeterProvider(
     resource=Resource.create({"service.name": "core-api"}),
-    metric_readers=[
-        PeriodicExportingMetricReader(
-            OTLPMetricExporter(endpoint=OTLP_ENDPOINT, insecure=True), export_interval_millis=5000
-        )
-    ],
+    metric_readers=[PrometheusMetricReader()],
 )
 metrics.set_meter_provider(_provider)
 _meter = metrics.get_meter("core-api")
