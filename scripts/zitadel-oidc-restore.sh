@@ -1,5 +1,5 @@
 #!/bin/sh
-# Restore secret/platform/{zitadel-oidc,zitadel-spa} into Vault.
+# Restore app-secret/app-backend/zitadel-oidc and secret/platform/zitadel-spa into Vault.
 #
 # Vault runs in dev mode (in-memory), so a vault restart loses the OIDC
 # client credentials app/modules/auth/routes.py needs — while Zitadel's own
@@ -81,10 +81,10 @@ vault_put() {
     vault kv put "$@" > /dev/null
 }
 
-vault_put secret/platform/zitadel-oidc \
+vault_put app-secret/app-backend/zitadel-oidc \
   client_id="$CLIENT_ID" client_secret="$CLIENT_SECRET" \
   project_id="$PROJECT_ID" app_id="$APP_ID"
-echo "vault configured: secret/platform/zitadel-oidc (client_id=$CLIENT_ID)"
+echo "vault configured: app-secret/app-backend/zitadel-oidc (client_id=$CLIENT_ID)"
 
 if [ -n "$SPA_CLIENT_ID" ]; then
   vault_put secret/platform/zitadel-spa \

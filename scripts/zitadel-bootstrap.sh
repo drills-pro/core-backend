@@ -79,7 +79,7 @@ curl -s -4 "$ZITADEL/admin/v1/members/$AUTOMATION_USER_ID" -X PUT -H "$AUTH" -H 
   -d '{"roles":["IAM_OWNER","IAM_LOGIN_CLIENT"]}' > /dev/null
 echo "granted IAM_LOGIN_CLIENT to automation user $AUTOMATION_USER_ID"
 
-docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault vault kv put secret/platform/zitadel-oidc \
+docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault vault kv put app-secret/app-backend/zitadel-oidc \
   client_id="$CLIENT_ID" client_secret="$CLIENT_SECRET" project_id="$PROJECT_ID" app_id="$APP_ID"
 echo "confidential app: client_id=$CLIENT_ID"
 

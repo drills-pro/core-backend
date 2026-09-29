@@ -68,28 +68,18 @@ services:
       --tlsMode disabled
       --steps /firstinstance.yaml
     environment:
-      # Real Postgres cluster on the kind cluster via CloudNativePG (see
-      # k8s/zitadel-postgres.yaml) — not the shared docker-compose dev
-      # postgres. Reached via a NodePort service + this container being
-      # attached to the kind docker network directly (`docker network
-      # connect kind <container>`, done post-start — see README); more
-      # stable than `kubectl port-forward`, which repeatedly dropped
-      # connections under this environment's CNI.
-      # The kind *node* IP, which Docker assigns and is not stable: while
-      # the cluster is down the address is free and the next container to
-      # join the kind network takes it (core-api took 172.19.0.3 on
-      # 2026-08-25, and Zitadel then failed to start because it was talking
-      # to core-api instead of Postgres). Run ./scripts/kind-node-ip.sh to
-      # refresh KIND_NODE_IP in .env after recreating/restarting the
-      # cluster; the fallback keeps a fresh checkout working.
-      ZITADEL_DATABASE_POSTGRES_HOST: "${KIND_NODE_IP:-172.19.0.2}"
-      ZITADEL_DATABASE_POSTGRES_PORT: "30432"
+      # ponytail: reuses the compose-native postgres (its own pre-created
+      # "zitadel" database, see scripts/init-multi-db.sql) instead of a kind
+      # cluster's CloudNativePG instance — `docker compose up` alone is now
+      # enough, no separate kind cluster/NodePort/IP-refresh dance required.
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: "B2uCkpIyblI1i0vWBI5SYLFctq6K9LXICDrvvg2BX0MahTyuWK7h5FJdgWWqnAdm"
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: postgres
       ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
       ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: "F4DPM53tfvI2BZ25zzHrLmuSaiYd5DeSMJ9Ghn14lfwGdaeQHePlKJWHQWAOqwfn"
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: postgres
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       # OrbStack resolves <service>.<project>.orb.local from both the host
       # (browser) and other containers — no /etc/hosts edit needed, unlike
@@ -105,16 +95,15 @@ services:
       - zitadel-pat:/pat
       - ./scripts/zitadel-firstinstance.yaml:/firstinstance.yaml:ro
     networks:
-      # The orb.local name is OrbStack's host+container resolvable domain.
-      # Under Docker Desktop nothing resolves it inside the network — the
-      # upstream resolver hands back 127.0.0.1, so core-api's JWKS/discovery
-      # calls hit themselves. This alias makes Docker's embedded DNS answer
-      # the same name with this container, on either runtime. Browsers on
-      # the host still need a hosts-file entry under Docker Desktop.
       default:
+        # The orb.local name is OrbStack's host+container resolvable domain.
+        # Under Docker Desktop nothing resolves it inside the network — the
+        # upstream resolver hands back 127.0.0.1, so core-api's JWKS/discovery
+        # calls hit themselves. This alias makes Docker's embedded DNS answer
+        # the same name with this container, on either runtime. Browsers on
+        # the host still need a hosts-file entry under Docker Desktop.
         aliases:
           - zitadel.monorepo.orb.local
-      kind:
     ports: ["8080:8080"]
 
   ray-head:
@@ -201,12 +190,11 @@ services:
       # frontend's genuine Zitadel login works without breaking /ui or
       # any of the X-Tenant-Id-based curl flows already verified above).
       # req/08 FR2 "GPU node pool exhaustion" signal — see k8s/tenant-quota-example.yaml
-      # and the Observability section. Requires the kind cluster + the
-      # ksm-nodeport Service (see README) to already exist; not created here.
-      KSM_ENDPOINT: "http://${KIND_NODE_IP:-172.19.0.2}:32581/metrics"  # see the note on ZITADEL_DATABASE_POSTGRES_HOST
+      # and the Observability section. ponytail: no kind cluster/ksm-nodeport in plain
+      # local dev — config.py's own default just fails this one poller harmlessly
+      # (app/background.py logs and retries, never blocks startup), so nothing to set here.
     volumes:
       - zitadel-pat:/pat:ro
-    networks: [default, kind]
     ports: ["8090:8000"]
 
   frontend:
@@ -225,5 +213,3 @@ volumes:
 
 networks:
   default: {}
-  kind:
-    external: true

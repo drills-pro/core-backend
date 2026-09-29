@@ -7,6 +7,12 @@
 #   docker compose exec vault sh /vault-setup.sh
 set -eu
 
+# --- app-secret: per-app secrets, mirrors the k8s cluster's mount name.
+# core-api's login-client read (app/modules/user/auth/routes.py) is hardcoded
+# to this mount, not the "secret/" default — see zitadel-bootstrap.sh /
+# zitadel-oidc-restore.sh, which write the OIDC client creds here.
+vault secrets enable -path=app-secret kv-v2 2>/dev/null || true
+
 # --- static secrets (KV v2, mounted at secret/ by default in -dev mode) ---
 vault kv put secret/platform/minio \
   access_key="AKIAIOSFODNN7EXAMPLE" \

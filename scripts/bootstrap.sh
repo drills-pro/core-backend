@@ -5,10 +5,11 @@
 #
 # Why this is needed at all: Vault runs in dev mode, which keeps everything
 # in memory. Restarting that one container empties it, and core-api then
-# cannot get so much as a Postgres credential. The kind node IP drifts for
-# a separate reason (see scripts/kind-node-ip.sh). Every step below is
+# cannot get so much as a Postgres credential. Every step below is
 # idempotent, so running this after any `docker compose up` is safe and is
-# the intended habit.
+# the intended habit. (The kind node IP dance in scripts/kind-node-ip.sh is
+# now only relevant if you're also running a kind cluster for k8s-adjacent
+# testing — plain local dev no longer needs it, see docker-compose.yml.)
 #
 # NOT covered: scripts/zitadel-bootstrap.sh, which creates the Zitadel
 # project, OIDC apps, roles and IdPs. That one is first-time-only and would
@@ -23,10 +24,10 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 if docker inspect "${KIND_NODE:-platform-control-plane}" > /dev/null 2>&1; then
   step "kind node IP"
   ./scripts/kind-node-ip.sh
-  echo "note: if this changed, re-run 'docker compose up -d' so zitadel picks it up"
+  echo "note: if this changed and you're using KIND_NODE_IP for the GPU-quota metric, re-run 'docker compose up -d'"
 else
   step "kind node IP"
-  echo "no kind cluster — skipping (zitadel and the GPU-quota metric need it)"
+  echo "no kind cluster — skipping (only the GPU-quota metric poller wants it, harmless without)"
 fi
 
 step "vault: KV + database secrets engine"
