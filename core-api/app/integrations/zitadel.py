@@ -1,34 +1,101 @@
 """Zitadel management-API access shared by the modules that talk to it.
 
-The Personal Access Token is mounted by docker-compose from the
-`zitadel-pat` volume (see scripts/zitadel-firstinstance.yaml) and read
-once, lazily — it does not exist yet at import time on a cold stack.
+Local dev (self-hosted Zitadel via docker-compose) auto-provisions a
+machine user + long-lived PAT on first init (see
+scripts/zitadel-firstinstance.yaml), mounted from the `zitadel-pat` volume
+— read once, lazily, since it does not exist yet at import time on a cold
+stack.
+
+The cluster's Zitadel Cloud org has no such auto-provisioning. Instead this
+app authenticates as a **Service User** via RFC 7523 JWT Profile: it
+self-signs a short-lived assertion with a Zitadel-issued RSA key
+(disk-loaded via the Vault Agent Injector, see app/core/config.py) and
+exchanges it for a bearer token, caching that token until shortly before
+it expires. This is a distinct credential from the plain client_id/secret
+`app/modules/user/auth/routes.py` uses for its own OIDC login flow — that
+one is a confidential client for authorization_code exchanges; this one is
+a machine identity granted org-management rights, for calling Zitadel's
+Management/Auth v2 APIs directly (create user, create session, ...).
 
 Both the embedded login flow (app/modules/auth) and profile/IdP linking
-(app/modules/users) authenticate as this PAT; before the modular split
+(app/modules/users) authenticate as this token; before the modular split
 the latter reached into the former's private `_get_pat`, which is what
 this module replaces.
 """
 import logging
+import time
 
 import httpx
+import jwt
 
+from app.core import config
 from app.core.config import ZITADEL_LOGIN_ISSUER
 
 logger = logging.getLogger(__name__)
 
 ISSUER = ZITADEL_LOGIN_ISSUER
 PAT_PATH = "/pat/zitadel-automation.pat"
+# Reserved scope that authorizes a JWT-Profile token for Zitadel's own
+# Management/Auth APIs (not a placeholder — see Zitadel's "JWT Profile"
+# docs under Service Users).
+_MANAGEMENT_SCOPE = "openid urn:zitadel:iam:org:project:id:zitadel:aud"
 
 _pat_cache: str | None = None
+_token_cache: tuple[str, float] | None = None  # (access_token, expires_at monotonic)
+
+
+def _read_pat_file() -> str | None:
+    try:
+        with open(PAT_PATH) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+def _build_assertion() -> str:
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "iss": config.ZITADEL_USER_ID,
+            "sub": config.ZITADEL_USER_ID,
+            "aud": ISSUER,
+            "iat": now,
+            "exp": now + 60,
+        },
+        config.ZITADEL_PRIVATE_KEY,
+        algorithm="RS256",
+        headers={"kid": config.ZITADEL_KEY_ID},
+    )
+
+
+def _fetch_jwt_profile_token() -> tuple[str, float]:
+    # ponytail: sync httpx call inside otherwise-async request handlers —
+    # acceptable since this only runs once per cache lifetime (tens of
+    # minutes), not per-request. Swap for an async prefetch loop if that
+    # assumption stops holding (e.g. very short-lived Zitadel tokens).
+    resp = httpx.post(
+        f"{ISSUER}/oauth/v2/token",
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": _build_assertion(),
+            "scope": _MANAGEMENT_SCOPE,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["access_token"], time.monotonic() + data["expires_in"] - 60
 
 
 def get_pat() -> str:
-    global _pat_cache
+    global _pat_cache, _token_cache
     if _pat_cache is None:
-        with open(PAT_PATH) as f:
-            _pat_cache = f.read().strip()
-    return _pat_cache
+        _pat_cache = _read_pat_file() or ""
+    if _pat_cache:
+        return _pat_cache
+    if _token_cache is None or time.monotonic() >= _token_cache[1]:
+        _token_cache = _fetch_jwt_profile_token()
+    return _token_cache[0]
 
 
 def auth_header() -> dict[str, str]:

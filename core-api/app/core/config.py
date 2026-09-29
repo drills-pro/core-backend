@@ -24,17 +24,61 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://core:core@postgres:5
 # --- Vault ----------------------------------------------------------------
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://vault:8200")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "root")
+# KV v2 mount for vault.get_kv() reads (platform/lakefs, platform/minio,
+# platform/zitadel-oidc, ...). Vault's default mount name is "secret";
+# the cluster's engine was renamed to "platform-secret" (k8s repo's
+# bootstrap/03-vault-init.sh) — local dev's -dev-mode Vault still uses
+# the default, so this only needs setting in the cluster.
+VAULT_KV_MOUNT = os.environ.get("VAULT_KV_MOUNT", "secret")
 
 # --- Zitadel --------------------------------------------------------------
+# This app authenticates to Zitadel Cloud as a **Service User** (Users ->
+# Service Users, not a Project Application) via a Zitadel-issued key: RFC
+# 7523 JWT Profile, a self-signed assertion, not a shared secret. Zitadel's
+# service-account key JSON is {type, keyId, key, expirationDate, userId} —
+# no client_id involved; userId doubles as the assertion's iss/sub (see
+# app/integrations/zitadel.py). The scalar fields are rendered to disk by
+# the cluster's Vault Agent Injector sidecar (policy-scoped per service
+# account, live-reload without a pod restart); the RSA private key gets its
+# own file since it's multi-line and awkward in a KEY=value line format.
+# Local dev's self-hosted Zitadel app predates this and is a plain PAT file
+# instead — when these files are absent, ZITADEL_USER_ID/KEY_ID/PRIVATE_KEY
+# fall back to "" and app/integrations/zitadel.py falls back in turn to
+# that PAT file.
+_ZITADEL_CREDS_PATH = os.environ.get("ZITADEL_CREDS_PATH", "/var/app-secret/zitadel.env")
+_ZITADEL_KEY_PATH = os.environ.get("ZITADEL_KEY_PATH", "/var/app-secret/zitadel_key.pem")
+
+
+def _read_env_file(path: str) -> dict[str, str]:
+    try:
+        with open(path) as f:
+            return dict(line.strip().split("=", 1) for line in f if "=" in line)
+    except FileNotFoundError:
+        return {}
+
+
+def _read_file(path: str) -> str:
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+_zitadel_creds = _read_env_file(_ZITADEL_CREDS_PATH)
+
 # Token verification (JWKS/discovery) reaches Zitadel over the compose
 # network name.
-ZITADEL_ISSUER = os.environ.get("ZITADEL_ISSUER", "http://zitadel:8080")
+ZITADEL_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel:8080")
 # The embedded login flow (app/modules/auth) historically defaulted to the
 # host-resolvable name instead, because the issuer string it produces has
 # to match what browsers/tokens see. Same variable, different fallback —
 # docker-compose sets ZITADEL_ISSUER explicitly, so the two only diverge
 # when core-api runs with no environment at all.
-ZITADEL_LOGIN_ISSUER = os.environ.get("ZITADEL_ISSUER", "http://zitadel.monorepo.orb.local:8080")
+ZITADEL_LOGIN_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel.monorepo.orb.local:8080")
+ZITADEL_USER_ID = _zitadel_creds.get("USER_ID", "")
+ZITADEL_KEY_ID = _zitadel_creds.get("KEY_ID", "")
+ZITADEL_PRIVATE_KEY = _read_file(_ZITADEL_KEY_PATH)
 
 # --- Ray ------------------------------------------------------------------
 RAY_DASHBOARD = os.environ.get("RAY_DASHBOARD", "http://ray-head:8265")

@@ -35,6 +35,20 @@ ZITADEL_ISSUER = zitadel.ISSUER
 REDIRECT_URI = "http://localhost:8090/auth/callback"  # never actually navigated to, see module docstring
 
 
+def _zitadel_client_creds() -> tuple[str, str]:
+    """client_id/client_secret for this app's own Zitadel OIDC (login) client.
+
+    Unrelated to zitadel.auth_header()'s Service User credential above —
+    this is a separate, plain-secret confidential client used only for this
+    flow's own authorization_code exchange. Still a direct Vault KV read
+    (ponytail: this one wasn't part of the disk-based-secrets move — the
+    Service User key was the piece that needed fixing this round; move this
+    to the same Vault Agent Injector file if/when it also needs it).
+    """
+    creds = vault.get_kv("platform/zitadel-oidc")
+    return creds["client_id"], creds["client_secret"]
+
+
 def _pkce_pair() -> tuple[str, str]:
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
@@ -75,12 +89,12 @@ async def register(body: RegisterRequest):
 
 
 async def _create_auth_request(client: httpx.AsyncClient) -> str:
-    zitadel_creds = vault.get_kv("platform/zitadel-oidc")
+    client_id, _ = _zitadel_client_creds()
     verifier, challenge = _pkce_pair()
     resp = await client.get(
         f"{ZITADEL_ISSUER}/oauth/v2/authorize",
         params={
-            "client_id": zitadel_creds["client_id"],
+            "client_id": client_id,
             "redirect_uri": REDIRECT_URI,
             "response_type": "code",
             "scope": "openid profile email urn:zitadel:iam:user:resourceowner",
@@ -123,15 +137,15 @@ async def login(body: LoginRequest):
             raise HTTPException(status_code=502, detail=f"no code in callback: {callback_url}")
         code = code_match.group(1)
 
-        zitadel_creds = vault.get_kv("platform/zitadel-oidc")
+        client_id, client_secret = _zitadel_client_creds()
         token_resp = await client.post(
             f"{ZITADEL_ISSUER}/oauth/v2/token",
             data={
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": REDIRECT_URI,
-                "client_id": zitadel_creds["client_id"],
-                "client_secret": zitadel_creds["client_secret"],
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code_verifier": code_verifier,
             },
         )
