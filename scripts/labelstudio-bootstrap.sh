@@ -73,6 +73,6 @@ curl -sf -X POST "$LS/api/token/refresh/" -H "Content-Type: application/json" \
   || { echo "refresh token was rejected by /api/token/refresh/" >&2; exit 1; }
 
 docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault \
-  vault kv put secret/platform/labelstudio refresh_token="$REFRESH" url="$LS_INTERNAL" > /dev/null
+  vault kv put app-secret/app-backend/labelstudio refresh_token="$REFRESH" url="$LS_INTERNAL" > /dev/null
 
-echo "vault configured: secret/platform/labelstudio (url=$LS_INTERNAL)"
+echo "vault configured: app-secret/app-backend/labelstudio (url=$LS_INTERNAL)"

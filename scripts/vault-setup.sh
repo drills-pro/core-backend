@@ -13,16 +13,22 @@ set -eu
 # zitadel-oidc-restore.sh, which write the OIDC client creds here.
 vault secrets enable -path=app-secret kv-v2 2>/dev/null || true
 
-# --- static secrets (KV v2, mounted at secret/ by default in -dev mode) ---
-vault kv put secret/platform/minio \
+# --- backend's own secrets (app-secret/app-backend/*, read by app/core/vault.py's
+# get_kv()) — moved out of the shared secret/platform/* tree since nothing else
+# consumes these; only core-api ever read them. ---
+vault kv put app-secret/app-backend/minio \
   access_key="AKIAIOSFODNN7EXAMPLE" \
   secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
-vault kv put secret/platform/lakefs \
+vault kv put app-secret/app-backend/lakefs \
   endpoint="http://lakefs:8000" \
   access_key="AKIAIOSFODNN7EXAMPLE" \
   secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
+# The zitadel *server's* own masterkey (docker-compose.yml passes it directly as a
+# CLI flag, not from Vault) — nothing in core-api reads this one; the health check's
+# Vault-reachability probe reads app-secret/app-backend/zitadel instead (its own
+# Service User key, seeded by zitadel-bootstrap.sh / zitadel-oidc-restore.sh).
 vault kv put secret/platform/zitadel \
   masterkey="MasterkeyNeedsToHave32Characters"
 
@@ -43,4 +49,4 @@ vault write database/roles/core-app \
   default_ttl="1h" \
   max_ttl="24h"
 
-echo "vault configured: secret/platform/{minio,lakefs,zitadel}, database/creds/core-app"
+echo "vault configured: app-secret/app-backend/{minio,lakefs}, secret/platform/zitadel, database/creds/core-app"

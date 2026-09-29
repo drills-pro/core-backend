@@ -31,7 +31,7 @@ async def _get_access_token() -> str:
     if _access_token and time.time() < _access_token_expires_at:
         return _access_token
 
-    creds = vault.get_kv("platform/labelstudio")
+    creds = vault.get_kv("labelstudio")
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             f"{creds['url']}/api/token/refresh/", json={"refresh": creds["refresh_token"]}
@@ -43,7 +43,7 @@ async def _get_access_token() -> str:
 
 
 async def _client() -> httpx.AsyncClient:
-    creds = vault.get_kv("platform/labelstudio")
+    creds = vault.get_kv("labelstudio")
     token = await _get_access_token()
     return httpx.AsyncClient(base_url=creds["url"], headers={"Authorization": f"Bearer {token}"}, timeout=10)
 

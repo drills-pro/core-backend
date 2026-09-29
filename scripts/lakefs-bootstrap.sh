@@ -18,7 +18,7 @@
 set -eu
 
 LAKEFS="http://localhost:8000"
-# Must match secret/platform/lakefs in scripts/vault-setup.sh — core-api
+# Must match app-secret/app-backend/lakefs in scripts/vault-setup.sh — core-api
 # reads its LakeFS credentials from Vault, not from env vars.
 ACCESS_KEY="AKIAIOSFODNN7EXAMPLE"
 SECRET_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"

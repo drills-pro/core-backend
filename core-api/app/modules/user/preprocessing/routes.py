@@ -113,7 +113,7 @@ async def preprocess_dataset(
             raise HTTPException(status_code=422, detail="dataset has no labeled files to preprocess")
 
         config = {"resize": resize, "dedupe": dedupe, "class_balance": class_balance}
-        lakefs_creds = vault.get_kv("platform/lakefs")
+        lakefs_creds = vault.get_kv("lakefs")
         script = textwrap.dedent(_PREPROCESS_TEMPLATE).format(
             lakefs_repo=lakefs_client.REPO,
             lakefs_ref=ds_id,

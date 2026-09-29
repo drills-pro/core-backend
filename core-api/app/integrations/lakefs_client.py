@@ -27,7 +27,7 @@ _ensured_branches: set[str] = set()
 
 
 def _creds() -> dict:
-    return vault.get_kv("platform/lakefs")
+    return vault.get_kv("lakefs")
 
 
 def _api_client() -> httpx.Client:

@@ -346,7 +346,7 @@ Label Studio's newer versions disabled static API tokens org-wide by
 default — auth is short-lived JWT access tokens exchanged from a
 long-lived refresh token obtained once via an authenticated session
 login. That refresh token lives in Vault
-(`secret/platform/labelstudio`); `app/integrations/labelstudio_client.py` handles the
+(`app-secret/app-backend/labelstudio`); `app/integrations/labelstudio_client.py` handles the
 exchange/caching transparently. Bootstrap is fully scripted — the session
 login is a plain Django form post, so no browser is involved:
 
@@ -625,7 +625,7 @@ catch this; its `lakefs_s3` probe only exercises the S3 gateway.
 
 Unlike `scripts/zitadel-bootstrap.sh`, this one is idempotent — re-running
 it after any `docker compose up` reports what already exists and exits 0.
-Credentials it installs match `secret/platform/lakefs` in Vault (below).
+Credentials it installs match `app-secret/app-backend/lakefs` in Vault (below).
 
 ## Secrets management (Vault)
 
@@ -652,9 +652,15 @@ curl -s -4 "http://localhost:8080/management/v1/projects/<project_id>/apps/<app_
 
 Two distinct uses, on purpose:
 
-- **KV v2** (`secret/platform/{minio,lakefs,zitadel}`) — static dev
-  credentials for the other containers. `core-api` reads LakeFS creds from
-  here (`app/core/vault.py::get_kv`) instead of env vars.
+- **KV v2** (`app-secret/app-backend/{minio,lakefs,labelstudio,zitadel}`) —
+  `core-api`'s own static creds, isolated under its own app-secret subtree
+  (nothing else consumes them). `core-api` reads them from here
+  (`app/core/vault.py::get_kv`) instead of env vars — in the cluster, the
+  Vault Agent Injector sidecar renders each to its own file on disk
+  (`k8s/apps/backend/deployment.yaml`); locally, `get_kv` falls back to a
+  live read since there's no injector. `secret/platform/zitadel` is a
+  separate, unrelated entry — the zitadel *server's* own masterkey, which
+  `core-api` never reads.
 - **Database secrets engine** (`database/creds/core-app`) — `core-api`'s
   own Postgres connection is **not** a static password. `app/core/db.py`
   fetches a fresh, short-lived Postgres role from Vault at startup

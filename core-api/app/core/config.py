@@ -25,12 +25,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://core:core@postgres:5
 # --- Vault ----------------------------------------------------------------
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://vault:8200")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "root")
-# KV v2 mount for vault.get_kv() reads (platform/lakefs, platform/minio,
-# platform/zitadel-oidc, ...). Vault's default mount name is "secret";
-# the cluster's engine was renamed to "platform-secret" (k8s repo's
-# bootstrap/03-vault-init.sh) — local dev's -dev-mode Vault still uses
-# the default, so this only needs setting in the cluster.
-VAULT_KV_MOUNT = os.environ.get("VAULT_KV_MOUNT", "secret")
 
 # --- Zitadel --------------------------------------------------------------
 # This app authenticates to Zitadel Cloud as a **Service User** (Users ->

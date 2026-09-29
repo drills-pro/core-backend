@@ -109,7 +109,7 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     if "onnx_key" in weights:
-        minio = vault.get_kv("platform/minio")
+        minio = vault.get_kv("minio")
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
             onnx_key=weights["onnx_key"],
             class_names=weights["class_names"],

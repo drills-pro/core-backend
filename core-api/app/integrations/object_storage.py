@@ -22,7 +22,7 @@ _presign_client = None
 def _get_client():
     global _client
     if _client is None:
-        creds = vault.get_kv("platform/minio")
+        creds = vault.get_kv("minio")
         _client = boto3.client(
             "s3",
             endpoint_url="http://minio:9000",
@@ -40,7 +40,7 @@ def _get_client():
 def _get_presign_client():
     global _presign_client
     if _presign_client is None:
-        creds = vault.get_kv("platform/minio")
+        creds = vault.get_kv("minio")
         _presign_client = boto3.client(
             "s3",
             endpoint_url=PUBLIC_ENDPOINT,

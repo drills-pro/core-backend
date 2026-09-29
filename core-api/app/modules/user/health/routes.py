@@ -43,8 +43,11 @@ async def _check_postgres() -> str:
 
 
 def _check_vault() -> str:
+    # Reads this app's own zitadel secret (app-secret/app-backend/zitadel) rather than
+    # platform-secret's — this is a Vault-reachability probe, not a real dependency on
+    # Zitadel's server masterkey, so it should only ever touch what backend actually owns.
     try:
-        vault.get_kv("platform/zitadel")
+        vault.get_kv("zitadel")
         return "ok"
     except Exception as e:  # noqa: BLE001
         return f"error: {e}"
@@ -55,7 +58,7 @@ def _check_lakefs() -> str:
     # the point is to prove the credentials and endpoint work right now, not to
     # exercise the cached client the rest of the app shares.
     try:
-        creds = vault.get_kv("platform/lakefs")
+        creds = vault.get_kv("lakefs")
         client = boto3.client(
             "s3",
             endpoint_url=creds["endpoint"],
