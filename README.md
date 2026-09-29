@@ -671,9 +671,11 @@ Two distinct uses, on purpose:
   directly; verify with `SELECT rolname, rolcanlogin FROM pg_roles` and
   you'll see `v-token-core-app-...` rows, not `core_app`.
 
-The Postgres superuser password in `DATABASE_URL` (used only by
-`/health/deps`'s liveness ping and by migrations) is intentionally still
-static — an ops path, not the app's data path.
+`/health/deps`'s Postgres check reuses this same dynamic pool (`db.get_pool()`)
+rather than a separate static DSN — there's no static superuser credential
+in `core-api`'s own config at all. Migrations are a genuinely separate ops
+path, applied by hand as the `postgres` superuser directly (see below),
+not through anything `core-api` reads.
 
 ## Dev credentials
 

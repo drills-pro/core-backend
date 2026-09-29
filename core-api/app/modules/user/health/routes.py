@@ -4,12 +4,11 @@
 backing service so an operator can tell *which* dependency is down without
 shelling into each container. Both are deliberately unauthenticated.
 """
-import asyncpg
 import boto3
 import httpx
 from fastapi import APIRouter
 
-from app.core import config, vault
+from app.core import config, db, vault
 
 router = APIRouter(tags=["health"])
 
@@ -34,9 +33,13 @@ async def health_deps():
 
 
 async def _check_postgres() -> str:
+    # Reuses the app's own connection pool (dynamic Vault-issued creds, database/creds/core-app)
+    # instead of a separate static superuser DSN — proves the real data path works, not a
+    # parallel one the app-backend Vault role was never even authorized to use.
     try:
-        conn = await asyncpg.connect(config.DATABASE_URL, timeout=3)
-        await conn.close()
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("SELECT 1")
         return "ok"
     except Exception as e:  # noqa: BLE001 - health check, report any failure
         return f"error: {e}"

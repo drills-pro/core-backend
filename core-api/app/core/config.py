@@ -18,10 +18,6 @@ PG_HOST = os.environ.get("PG_HOST", "postgres")
 PG_PORT = os.environ.get("PG_PORT", "5432")
 PG_DATABASE = os.environ.get("PG_DATABASE", "core")
 
-# Static superuser DSN used *only* by the /health/deps liveness ping — not
-# on the app's data path, see docker-compose.yml's comment on DATABASE_URL.
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://core:core@postgres:5432/core")
-
 # --- Vault ----------------------------------------------------------------
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://vault:8200")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "root")

@@ -170,11 +170,8 @@ services:
       - mlflow
       - labelstudio
     environment:
-      # Ops liveness ping only (health/deps) — intentionally the one place
-      # still using a static superuser credential, since it's not on the
-      # app's data path. The actual app→DB connection is Vault-issued, see
-      # PG_HOST/PG_PORT/PG_DATABASE + VAULT_* below and app/db.py.
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/core
+      # The app→DB connection (including /health/deps's own check) is Vault-issued, see
+      # PG_HOST/PG_PORT/PG_DATABASE + VAULT_* below and app/core/db.py.
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DATABASE: core
