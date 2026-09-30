@@ -182,6 +182,21 @@ curl -X PUT "http://localhost:8090/v1/projects/<id>/members/bob?role=project_edi
 curl "http://localhost:8090/v1/projects/<id>/audit-log" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
 ```
 
+The same table read the other way round — across every tenant at once —
+is the operator's activity log, `core-api/migrations/0029_admin_activity.sql`
++ `app/modules/admin/activity/routes.py`. `audit_log` is RLS-protected and
+the admin routes set no `app.tenant_id`, so it goes through a SECURITY
+DEFINER function like the other back-office readers (0025, 0026), filters
+on actor/action/entity/tenant/age, and sends the filtered size as
+`X-Total-Count`. Actor names come from Zitadel as enrichment: if Zitadel
+is unreachable the log still answers, with `actor_name: null`.
+
+```
+curl -i "http://localhost:8090/v1/admin/activity?limit=3" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/activity?entity_type=project&days=30" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/activity/summary" -H "X-Admin-User: admin-dashboard"
+```
+
 ## Training orchestration (req/06 + req/07)
 
 `app/modules/training/routes.py` submits a Ray job (Ray's HTTP Job Submission API, not
