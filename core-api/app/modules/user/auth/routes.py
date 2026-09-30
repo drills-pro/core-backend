@@ -43,11 +43,10 @@ def _zitadel_client_creds() -> tuple[str, str]:
     flow's own authorization_code exchange. Lives under app-secret (this
     app's own org/client), never platform-secret — see the module docstring
     in app/integrations/zitadel.py for why the two must stay separate.
-    Still a direct Vault KV read (ponytail: this one wasn't part of the
-    disk-based-secrets move — move it to the same Vault Agent Injector file
-    if/when it also needs to live-reload).
+    Read via vault.get_kv(): the mounted file if the injector renders it,
+    else a live Vault read of app-secret/app-backend/zitadel-oidc.
     """
-    creds = vault.get_kv("app-backend/zitadel-oidc", mount="app-secret")
+    creds = vault.get_kv("zitadel-oidc")
     return creds["client_id"], creds["client_secret"]
 
 

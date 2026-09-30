@@ -34,7 +34,7 @@ the stack working unmodified.
 |---|---|---|---|
 | Vault's own auth token | `/vault/secrets/token` (k8s-auth, continuously renewed by the injector sidecar) | `VAULT_TOKEN` env var (`root` in compose) | `app/core/vault.py::_token()` |
 | Zitadel Service User creds | `/var/app-secret/zitadel.env` (`ISSUER_URL`, `USER_ID`, `KEY_ID`) + `/var/app-secret/zitadel_key.pem` (RSA key) | `/pat/zitadel-automation.pat` (self-hosted Zitadel auto-provisions this on first init, see `scripts/zitadel-firstinstance.yaml`) — `get_pat()` tries the PAT file first and only builds+signs a JWT assertion if it's absent | `app/integrations/zitadel.py::get_pat()` |
-| Zitadel OIDC login client | Vault KV `app-secret/app-backend/zitadel-oidc` via `vault.get_kv(..., mount="app-secret")` | same Vault path — `docker-compose`'s Vault dev-mode also gets an `app-secret` mount (`scripts/vault-setup.sh`), seeded by `scripts/zitadel-bootstrap.sh`/`zitadel-oidc-restore.sh` | `app/modules/user/auth/routes.py::_zitadel_client_creds()` |
+| Zitadel OIDC login client | Vault KV `app-secret/app-backend/zitadel-oidc` via `vault.get_kv("zitadel-oidc")` | same Vault path — `docker-compose`'s Vault dev-mode also gets an `app-secret` mount (`scripts/vault-setup.sh`), seeded by `scripts/zitadel-bootstrap.sh`/`zitadel-oidc-restore.sh` | `app/modules/user/auth/routes.py::_zitadel_client_creds()` |
 | Any other KV read (`lakefs`, `ray`, etc.) | Vault mount named by `VAULT_KV_MOUNT` env var (`platform-secret` in k8s) | defaults to Vault's dev-mode default mount, `secret` | `app/core/vault.py::get_kv()` |
 
 `app/core/config.py` is the single place that declares every disk path /
