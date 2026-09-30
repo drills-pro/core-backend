@@ -26,6 +26,8 @@ from prometheus_client import make_asgi_app
 
 from app import background
 from app.core import tracing
+from app.modules.admin import activity as admin_activity
+from app.modules.admin import models as admin_models
 from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
     auth,
@@ -47,6 +49,8 @@ from app.modules.user import (
 # they are added, so the more specific prefixes stay ahead of the ones that
 # could shadow them.
 ROUTERS = (
+    admin_activity.router,
+    admin_models.router,
     admin_tenants.router,
     # After the listing, never before it: the detail router owns
     # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the

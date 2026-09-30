@@ -182,6 +182,21 @@ curl -X PUT "http://localhost:8090/v1/projects/<id>/members/bob?role=project_edi
 curl "http://localhost:8090/v1/projects/<id>/audit-log" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
 ```
 
+The same table read the other way round — across every tenant at once —
+is the operator's activity log, `core-api/migrations/0029_admin_activity.sql`
++ `app/modules/admin/activity/routes.py`. `audit_log` is RLS-protected and
+the admin routes set no `app.tenant_id`, so it goes through a SECURITY
+DEFINER function like the other back-office readers (0025, 0026), filters
+on actor/action/entity/tenant/age, and sends the filtered size as
+`X-Total-Count`. Actor names come from Zitadel as enrichment: if Zitadel
+is unreachable the log still answers, with `actor_name: null`.
+
+```
+curl -i "http://localhost:8090/v1/admin/activity?limit=3" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/activity?entity_type=project&days=30" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/activity/summary" -H "X-Admin-User: admin-dashboard"
+```
+
 ## Training orchestration (req/06 + req/07)
 
 `app/modules/training/routes.py` submits a Ray job (Ray's HTTP Job Submission API, not
@@ -478,6 +493,39 @@ mechanically, and neither does this endpoint.
 curl -X POST "http://localhost:8090/v1/projects/<id>/models/<run_id>/register?name=my-model" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
 curl -X POST "http://localhost:8090/v1/projects/<id>/models/<model_version_id>/promote?stage=Production" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
 ```
+
+The operator's view of the same table — every tenant's models side by side
+— is `core-api/migrations/0030_admin_models.sql` +
+`app/modules/admin/models/routes.py`. `model_versions`, `projects` and
+`deployments` are all RLS-protected and the admin routes set no
+`app.tenant_id`, so it goes through a SECURITY DEFINER function like the
+other back-office readers (0025, 0029). Two things it derives rather than
+reads, so that the listing, its filters and its counts cannot disagree:
+
+- **status is not a column.** It comes from the newest deployment of the
+  run a version came from (`active`→deployed, `deploying`→deploying,
+  `failed`/`deleted`→stopped, none→not_deployed).
+- **a model is not a table.** `model_versions` holds one row per *version*,
+  so the listing folds them onto `(project_id, mlflow_model_name)`,
+  reports the newest with `version_count` behind it, and
+  `GET /{version_id}/versions` opens one back up. Newest is by
+  registration time, not by `mlflow_version` — that column is text, where
+  `'10'` sorts before `'2'`.
+
+Filters on organisation/task/visibility/status plus a text match, and the
+filtered size travels as `X-Total-Count`.
+
+```
+curl -i "http://localhost:8090/v1/admin/models?limit=2" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/models?status=deployed&visibility=public" -H "X-Admin-User: admin-dashboard"
+curl -i "http://localhost:8090/v1/admin/models/<model_version_id>/versions" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/models/summary" -H "X-Admin-User: admin-dashboard"
+```
+
+Not in there, and deliberately not faked: an artifact's size on disk
+(MLflow holds the artifact, `model_versions` only points at it) and
+whether a model awaits review (`require_review_before_training` is an org
+switch, not a queue). The dashboard leaves both as placeholders.
 
 ## Kubernetes / KubeRay (req/07)
 
