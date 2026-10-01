@@ -177,7 +177,13 @@ services:
       PG_DATABASE: core
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-      ZITADEL_ISSUER: http://zitadel.monorepo.orb.local:8080
+      ZITADEL_ISSUER: ${ZITADEL_ISSUER:-http://zitadel.monorepo.orb.local:8080}
+      # The admin console's sign-in (app/modules/admin/auth), from .env.
+      ZITADEL_ADMIN_CLIENT_ID: ${ZITADEL_ADMIN_CLIENT_ID:-}
+      ZITADEL_ADMIN_CLIENT_SECRET: ${ZITADEL_ADMIN_CLIENT_SECRET:-}
+      ZITADEL_ADMIN_REDIRECT_URI: ${ZITADEL_ADMIN_REDIRECT_URI:-http://localhost:8090/v1/admin/auth/callback}
+      ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI: ${ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI:-http://localhost:3001/login}
+      ADMIN_CONSOLE_URL: ${ADMIN_CONSOLE_URL:-http://localhost:3001}
       RAY_DASHBOARD: http://ray-head:8265
       GRAFANA_URL: http://lgtm:3000
       MLFLOW_URL: http://mlflow:5000
@@ -193,15 +199,6 @@ services:
     volumes:
       - zitadel-pat:/pat:ro
     ports: ["8090:8000"]
-
-  frontend:
-    build: ./frontend
-    depends_on:
-      - core-api
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-    ports: ["5173:5173"]
 
 volumes:
   pgdata:

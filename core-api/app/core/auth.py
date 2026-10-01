@@ -38,16 +38,24 @@ class Claims:
         self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
 
 
+def decode_zitadel_jwt(token: str, audience: str | None = None) -> dict:
+    """Signature (against Zitadel's JWKS), issuer and expiry checked; the
+    audience too when one is given. Raises jwt.PyJWTError on any failure —
+    callers decide what that means for them."""
+    signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
+    return jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        issuer=ZITADEL_ISSUER,
+        audience=audience,
+        options={"verify_aud": audience is not None},
+    )
+
+
 def verify_token(token: str) -> Claims:
     try:
-        signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
-        raw = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            issuer=ZITADEL_ISSUER,
-            options={"verify_aud": False},
-        )
+        raw = decode_zitadel_jwt(token)
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
 
@@ -90,8 +98,9 @@ async def get_platform_admin(
     token when the caller has one — and it has to carry the
     platform_admin project role, since these routes read across every
     tenant — falling back to the X-Admin-User dev header when there is no
-    Authorization header at all, so curl and the admin dashboard keep
-    working until that dashboard has a login of its own.
+    Authorization header at all. The admin console signs in through
+    app/modules/admin/auth and always sends the token; the header is left
+    for curl.
     """
     if authorization and authorization.startswith("Bearer "):
         claims = verify_token(authorization.removeprefix("Bearer "))

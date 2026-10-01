@@ -49,17 +49,39 @@ def _read_json_file(path: str) -> dict:
 _zitadel_creds = _read_json_file(_ZITADEL_CREDS_PATH)
 
 # Token verification (JWKS/discovery) reaches Zitadel over the compose
-# network name.
-ZITADEL_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel:8080")
+# network name. Trailing slash stripped: Zitadel Cloud's console hands the
+# issuer out as "https://<instance>.zitadel.cloud/", but the `iss` it signs
+# into tokens has none, and paths are joined onto this with f"{...}/...".
+ZITADEL_ISSUER = (_zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel:8080")).rstrip("/")
 # The embedded login flow (app/modules/auth) historically defaulted to the
 # host-resolvable name instead, because the issuer string it produces has
 # to match what browsers/tokens see. Same variable, different fallback —
 # docker-compose sets ZITADEL_ISSUER explicitly, so the two only diverge
 # when core-api runs with no environment at all.
-ZITADEL_LOGIN_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel.monorepo.orb.local:8080")
+ZITADEL_LOGIN_ISSUER = (_zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITADEL_ISSUER", "http://zitadel.monorepo.orb.local:8080")).rstrip("/")
 ZITADEL_USER_ID = _zitadel_creds.get("USER_ID", "")
 ZITADEL_KEY_ID = _zitadel_creds.get("KEY_ID", "")
 ZITADEL_PRIVATE_KEY = _zitadel_creds.get("PRIVATE_KEY", "")
+
+# The admin console's sign-in (app/modules/admin/auth): a confidential OIDC
+# Web app in Zitadel, authorization code + PKCE, client_secret_basic. A
+# third credential, unrelated to the Service User above and to the user
+# login's own client — this one only ever signs in platform operators.
+ZITADEL_ADMIN_CLIENT_ID = os.environ.get("ZITADEL_ADMIN_CLIENT_ID", "")
+ZITADEL_ADMIN_CLIENT_SECRET = os.environ.get("ZITADEL_ADMIN_CLIENT_SECRET", "")
+# Zitadel sends the browser back to core-api's own /callback, as the
+# browser reaches it (the host port, not the compose service name); after
+# logout it goes to the console's sign-in page. Each must match the Zitadel
+# app's registered list exactly.
+ZITADEL_ADMIN_REDIRECT_URI = os.environ.get(
+    "ZITADEL_ADMIN_REDIRECT_URI", "http://localhost:8090/v1/admin/auth/callback"
+)
+ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI = os.environ.get(
+    "ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI", "http://localhost:3001/login"
+)
+# Where /callback hands the browser back to: the console's origin, as the
+# browser reaches it.
+ADMIN_CONSOLE_URL = os.environ.get("ADMIN_CONSOLE_URL", "http://localhost:3001").rstrip("/")
 
 # --- Object storage --------------------------------------------------------
 # Backend's own gs://drills-pro bucket, accessed via GCS's S3-compatible interoperability
