@@ -539,6 +539,22 @@ reads, so that the listing, its filters and its counts cannot disagree:
 Filters on organisation/task/visibility/status plus a text match, and the
 filtered size travels as `X-Total-Count`.
 
+The back-office's projects page reads `GET /v1/admin/projects` —
+`core-api/migrations/0033_admin_projects.sql` +
+`app/modules/admin/projects/routes.py`, the same SECURITY DEFINER pattern.
+One row per live project with its organisation, dataset and model counts,
+its newest model, and a `deployment_status` over the whole project:
+`deployed` while any of its deployments is `active`, then `deploying`,
+`stopped` (deployed once, nothing serving now) or `not_deployed`.
+`/v1/admin/projects/summary` gives the platform totals.
+
+A row opens `GET /v1/admin/projects/{id}` (the header and counts) and the
+four readers under it — `/models` (every version, with the same derived
+status as the models listing), `/datasets`, `/deployments` (failed and
+deleted included) and `/members` (joined onto Zitadel for names, degrading
+to the bare user id like the tenant member list) —
+`core-api/migrations/0034_admin_project_detail.sql`.
+
 ```
 curl -i "http://localhost:8090/v1/admin/models?limit=2" -H "X-Admin-User: admin-dashboard"
 curl "http://localhost:8090/v1/admin/models?status=deployed&visibility=public" -H "X-Admin-User: admin-dashboard"
