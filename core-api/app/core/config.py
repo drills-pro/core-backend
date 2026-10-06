@@ -82,6 +82,11 @@ ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI = os.environ.get(
 # Where /callback hands the browser back to: the console's origin, as the
 # browser reaches it.
 ADMIN_CONSOLE_URL = os.environ.get("ADMIN_CONSOLE_URL", "http://localhost:3001").rstrip("/")
+# Signs the tokens core-api issues itself to the console's own password
+# accounts (admin_accounts, 0032) — the sign-in that does not involve
+# Zitadel. Unset means that sign-in is off. Rotating it signs every
+# password account out.
+ADMIN_LOCAL_TOKEN_SECRET = os.environ.get("ADMIN_LOCAL_TOKEN_SECRET", "")
 
 # --- Object storage --------------------------------------------------------
 # Backend's own gs://drills-pro bucket, accessed via GCS's S3-compatible interoperability

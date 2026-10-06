@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import auth, config
-from app.modules.admin.auth import routes
+from app.modules.admin.auth import routes, zitadel
 
 CLIENT_ID = "admin-client"
 
@@ -26,7 +26,7 @@ def private_key(monkeypatch):
     monkeypatch.setattr(config, "ZITADEL_ADMIN_CLIENT_ID", CLIENT_ID)
     monkeypatch.setattr(config, "ZITADEL_ADMIN_CLIENT_SECRET", "s3cret")
     monkeypatch.setattr(
-        routes,
+        zitadel,
         "_discovery",
         {
             "issuer": auth.ZITADEL_ISSUER,
@@ -76,7 +76,7 @@ def _fake_zitadel(monkeypatch, key, *, nonce_from_tx=True, roles=("platform_admi
 
     real = httpx.AsyncClient
     monkeypatch.setattr(
-        routes.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+        zitadel.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
     )
     return seen
 
@@ -89,7 +89,7 @@ def _start(client, seen):
     lands in the client's jar, as it would in the browser's."""
     resp = client.get(
         "/v1/admin/auth/login",
-        params={"binding": routes._binding_hash(BINDING)},
+        params={"binding": zitadel._binding_hash(BINDING)},
         follow_redirects=False,
     )
     assert resp.status_code == 303, resp.text
@@ -120,7 +120,7 @@ def test_login_builds_a_pkce_request(private_key, client):
     assert params["client_id"] == [CLIENT_ID]
     assert params["redirect_uri"] == [config.ZITADEL_ADMIN_REDIRECT_URI]
     assert params["code_challenge_method"] == ["S256"]
-    sealed = client.cookies.get(routes.TX_COOKIE)
+    sealed = client.cookies.get(zitadel.TX_COOKIE)
     # Sealed: nothing about the verifier is readable from the outside.
     assert sealed and "verifier" not in sealed
 
@@ -131,7 +131,7 @@ def test_callback_completes_a_sign_in(monkeypatch, private_key, client):
     url, query = _landing(_sign_in(client, seen))
     assert f"{url.scheme}://{url.netloc}{url.path}" == f"{config.ADMIN_CONSOLE_URL}/auth/complete"
     # Spent once used.
-    assert client.cookies.get(routes.TX_COOKIE) is None
+    assert client.cookies.get(zitadel.TX_COOKIE) is None
 
     resp = client.post("/v1/admin/auth/redeem", json={"ticket": query["ticket"], "binding": BINDING})
     assert resp.status_code == 200, resp.text
@@ -178,11 +178,11 @@ def test_callback_refuses_a_browser_without_the_tx_cookie(monkeypatch, private_k
 def test_callback_refuses_a_tampered_transaction(monkeypatch, private_key, client):
     seen = _fake_zitadel(monkeypatch, private_key)
     params = _start(client, seen)
-    forged = routes.Fernet(routes.Fernet.generate_key()).encrypt(
+    forged = zitadel.Fernet(zitadel.Fernet.generate_key()).encrypt(
         json.dumps({"state": params["state"][0], "nonce": "n", "verifier": "v", "binding": "x"}).encode()
     )
     client.cookies.clear()
-    client.cookies.set(routes.TX_COOKIE, forged.decode(), path=routes.TX_COOKIE_PATH)
+    client.cookies.set(zitadel.TX_COOKIE, forged.decode(), path=zitadel.TX_COOKIE_PATH)
 
     assert "expired" in _refusal(_callback(client, code="abc", state=params["state"][0]))
 
@@ -217,7 +217,7 @@ def test_redeem_refuses_another_browsers_binding(monkeypatch, private_key, clien
 def test_redeem_refuses_an_expired_ticket(monkeypatch, private_key, client):
     seen = _fake_zitadel(monkeypatch, private_key)
     _, query = _landing(_sign_in(client, seen))
-    monkeypatch.setattr(routes, "TICKET_TTL", -1)
+    monkeypatch.setattr(zitadel, "TICKET_TTL", -1)
 
     resp = client.post("/v1/admin/auth/redeem", json={"ticket": query["ticket"], "binding": BINDING})
     assert resp.status_code == 400
@@ -236,3 +236,4 @@ def test_logout_only_sends_a_hint_zitadel_will_accept(private_key, client):
 
     assert client.post("/v1/admin/auth/logout", json={"id_token": expired}).json() == {"end_session_url": None}
     assert client.post("/v1/admin/auth/logout", json={}).json() == {"end_session_url": None}
+

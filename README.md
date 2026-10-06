@@ -167,6 +167,30 @@ a browser is in the loop. Flip `AUTH_MODE=zitadel` in `docker-compose.yml`
 to use it; every handler already only sees an opaque `tenant_id`/`actor`
 string, so nothing downstream changes.
 
+### Admin console password accounts
+
+The admin console has two separate ways in. "Continue with Zitadel" is
+OIDC (`app/modules/admin/auth/zitadel.py`). The username/password form
+(`app/modules/admin/auth/password.py`) is not: those accounts live in
+core-api's own `admin_accounts` table
+(`migrations/0032_admin_accounts.sql`), scrypt-hashed, and core-api signs
+their tokens itself (HS256 under `ADMIN_LOCAL_TOKEN_SECRET`, 32+
+characters; unset turns the form off). `get_platform_admin` accepts
+either kind of token on `/v1/admin`; a password account's token opens no
+tenant-facing route.
+
+Every account is a platform operator. Five wrong passwords in a row lock
+an account for 15 minutes. Disabling an account or changing its password
+signs its existing sessions out at once. Accounts are managed from the
+CLI, run where core-api runs:
+
+```
+python -m app.modules.admin.auth create alice --email alice@example.com --name "Alice"
+python -m app.modules.admin.auth set-password alice
+python -m app.modules.admin.auth disable alice     # enable lifts a lockout too
+python -m app.modules.admin.auth list
+```
+
 ## Project & user management (req/03)
 
 `core-api/migrations/0002_projects_users.sql` +

@@ -184,6 +184,9 @@ services:
       ZITADEL_ADMIN_REDIRECT_URI: ${ZITADEL_ADMIN_REDIRECT_URI:-http://localhost:8090/v1/admin/auth/callback}
       ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI: ${ZITADEL_ADMIN_POST_LOGOUT_REDIRECT_URI:-http://localhost:3001/login}
       ADMIN_CONSOLE_URL: ${ADMIN_CONSOLE_URL:-http://localhost:3001}
+      # The console's own password accounts (admin_accounts): signs the
+      # tokens core-api issues them. Unset turns that sign-in off.
+      ADMIN_LOCAL_TOKEN_SECRET: ${ADMIN_LOCAL_TOKEN_SECRET:-}
       RAY_DASHBOARD: http://ray-head:8265
       GRAFANA_URL: http://lgtm:3000
       MLFLOW_URL: http://mlflow:5000
