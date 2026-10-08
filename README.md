@@ -624,6 +624,18 @@ own open question (how to normalize inference compute units) is
 unresolved in the spec itself, so this takes the doc's suggested fallback
 of raw GPU-seconds rather than inventing a formula.
 
+The back-office activity log reads the same ledger across every tenant,
+`core-api/migrations/0038_admin_usage_events.sql` +
+`app/modules/admin/usage/routes.py` — a SECURITY DEFINER function for the
+same RLS reason as the audit-trail reader (0029), filtering on
+tenant/resource type/age/free text and sending `X-Total-Count`.
+
+```
+curl -i "http://localhost:8090/v1/admin/usage-events?limit=3" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/usage-events?resource_type=training&days=30" -H "X-Admin-User: admin-dashboard"
+curl "http://localhost:8090/v1/admin/usage-events/summary" -H "X-Admin-User: admin-dashboard"
+```
+
 ## Observability (req/08)
 
 `app/core/tracing.py` instruments `core-api` (FastAPI + httpx + asyncpg) with

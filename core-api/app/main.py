@@ -31,6 +31,7 @@ from app.modules.admin import auth as admin_auth
 from app.modules.admin import models as admin_models
 from app.modules.admin import projects as admin_projects
 from app.modules.admin import tenants as admin_tenants
+from app.modules.admin import usage as admin_usage
 from app.modules.user import (
     auth,
     datasets,
@@ -61,6 +62,7 @@ ROUTERS = (
     # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the
     # listing's own /v1/admin/tenants/summary.
     admin_tenants.detail_router,
+    admin_usage.router,
     projects.router,
     datasets.router,
     deployments.router,
