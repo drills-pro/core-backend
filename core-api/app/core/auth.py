@@ -165,6 +165,25 @@ def issue_local_token(username: str) -> str:
     )
 
 
+async def get_password_admin(authorization: str | None = Header(default=None)) -> str:
+    """The username behind a password account's own token, for the routes
+    that act on that account itself (app/modules/admin/auth/account.py).
+
+    Narrower than get_platform_admin: a Zitadel operator has no row in
+    admin_accounts to act on, and the X-Admin-User dev header is no proof
+    of being anyone in particular, so neither gets past this.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing Authorization bearer token")
+    token = authorization.removeprefix("Bearer ")
+    if not _is_local(token):
+        raise HTTPException(
+            status_code=403,
+            detail="only accounts that sign in with a username and password have a profile here",
+        )
+    return (await _verify_local_token(token)).removeprefix(LOCAL_SUBJECT_PREFIX)
+
+
 def _is_local(token: str) -> bool:
     """Only routes the token to the right check — never trusted on its own,
     since anybody can write any issuer into an unsigned payload."""

@@ -6,8 +6,10 @@ the username, the scrypt hash of the password, and the lockout counters.
 Every account is a platform operator. core-api issues the token itself —
 see issue_local_token in app/core/auth.py.
 
-The console cannot make or change an account — that is this module's CLI,
-run where core-api runs (it uses the same database credentials):
+The console cannot make, disable or enable an account — that is this
+module's CLI, run where core-api runs (it uses the same database
+credentials). The one exception is an operator's own profile, preferences
+and password, which ./account.py lets them change while signed in.
 
     python -m app.modules.admin.auth create alice --email alice@example.com --name "Alice"
     python -m app.modules.admin.auth set-password alice
@@ -136,17 +138,7 @@ async def authenticate(login: str, password: str) -> dict | None:
             return None
 
         if not await asyncio.to_thread(verify_password, password, account["password_hash"]):
-            # The lock resets the count, so the first try after it ends is
-            # not already the last one.
-            await conn.execute(
-                "UPDATE admin_accounts SET "
-                "  locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN now() + $3::interval ELSE locked_until END, "
-                "  failed_attempts = CASE WHEN failed_attempts + 1 >= $2 THEN 0 ELSE failed_attempts + 1 END "
-                "WHERE id = $1",
-                account["id"],
-                MAX_FAILED_ATTEMPTS,
-                LOCKOUT,
-            )
+            await count_failed_attempt(conn, account["id"])
             return None
 
         await conn.execute(
@@ -155,6 +147,24 @@ async def authenticate(login: str, password: str) -> dict | None:
             account["id"],
         )
     return {k: account[k] for k in ("id", "username", "email", "display_name")}
+
+
+async def count_failed_attempt(conn, account_id) -> None:
+    """One more wrong password against an account, locking it once there
+    have been enough in a row. Also counted when a signed-in operator gets
+    their current password wrong while changing it (./account.py), so a
+    stolen session cannot guess its way to the password either."""
+    # The lock resets the count, so the first try after it ends is not
+    # already the last one.
+    await conn.execute(
+        "UPDATE admin_accounts SET "
+        "  locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN now() + $3::interval ELSE locked_until END, "
+        "  failed_attempts = CASE WHEN failed_attempts + 1 >= $2 THEN 0 ELSE failed_attempts + 1 END "
+        "WHERE id = $1",
+        account_id,
+        MAX_FAILED_ATTEMPTS,
+        LOCKOUT,
+    )
 
 
 # --- HTTP --------------------------------------------------------------------

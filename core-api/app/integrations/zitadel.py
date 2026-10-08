@@ -179,35 +179,6 @@ async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, di
     return users
 
 
-async def create_org(client: httpx.AsyncClient, name: str) -> str:
-    """Create an org and return its id — the id a tenant row maps to.
-
-    The caller of this API is the platform's own machine user, so it is
-    the org's first ORG_OWNER; a human owner is added afterwards, and
-    until then get_org_owner falls back to naming the machine user rather
-    than claiming the org has none.
-
-    Raises, like the other writes here: an org that may or may not exist
-    is not something to guess about.
-    """
-    resp = await client.post(
-        f"{ISSUER}/management/v1/orgs",
-        headers=auth_header(),
-        json={"name": name},
-    )
-    resp.raise_for_status()
-    return resp.json()["id"]
-
-
-async def delete_org(client: httpx.AsyncClient, org_id: str) -> None:
-    """Remove an org. Only used to clean up one this process just made and
-    could not finish provisioning."""
-    resp = await client.delete(
-        f"{ISSUER}/admin/v1/orgs/{org_id}", headers=auth_header()
-    )
-    resp.raise_for_status()
-
-
 async def set_org_state(client: httpx.AsyncClient, org_id: str, active: bool) -> None:
     """Deactivate or reactivate one org — what suspending a tenant means.
 

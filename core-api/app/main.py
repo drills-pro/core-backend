@@ -53,6 +53,7 @@ from app.modules.user import (
 ROUTERS = (
     admin_activity.router,
     admin_auth.router,
+    admin_auth.account_router,
     admin_models.router,
     admin_projects.router,
     admin_tenants.router,
