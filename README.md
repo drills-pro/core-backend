@@ -633,7 +633,19 @@ tenant/resource type/age/free text and sending `X-Total-Count`.
 ```
 curl -i "http://localhost:8090/v1/admin/usage-events?limit=3" -H "X-Admin-User: admin-dashboard"
 curl "http://localhost:8090/v1/admin/usage-events?resource_type=training&days=30" -H "X-Admin-User: admin-dashboard"
-curl "http://localhost:8090/v1/admin/usage-events/summary" -H "X-Admin-User: admin-dashboard"
+# overview stat cards: latest reading per GPU + latest storage snapshots, summed (0040)
+curl "http://localhost:8090/v1/admin/usage-events/utilization" -H "X-Admin-User: admin-dashboard"
+```
+
+`core-api/migrations/0039_usage_events_users_gpu.sql` adds `user_id` (per-user
+GPU-seconds and storage) and two non-billed gauge types, `gpu_utilization`
+(percent) and `vram_usage` (bytes), read per `device`. Gauge rows belong to
+no tenant, so RLS keeps them out of every tenant's rollups; only the
+back-office reader sees them. Demo data for a dev database — one row of
+each resource type — is a separate, re-runnable seed, never a migration:
+
+```
+docker exec -i <postgres-container> psql -U postgres -d core < core-api/seeds/usage_events_demo.sql
 ```
 
 ## Observability (req/08)

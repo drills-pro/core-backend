@@ -21,10 +21,11 @@ router = APIRouter(prefix="/v1/admin/usage-events", tags=["admin"])
 @router.get("", dependencies=[Depends(get_platform_admin)])
 async def list_usage_events(
     response: Response,
-    q: str | None = Query(default=None, description="matches resource type, source, tenant or project"),
+    q: str | None = Query(default=None, description="matches resource type, source, device, person, tenant or project"),
     tenant_id: uuid.UUID | None = Query(default=None, description="one organisation only"),
     resource_type: str | None = Query(
-        default=None, description="training | inference | storage_dataset | storage_model"
+        default=None,
+        description="training | inference | storage_dataset | storage_model | gpu_utilization | vram_usage",
     ),
     days: int | None = Query(default=None, ge=1, le=3650, description="only the last N days"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -55,10 +56,12 @@ async def list_usage_events(
     return [{key: value for key, value in row.items() if key != "total"} for row in rows]
 
 
-@router.get("/summary", dependencies=[Depends(get_platform_admin)])
-async def usage_events_summary():
-    """The totals behind the log's stat strip, counted on the database's
-    day so they agree with what the listing groups under Today."""
+
+@router.get("/utilization", dependencies=[Depends(get_platform_admin)])
+async def utilization():
+    """Platform-wide GPU and storage utilisation, for the overview's stat
+    cards: each GPU's latest reading, and the latest storage snapshots
+    summed (admin_utilization(), 0040)."""
     async with (await get_pool()).acquire() as conn:
-        stats = await conn.fetchrow("SELECT * FROM admin_usage_stats()")
+        stats = await conn.fetchrow("SELECT * FROM admin_utilization()")
     return dict(stats)

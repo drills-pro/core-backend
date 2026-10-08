@@ -64,22 +64,3 @@ LANGUAGE sql SECURITY DEFINER AS $$
 $$;
 REVOKE ALL ON FUNCTION admin_usage_events(int, int, uuid, text, text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_usage_events(int, int, uuid, text, text, timestamptz) TO core_app;
-
--- The totals behind the activity log's stat strip. Platform-wide by
--- definition, so it takes no arguments, and aggregates only.
---
--- "Today" is the database's day, the same clock admin_activity_stats
--- (0029) uses, counted on occurred_at — the time the listing sorts and
--- groups by — so the count agrees with the rows under "Today".
-CREATE OR REPLACE FUNCTION admin_usage_stats()
-RETURNS TABLE(
-  events_today bigint,
-  tenants_today bigint
-)
-LANGUAGE sql SECURITY DEFINER AS $$
-  SELECT count(*) FILTER (WHERE occurred_at >= date_trunc('day', now())),
-         count(DISTINCT tenant_id) FILTER (WHERE occurred_at >= date_trunc('day', now()))
-  FROM usage_events;
-$$;
-REVOKE ALL ON FUNCTION admin_usage_stats() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION admin_usage_stats() TO core_app;
