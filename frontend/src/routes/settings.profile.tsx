@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { VStack, HStack, Button, Input, Text, Box, Heading } from '@chakra-ui/react'
+import { VStack, HStack, Button, Text, Box, Heading } from '@chakra-ui/react'
 import { api } from '../lib/api'
+import { decodeIdToken, getAuth } from '../lib/auth'
 
 export const Route = createFileRoute('/settings/profile')({
   component: ProfilePage,
@@ -10,22 +10,10 @@ export const Route = createFileRoute('/settings/profile')({
 
 function ProfilePage() {
   const queryClient = useQueryClient()
-  const { data: profile } = useQuery({ queryKey: ['my-profile'], queryFn: api.getMyProfile })
   const { data: idps } = useQuery({ queryKey: ['linked-idps'], queryFn: api.listLinkedIdps, retry: false })
-  const [username, setUsername] = useState('')
-  const [displayName, setDisplayName] = useState('')
-
-  useEffect(() => {
-    if (profile) {
-      setUsername(profile.username ?? '')
-      setDisplayName(profile.display_name ?? '')
-    }
-  }, [profile])
-
-  const save = useMutation({
-    mutationFn: () => api.updateMyProfile({ username: username || undefined, display_name: displayName || undefined }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-profile'] }),
-  })
+  // Name and email live in Zitadel; they arrive as id_token claims and are display-only here.
+  const auth = getAuth()
+  const claims = auth ? decodeIdToken(auth.id_token) : {}
   const link = useMutation({
     mutationFn: (provider: string) => api.getIdpIntent(provider, window.location.href),
     onSuccess: (data) => {
@@ -42,18 +30,11 @@ function ProfilePage() {
       <Heading size="lg">Profile</Heading>
 
       <Box bg="white" borderWidth={1} borderRadius="md" p={5}>
-        <Heading size="sm" mb={3}>Display info</Heading>
-        <VStack align="stretch" gap={3} maxW="360px">
-          <Box>
-            <Text fontSize="xs" color="gray.500" mb={1}>Username</Text>
-            <Input size="sm" value={username} onChange={(e) => setUsername(e.target.value)} />
-          </Box>
-          <Box>
-            <Text fontSize="xs" color="gray.500" mb={1}>Display name</Text>
-            <Input size="sm" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-          </Box>
-          <Button size="sm" alignSelf="start" onClick={() => save.mutate()} loading={save.isPending}>Save</Button>
-          {save.isError && <Text fontSize="sm" color="red.600">{String(save.error)}</Text>}
+        <Heading size="sm" mb={3}>Account</Heading>
+        <VStack align="stretch" gap={1} fontSize="sm">
+          <Text>Name: {(claims.name as string) ?? '—'}</Text>
+          <Text>Email: {(claims.email as string) ?? '—'}</Text>
+          <Text color="gray.500">Managed in your sign-in provider.</Text>
         </VStack>
       </Box>
 

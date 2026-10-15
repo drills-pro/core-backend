@@ -248,13 +248,6 @@ export interface UsageRollup {
   total_quantity: number
 }
 
-export interface Profile {
-  zitadel_user_id: string
-  username: string | null
-  display_name: string | null
-  avatar_key: string | null
-}
-
 // -------------------------------------------------------------- plumbing
 
 type QueryValue = string | number | boolean | undefined | null
@@ -534,10 +527,7 @@ export const api = {
   teamUsage: (teamId: string): Promise<UsageRollup[]> => get(`/v1/teams/${encodeURIComponent(teamId)}/usage`),
   orgUsage: (): Promise<UsageRollup[]> => get('/v1/usage'),
 
-  // profile / linked identity providers — app/users.py
-  getMyProfile: (): Promise<Profile> => get('/v1/users/me'),
-  updateMyProfile: (patch: { username?: string; display_name?: string }): Promise<Profile> =>
-    send('PATCH', '/v1/users/me', patch),
+  // linked identity providers — app/modules/user/users
   /** Raw Zitadel payload — shape is Zitadel's, not core-api's. */
   listLinkedIdps: (): Promise<unknown> => get('/v1/users/me/idps'),
   getIdpIntent: (provider: string, returnUrl: string): Promise<{ authUrl?: string; [key: string]: unknown }> =>

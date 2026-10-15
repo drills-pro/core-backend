@@ -1,7 +1,6 @@
-// Embedded email login against core-api's app/embedded_auth.py — the
-// browser never navigates to Zitadel's own domain; core-api does the
-// password check / code exchange server-side and hands back real tokens.
-import { API_BASE } from './config'
+// Login is Zitadel's hosted OIDC flow (authorization code + PKCE), run in the browser.
+// core-api only verifies the access token and handles signup (POST /v1/auth/signup).
+import { API_BASE, ZITADEL_CLIENT_ID, ZITADEL_ISSUER, ZITADEL_PROJECT_ID } from './config'
 
 export interface AuthTokens {
   access_token: string
@@ -66,10 +65,10 @@ export function decodeIdToken(idToken: string): Record<string, unknown> {
   }
 }
 
-async function post(path: string, body: unknown): Promise<unknown> {
+async function post(path: string, body: unknown, headers: Record<string, string> = {}): Promise<unknown> {
   const resp = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   const text = await resp.text()
@@ -81,15 +80,57 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return data
 }
 
-export interface LoginResponse {
-  access_token: string
-  id_token: string
-  expires_in: number
+const PKCE_KEY = 'drills.pkce'
+// The login page doubles as the OIDC redirect target (register this exact URL in Zitadel).
+const redirectUri = () => `${window.location.origin}/login`
+
+function b64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-/** POST /v1/auth/login — stores the tokens on success. */
-export async function login(email: string, password: string): Promise<AuthTokens> {
-  const tokens = (await post('/v1/auth/login', { email, password })) as LoginResponse
+/** Redirects to Zitadel's login. `loginHint` pre-fills the email (used right after signup). */
+export async function startLogin(loginHint?: string): Promise<void> {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)))
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))
+  const state = b64url(crypto.getRandomValues(new Uint8Array(16)))
+  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state }))
+  const params = new URLSearchParams({
+    client_id: ZITADEL_CLIENT_ID,
+    redirect_uri: redirectUri(),
+    response_type: 'code',
+    // project aud: core-api's audience check; projects:roles: the roles claim; resourceowner: tenant org.
+    scope: [
+      'openid', 'profile', 'email',
+      `urn:zitadel:iam:org:project:id:${ZITADEL_PROJECT_ID}:aud`,
+      'urn:zitadel:iam:org:projects:roles',
+      'urn:zitadel:iam:user:resourceowner',
+    ].join(' '),
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state,
+  })
+  if (loginHint) params.set('login_hint', loginHint)
+  window.location.assign(`${ZITADEL_ISSUER}/oauth/v2/authorize?${params}`)
+}
+
+/** Finishes the redirect: swaps the code for tokens and stores them. */
+export async function completeLogin(code: string, state: string): Promise<AuthTokens> {
+  const saved = JSON.parse(sessionStorage.getItem(PKCE_KEY) ?? 'null') as { verifier: string; state: string } | null
+  sessionStorage.removeItem(PKCE_KEY)
+  if (!saved || saved.state !== state) throw new Error('login state mismatch, please try again')
+  const resp = await fetch(`${ZITADEL_ISSUER}/oauth/v2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri(),
+      client_id: ZITADEL_CLIENT_ID,
+      code_verifier: saved.verifier,
+    }),
+  })
+  if (!resp.ok) throw new Error(`login failed: ${resp.status}`)
+  const tokens = await resp.json()
   const auth: AuthTokens = {
     access_token: tokens.access_token,
     id_token: tokens.id_token,
@@ -99,17 +140,22 @@ export async function login(email: string, password: string): Promise<AuthTokens
   return auth
 }
 
-/** POST /v1/auth/register — creates a real Zitadel account, no session yet. */
-export async function register(
+/**
+ * POST /v1/auth/signup — creates a new organisation and its owner account, no session yet.
+ * Reuse the same idempotencyKey when retrying one form submission so the server resumes
+ * instead of creating a second org.
+ */
+export async function signup(
+  orgName: string,
   email: string,
   password: string,
   firstName: string,
   lastName: string,
-): Promise<{ userId: string }> {
-  return (await post('/v1/auth/register', {
-    email,
-    password,
-    first_name: firstName,
-    last_name: lastName,
-  })) as { userId: string }
+  idempotencyKey: string,
+): Promise<{ tenant_id: string; org_id: string }> {
+  return (await post(
+    '/v1/auth/signup',
+    { org_name: orgName, email, password, first_name: firstName, last_name: lastName },
+    { 'Idempotency-Key': idempotencyKey },
+  )) as { tenant_id: string; org_id: string }
 }

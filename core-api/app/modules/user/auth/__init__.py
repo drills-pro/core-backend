@@ -1,4 +1,4 @@
-"""Embedded email signup/login against Zitadel (req/02 FR1/FR5)."""
-from app.modules.user.auth.routes import router
+"""Self-serve signup (req/02 FR5). Login is Zitadel's own hosted OIDC flow, not ours."""
+from app.modules.user.auth.signup import reap_stale_signups, router
 
-__all__ = ["router"]
+__all__ = ["reap_stale_signups", "router"]
