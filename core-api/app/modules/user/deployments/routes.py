@@ -227,7 +227,7 @@ async def predict(
         raise HTTPException(status_code=401, detail="invalid deployment id or predict key")
     if row["status"] != "active":
         raise HTTPException(status_code=409, detail=f"deployment is {row['status']}, not active")
-    if not rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
+    if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
         raise HTTPException(
             status_code=429, detail=f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)"
         )

@@ -7,11 +7,13 @@ next tick, which is what every one of these did inline in main.py before.
 """
 import asyncio
 import logging
+import zlib
 
 import httpx
 
-from app.core import config, metrics
+from app.core import config, metrics, rate_limit
 from app.core.db import get_pool
+from app.modules.user.auth import reap_stale_signups
 from app.modules.user.datasets import reconcile_inflight_imports
 from app.modules.user.deployments import reconcile_inflight_deployments
 from app.modules.user.preprocessing import reconcile_inflight_preprocessing
@@ -59,13 +61,40 @@ POLLERS = (
     ("dataset-import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
     ("preprocessing-reconcile", reconcile_inflight_preprocessing, RECONCILE_INTERVAL_SECONDS),
+    ("signup-reaper", reap_stale_signups, 60),
+    ("rate-limit-purge", rate_limit.purge, 60),
 )
+
+
+async def _run_as_leader(name: str, poll) -> None:
+    """Run `poll` only if no other replica is running it right now.
+
+    A session-level Postgres advisory lock, held on one pooled connection for the length of the
+    run, so with N replicas each sweep still happens once. If this process dies the connection
+    closes and the lock goes with it — nothing to expire or clean up.
+    """
+    lock_id = zlib.crc32(name.encode())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if not await conn.fetchval("SELECT pg_try_advisory_lock($1)", lock_id):
+            return
+        try:
+            await poll()
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", lock_id)
+
+
+# Gauges every replica must export itself; electing a leader would leave the others at 0.
+PER_REPLICA = {"pg-size", "gpu-quota"}
 
 
 async def _run_forever(name: str, poll, interval: int) -> None:
     while True:
         try:
-            await poll()
+            if name in PER_REPLICA:
+                await poll()
+            else:
+                await _run_as_leader(name, poll)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - best-effort, never crash the app

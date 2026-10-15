@@ -14,13 +14,17 @@ PG_DATABASE = config.PG_DATABASE
 
 _pool: asyncpg.Pool | None = None
 _refresh_task: asyncio.Task | None = None
+_pool_lock = asyncio.Lock()
 
 
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        await _rotate()
-        _start_refresh_loop()
+        # Single-flight: concurrent first requests would otherwise each build a pool
+        # (and each burn a Vault credential), leaking all but the last.
+        async with _pool_lock:
+            if _pool is None:
+                _start_refresh_loop(await _rotate())
     return _pool
 
 
@@ -36,7 +40,13 @@ async def _rotate() -> int:
         # would otherwise need its own json.loads.
         await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
-    new_pool = await asyncpg.create_pool(dsn, init=_init)
+    new_pool = await asyncpg.create_pool(
+        dsn,
+        init=_init,
+        min_size=config.PG_POOL_MIN,
+        max_size=config.PG_POOL_MAX,
+        command_timeout=config.PG_COMMAND_TIMEOUT,
+    )
     old_pool, _pool = _pool, new_pool
     if old_pool is not None:
         await old_pool.close()
@@ -44,16 +54,20 @@ async def _rotate() -> int:
     return lease_seconds
 
 
-def _start_refresh_loop() -> None:
+def _start_refresh_loop(lease_seconds: int) -> None:
     global _refresh_task
     if _refresh_task is None:
-        _refresh_task = asyncio.create_task(_refresh_loop())
+        _refresh_task = asyncio.create_task(_refresh_loop(lease_seconds))
 
 
-async def _refresh_loop() -> None:
+async def _refresh_loop(lease_seconds: int) -> None:
     # ponytail: re-fetch at 50% of the lease TTL rather than tracking Vault's
     # renew API precisely — simple and plenty for a dev-mode Vault. Swap for
     # proper lease renewal if a real Vault deployment's TTL policy needs it.
     while True:
-        lease_seconds = await _rotate()
         await asyncio.sleep(max(lease_seconds // 2, 30))
+        try:
+            lease_seconds = await _rotate()
+        except Exception:  # noqa: BLE001 - a dead loop means expired creds; keep trying on the old pool
+            logger.exception("db cred rotation failed; retrying in 30s")
+            lease_seconds = 60

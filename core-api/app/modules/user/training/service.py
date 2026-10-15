@@ -29,6 +29,12 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
     FR1 (06-ml-training): log to MLflow. FR1 (09-usage-metering): bill it,
     idempotently — this can run more than once for the same job across
     polls, record_usage's UNIQUE(resource_type, source_ref) absorbs that."""
+    # Serialize with any other caller (GET handler, poller on another replica): the second one
+    # blocks here until the first commits, then finds the row already moved and stops, instead
+    # of logging the run to MLflow twice.
+    locked = dict(await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 FOR UPDATE", row["id"]))
+    if locked["status"] != row["status"]:
+        return locked
     completed_at = datetime.now(timezone.utc) if new_status in ("succeeded", "failed") else None
 
     model_artifact = None  # only set below when freshly parsed; COALESCE in the UPDATE preserves any existing value
