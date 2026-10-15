@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,11 @@ from app.core.tenant_conn import TenantConn
 router = APIRouter(prefix="/v1/projects/{project_id}", tags=["project-members"])
 
 VALID_ROLES = ("project_editor", "project_viewer")
+
+
+def _hash_token(token: str) -> str:
+    # Only this hash is stored (migration 0034): a database read never yields a usable invite link.
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @router.get("/members")
@@ -103,14 +109,14 @@ async def create_invitation(
     async with TenantConn(tenant_id) as conn:
         row = await conn.fetchrow(
             "INSERT INTO project_invitations "
-            "(tenant_id, project_id, email, role, token, invited_by, expires_at) "
+            "(tenant_id, project_id, email, role, token_hash, invited_by, expires_at) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7) "
-            "RETURNING id, email, role, token, expires_at",
+            "RETURNING id, email, role, expires_at",
             tenant_id,
             project_id,
             email,
             role,
-            token,
+            _hash_token(token),
             actor,
             expires_at,
         )
@@ -123,7 +129,8 @@ async def create_invitation(
             entity_type="project_invitation",
             entity_id=row["id"],
         )
-    return dict(row)
+    # The one and only time the plaintext token exists server-side.
+    return {**dict(row), "token": token}
 
 
 @router.post("/invitations/{token}/accept")
@@ -136,9 +143,9 @@ async def accept_invitation(
     async with TenantConn(tenant_id) as conn:
         invite = await conn.fetchrow(
             "SELECT id, role, expires_at, accepted_at FROM project_invitations "
-            "WHERE project_id = $1 AND token = $2",
+            "WHERE project_id = $1 AND token_hash = $2",
             project_id,
-            token,
+            _hash_token(token),
         )
         if invite is None:
             raise HTTPException(status_code=404, detail="invitation not found")
@@ -157,7 +164,7 @@ async def accept_invitation(
             invite["role"],
         )
         await conn.execute(
-            "UPDATE project_invitations SET accepted_at = now() WHERE id = $1", invite["id"]
+            "UPDATE project_invitations SET accepted_at = now(), email = NULL WHERE id = $1", invite["id"]
         )
         await audit.record(
             conn,

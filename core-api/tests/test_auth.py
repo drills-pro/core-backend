@@ -4,7 +4,14 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.core import auth
+from app.core import auth, config
+
+PROJECT = "proj-1"
+
+
+@pytest.fixture(autouse=True)
+def _project(monkeypatch):
+    monkeypatch.setattr(config, "ZITADEL_PROJECT_ID", PROJECT)
 
 
 @pytest.fixture
@@ -31,7 +38,7 @@ def test_verify_token_extracts_org_and_roles(monkeypatch, keypair):
         private_key,
         {
             "sub": "user-1",
-            "iss": auth.ZITADEL_ISSUER,
+            "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800,
             auth.ORG_ID_CLAIM: "org-123",
             auth.ROLES_CLAIM: {"org_owner": {"org-123": "acme"}},
         },
@@ -44,13 +51,42 @@ def test_verify_token_extracts_org_and_roles(monkeypatch, keypair):
     assert claims.roles == {"org_owner"}
 
 
+def test_verify_token_rejects_wrong_audience(monkeypatch, keypair):
+    private_key, public_key = keypair
+    _patch_jwks(monkeypatch, public_key)
+    token = _sign(
+        private_key,
+        {"sub": "u", "iss": auth.ZITADEL_ISSUER, "aud": ["other"], "iat": 1, "exp": 4102444800,
+         auth.ORG_ID_CLAIM: "org-123"},
+    )
+    with pytest.raises(Exception):
+        auth.verify_token(token)
+
+
+def test_dev_headers_rejected_unless_enabled(monkeypatch):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from app.core import tenancy
+
+    monkeypatch.setattr(config, "AUTH_DEV_HEADERS", False)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(tenancy.get_tenant_id(authorization=None, x_tenant_id="t"))
+    assert e.value.status_code == 401
+    with pytest.raises(HTTPException):
+        asyncio.run(tenancy.get_actor(authorization=None, x_user_id="u"))
+    with pytest.raises(HTTPException):
+        asyncio.run(auth.get_platform_admin(authorization=None, x_admin_user="a"))
+
+
 def test_verify_token_rejects_wrong_signature(monkeypatch, keypair):
     _, public_key = keypair
     other_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     _patch_jwks(monkeypatch, public_key)
     token = _sign(
         other_private_key,
-        {"sub": "user-1", "iss": auth.ZITADEL_ISSUER, auth.ORG_ID_CLAIM: "org-123"},
+        {"sub": "user-1", "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800, auth.ORG_ID_CLAIM: "org-123"},
     )
 
     with pytest.raises(Exception):

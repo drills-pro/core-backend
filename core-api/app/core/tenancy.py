@@ -1,5 +1,7 @@
 from fastapi import Header, HTTPException
+from starlette.concurrency import run_in_threadpool
 
+from app.core import config
 from app.core.auth import Claims, verify_token
 from app.core.db import get_pool
 from app.core.tracing import tag_current_span
@@ -16,10 +18,10 @@ async def _resolve_tenant_from_org(org_id: str) -> str:
     return str(tenant_id)
 
 
-def _get_claims(authorization: str | None) -> Claims | None:
+async def _get_claims(authorization: str | None) -> Claims | None:
     if not authorization or not authorization.startswith("Bearer "):
         return None
-    return verify_token(authorization.removeprefix("Bearer "))
+    return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
 
 async def get_tenant_id(
@@ -32,13 +34,13 @@ async def get_tenant_id(
     Authorization header is present, so /ui and every existing curl-based
     flow keep working unchanged; both paths are equally real, just
     different callers."""
-    claims = _get_claims(authorization)
+    claims = await _get_claims(authorization)
     if claims is not None:
         tenant_id = await _resolve_tenant_from_org(claims.org_id)
         tag_current_span(tenant_id=tenant_id)
         return tenant_id
 
-    if not x_tenant_id:
+    if not config.AUTH_DEV_HEADERS or not x_tenant_id:
         raise HTTPException(status_code=401, detail="missing Authorization bearer token or X-Tenant-Id")
     tag_current_span(tenant_id=x_tenant_id)
     return x_tenant_id
@@ -48,7 +50,9 @@ async def get_actor(
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> str:
-    claims = _get_claims(authorization)
+    claims = await _get_claims(authorization)
     if claims is not None:
         return claims.subject
+    if not config.AUTH_DEV_HEADERS:
+        raise HTTPException(status_code=401, detail="missing Authorization bearer token")
     return x_user_id or "dev-user"

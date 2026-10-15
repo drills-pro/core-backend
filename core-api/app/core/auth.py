@@ -8,8 +8,9 @@ not something to reverse-engineer per token.
 import jwt
 from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
+from starlette.concurrency import run_in_threadpool
 
-from app.core import config
+from app.core import config, vault
 
 ZITADEL_ISSUER = config.ZITADEL_ISSUER
 # Real tokens carry this as three flat claims (…:id, …:name, …:primary_domain),
@@ -30,6 +31,14 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
+def project_id() -> str:
+    # Fail closed: without an audience to check, any token the instance signed would pass.
+    pid = config.ZITADEL_PROJECT_ID or vault.get_kv("zitadel-oidc").get("project_id", "")
+    if not pid:
+        raise HTTPException(status_code=500, detail="ZITADEL_PROJECT_ID is not configured")
+    return pid
+
+
 class Claims:
     def __init__(self, raw: dict):
         self.raw = raw
@@ -46,7 +55,8 @@ def verify_token(token: str) -> Claims:
             signing_key.key,
             algorithms=["RS256"],
             issuer=ZITADEL_ISSUER,
-            options={"verify_aud": False},
+            audience=project_id(),
+            options={"require": ["exp", "iat", "sub", "aud"]},
         )
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
@@ -59,7 +69,7 @@ def verify_token(token: str) -> Claims:
 async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
-    return verify_token(authorization.removeprefix("Bearer "))
+    return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
 
 def require_role(*allowed: str):
@@ -94,12 +104,12 @@ async def get_platform_admin(
     working until that dashboard has a login of its own.
     """
     if authorization and authorization.startswith("Bearer "):
-        claims = verify_token(authorization.removeprefix("Bearer "))
+        claims = await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
         if PLATFORM_ADMIN_ROLE not in claims.roles:
             raise HTTPException(status_code=403, detail=f"requires the {PLATFORM_ADMIN_ROLE} role")
         return claims.subject
 
-    if not x_admin_user:
+    if not config.AUTH_DEV_HEADERS or not x_admin_user:
         raise HTTPException(
             status_code=401, detail="missing Authorization bearer token or X-Admin-User"
         )

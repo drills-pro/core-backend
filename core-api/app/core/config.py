@@ -18,6 +18,13 @@ PG_HOST = os.environ.get("PG_HOST", "postgres")
 PG_PORT = os.environ.get("PG_PORT", "5432")
 PG_DATABASE = os.environ.get("PG_DATABASE", "core")
 
+# Per-process pool. Each leader-elected poller (app/background.py) holds one connection for the
+# length of its run, so leave headroom above the pollers' count; total across replicas must stay
+# under Postgres max_connections.
+PG_POOL_MIN = int(os.environ.get("PG_POOL_MIN", "2"))
+PG_POOL_MAX = int(os.environ.get("PG_POOL_MAX", "20"))
+PG_COMMAND_TIMEOUT = float(os.environ.get("PG_COMMAND_TIMEOUT", "30"))
+
 # --- Vault ----------------------------------------------------------------
 VAULT_ADDR = os.environ.get("VAULT_ADDR", "http://vault:8200")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "root")
@@ -60,6 +67,14 @@ ZITADEL_LOGIN_ISSUER = _zitadel_creds.get("ISSUER_URL") or os.environ.get("ZITAD
 ZITADEL_USER_ID = _zitadel_creds.get("USER_ID", "")
 ZITADEL_KEY_ID = _zitadel_creds.get("KEY_ID", "")
 ZITADEL_PRIVATE_KEY = _zitadel_creds.get("PRIVATE_KEY", "")
+
+# Off unless explicitly enabled: lets X-Tenant-Id / X-User-Id / X-Admin-User stand in for a
+# Zitadel token (local compose, /ui, curl). Must never be set in the cluster — those headers
+# are client-controlled, so with this on anyone is any tenant and a platform admin.
+AUTH_DEV_HEADERS = os.environ.get("AUTH_DEV_HEADERS") == "1"
+# Zitadel project id the API belongs to; tokens must carry it in `aud`. Falls back to the
+# project_id stored with the zitadel-oidc login client (scripts/zitadel-bootstrap.sh writes it).
+ZITADEL_PROJECT_ID = os.environ.get("ZITADEL_PROJECT_ID", "")
 
 # --- Object storage --------------------------------------------------------
 # Backend's own gs://drills-pro bucket, accessed via GCS's S3-compatible interoperability

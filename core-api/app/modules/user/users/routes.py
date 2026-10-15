@@ -1,8 +1,7 @@
-"""Profile settings and OAuth account linking (07-identity-oauth-linking.md).
+"""OAuth account linking (07-identity-oauth-linking.md).
 
-FR5: username/display_name/avatar live on the platform's own `users` table,
-keyed by Zitadel subject — email stays the actual identity anchor in
-Zitadel itself, this table is display/vanity only.
+Profile data (name, email) lives only in Zitadel and reaches the frontend as token claims;
+core-api keeps no users table (migration 0035).
 
 FR1-FR3: linking Google/GitHub is Zitadel's own IdP-intent flow, not a
 home-grown OAuth client — core-api just starts the intent (redirect to the
@@ -10,11 +9,10 @@ provider is expected, see FR2) and lets Zitadel complete the link on the
 already-logged-in user.
 """
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.db import get_pool
 from app.core.tenancy import get_actor
-from app.integrations import object_storage, zitadel
+from app.integrations import zitadel
 
 router = APIRouter(prefix="/v1/users/me", tags=["users"])
 
@@ -22,63 +20,6 @@ router = APIRouter(prefix="/v1/users/me", tags=["users"])
 # client_id/secret — swap for real Google/GitHub OAuth app credentials
 # when available, the linking flow below doesn't change.
 IDP_NAME_BY_PROVIDER = {"google": "google", "github": "github"}
-
-
-@router.get("")
-async def get_profile(actor: str = Depends(get_actor)):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT zitadel_user_id, username, display_name, avatar_key FROM users WHERE zitadel_user_id = $1",
-            actor,
-        )
-    if row is None:
-        return {"zitadel_user_id": actor, "username": None, "display_name": None, "avatar_key": None}
-    return dict(row)
-
-
-@router.patch("")
-async def update_profile(
-    username: str | None = Body(default=None),
-    display_name: str | None = Body(default=None),
-    actor: str = Depends(get_actor),
-):
-    if username is None and display_name is None:
-        raise HTTPException(status_code=400, detail="nothing to update")
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        try:
-            row = await conn.fetchrow(
-                "INSERT INTO users (zitadel_user_id, username, display_name) VALUES ($1, $2, $3) "
-                "ON CONFLICT (zitadel_user_id) DO UPDATE SET "
-                "username = COALESCE(EXCLUDED.username, users.username), "
-                "display_name = COALESCE(EXCLUDED.display_name, users.display_name), "
-                "updated_at = now() "
-                "RETURNING zitadel_user_id, username, display_name, avatar_key",
-                actor,
-                username,
-                display_name,
-            )
-        except Exception as exc:  # noqa: BLE001 - unique violation on username
-            if "unique" in str(exc).lower():
-                raise HTTPException(status_code=409, detail="username already taken")
-            raise
-    return dict(row)
-
-
-@router.post("/avatar-upload-url")
-async def avatar_upload_url(filename: str, actor: str = Depends(get_actor)):
-    key = f"avatars/{actor}/{filename}"
-    url = object_storage.presigned_put_url(key, bucket=object_storage.PLATFORM_ASSETS_BUCKET)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO users (zitadel_user_id, avatar_key) VALUES ($1, $2) "
-            "ON CONFLICT (zitadel_user_id) DO UPDATE SET avatar_key = EXCLUDED.avatar_key, updated_at = now()",
-            actor,
-            key,
-        )
-    return {"key": key, "url": url}
 
 
 @router.get("/idp-intent")
