@@ -35,6 +35,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.core-api == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -48,6 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: ./core-api
@@ -65,6 +68,7 @@ jobs:
     with:
       app: backend
       image: ghcr.io/drills-pro/core-backend/core-api
+      digest: ${{ needs.build-core-api.outputs.digest }}
       tag: ${{ needs.changes.outputs.tag }}
     secrets:
       repo-token: ${{ secrets.K8S_REPO_PAT }}
