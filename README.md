@@ -21,8 +21,8 @@ credentials, Label Studio, and the kind node IP:
 
 **Run this after every `docker compose up`, not just the first time.**
 Vault runs in dev mode, which keeps everything in memory: restarting that
-one container empties it, and `core-api` then cannot obtain so much as a
-Postgres credential. Every step in `bootstrap.sh` is idempotent, so
+one container empties it, and `bootstrap.sh` writes a fresh Postgres credential
+(`.local/secrets/db.json`) from it. Every step in `bootstrap.sh` is idempotent, so
 re-running it costs nothing and is the intended habit. It finishes by
 printing `/health/deps`.
 
@@ -44,7 +44,7 @@ stack, run it once before `bootstrap.sh`.
 | Vault | http://localhost:8200 (root token: `root`) |
 | Label Studio | http://localhost:8110 (admin@platform.local / LabelStudioAdminPw1!) |
 
-`GET /health/deps` pings every dependency (Postgres, Vault, LakeFS, Zitadel,
+`GET /health/deps` pings every dependency (Postgres, LakeFS, Zitadel,
 Ray, MLflow) — `"ok"` per service once everything is wired.
 
 ## Status against req/
@@ -685,17 +685,16 @@ files whose *paths* are in the config (`secrets:`). `core-api` re-reads a file w
 | Files | `/var/app-secret/app-backend/<name>`, rendered by the Vault Agent Injector | `.local/secrets/<name>.json` (gitignored), mounted at the same path in compose |
 | Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `labelstudio-bootstrap.sh`, `zitadel-oidc-restore.sh` |
 
-Vault now only issues `core-api`'s Postgres credential. `vault` runs in dev mode (in-memory,
-auto-unsealed, root token `root`, laptop-only). Restarting it empties it, after which `core-api`
-cannot get a database credential; re-run `./scripts/bootstrap.sh` (idempotent). Static secret files
-survive a Vault restart.
-
-`app/core/db.py` fetches a fresh, short-lived Postgres role (`database/creds/core-app`, 1h default
-TTL) at startup and re-rotates at half the lease, closing the old pool and opening a new one.
+`core-api` does not talk to Vault. Its Postgres credential is the `db` secret file too
+(`{"username", "password"}`): in the cluster the Vault agent issues it from `database/creds/core-app`,
+renews the lease and rewrites the file when it needs a new user; locally `./scripts/bootstrap.sh` reads one
+from the dev Vault (dev mode: in-memory, root token `root`, laptop-only; 768h TTL since nothing renews it).
+`app/core/db.py` checks the file every 30s and, when it changed, opens a pool with the new user and closes
+the old one.
 `core_app` is a `NOLOGIN` group role holding grants and RLS policies; nothing connects as it directly
 (`SELECT rolname, rolcanlogin FROM pg_roles` shows `v-token-core-app-...` rows).
 
-`/health/deps` reports `postgres`, `vault` (token valid) and `secrets` (every file loads with its
+`/health/deps` reports `postgres` and `secrets` (every file loads with its
 required keys). Migrations are applied by hand as the `postgres` superuser (see below), not by
 `core-api`.
 

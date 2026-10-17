@@ -2,9 +2,6 @@
 pg:
   host: localhost
   database: core
-vault:
-  addr: http://localhost:8200
-  token_file: ../.local/secrets/vault-token
 zitadel:
   issuer: http://zitadel.monorepo.orb.local:8080
 auth:
@@ -18,6 +15,7 @@ observability:
 # Relative paths resolve against core-api/. The hostnames inside the secret files are the compose
 # service names, so anything that calls minio/lakefs from the host needs them reachable (OrbStack).
 secrets:
+  db: ../.local/secrets/db.json
   lakefs: ../.local/secrets/lakefs.json
   labelstudio: ../.local/secrets/labelstudio.json
   zitadel: ../.local/secrets/zitadel.json

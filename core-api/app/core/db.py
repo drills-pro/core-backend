@@ -4,34 +4,37 @@ import logging
 
 import asyncpg
 
-from app.core import vault
+from app.core import secret_files
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
 PG = settings.pg
+# How often to look for rotated credentials. The Vault agent writes the new user well before the old lease
+# is revoked (it renews until max_ttl, then issues a new one), so a 30s lag is harmless.
+WATCH_SECONDS = 30
 
 _pool: asyncpg.Pool | None = None
-_refresh_task: asyncio.Task | None = None
+_pool_creds: dict | None = None
+_watch_task: asyncio.Task | None = None
 _pool_lock = asyncio.Lock()
 
 
 async def get_pool() -> asyncpg.Pool:
-    global _pool
+    global _watch_task
     if _pool is None:
-        # Single-flight: concurrent first requests would otherwise each build a pool
-        # (and each burn a Vault credential), leaking all but the last.
+        # Single-flight: concurrent first requests would otherwise each build a pool, leaking all but the last.
         async with _pool_lock:
             if _pool is None:
-                _start_refresh_loop(await _rotate())
+                await _rotate(secret_files.get("db"))
+                _watch_task = asyncio.create_task(_watch())
     return _pool
 
 
-async def _rotate() -> int:
-    """Issue fresh Vault-backed credentials, swap the pool, return the lease TTL."""
-    global _pool
-    username, password, lease_seconds = vault.get_db_creds()
-    dsn = f"postgresql://{username}:{password}@{PG.host}:{PG.port}/{PG.database}"
+async def _rotate(creds: dict) -> None:
+    """Open a pool with these credentials (the `db` secret file) and swap it in."""
+    global _pool, _pool_creds
+    dsn = f"postgresql://{creds['username']}:{creds['password']}@{PG.host}:{PG.port}/{PG.database}"
 
     async def _init(conn):
         # Without this, jsonb columns (training_runs.config/metrics/model_artifact,
@@ -46,27 +49,18 @@ async def _rotate() -> int:
         max_size=PG.pool_max,
         command_timeout=PG.command_timeout,
     )
-    old_pool, _pool = _pool, new_pool
+    old_pool, _pool, _pool_creds = _pool, new_pool, creds
     if old_pool is not None:
         await old_pool.close()
-    logger.info("rotated db creds, lease=%ss", lease_seconds)
-    return lease_seconds
+    logger.info("db pool opened as %s", creds["username"])
 
 
-def _start_refresh_loop(lease_seconds: int) -> None:
-    global _refresh_task
-    if _refresh_task is None:
-        _refresh_task = asyncio.create_task(_refresh_loop(lease_seconds))
-
-
-async def _refresh_loop(lease_seconds: int) -> None:
-    # ponytail: re-fetch at 50% of the lease TTL rather than tracking Vault's
-    # renew API precisely — simple and plenty for a dev-mode Vault. Swap for
-    # proper lease renewal if a real Vault deployment's TTL policy needs it.
+async def _watch() -> None:
     while True:
-        await asyncio.sleep(max(lease_seconds // 2, 30))
+        await asyncio.sleep(WATCH_SECONDS)
         try:
-            lease_seconds = await _rotate()
-        except Exception:  # noqa: BLE001 - a dead loop means expired creds; keep trying on the old pool
-            logger.exception("db cred rotation failed; retrying in 30s")
-            lease_seconds = 60
+            creds = secret_files.get("db")  # one stat() unless the file changed
+            if creds != _pool_creds:
+                await _rotate(creds)
+        except Exception:  # noqa: BLE001 - keep serving on the old pool; the next tick retries
+            logger.exception("db credential rotation failed; retrying in %ss", WATCH_SECONDS)

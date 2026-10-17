@@ -1,7 +1,7 @@
 # Defaults for every environment. Non-secret only: secrets are referenced by the path of the JSON
 # file that holds them (secrets: below), never by value. Per-environment files override this one;
 # CORE_<SECTION>__<KEY> environment variables override both (e.g. CORE_PG__HOST=...).
-# Service hostnames are deliberately absent here: each environment must set pg.host, vault.addr,
+# Service hostnames are deliberately absent here: each environment must set pg.host,
 # ray.dashboard, mlflow.url and observability.otlp_endpoint (prod via the deploy ConfigMap), so a
 # missing one fails at startup instead of silently pointing at a compose name.
 pg:
@@ -10,9 +10,6 @@ pg:
   pool_min: 2
   pool_max: 20
   command_timeout: 30
-
-vault:                       # Vault issues only the dynamic Postgres credentials
-  token_file: /vault/secrets/token
 
 zitadel:
   issuer: http://zitadel.monorepo.orb.local:8080
@@ -33,6 +30,7 @@ public:                      # browser-facing, not the in-network names
   labelstudio_endpoint: http://labelstudio.monorepo.orb.local:8080
 
 secrets:                     # paths of JSON files, mounted into the pod (Vault Agent Injector in prod)
+  db: /vault/secrets/db      # Postgres creds from Vault's database engine (k8s apps/_components/vault-db-creds)
   lakefs: /var/app-secret/app-backend/lakefs
   labelstudio: /var/app-secret/app-backend/labelstudio
   zitadel: /var/app-secret/app-backend/zitadel

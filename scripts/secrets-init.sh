@@ -12,8 +12,5 @@ KEY="AKIAIOSFODNN7EXAMPLE"
 SECRET="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
 write_secret lakefs.json endpoint "http://lakefs:8000" access_key "$KEY" secret_key "$SECRET"
-mkdir -p "$SECRETS_DIR"
-printf 'root' > "$SECRETS_DIR/vault-token"   # the dev Vault's root token (docker-compose.yml)
-chmod 644 "$SECRETS_DIR/vault-token"
 
-echo "secrets: $SECRETS_DIR (lakefs, vault-token)"
+echo "secrets: $SECRETS_DIR (lakefs)"

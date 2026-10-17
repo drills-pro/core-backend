@@ -11,13 +11,13 @@ Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the
 
 ```bash
 mise install
-./scripts/secrets-init.sh          # .local/secrets/lakefs.json + vault-token
+./scripts/secrets-init.sh          # .local/secrets/lakefs.json
 docker compose up --build -d
 ./scripts/zitadel-bootstrap.sh     # first time only: creates the Zitadel project and apps (re-running duplicates them)
-./scripts/bootstrap.sh             # vault DB engine, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
+./scripts/bootstrap.sh             # vault DB engine + .local/secrets/db.json, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
 ```
 
-After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (idempotent). Vault is in dev mode (in memory): a restart loses the Postgres credential role until bootstrap runs. Static secret files live in `.local/secrets/` (gitignored) and survive.
+After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (idempotent). Vault is in dev mode (in memory): a restart loses the database engine; `db.json` keeps working until its 768h lease lapses, then re-run bootstrap. Static secret files live in `.local/secrets/` (gitignored) and survive.
 
 ## Everyday
 
@@ -28,7 +28,7 @@ After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (i
 | Which dependency is down | `curl localhost:8090/health/deps` (compose) |
 
 - `APP_ENV` is required: `local` (host process), `compose` (set by docker-compose.yml), `test` (set by `tests/conftest.py`).
-- The `secrets` entry in `/health/deps` names a missing file or key. `vault: error` means the dev Vault was restarted: run `./scripts/bootstrap.sh`.
+- The `secrets` entry in `/health/deps` names a missing file or key. `postgres: error` with an auth failure means `db.json` is missing or expired: run `./scripts/bootstrap.sh`.
 - Host-run (`APP_ENV=local`) reaches lakeFS and MinIO through the hostnames inside the secret files, which only resolve on OrbStack; otherwise run core-api in compose.
 - `uv run pytest` may not resolve under the rtk shim; use `.venv/bin/python -m pytest`.
 - Do not run `docker compose down -v` without asking: Postgres and Zitadel state live in those volumes.

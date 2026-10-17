@@ -15,7 +15,7 @@ The interface is `docs/runtime-contract.md`. The `k8s` repo is a sibling directo
 | New or renamed secret / key | seed it in `bootstrap/04-vault-seed-secrets.sh`; injector template picks it up |
 | New dependency the backend calls | `apps/*/networkpolicy.yaml` allow rule |
 | New port, probe path, hostname | `apps/backend/deployment.yaml`, `ingress.yaml` |
-| New Postgres role or database | `apps/postgres/`, `apps/vault-roles/config/` (skill `postgres-setup` in that repo) |
+| New Postgres role or database | `apps/backend/db/`, `apps/platform-base/vault-roles/config/` (skill `postgres-setup` in that repo) |
 | Image name or CI change | `.github/workflows/docker-publish.yml` calls `k8s/.github/workflows/bump-image.yml` |
 
 ## Rules

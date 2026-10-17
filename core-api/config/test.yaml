@@ -1,9 +1,6 @@
 # pytest: no network, no dev headers, secret files that do not exist (tests fake what they need).
 pg:
   host: localhost
-vault:
-  addr: http://localhost:8200
-  token_file: /nonexistent/vault-token
 ray:
   dashboard: http://localhost:8265
 mlflow:
@@ -11,6 +8,7 @@ mlflow:
 observability:
   otlp_endpoint: http://localhost:4317
 secrets:
+  db: /nonexistent/db.json
   lakefs: /nonexistent/lakefs.json
   labelstudio: /nonexistent/labelstudio.json
   zitadel: /nonexistent/zitadel.json

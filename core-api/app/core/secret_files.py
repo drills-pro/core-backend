@@ -13,6 +13,7 @@ from app.core.settings import settings
 # name -> keys every consumer relies on; a file missing one fails here, with the path, not as a
 # KeyError deep in a request.
 REQUIRED: dict[str, tuple[str, ...]] = {
+    "db": ("username", "password"),
     "lakefs": ("endpoint", "access_key", "secret_key"),
     "labelstudio": ("url", "refresh_token"),
     "zitadel": ("USER_ID", "KEY_ID", "PRIVATE_KEY"),

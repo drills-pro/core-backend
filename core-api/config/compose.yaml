@@ -5,10 +5,8 @@ auth:
 pg:
   host: postgres
   database: core
-vault:
-  addr: http://vault:8200
-  token_file: /var/app-secret/app-backend/vault-token
 secrets:
+  db: /var/app-secret/app-backend/db.json
   lakefs: /var/app-secret/app-backend/lakefs.json
   labelstudio: /var/app-secret/app-backend/labelstudio.json
   zitadel: /var/app-secret/app-backend/zitadel.json

@@ -8,7 +8,7 @@ import boto3
 import httpx
 from fastapi import APIRouter
 
-from app.core import db, secret_files, vault
+from app.core import db, secret_files
 from app.core.settings import settings
 
 router = APIRouter(tags=["health"])
@@ -23,7 +23,6 @@ async def health():
 async def health_deps():
     return {
         "postgres": await _check_postgres(),
-        "vault": _check_vault(),
         "secrets": _check_secrets(),
         "lakefs_s3": _check_lakefs(),
         "zitadel": await _check_http(f"{settings.zitadel.issuer}/.well-known/openid-configuration"),
@@ -33,22 +32,15 @@ async def health_deps():
 
 
 async def _check_postgres() -> str:
-    # Reuses the app's own connection pool (dynamic Vault-issued creds, database/creds/core-app)
-    # instead of a separate static superuser DSN — proves the real data path works, not a
-    # parallel one the app-backend Vault role was never even authorized to use.
+    # Reuses the app's own connection pool (the `db` secret file: Vault-issued creds,
+    # database/creds/core-app) instead of a separate static superuser DSN — proves the real data
+    # path works, not a parallel one.
     try:
         pool = await db.get_pool()
         async with pool.acquire() as conn:
             await conn.execute("SELECT 1")
         return "ok"
     except Exception as e:  # noqa: BLE001 - health check, report any failure
-        return f"error: {e}"
-
-
-def _check_vault() -> str:
-    try:
-        return "ok" if vault.is_authenticated() else "error: token rejected"
-    except Exception as e:  # noqa: BLE001
         return f"error: {e}"
 
 

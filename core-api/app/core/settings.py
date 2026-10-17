@@ -40,11 +40,6 @@ class Pg(_Section):
     command_timeout: float
 
 
-class Vault(_Section):
-    addr: str
-    token_file: Path
-
-
 class Zitadel(_Section):
     issuer: str
     project_id: str
@@ -74,6 +69,7 @@ class Public(_Section):
 
 
 class SecretPaths(_Section):
+    db: Path  # {"username", "password"} for Postgres; the Vault agent rewrites it on rotation
     lakefs: Path
     labelstudio: Path
     zitadel: Path
@@ -85,7 +81,6 @@ class Settings(BaseSettings):
 
     env: str
     pg: Pg
-    vault: Vault
     zitadel: Zitadel
     auth: Auth
     ray: Ray
@@ -110,13 +105,10 @@ class Settings(BaseSettings):
             # Client-controlled headers must never stand in for a token in the cluster.
             if self.auth.dev_headers:
                 raise ValueError("auth.dev_headers must not be enabled when APP_ENV=prod")
-            relative = [n for n, p in self.secrets if not p.is_absolute()] + (
-                [] if self.vault.token_file.is_absolute() else ["vault.token_file"]
-            )
+            relative = [n for n, p in self.secrets if not p.is_absolute()]
             if relative:
                 raise ValueError(f"prod secret paths must be absolute: {relative}")
         # Relative paths (local dev) are relative to core-api/, not to the process's cwd.
-        self.vault.token_file = CORE_API_DIR / self.vault.token_file
         for name, path in self.secrets:
             setattr(self.secrets, name, CORE_API_DIR / path)
         return self

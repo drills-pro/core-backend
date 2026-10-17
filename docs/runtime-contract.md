@@ -38,23 +38,25 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 
 | Secret | Cluster path | Keys |
 |---|---|---|
+| `db` | `/vault/secrets/db` (k8s `apps/_components/vault-db-creds`, from `database/creds/core-app`) | `username`, `password`; the pool switches when the file changes |
 | `lakefs` | `/var/app-secret/app-backend/lakefs` | `endpoint`, `access_key`, `secret_key` |
 | `labelstudio` | `/var/app-secret/app-backend/labelstudio` | `url`, `refresh_token` |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |
 | `zitadel_oidc` | `/var/app-secret/app-backend/zitadel-oidc` | optional in prod (project id is in `prod.yaml`); local dev fallback |
 
 In the cluster the Vault Agent Injector renders one file per key under `app-secret/app-backend/*`
-(`deployment.yaml` template). Locally `scripts/secrets-init.sh` and the bootstrap scripts write the same
+(k8s `apps/_components/vault-agent`, derived from the ServiceAccount `app-backend`). Locally `scripts/secrets-init.sh` and the bootstrap scripts write the same
 shapes to `.local/secrets/` (gitignored); compose mounts that directory at the cluster path.
 
-The one thing still read from Vault's API is the **dynamic Postgres credential**
-(`database/creds/core-app`), using the token file at `vault.token_file` (`/vault/secrets/token`).
+core-api makes no Vault API calls: the Vault agent sidecar renews the Postgres lease and rewrites
+`/vault/secrets/db` when it has to issue a new user. The k8s side keeps `agent-inject-token` only until
+this image is deployed; it can be removed after.
 
 ## Other expectations of the cluster
 
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
 - Postgres is the per-app CNPG cluster `pg-backend` (host in `prod.yaml`); Vault's `core-app` role must point at the same cluster or logins fail with "password authentication failed".
-- Egress used: Postgres, Vault, OTel gateway, Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
+- Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
 - Migrations: `core-api/migrations/*.sql`, applied by hand as the `postgres` superuser (README), not by the app or an init container.
 
 ## Models, experiments and MLflow
