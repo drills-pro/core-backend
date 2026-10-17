@@ -9,8 +9,7 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 
-from app.core import secret_files
-from app.integrations import ray_client
+from app.integrations import mlflow_client, ray_client
 
 RAY_SERVE_HTTP = "http://ray-head:8000"
 
@@ -46,19 +45,14 @@ print("metric:deployed=1")
 _ONNX_SERVE_TEMPLATE = """
 import base64, io, json
 import numpy as np
-import boto3
-from botocore.client import Config
+import urllib.request
 from PIL import Image
 from ray import serve
 from starlette.requests import Request
 import onnxruntime as ort
 
 class_names = {class_names!r}
-onnx_key = {onnx_key!r}
-s3_endpoint = {s3_endpoint!r}
-s3_bucket = {s3_bucket!r}
-s3_access_key = {s3_access_key!r}
-s3_secret_key = {s3_secret_key!r}
+model_url = {model_url!r}
 
 @serve.deployment
 class Predictor:
@@ -67,10 +61,8 @@ class Predictor:
         # onnxruntime InferenceSession can't be pickled, and Ray Serve
         # only pickles the class definition to distribute it, not
         # module-level objects captured in a closure.
-        s3 = boto3.client("s3", endpoint_url=s3_endpoint,
-            aws_access_key_id=s3_access_key, aws_secret_access_key=s3_secret_key,
-            config=Config(signature_version="s3v4"))
-        onnx_bytes = s3.get_object(Bucket=s3_bucket, Key=onnx_key)["Body"].read()
+        # The model is an artifact of the training run's MLflow run (core-api authorized this deployment).
+        onnx_bytes = urllib.request.urlopen(model_url, timeout=120).read()
         self.session = ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
 
@@ -110,14 +102,9 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     if "onnx_key" in weights:
-        model_store = secret_files.get("s3")
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
-            onnx_key=weights["onnx_key"],
+            model_url=f"{mlflow_client.ARTIFACTS_API}/{weights['onnx_key']}",
             class_names=weights["class_names"],
-            s3_endpoint=model_store["S3_ENDPOINT"],
-            s3_bucket=model_store["S3_BUCKET"],
-            s3_access_key=model_store["AWS_ACCESS_KEY_ID"],
-            s3_secret_key=model_store["AWS_SECRET_ACCESS_KEY"],
             name=name,
             route_prefix=route_prefix,
         )

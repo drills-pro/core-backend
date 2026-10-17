@@ -11,7 +11,7 @@ Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the
 
 ```bash
 mise install
-./scripts/secrets-init.sh          # .local/secrets/{s3,lakefs}.json + vault-token
+./scripts/secrets-init.sh          # .local/secrets/lakefs.json + vault-token
 docker compose up --build -d
 ./scripts/zitadel-bootstrap.sh     # first time only: creates the Zitadel project and apps (re-running duplicates them)
 ./scripts/bootstrap.sh             # vault DB engine, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps

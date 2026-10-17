@@ -74,7 +74,6 @@ class Public(_Section):
 
 
 class SecretPaths(_Section):
-    s3: Path
     lakefs: Path
     labelstudio: Path
     zitadel: Path

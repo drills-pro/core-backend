@@ -39,15 +39,15 @@ def test_prod_refuses_dev_headers(monkeypatch):
 
 
 def test_prod_refuses_relative_secret_paths(monkeypatch):
-    monkeypatch.setenv("CORE_SECRETS__S3", "relative/minio.json")
+    monkeypatch.setenv("CORE_SECRETS__LAKEFS", "relative/minio.json")
     with pytest.raises(ValueError, match="absolute"):
         load("prod")
 
 
 def test_relative_secret_paths_resolve_against_core_api_not_cwd(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    path = load("local").secrets.s3
-    assert path.is_absolute() and path.name == "s3.json" and tmp_path not in path.parents
+    path = load("local").secrets.lakefs
+    assert path.is_absolute() and path.name == "lakefs.json" and tmp_path not in path.parents
 
 
 _SECRETISH = re.compile(r"password|secret|token|private|api_?key|credential", re.I)
@@ -71,27 +71,27 @@ def test_committed_config_holds_no_secret_values(path):
 
 
 @pytest.fixture
-def s3_file(monkeypatch, tmp_path):
-    path = tmp_path / "s3.json"
-    monkeypatch.setattr(settings.secrets, "s3", path)
+def lakefs_file(monkeypatch, tmp_path):
+    path = tmp_path / "lakefs.json"
+    monkeypatch.setattr(settings.secrets, "lakefs", path)
     secret_files._cache.clear()
     return path
 
 
-def test_secret_reread_when_file_changes(s3_file):
-    s3_file.write_text(json.dumps({"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "1", "S3_ENDPOINT": "e", "S3_BUCKET": "b"}))
-    assert secret_files.get("s3")["AWS_SECRET_ACCESS_KEY"] == "1"
-    s3_file.write_text(json.dumps({"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "2", "S3_ENDPOINT": "e", "S3_BUCKET": "b"}))
-    os.utime(s3_file, ns=(1, s3_file.stat().st_mtime_ns + 1_000_000))  # rotation bumps mtime
-    assert secret_files.get("s3")["AWS_SECRET_ACCESS_KEY"] == "2"
+def test_secret_reread_when_file_changes(lakefs_file):
+    lakefs_file.write_text(json.dumps({"endpoint": "e", "access_key": "a", "secret_key": "1"}))
+    assert secret_files.get("lakefs")["secret_key"] == "1"
+    lakefs_file.write_text(json.dumps({"endpoint": "e", "access_key": "a", "secret_key": "2"}))
+    os.utime(lakefs_file, ns=(1, lakefs_file.stat().st_mtime_ns + 1_000_000))  # rotation bumps mtime
+    assert secret_files.get("lakefs")["secret_key"] == "2"
 
 
-def test_secret_errors_name_the_file(s3_file):
+def test_secret_errors_name_the_file(lakefs_file):
     with pytest.raises(secret_files.SecretError, match="no file at"):
-        secret_files.get("s3")
-    s3_file.write_text(json.dumps({"AWS_ACCESS_KEY_ID": "a"}))
-    with pytest.raises(secret_files.SecretError, match="S3_BUCKET"):
-        secret_files.get("s3")
+        secret_files.get("lakefs")
+    lakefs_file.write_text(json.dumps({"endpoint": "e"}))
+    with pytest.raises(secret_files.SecretError, match="secret_key"):
+        secret_files.get("lakefs")
 
 
 def test_prod_has_the_zitadel_project_id():

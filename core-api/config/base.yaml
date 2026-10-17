@@ -37,7 +37,6 @@ public:                      # browser-facing, not the in-network names
   labelstudio_endpoint: http://labelstudio.monorepo.orb.local:8080
 
 secrets:                     # paths of JSON files, mounted into the pod (Vault Agent Injector in prod)
-  s3: /var/app-secret/app-backend/s3
   lakefs: /var/app-secret/app-backend/lakefs
   labelstudio: /var/app-secret/app-backend/labelstudio
   zitadel: /var/app-secret/app-backend/zitadel

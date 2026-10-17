@@ -39,7 +39,10 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
 
     model_artifact = None  # only set below when freshly parsed; COALESCE in the UPDATE preserves any existing value
     metrics = None
-    if new_status in ("succeeded", "failed") and row["mlflow_run_id"] is None:
+    mlflow_run_id = row["mlflow_run_id"]
+    if new_status == "cancelled" and mlflow_run_id:
+        await mlflow_client.finish_run(run_id=mlflow_run_id, status="KILLED")
+    if new_status in ("succeeded", "failed"):
         logs = await ray_client.get_logs(row["ray_job_id"])
         scalar_metrics = ray_client.parse_metrics(logs)
         # epoch_history/confusion_matrix are structured, not floats — MLflow's
@@ -47,16 +50,18 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
         # row (below) but never sent to MLflow.
         metrics = {**scalar_metrics, **ray_client.parse_extra_metrics(logs)}
         model_artifact = ray_client.parse_model_artifact(logs)
-        mlflow_run_id = await mlflow_client.log_training_run(
-            tenant_id=tenant_id,
-            project_id=str(row["project_id"]),
-            dataset_ref=row["dataset_ref"],
+        if mlflow_run_id is None:  # submitted before runs were created at submit time
+            mlflow_run_id, _ = await mlflow_client.start_run(
+                tenant_id=tenant_id, project_id=str(row["project_id"]), dataset_ref=row["dataset_ref"]
+            )
+        await mlflow_client.finish_run(
+            run_id=mlflow_run_id,
+            status="FINISHED" if new_status == "succeeded" else "FAILED",
             metrics=scalar_metrics,
-            succeeded=(new_status == "succeeded"),
         )
         if new_status == "succeeded":
             elapsed = (completed_at - row["created_at"]).total_seconds()
-            await usage.record_usage(
+            await record_usage(
                 conn,
                 tenant_id=tenant_id,
                 project_id=row["project_id"],
@@ -66,8 +71,6 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
                 occurred_at=completed_at,
                 source_ref=row["ray_job_id"],
             )
-    else:
-        mlflow_run_id = row["mlflow_run_id"]
 
     if new_status in ("succeeded", "failed", "cancelled"):
         app_metrics.training_runs_total.add(1, {"status": new_status})

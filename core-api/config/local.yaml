@@ -19,7 +19,6 @@ observability:
 # Relative paths resolve against core-api/. The hostnames inside the secret files are the compose
 # service names, so anything that calls minio/lakefs from the host needs them reachable (OrbStack).
 secrets:
-  s3: ../.local/secrets/s3.json
   lakefs: ../.local/secrets/lakefs.json
   labelstudio: ../.local/secrets/labelstudio.json
   zitadel: ../.local/secrets/zitadel.json

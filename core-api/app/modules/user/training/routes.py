@@ -1,8 +1,10 @@
 """HTTP surface for training runs. Domain transitions live in
 app/modules/training/service.py, which the background poller shares.
 """
+import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
 from app.core.settings import settings
@@ -11,10 +13,22 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, mlflow_client, ray_client
 from app.modules.user.training.service import RAY_TO_STATUS, transition
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
 
 MAX_CONCURRENT = settings.ray.max_concurrent_training_runs
 MIN_LABELED_SAMPLES = 10  # FR3 (03-dataset-governance.md)
+
+
+async def _close_run(mlflow_run_id: str | None, status: str) -> None:
+    """Best effort: a tracking hiccup must not mask the error or block a cancel."""
+    if mlflow_run_id is None:
+        return
+    try:
+        await mlflow_client.finish_run(run_id=mlflow_run_id, status=status)
+    except httpx.HTTPError:
+        logger.warning("could not close MLflow run %s as %s", mlflow_run_id, status, exc_info=True)
 
 
 @router.post("", status_code=202)
@@ -113,23 +127,36 @@ async def create_training_run(
         if "base_model" not in config and settings.get("base_model"):
             config = {**config, "base_model": settings["base_model"]}
 
-        ray_job_id = await ray_client.submit_job(
-            tenant_id=tenant_id,
-            project_id=str(project_id),
-            dataset_ref=dataset_ref,
-            config=config,
-            file_keys=file_keys,
-            dataset_id=str(dataset_id) if dataset_id else None,
-            dataset_version=dataset_version,
-            test_file_keys=test_file_keys,
-            test_dataset_id=str(test_dataset_id) if test_dataset_id else None,
-            test_dataset_version=test_dataset_version,
-            compute_target=settings.get("compute_target", "cpu"),
-        )
+        # The MLflow run exists before the job does: the trainer uploads the model into it, and a run
+        # row can never point at a run that was not created for this tenant and project.
+        try:
+            mlflow_run_id, mlflow_artifact_path = await mlflow_client.start_run(
+                tenant_id=tenant_id, project_id=str(project_id), dataset_ref=dataset_ref
+            )
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail="experiment tracking is unavailable") from e
+        try:
+            ray_job_id = await ray_client.submit_job(
+                tenant_id=tenant_id,
+                project_id=str(project_id),
+                dataset_ref=dataset_ref,
+                config=config,
+                file_keys=file_keys,
+                dataset_id=str(dataset_id) if dataset_id else None,
+                dataset_version=dataset_version,
+                test_file_keys=test_file_keys,
+                test_dataset_id=str(test_dataset_id) if test_dataset_id else None,
+                test_dataset_version=test_dataset_version,
+                compute_target=settings.get("compute_target", "cpu"),
+                mlflow_artifact_path=mlflow_artifact_path,
+            )
+        except Exception:
+            await _close_run(mlflow_run_id, "FAILED")
+            raise
         row = await conn.fetchrow(
             "INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, dataset_ref, config, "
-            "dataset_id, dataset_version, test_dataset_id, test_dataset_version, reproduction_group_id) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+            "dataset_id, dataset_version, test_dataset_id, test_dataset_version, reproduction_group_id, mlflow_run_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
             "RETURNING id, status, ray_job_id, config, dataset_id, dataset_version, test_dataset_id, "
             "test_dataset_version, reproduction_group_id",
             tenant_id,
@@ -143,6 +170,7 @@ async def create_training_run(
             test_dataset_id,
             test_dataset_version,
             reproduction_group_id,
+            mlflow_run_id,
         )
     return dict(row)
 
@@ -253,9 +281,6 @@ async def get_training_run_lineage(
     return {
         "training_run": dict(run),
         "dataset_commit_message": commit_message,
-        "mlflow_run_url": f"{mlflow_client.MLFLOW_URL}/#/experiments/0/runs/{run['mlflow_run_id']}"
-        if run["mlflow_run_id"]
-        else None,
         "model_version": dict(model) if model else None,
         "deployment": dict(deployment) if deployment else None,
     }
@@ -279,4 +304,5 @@ async def cancel_training_run(
             "WHERE id = $1 RETURNING *",
             run_id,
         )
+    await _close_run(row["mlflow_run_id"], "KILLED")
     return dict(updated)

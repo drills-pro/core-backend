@@ -7,7 +7,6 @@ pg:
 vault:
   token_file: /var/app-secret/app-backend/vault-token
 secrets:
-  s3: /var/app-secret/app-backend/s3.json
   lakefs: /var/app-secret/app-backend/lakefs.json
   labelstudio: /var/app-secret/app-backend/labelstudio.json
   zitadel: /var/app-secret/app-backend/zitadel.json

@@ -38,7 +38,6 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 
 | Secret | Cluster path | Keys |
 |---|---|---|
-| `s3` | `/var/app-secret/app-backend/s3` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_BUCKET` (the platform bucket: trained models under `models/`, pictures; datasets go through lakeFS) |
 | `lakefs` | `/var/app-secret/app-backend/lakefs` | `endpoint`, `access_key`, `secret_key` |
 | `labelstudio` | `/var/app-secret/app-backend/labelstudio` | `url`, `refresh_token` |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |
@@ -56,3 +55,19 @@ The one thing still read from Vault's API is the **dynamic Postgres credential**
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
 - Egress used: Postgres, Vault, OTel gateway, Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
 - Migrations: `core-api/migrations/*.sql`, applied by hand as the `postgres` superuser (README), not by the app or an init container.
+
+## Models, experiments and MLflow
+
+MLflow is internal (NetworkPolicy: `platform` namespace only, plus the `ray` namespace for artifact
+transfer) and core-api is the only door customers have to it.
+
+- **Isolation:** experiments are `tenants/<tenant>/projects/<project>`, registered models are
+  `<tenant>.<project>.<name>`. Routes reach MLflow ids only through `training_runs` and
+  `model_versions` rows (RLS plus the project filter), never from client input.
+- **Run at submit:** `POST .../training-runs` creates the MLflow run, stores `mlflow_run_id`, and passes
+  the run's artifact path to the job. core-api logs metrics and closes the run when the job ends.
+- **Trainer upload:** the Ray job `PUT`s `model.onnx` and `model.json` to MLflow's artifact API
+  (`/api/2.0/mlflow-artifacts/artifacts/<exp>/<run>/artifacts/model/...`). MLflow's `--serve-artifacts`
+  stores them in the bucket, so core-api and the trainers hold no storage credential for models.
+- **Serving:** the deployment script downloads the same artifact path from MLflow's artifact API.
+- **k8s:** the `ray` namespace needs a NetworkPolicy allowing ingress to `app=mlflow` on port 5000.

@@ -12,7 +12,7 @@ import httpx
 
 from app.core import secret_files
 from app.core.settings import settings
-from app.integrations import lakefs_client
+from app.integrations import lakefs_client, mlflow_client
 
 RAY_DASHBOARD = settings.ray.dashboard
 
@@ -258,20 +258,19 @@ print(f"metrics_json:{{json.dumps({{'epoch_history': epoch_history, 'confusion_m
 # req/06 Ultralytics FR3: "Export trained weights to ONNX at minimum, for
 # BentoML/Ray Serve packaging." Real export, real upload — this is what
 # app/integrations/serve_client.py's ONNX deployment path actually loads and runs.
-import boto3 as _boto3
-from botocore.client import Config as _Config
+import urllib.request as _urlreq
 onnx_path = model.export(format="onnx", imgsz=(64 if task == "detect" else 32), opset=17)
-onnx_key = f"models/{seed}/model.onnx"
-# Deliberately the platform's own bucket (the `s3` secret), not the LakeFS-gateway
-# creds used above for training data — model artifacts aren't
-# dataset-versioned, and app/integrations/serve_client.py's deployment path reads
-# them from this bucket directly.
-s3_upload = _boto3.client("s3", endpoint_url={model_s3_endpoint!r},
-    aws_access_key_id={model_s3_access_key!r}, aws_secret_access_key={model_s3_secret_key!r},
-    config=_Config(signature_version="s3v4"))
+onnx_key = {model_artifact_path!r} + "/model.onnx"
+# The model is an artifact of this job's MLflow run (created by core-api at submit, which also
+# authorizes who may read it). Upload goes to MLflow's artifact API, not to a bucket: the trainer
+# holds no storage credential. app/integrations/serve_client.py downloads it from the same API.
+def _put_artifact(key, data):
+    _urlreq.urlopen(_urlreq.Request({mlflow_artifacts_api!r} + "/" + key, data=data, method="PUT"), timeout=300).read()
 with open(onnx_path, "rb") as f:
-    s3_upload.put_object(Bucket={model_s3_bucket!r}, Key=onnx_key, Body=f.read())
+    _put_artifact(onnx_key, f.read())
 class_names = [model.names[i] for i in sorted(model.names)]
+_put_artifact({model_artifact_path!r} + "/model.json",
+    json.dumps({{"format": "onnx", "class_names": class_names, "task": task}}).encode())
 print(f"model:{{json.dumps({{'onnx_key': onnx_key, 'class_names': class_names, 'task': task}})}}")
 """
 
@@ -492,6 +491,7 @@ def _build_entrypoint(
     test_file_keys: list[str] | None = None,
     test_dataset_id: str | None = None,
     test_dataset_version: str | None = None,
+    mlflow_artifact_path: str | None = None,
 ) -> str:
     seed = int(hashlib.sha256(dataset_ref.encode()).hexdigest(), 16) % (2**32)
     test_split = float(config.get("test_split", 0.2))
@@ -525,8 +525,9 @@ def _build_entrypoint(
             s3_secret_key=lakefs_creds["secret_key"],
         )
     elif config.get("backend") == "ultralytics":
+        if not mlflow_artifact_path:
+            raise ValueError("the ultralytics backend needs the MLflow run's artifact path")
         lakefs_creds = secret_files.get("lakefs")
-        model_store = secret_files.get("s3")
         script = textwrap.dedent(_ULTRALYTICS_TEMPLATE).format(
             seed=seed,
             epochs={**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}["epochs"],
@@ -540,10 +541,8 @@ def _build_entrypoint(
             s3_endpoint=lakefs_creds["endpoint"],
             s3_access_key=lakefs_creds["access_key"],
             s3_secret_key=lakefs_creds["secret_key"],
-            model_s3_endpoint=model_store["S3_ENDPOINT"],
-            model_s3_bucket=model_store["S3_BUCKET"],
-            model_s3_access_key=model_store["AWS_ACCESS_KEY_ID"],
-            model_s3_secret_key=model_store["AWS_SECRET_ACCESS_KEY"],
+            mlflow_artifacts_api=mlflow_client.ARTIFACTS_API,
+            model_artifact_path=f"{mlflow_artifact_path}/model",
         )
     else:
         trainer = {**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}
@@ -570,6 +569,7 @@ async def submit_job(
     test_dataset_id: str | None = None,
     test_dataset_version: str | None = None,
     compute_target: str = "cpu",
+    mlflow_artifact_path: str | None = None,
 ) -> str:
     return await submit_raw_job(
         entrypoint=_build_entrypoint(
@@ -581,6 +581,7 @@ async def submit_job(
             test_file_keys,
             test_dataset_id,
             test_dataset_version,
+            mlflow_artifact_path,
         ),
         metadata={"tenant_id": tenant_id, "project_id": project_id, "dataset_ref": dataset_ref},
         num_gpus=1 if compute_target == "gpu" else 0,

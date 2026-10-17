@@ -1,6 +1,7 @@
+import re
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.core.tenancy import get_tenant_id
 from app.core.tenant_conn import TenantConn
@@ -11,11 +12,22 @@ router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 # req/06 FR2: registry stages map to customer-facing states.
 CUSTOMER_STAGE_LABELS = {"None": "internal only", "Staging": "candidate", "Production": "live/deployed"}
 VALID_STAGES = set(CUSTOMER_STAGE_LABELS)
+MODEL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+
+
+def _present(row, tenant_id: str, project_id: uuid.UUID) -> dict:
+    """Customers see the name they chose, not the tenant/project-namespaced MLflow name."""
+    out = dict(row)
+    out["mlflow_model_name"] = mlflow_client.display_name(out["mlflow_model_name"], tenant_id, str(project_id))
+    return out
 
 
 @router.post("/{training_run_id}/register", status_code=201)
 async def register_model(
-    project_id: uuid.UUID, training_run_id: uuid.UUID, name: str, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID,
+    training_run_id: uuid.UUID,
+    name: str = Query(pattern=MODEL_NAME.pattern),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     async with TenantConn(tenant_id) as conn:
         run = await conn.fetchrow(
@@ -28,17 +40,19 @@ async def register_model(
         if run["status"] != "succeeded" or run["mlflow_run_id"] is None:
             raise HTTPException(status_code=409, detail="training run has no completed MLflow run to register")
 
-        mlflow_version = await mlflow_client.register_model_version(name=name, run_id=run["mlflow_run_id"])
+        # Registered model names are global in MLflow, so the tenant and project are part of the name.
+        mlflow_name = mlflow_client.registered_model_name(tenant_id, str(project_id), name)
+        mlflow_version = await mlflow_client.register_model_version(name=mlflow_name, run_id=run["mlflow_run_id"])
         row = await conn.fetchrow(
             "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version) "
             "VALUES ($1, $2, $3, $4, $5) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at",
             tenant_id,
             project_id,
             training_run_id,
-            name,
+            mlflow_name,
             mlflow_version,
         )
-    return dict(row)
+    return _present(row, tenant_id, project_id)
 
 
 @router.get("")
@@ -49,7 +63,10 @@ async def list_models(project_id: uuid.UUID, tenant_id: str = Depends(get_tenant
             "WHERE project_id = $1 ORDER BY created_at DESC",
             project_id,
         )
-    return [{**dict(r), "customer_label": CUSTOMER_STAGE_LABELS.get(r["stage"], r["stage"])} for r in rows]
+    return [
+        {**_present(r, tenant_id, project_id), "customer_label": CUSTOMER_STAGE_LABELS.get(r["stage"], r["stage"])}
+        for r in rows
+    ]
 
 
 @router.post("/{model_version_id}/promote")
@@ -80,7 +97,7 @@ async def promote_model(
             model_version_id,
             stage,
         )
-    return {**dict(updated), "customer_label": CUSTOMER_STAGE_LABELS[stage]}
+    return {**_present(updated, tenant_id, project_id), "customer_label": CUSTOMER_STAGE_LABELS[stage]}
 
 
 @router.patch("/{model_version_id}/publish")

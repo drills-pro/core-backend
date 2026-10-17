@@ -43,8 +43,6 @@ esac
 # `local` is the alias the minio image configures for its own healthcheck.
 docker compose exec -T minio mc mb -p "local/$BUCKET" > /dev/null
 echo "minio bucket: $BUCKET"
-docker compose exec -T minio mc mb -p "local/platform" > /dev/null   # s3.json S3_BUCKET
-echo "minio bucket: platform"
 
 # --- the repository core-api expects ---
 REPO_CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "$AUTH" "$LAKEFS/api/v1/repositories/$REPO")
