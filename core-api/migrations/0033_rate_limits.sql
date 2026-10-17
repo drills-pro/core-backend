@@ -3,9 +3,10 @@
 -- losing the counters in a crash just resets everyone's window. Not tenant-scoped, no RLS.
 CREATE UNLOGGED TABLE IF NOT EXISTS rate_limits (
   key     text   NOT NULL,
-  window  bigint NOT NULL,  -- unix minute
+  -- unix minute. Not "window": that is a reserved word, which kept this file from ever applying.
+  minute  bigint NOT NULL,
   count   integer NOT NULL,
-  PRIMARY KEY (key, window)
+  PRIMARY KEY (key, minute)
 );
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON rate_limits TO core_app;

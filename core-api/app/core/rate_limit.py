@@ -17,8 +17,8 @@ async def check(key: str, limit_per_minute: int) -> bool:
     pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
-            "INSERT INTO rate_limits (key, window, count) VALUES ($1, $2, 1) "
-            "ON CONFLICT (key, window) DO UPDATE SET count = rate_limits.count + 1 RETURNING count",
+            "INSERT INTO rate_limits (key, minute, count) VALUES ($1, $2, 1) "
+            "ON CONFLICT (key, minute) DO UPDATE SET count = rate_limits.count + 1 RETURNING count",
             key,
             window,
         )
@@ -29,4 +29,4 @@ async def purge() -> None:
     """Poller: drop windows nobody will read again."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM rate_limits WHERE window < $1", int(time.time() // 60) - 5)
+        await conn.execute("DELETE FROM rate_limits WHERE minute < $1", int(time.time() // 60) - 5)
