@@ -1,11 +1,12 @@
+-- migrate:up
 -- Cross-tenant read of the audit trail, for the back-office activity log
 -- (app/modules/admin/activity).
 --
 -- audit_log is RLS-protected (0002) and the admin routes run on a
 -- connection that sets no `app.tenant_id`, so a plain SELECT there returns
 -- nothing at all — not a truncated list, an empty one. Same SECURITY
--- DEFINER escape as admin_tenant_stats (0025) and list_public_projects
--- (0021).
+-- DEFINER escape as admin_tenant_stats (0028) and list_public_projects
+-- (0024).
 --
 -- Unlike the admin counters, this one does hand back rows: rows are what an
 -- audit trail is, and the operator's back-office is the one audience
@@ -42,7 +43,7 @@ RETURNS TABLE(
   -- X-Total-Count header.
   total bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   WITH matching AS (
     SELECT a.id, a.tenant_id, t.name AS tenant_name,
            a.project_id, p.name AS project_name,
@@ -91,10 +92,15 @@ RETURNS TABLE(
   -- the count: one busy tenant and ten quiet ones read very differently.
   tenants_today bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT count(*) FILTER (WHERE created_at >= date_trunc('day', now())),
          count(DISTINCT tenant_id) FILTER (WHERE created_at >= date_trunc('day', now()))
   FROM audit_log;
 $$;
 REVOKE ALL ON FUNCTION admin_activity_stats() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_activity_stats() TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS admin_activity_stats();
+DROP FUNCTION IF EXISTS admin_activity(int, int, uuid, text, text, timestamptz);
+DROP INDEX IF EXISTS audit_log_created_at_idx;

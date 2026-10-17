@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - "core-api/**"
+      - "scripts/db-roles.sql"
+      - "scripts/lint-migrations.py"
+      - "scripts/migrations-check.sh"
   workflow_dispatch:
 
 env:
@@ -31,8 +34,17 @@ jobs:
             echo "tag=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
+  # The image ships /migrations and the cluster applies them before rolling out (backend-migrate Job),
+  # so a migration that fails here must not become an image.
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/lint-migrations.py core-api/migrations/*.sql
+      - run: ./scripts/migrations-check.sh
+
   build-core-api:
-    needs: changes
+    needs: [changes, migrations]
     if: needs.changes.outputs.core-api == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:

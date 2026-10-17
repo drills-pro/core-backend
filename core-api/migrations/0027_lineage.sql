@@ -1,3 +1,4 @@
+-- migrate:up
 -- Reproducibility and lineage (improvement/phase2/05-reproducibility-lineage.md).
 -- Additive, layers on top of 02/03/06/07/08's schema per 11-migration-phasing.md step 7.
 
@@ -14,3 +15,7 @@ CREATE INDEX IF NOT EXISTS training_runs_reproduction_group_idx ON training_runs
 -- rows just have no dataset linkage recorded, same as today.
 ALTER TABLE training_runs ADD COLUMN IF NOT EXISTS dataset_id uuid REFERENCES datasets(id);
 CREATE INDEX IF NOT EXISTS training_runs_dataset_id_idx ON training_runs(dataset_id);
+
+-- migrate:down
+ALTER TABLE training_runs DROP COLUMN IF EXISTS dataset_id;
+ALTER TABLE training_runs DROP COLUMN IF EXISTS reproduction_group_id;

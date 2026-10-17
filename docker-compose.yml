@@ -178,6 +178,20 @@ services:
       - ./.local/secrets:/var/app-secret/app-backend:ro
     ports: ["8090:8000"]
 
+  # Applies core-api/migrations the way the cluster's backend-migrate Job does (same image and flags),
+  # as backend_migrator, which switches to backend_owner at login (scripts/db-roles.sql). Not a
+  # superuser, so privilege bugs show up here first. Run by scripts/bootstrap.sh.
+  dbmate:
+    image: ghcr.io/amacneil/dbmate:2.36.0
+    profiles: ["tools"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://backend_migrator:backend_migrator@postgres:5432/core?sslmode=disable
+    volumes:
+      - ./core-api/migrations:/migrations:ro
+    command: [--migrations-dir, /migrations, --migrations-table, schema_migrations, --wait, --no-dump-schema, up]
+
 volumes:
   pgdata:
   miniodata:

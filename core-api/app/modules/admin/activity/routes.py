@@ -4,7 +4,7 @@ The user-facing API already serves one project's trail
 (`GET /v1/projects/{id}/audit-log`, app/modules/user/projects/members.py).
 This is the same table read the other way round — across every tenant at
 once, which is the operator's view and nobody else's, so it goes through
-get_platform_admin and a SECURITY DEFINER function (0029) rather than the
+get_platform_admin and a SECURITY DEFINER function (0032) rather than the
 RLS-scoped connection that route uses.
 
 Two sources per row:

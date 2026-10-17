@@ -1,9 +1,10 @@
+-- migrate:up
 -- Labeling and preprocessing pipelines
 -- (improvement/phase2/04-labeling-preprocessing.md). Additive per
 -- 11-migration-phasing.md step 6, ordered last since it depends on 03's
 -- task_type gate existing.
 
--- FR4-FR6: same shape as dataset_imports (0013) — a Ray job whose output
+-- FR4-FR6: same shape as dataset_imports (0015) — a Ray job whose output
 -- is a new LakeFS commit.
 CREATE TABLE IF NOT EXISTS dataset_preprocessing_jobs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,10 +33,14 @@ CREATE POLICY tenant_isolation ON dataset_preprocessing_jobs
 GRANT SELECT, INSERT, UPDATE ON dataset_preprocessing_jobs TO core_app;
 
 -- Same SECURITY DEFINER cross-tenant-sweep pattern as
--- inflight_import_tenant_ids (0013)/inflight_deploy_tenant_ids (0016).
+-- inflight_import_tenant_ids (0015)/inflight_deploy_tenant_ids (0019).
 CREATE OR REPLACE FUNCTION inflight_preprocessing_tenant_ids() RETURNS SETOF uuid
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT DISTINCT tenant_id FROM dataset_preprocessing_jobs WHERE status IN ('submitted', 'running');
 $$;
 REVOKE ALL ON FUNCTION inflight_preprocessing_tenant_ids() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION inflight_preprocessing_tenant_ids() TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS inflight_preprocessing_tenant_ids();
+DROP TABLE IF EXISTS dataset_preprocessing_jobs;

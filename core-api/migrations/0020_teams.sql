@@ -1,3 +1,4 @@
+-- migrate:up
 -- Org/team/project model (improvement/phase2/02-org-team-project-model.md).
 -- Additive per 11-migration-phasing.md step 1: team_id and task_type start
 -- nullable, backfilled below, NOT NULL tightening on team_id is a later
@@ -56,3 +57,10 @@ CREATE INDEX IF NOT EXISTS usage_events_team_id_idx ON usage_events(team_id, occ
 UPDATE usage_events ue SET team_id = (
   SELECT p.team_id FROM projects p WHERE p.id = ue.project_id
 ) WHERE ue.team_id IS NULL;
+
+-- migrate:down
+ALTER TABLE usage_events DROP COLUMN IF EXISTS team_id;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_task_type_check;
+ALTER TABLE projects DROP COLUMN IF EXISTS task_type;
+ALTER TABLE projects DROP COLUMN IF EXISTS team_id;
+DROP TABLE IF EXISTS teams;

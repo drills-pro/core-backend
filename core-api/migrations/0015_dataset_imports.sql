@@ -1,3 +1,4 @@
+-- migrate:up
 -- Tracks background Ray jobs that materialize a Hugging Face Hub dataset
 -- into a platform dataset's own S3 prefix (app/datasets.py's import-hf
 -- endpoint) — same submitted/running/succeeded/failed shape as
@@ -31,11 +32,15 @@ CREATE POLICY tenant_isolation ON dataset_imports
 GRANT SELECT, INSERT, UPDATE ON dataset_imports TO core_app;
 
 -- Same SECURITY DEFINER bypass pattern as inflight_training_tenant_ids
--- (0011) — background reconciliation needs in-flight imports across all
+-- (0012) — background reconciliation needs in-flight imports across all
 -- tenants without an app.tenant_id already set.
 CREATE OR REPLACE FUNCTION inflight_import_tenant_ids() RETURNS SETOF uuid
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT DISTINCT tenant_id FROM dataset_imports WHERE status IN ('submitted', 'running');
 $$;
 REVOKE ALL ON FUNCTION inflight_import_tenant_ids() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION inflight_import_tenant_ids() TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS inflight_import_tenant_ids();
+DROP TABLE IF EXISTS dataset_imports;

@@ -1,3 +1,4 @@
+-- migrate:up
 -- Identity: profile settings (improvement/phase2/07-identity-oauth-linking.md).
 -- Additive per 11-migration-phasing.md step 4. No backfill needed — a user
 -- without a row just hasn't visited /settings/profile yet (FR5).
@@ -15,3 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
 -- orgs (per Zitadel), so this table is keyed purely on the global Zitadel
 -- subject, not tenant-scoped like everything else in this schema.
 GRANT SELECT, INSERT, UPDATE ON users TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS users;

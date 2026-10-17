@@ -1,3 +1,4 @@
+-- migrate:up
 -- req/04 FR4: "configurable per tenant plan tier." Minimal real plan-tier
 -- model: a column on tenants + a lookup used at deployment-creation time
 -- to set the default rate limit (still overridable per-deployment).
@@ -10,3 +11,7 @@ BEGIN
   END IF;
 END
 $$;
+
+-- migrate:down
+ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_plan_tier_check;
+ALTER TABLE tenants DROP COLUMN IF EXISTS plan_tier;

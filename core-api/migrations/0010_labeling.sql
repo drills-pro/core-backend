@@ -1,3 +1,4 @@
+-- migrate:up
 -- Labeling (req/04: "proxy/webhook to Label Studio project, pull labeled
 -- export"). One Label Studio project per platform dataset.
 CREATE TABLE IF NOT EXISTS labeling_projects (
@@ -18,3 +19,6 @@ CREATE POLICY tenant_isolation ON labeling_projects
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 GRANT SELECT, INSERT ON labeling_projects TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS labeling_projects;

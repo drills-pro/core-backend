@@ -1,3 +1,4 @@
+-- migrate:up
 -- Self-serve signup saga state (docs/signup-saga.md). One row per signup attempt, keyed by the
 -- client's Idempotency-Key, so a retry resumes the saga instead of creating a second Zitadel org,
 -- and so the reaper can find orgs whose tenant row never landed. Not tenant-scoped: it exists
@@ -17,5 +18,9 @@ CREATE INDEX IF NOT EXISTS signups_stale_idx ON signups(created_at) WHERE state 
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON signups TO core_app;
 -- The saga inserts the tenant row and its Default team in one tenant-scoped transaction
--- (0028 already granted this for the back-office; repeated so this file stands alone).
+-- (0031 already granted this for the back-office; repeated so this file stands alone).
 GRANT INSERT ON tenants TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS signups;
+-- INSERT on tenants stays: 0031 granted it first and is still applied.

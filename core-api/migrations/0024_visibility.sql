@@ -1,3 +1,4 @@
+-- migrate:up
 -- Collaboration/visibility (improvement/phase2/08-collaboration-visibility.md).
 -- Additive per 11-migration-phasing.md step 5: visibility/publish_* columns
 -- default to private/false, existing projects unaffected until an owner
@@ -29,7 +30,7 @@ ALTER TABLE model_versions ADD COLUMN IF NOT EXISTS publish_artifact boolean NOT
 -- inflight_*_tenant_ids helpers, never a blanket RLS bypass.
 CREATE OR REPLACE FUNCTION list_public_projects(p_limit int, p_offset int)
 RETURNS TABLE(id uuid, name text, task_type text, created_at timestamptz)
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT p.id,
          CASE WHEN p.publish_project_metadata THEN p.name ELSE NULL END,
          CASE WHEN p.publish_project_metadata THEN p.task_type ELSE NULL END,
@@ -46,7 +47,7 @@ GRANT EXECUTE ON FUNCTION list_public_projects(int, int) TO core_app;
 -- dataset" with no name leaked, per the literal ask.
 CREATE OR REPLACE FUNCTION list_public_project_datasets(p_project_id uuid)
 RETURNS TABLE(id uuid, name text, published boolean, published_ref text)
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT d.id,
          CASE WHEN d.published THEN d.name ELSE NULL END,
          d.published,
@@ -60,7 +61,7 @@ GRANT EXECUTE ON FUNCTION list_public_project_datasets(uuid) TO core_app;
 
 CREATE OR REPLACE FUNCTION list_public_project_models(p_project_id uuid)
 RETURNS TABLE(id uuid, mlflow_model_name text, mlflow_version text, publish_metadata boolean, publish_artifact boolean)
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT m.id,
          CASE WHEN m.publish_metadata THEN m.mlflow_model_name ELSE NULL END,
          CASE WHEN m.publish_metadata THEN m.mlflow_version ELSE NULL END,
@@ -72,3 +73,15 @@ LANGUAGE sql SECURITY DEFINER AS $$
 $$;
 REVOKE ALL ON FUNCTION list_public_project_models(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION list_public_project_models(uuid) TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS list_public_project_models(uuid);
+DROP FUNCTION IF EXISTS list_public_project_datasets(uuid);
+DROP FUNCTION IF EXISTS list_public_projects(int, int);
+ALTER TABLE model_versions DROP COLUMN IF EXISTS publish_artifact;
+ALTER TABLE model_versions DROP COLUMN IF EXISTS publish_metadata;
+ALTER TABLE datasets DROP COLUMN IF EXISTS published_ref;
+ALTER TABLE datasets DROP COLUMN IF EXISTS published;
+ALTER TABLE projects DROP COLUMN IF EXISTS publish_project_metadata;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_visibility_check;
+ALTER TABLE projects DROP COLUMN IF EXISTS visibility;

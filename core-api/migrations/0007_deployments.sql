@@ -1,3 +1,4 @@
+-- migrate:up
 -- Deployments (req/04 Deployments group, req/07 FR3). Run after 0006.
 
 ALTER TABLE training_runs ADD COLUMN IF NOT EXISTS model_artifact jsonb;
@@ -23,3 +24,7 @@ CREATE POLICY tenant_isolation ON deployments
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 GRANT SELECT, INSERT, UPDATE ON deployments TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS deployments;
+ALTER TABLE training_runs DROP COLUMN IF EXISTS model_artifact;

@@ -185,10 +185,10 @@ curl "http://localhost:8090/v1/projects/<id>/audit-log" -H "X-Tenant-Id: 1111111
 ```
 
 The same table read the other way round — across every tenant at once —
-is the operator's activity log, `core-api/migrations/0029_admin_activity.sql`
+is the operator's activity log, `core-api/migrations/0032_admin_activity.sql`
 + `app/modules/admin/activity/routes.py`. `audit_log` is RLS-protected and
 the admin routes set no `app.tenant_id`, so it goes through a SECURITY
-DEFINER function like the other back-office readers (0025, 0026), filters
+DEFINER function like the other back-office readers (0028, 0029), filters
 on actor/action/entity/tenant/age, and sends the filtered size as
 `X-Total-Count`. Actor names come from Zitadel as enrichment: if Zitadel
 is unreachable the log still answers, with `actor_name: null`.
@@ -424,7 +424,7 @@ set explicitly via `serve.start(http_options=...)`), mapped to host
 
 Rate limiting is real and per-tenant-plan (req/04 FR4 verbatim: "per
 tenant plan tier"): `tenants.plan_tier` (`free`/`pro`/`enterprise`,
-migration 0013) drives each new deployment's default
+migration 0016) drives each new deployment's default
 `rate_limit_per_minute` (`PLAN_TIER_RATE_LIMITS` in `app/modules/deployments/routes.py`
 — 10/120/1000), still overridable per-deployment, enforced by an
 in-process sliding window (`app/core/rate_limit.py`) before every proxied
@@ -494,11 +494,11 @@ curl -X POST "http://localhost:8090/v1/projects/<id>/models/<model_version_id>/p
 ```
 
 The operator's view of the same table — every tenant's models side by side
-— is `core-api/migrations/0030_admin_models.sql` +
+— is `core-api/migrations/0033_admin_models.sql` +
 `app/modules/admin/models/routes.py`. `model_versions`, `projects` and
 `deployments` are all RLS-protected and the admin routes set no
 `app.tenant_id`, so it goes through a SECURITY DEFINER function like the
-other back-office readers (0025, 0029). Two things it derives rather than
+other back-office readers (0028, 0032). Two things it derives rather than
 reads, so that the listing, its filters and its counts cannot disagree:
 
 - **status is not a column.** It comes from the newest deployment of the
@@ -695,8 +695,8 @@ the old one.
 (`SELECT rolname, rolcanlogin FROM pg_roles` shows `v-token-core-app-...` rows).
 
 `/health/deps` reports `postgres` and `secrets` (every file loads with its
-required keys). Migrations are applied by hand as the `postgres` superuser (see below), not by
-`core-api`.
+required keys). Migrations are applied by dbmate as `backend_owner`, not a superuser (see below), never
+by `core-api`.
 
 ## Dev credentials
 
@@ -706,14 +706,35 @@ example keys, a fixed Zitadel masterkey, Vault's dev root token).
 
 ## Migrations
 
-Applied in order against the `core` Postgres database as the `postgres`
-superuser (there's no runner yet — apply by hand, or see below):
+`core-api/migrations/NNNN_name.sql`, in [dbmate](https://github.com/amacneil/dbmate) format: each file
+has `-- migrate:up` and `-- migrate:down`, and its numeric prefix is its version (unique; take the next
+free number). The image ships them at `/migrations`; in the cluster the `backend-migrate` Job applies
+them with dbmate before a new image rolls out (`docs/runtime-contract.md`).
 
+They run as `backend_owner`, not a superuser: it owns every object, has `BYPASSRLS` and `CREATEROLE`,
+and there are no default privileges. So a migration that adds a table, sequence or function also
+`GRANT`s what `core_app` needs, every `SECURITY DEFINER` function pins `SET search_path = public,
+pg_temp` and filters rows itself, and nothing needs `CREATE EXTENSION` or other superuser rights. Never
+grant on `schema_migrations`.
+
+| Goal | Command |
+|---|---|
+| Apply locally | `./scripts/bootstrap.sh` (creates the prod-shaped roles from `scripts/db-roles.sql`, then `docker compose run --rm dbmate`) |
+| Prove a change from an empty PG18, as the non-superuser, including a full rollback and re-up | `./scripts/migrations-check.sh` (Docker only; CI runs it before building the image) |
+| Lint for destructive SQL (DROP TABLE/COLUMN, TRUNCATE, ALTER COLUMN TYPE without USING, DELETE without WHERE) | `python3 scripts/lint-migrations.py core-api/migrations/*.sql`; opt out per statement with `-- migration-lint: allow-destructive (why)` |
+| Roll back the last one locally | `docker compose run --rm dbmate rollback` |
+
+A compose `core` database built before dbmate (migrations hand-applied as `postgres`) has no
+`schema_migrations` and its tables belong to `postgres`, so `bootstrap.sh` stops and asks you to reset it
+once. Only the `core` database goes; Zitadel, lakeFS and MLflow keep theirs:
+
+```bash
+docker compose exec postgres psql -U postgres -c 'DROP DATABASE core WITH (FORCE)'
 ```
-for f in core-api/migrations/*.sql; do
-  docker exec -i <postgres-container> psql -U postgres -d core < "$f"
-done
-```
+
+then `./scripts/bootstrap.sh`. Your Zitadel org's tenant and Default team rows lived in that database:
+re-run the two `INSERT`s under "Seed the tenant row" in `scripts/zitadel-bootstrap.sh` (not the whole
+script, which would duplicate the Zitadel apps).
 
 ## Not built yet
 

@@ -1,5 +1,6 @@
+-- migrate:up
 -- Project/user management (req/03-project-user-management.md).
--- Run against the `core` database as the postgres superuser, after 0001.
+-- Run after 0001.
 
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
@@ -78,3 +79,11 @@ GRANT SELECT, INSERT ON audit_log TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON project_members TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON project_invitations TO core_app;
 GRANT USAGE ON SEQUENCE audit_log_id_seq TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS project_invitations;
+DROP TABLE IF EXISTS project_members;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_status_check;
+ALTER TABLE projects DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE projects DROP COLUMN IF EXISTS status;

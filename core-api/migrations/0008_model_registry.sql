@@ -1,3 +1,4 @@
+-- migrate:up
 -- Model registry pointer (req/04 Models group, req/06 FR2). MLflow's
 -- Model Registry has no tenant concept, so this table is the tenant-scoped
 -- index onto it — the RLS boundary, not a duplicate of MLflow's data.
@@ -21,3 +22,6 @@ CREATE POLICY tenant_isolation ON model_versions
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 GRANT SELECT, INSERT, UPDATE ON model_versions TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS model_versions;

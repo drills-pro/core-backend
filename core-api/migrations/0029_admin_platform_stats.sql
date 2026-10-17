@@ -1,7 +1,8 @@
+-- migrate:up
 -- Platform-wide counters for the back-office stat cards (app/modules/admin),
 -- the strip that sits above the tenant list.
 --
--- Same SECURITY DEFINER escape as admin_tenant_stats (0025): projects and
+-- Same SECURITY DEFINER escape as admin_tenant_stats (0028): projects and
 -- project_members are RLS-protected and the admin routes run on a
 -- connection with no `app.tenant_id`, so a plain COUNT there returns 0 for
 -- everyone. This one takes no arguments because it is deliberately
@@ -17,11 +18,11 @@ RETURNS TABLE(
   project_count_30d bigint,
   member_count bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT (SELECT count(*) FROM tenants),
          (SELECT count(*) FROM tenants WHERE created_at >= now() - interval '30 days'),
          -- Soft-deleted projects are excluded, as they are in the listing's
-         -- per-tenant counter (0025), so the card and the column agree.
+         -- per-tenant counter (0028), so the card and the column agree.
          (SELECT count(*) FROM projects WHERE deleted_at IS NULL),
          (SELECT count(*) FROM projects
            WHERE deleted_at IS NULL AND created_at >= now() - interval '30 days'),
@@ -33,3 +34,6 @@ LANGUAGE sql SECURITY DEFINER AS $$
 $$;
 REVOKE ALL ON FUNCTION admin_platform_stats() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_platform_stats() TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS admin_platform_stats();

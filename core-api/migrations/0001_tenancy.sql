@@ -1,5 +1,6 @@
+-- migrate:up
 -- Multi-tenancy baseline (req/01-multi-tenancy.md).
--- Run against this app's database as the postgres superuser.
+-- Applied by dbmate as backend_owner, not a superuser (docs/runtime-contract.md).
 
 -- core_app is a NOLOGIN group role: it holds the actual table grants, and
 -- Vault's database secrets engine creates short-lived LOGIN users
@@ -19,7 +20,9 @@ BEGIN
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO core_app', current_database());
 END
 $$;
-GRANT USAGE, CREATE ON SCHEMA public TO core_app;
+-- USAGE only: runtime users never create objects (they would own them, and Vault could not
+-- drop them at lease end). Schema changes come from migrations, as backend_owner.
+GRANT USAGE ON SCHEMA public TO core_app;
 
 CREATE TABLE IF NOT EXISTS tenants (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,13 +58,20 @@ INSERT INTO tenants (id, zitadel_org_id, name) VALUES
   ('22222222-2222-2222-2222-222222222222', 'demo-org-b', 'Demo Tenant B')
 ON CONFLICT (id) DO NOTHING;
 
--- Existence check that bypasses RLS (runs as the owning superuser via
--- SECURITY DEFINER) so the API can tell "doesn't exist" (404) apart from
+-- Existence check that bypasses RLS (SECURITY DEFINER runs it as its owner,
+-- backend_owner, which has BYPASSRLS) so the API can tell "doesn't exist" (404) apart from
 -- "exists in another tenant" (403) per req/01 FR1, without ever returning
 -- another tenant's row contents to core_app.
 CREATE OR REPLACE FUNCTION project_exists_any_tenant(p_id uuid) RETURNS boolean
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT EXISTS(SELECT 1 FROM projects WHERE id = p_id);
 $$;
 REVOKE ALL ON FUNCTION project_exists_any_tenant(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION project_exists_any_tenant(uuid) TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS project_exists_any_tenant(uuid);
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS tenants;
+-- core_app, its CONNECT and its USAGE on public stay: the role is shared with the cluster (Vault's
+-- core-app users are IN ROLE core_app), and revoking them would cut off every runtime login.

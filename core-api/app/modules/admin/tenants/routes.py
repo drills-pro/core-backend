@@ -9,7 +9,7 @@ One row is assembled from the three systems that each own part of it:
     admin_tenant_stats()  project/member counts       (Postgres, SECURITY
                      DEFINER: those tables *are* RLS-protected and this
                      connection sets no app.tenant_id, so a direct COUNT
-                     would return 0 for everyone — 0025)
+                     would return 0 for everyone — 0028)
     Zitadel          owner and active/suspended       (the org is the
                      source of truth for both, req/02 FR2)
 
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
-# The plan tiers tenants.plan_tier accepts (0013).
+# The plan tiers tenants.plan_tier accepts (0016).
 PLAN_TIERS = ("free", "pro", "enterprise")
 
 # Status lives in Zitadel, so it can only be filtered on after enrichment —
@@ -115,7 +115,7 @@ async def create_tenant(
 
     Three steps, in the order scripts/zitadel-bootstrap.sh does them by
     hand: the Zitadel org, the tenant row that maps to it, and the Default
-    team every tenant is assumed to have (0017 FR1 — project creation
+    team every tenant is assumed to have (0020 FR1 — project creation
     falls back to it, so a tenant without one cannot hold a project).
 
     `zitadel_org_id` adopts an org that already exists rather than making
@@ -221,7 +221,7 @@ async def tenants_summary():
 
     Deliberately unfiltered: the cards sit above the listing's tabs and
     filters and describe the platform, not the page under them. Counting
-    happens in Postgres (admin_platform_stats(), 0026) rather than over the
+    happens in Postgres (admin_platform_stats(), 0029) rather than over the
     listing's rows, so the numbers don't stop at MAX_SCAN or at one page.
 
     `status_counts` is the same active/suspended/unknown breakdown the

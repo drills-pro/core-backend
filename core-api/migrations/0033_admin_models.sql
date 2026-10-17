@@ -1,10 +1,11 @@
+-- migrate:up
 -- Cross-tenant listing of registered models, for the back-office models
 -- page (app/modules/admin/models).
 --
 -- model_versions, projects and deployments are all RLS-protected (0008,
 -- 0002, 0007) and the admin routes set no `app.tenant_id`, so a plain
 -- SELECT returns nothing. Same SECURITY DEFINER escape as admin_activity
--- (0029) and admin_tenant_projects (0027), granted to core_app only and
+-- (0032) and admin_tenant_projects (0030), granted to core_app only and
 -- reached solely through routes behind get_platform_admin.
 --
 -- Two things are derived here rather than in the route, so that the
@@ -63,7 +64,7 @@ RETURNS TABLE(
   version_count bigint,
   total bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   WITH matching AS (
     SELECT m.id, t.id AS tenant_id, t.name AS tenant_name,
            p.id AS project_id, p.name AS project_name, p.task_type, p.visibility,
@@ -145,7 +146,7 @@ RETURNS TABLE(
   created_at timestamptz,
   total bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   WITH target AS (
     SELECT project_id, mlflow_model_name FROM model_versions WHERE id = p_version_id
   ),
@@ -200,7 +201,7 @@ RETURNS TABLE(
   -- Every version of every model, which the model count no longer implies.
   version_count bigint
 )
-LANGUAGE sql SECURITY DEFINER AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   WITH versions AS (
     SELECT m.id, m.project_id, m.mlflow_model_name, m.created_at,
            CASE d.status
@@ -237,3 +238,11 @@ LANGUAGE sql SECURITY DEFINER AS $$
 $$;
 REVOKE ALL ON FUNCTION admin_model_stats() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_model_stats() TO core_app;
+
+-- migrate:down
+DROP FUNCTION IF EXISTS admin_model_stats();
+DROP FUNCTION IF EXISTS admin_model_versions(uuid, int, int);
+DROP FUNCTION IF EXISTS admin_models(int, int, uuid, text, text, text, text);
+DROP INDEX IF EXISTS deployments_training_run_idx;
+DROP INDEX IF EXISTS model_versions_model_idx;
+DROP INDEX IF EXISTS model_versions_created_at_idx;

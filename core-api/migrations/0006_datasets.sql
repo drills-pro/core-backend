@@ -1,3 +1,4 @@
+-- migrate:up
 -- Dataset upload (req/04-api.md: "upload returns presigned S3/MinIO URL,
 -- client PUTs directly"; req/01: per-tenant object storage prefix).
 CREATE TABLE IF NOT EXISTS datasets (
@@ -18,3 +19,6 @@ CREATE POLICY tenant_isolation ON datasets
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 GRANT SELECT, INSERT, UPDATE ON datasets TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS datasets;

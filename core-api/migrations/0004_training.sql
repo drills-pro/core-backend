@@ -1,3 +1,4 @@
+-- migrate:up
 -- Training run orchestration (req/06, req/07). Run after 0003.
 
 CREATE TABLE IF NOT EXISTS training_runs (
@@ -31,3 +32,6 @@ CREATE POLICY tenant_isolation ON training_runs
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 GRANT SELECT, INSERT, UPDATE ON training_runs TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS training_runs;

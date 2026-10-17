@@ -1,3 +1,4 @@
+-- migrate:up
 -- Usage metering (req/09-usage-metering.md). Run after 0002.
 
 -- Append-only ledger. UNIQUE(resource_type, source_ref) is the idempotency
@@ -30,3 +31,6 @@ CREATE POLICY tenant_isolation ON usage_events
 -- Corrections are new offsetting rows per the doc, not edits.
 GRANT SELECT, INSERT ON usage_events TO core_app;
 GRANT USAGE ON SEQUENCE usage_events_id_seq TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS usage_events;

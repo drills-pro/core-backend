@@ -2,7 +2,7 @@
 
 FR5/FR8: no tenant JWT, no X-Tenant-Id — this is the one place Phase 2
 deliberately bypasses tenant RLS, scoped tightly to visibility='public'
-rows via SECURITY DEFINER functions (migrations/0021), never a blanket
+rows via SECURITY DEFINER functions (migrations/0024), never a blanket
 bypass. A private dataset/model inside a public project is listed with no
 name — "exists" is visible, contents are not, unless the owner opted in.
 """

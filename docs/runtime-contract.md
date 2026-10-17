@@ -57,7 +57,39 @@ this image is deployed; it can be removed after.
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
 - Postgres is the per-app CNPG cluster `pg-backend` (host in `prod.yaml`); Vault's `core-app` role must point at the same cluster or logins fail with "password authentication failed".
 - Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
-- Migrations: `core-api/migrations/*.sql`, applied by hand as the `postgres` superuser (README), not by the app or an init container.
+- Migrations: see the next section.
+
+## Migrations: `/migrations` in the image
+
+The image holds `/migrations/*.sql` (from `core-api/migrations/`) in dbmate format and a `cp` binary, and
+no migration runner. On every new digest the k8s Job `platform/app-backend-migrate` (`k8s/apps/backend/migrate`,
+gate in `k8s/apps/backend/flux.yaml`) runs before the Deployment rolls out:
+
+1. an init container from this image: `cp -R /migrations/. /work/`;
+2. `ghcr.io/amacneil/dbmate:2.36.0`: `dbmate --env-file /vault/secrets/dbmate.env --migrations-dir /migrations
+   --migrations-table schema_migrations --wait --no-dump-schema up`. `backoffLimit: 0`, 600 s deadline; on
+   failure the old pods keep serving.
+
+dbmate wraps each file in a transaction; no file uses `transaction:false`.
+
+**Roles.** The Job logs in to the `backend` database as a 1h Vault user (`database/creds/core-migrator`)
+that switches at login to `backend_owner`: `NOLOGIN`, `CREATEROLE`, `BYPASSRLS`, not a superuser; a member
+of `backend_admin` (the database owner) and ADMIN on `core_app`. Every object, and `schema_migrations`,
+is owned by `backend_owner`. `core_app`, the runtime group role, owns nothing, so RLS applies to it.
+
+**Rules for a migration.**
+- No default privileges: each new table, sequence and function `GRANT`s what `core_app` needs in the same
+  file. Never grant on `schema_migrations`. `core_app` has `USAGE` on `public`, not `CREATE`.
+- `SECURITY DEFINER` functions run as `backend_owner`, so they bypass RLS: each one sets
+  `search_path = public, pg_temp`, filters rows itself, and is `REVOKE`d from `PUBLIC`.
+- Keep `FORCE ROW LEVEL SECURITY`. Data migrations over RLS tables work through `BYPASSRLS`.
+- Nothing superuser-only (`CREATE EXTENSION`, ...), and no `RESET ROLE` (objects would belong to the
+  short-lived user, and Vault's `DROP ROLE` would fail).
+- `scripts/migrations-check.sh` proves all of this from an empty PG18 with these roles
+  (`scripts/db-roles.sql`), and CI runs it before building the image.
+
+**k8s side:** the one-time "Migrator role" steps in `k8s/docs/operations.md`, then the `backend-migrate`
+Kustomization in `k8s/apps/backend/flux.yaml`. A new migration needs nothing in k8s.
 
 ## Models, experiments and MLflow
 

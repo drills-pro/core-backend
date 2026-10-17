@@ -1,6 +1,7 @@
+-- migrate:up
 -- Keep auth secrets and personal data out of the schema beyond the Zitadel user id.
--- Idempotent; run as the superuser like the rest (the UPDATEs touch RLS-forced
--- project_invitations without an app.tenant_id, which only a role that bypasses RLS can do).
+-- Idempotent. The UPDATEs touch RLS-forced project_invitations without an app.tenant_id, which
+-- works because backend_owner has BYPASSRLS.
 
 -- project_invitations: store only sha256(token); the plaintext is returned once at creation.
 ALTER TABLE project_invitations ADD COLUMN IF NOT EXISTS token_hash text;
@@ -13,6 +14,7 @@ BEGIN
     UPDATE project_invitations
        SET token_hash = encode(sha256(convert_to(token, 'UTF8')), 'hex')
      WHERE token_hash IS NULL;
+    -- migration-lint: allow-destructive (token_hash above replaces it)
     ALTER TABLE project_invitations DROP COLUMN token;  -- takes its UNIQUE constraint with it
   END IF;
 END
@@ -32,3 +34,8 @@ UPDATE signups SET email_hash = encode(sha256(convert_to(lower(email), 'UTF8')),
 ALTER TABLE signups ALTER COLUMN email_hash SET NOT NULL;
 ALTER TABLE signups ALTER COLUMN email DROP NOT NULL;
 UPDATE signups SET email = NULL WHERE state = 'done';
+
+-- migrate:down
+-- Intentionally empty: plaintext invite tokens and scrubbed emails cannot be recovered from their
+-- hashes, so there is nothing true to restore. The up is idempotent, so re-applying it is safe, and
+-- rolling back further (0035, 0002) drops these tables anyway.

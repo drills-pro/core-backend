@@ -1,3 +1,4 @@
+-- migrate:up
 -- Project settings and deployment strategy
 -- (improvement/phase2/06-project-settings-deployment.md). Additive per
 -- 11-migration-phasing.md step 3.
@@ -28,3 +29,7 @@ CREATE POLICY tenant_isolation ON deployment_test_calls
 
 GRANT SELECT, INSERT ON deployment_test_calls TO core_app;
 GRANT USAGE ON SEQUENCE deployment_test_calls_id_seq TO core_app;
+
+-- migrate:down
+DROP TABLE IF EXISTS deployment_test_calls;
+ALTER TABLE projects DROP COLUMN IF EXISTS settings;
