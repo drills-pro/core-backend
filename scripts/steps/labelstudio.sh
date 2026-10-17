@@ -21,7 +21,9 @@
 set -eu
 . "$(dirname "$0")/../lib/secrets.sh"
 
-LS="${LS_URL:-http://localhost:8110}"                      # host-side, for this script
+# 127.0.0.1, not localhost: localhost tries ::1 first, and Label Studio's dev server listens on
+# IPv4 only inside its container, so the IPv6 forward is reset.
+LS="${LS_URL:-http://127.0.0.1:8110}"                      # host-side, for this script
 LS_INTERNAL="${LS_INTERNAL_URL:-http://labelstudio:8080}"  # what core-api uses
 LS_EMAIL="${LS_EMAIL:-admin@platform.local}"
 LS_PASSWORD="${LS_PASSWORD:-LabelStudioAdminPw1!}"

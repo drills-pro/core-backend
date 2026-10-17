@@ -61,6 +61,11 @@ services:
 
   zitadel:
     image: ghcr.io/zitadel/zitadel:latest
+    labels:
+      # OrbStack serves the container under this name on the Mac and to other containers. It is
+      # ZITADEL_EXTERNALDOMAIN below, kept in Zitadel's own state since it was first set up, when
+      # this project was called "monorepo" (the default <service>.<project>.orb.local name).
+      dev.orbstack.domains: zitadel.monorepo.orb.local
     depends_on:
       postgres: { condition: service_healthy }
       zitadel-pat-init: { condition: service_completed_successfully }
@@ -117,10 +122,11 @@ services:
 
   lgtm:
     image: grafana/otel-lgtm:latest
-    ports: ["3000:3000"]
+    # 4317: OTLP gRPC, for core-api run natively (config/local.yaml).
+    ports: ["3000:3000", "4317:4317"]
 
   mlflow:
-    build: ./mlflow
+    build: ./compose/mlflow
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -132,13 +138,15 @@ services:
     command: >
       sh -c "python -c \"import boto3; c = boto3.client('s3', endpoint_url='http://minio:9000'); b = [x['Name'] for x in c.list_buckets()['Buckets']]; c.create_bucket(Bucket='mlflow-artifacts') if 'mlflow-artifacts' not in b else None\" &&
       mlflow server --host 0.0.0.0 --port 5000
-      --backend-store-uri postgresql://postgres:postgres@postgres:5432/mlflow
+      --backend-store-uri postgresql+psycopg://postgres:postgres@postgres:5432/mlflow
       --artifacts-destination s3://mlflow-artifacts
       --serve-artifacts"
     ports: ["5001:5000"]
 
   labelstudio:
     image: heartexlabs/label-studio:latest
+    labels:
+      dev.orbstack.domains: labelstudio.monorepo.orb.local  # public.labelstudio_endpoint (base.yaml)
     environment:
       LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
       LABEL_STUDIO_USERNAME: admin@platform.local

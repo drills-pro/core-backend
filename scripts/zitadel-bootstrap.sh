@@ -11,13 +11,14 @@
 #   ./scripts/zitadel-bootstrap.sh
 set -eu
 
-# Read through core-api, which already mounts the PAT volume read-only.
+# Read from the zitadel-pat volume through its one-off init service, so this works whether core-api
+# runs in compose or natively on the host.
 # The previous form named the volume literally (monorepo_zitadel-pat) and
 # so only worked while the checkout directory was called "monorepo" —
 # compose derives the prefix from the directory name.
 # `sh -c` wrapper rather than a bare `cat /pat/...`: Git Bash rewrites a
 # leading-slash argument into a Windows path (C:/Program Files/Git/pat/...).
-PAT=$(docker compose exec -T core-api sh -c 'cat /pat/zitadel-automation.pat' | tr -d '\r')
+PAT=$(docker compose run --rm --no-deps -q zitadel-pat-init sh -c 'cat /pat/zitadel-automation.pat' | tr -d '\r')
 
 ZITADEL="http://localhost:8080"
 AUTH="Authorization: Bearer $PAT"

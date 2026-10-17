@@ -35,8 +35,8 @@ done
 
 # `sh -c` wrapper rather than a bare `cat /pat/...`: Git Bash rewrites a
 # leading-slash argument into a Windows path (C:/Program Files/Git/pat/...).
-PAT=$(docker compose exec -T core-api sh -c 'cat /pat/zitadel-automation.pat' | tr -d '\r\n')
-[ -n "$PAT" ] || { echo "could not read the Zitadel PAT from core-api" >&2; exit 1; }
+PAT=$(docker compose run --rm --no-deps -q zitadel-pat-init sh -c 'cat /pat/zitadel-automation.pat' | tr -d '\r\n')
+[ -n "$PAT" ] || { echo "could not read the Zitadel PAT from the zitadel-pat volume" >&2; exit 1; }
 AUTH="Authorization: Bearer $PAT"
 
 PROJECT_ID=$(curl -sf -4 "$ZITADEL/management/v1/projects/_search" -X POST \

@@ -40,8 +40,8 @@ case "$SETUP_CODE" in
 esac
 
 # --- blockstore bucket (LAKEFS_BLOCKSTORE_S3_ENDPOINT points at minio) ---
-# `local` is the alias the minio image configures for its own healthcheck.
-docker compose exec -T minio mc mb -p "local/$BUCKET" > /dev/null
+# The image's own `local` alias has no credentials, so set it from the container's root user first.
+docker compose exec -T minio sh -c 'mc alias set local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc mb -p "local/$0" >/dev/null' "$BUCKET"
 echo "minio bucket: $BUCKET"
 
 # --- the repository core-api expects ---

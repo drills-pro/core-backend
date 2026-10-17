@@ -26,6 +26,19 @@ one container empties it, and `bootstrap.sh` writes a fresh Postgres credential
 re-running it costs nothing and is the intended habit. It finishes by
 printing `/health/deps`.
 
+### core-api natively on the Mac, everything else in Docker
+
+Needs OrbStack (the host copies of the secret files use its `<service>.<project>.orb.local` names).
+
+```bash
+mise install
+(cd core-api && uv sync --group dev)
+./scripts/secrets-init.sh
+docker compose up -d postgres minio lakefs zitadel ray-head lgtm mlflow labelstudio vault   # all but core-api; dbmate migrates
+./scripts/bootstrap.sh          # also writes .local/secrets-host/ for config/local.yaml
+cd core-api && APP_ENV=local uv run uvicorn app.main:app --reload --port 8090
+```
+
 One thing it deliberately does not do: `./scripts/zitadel-bootstrap.sh`,
 which creates the Zitadel project, OIDC apps, roles and IdPs. That is
 first-time-only and would create duplicates if re-run — on a brand-new
