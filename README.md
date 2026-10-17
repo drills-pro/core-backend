@@ -45,7 +45,7 @@ stack, run it once before `bootstrap.sh`.
 | Label Studio | http://localhost:8110 (admin@platform.local / LabelStudioAdminPw1!) |
 
 `GET /health/deps` pings every dependency (Postgres, Vault, LakeFS, Zitadel,
-Ray, MLflow, Label Studio) — `"ok"` per service once everything is wired.
+Ray, MLflow) — `"ok"` per service once everything is wired.
 
 ## Status against req/
 

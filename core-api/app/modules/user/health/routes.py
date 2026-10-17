@@ -1,7 +1,7 @@
 """Liveness and dependency-probe endpoints.
 
 /health is the container's own signal; /health/deps reaches out to every
-backing service so an operator can tell *which* dependency is down without
+service the API needs to do its job so an operator can tell *which* dependency is down without
 shelling into each container. Both are deliberately unauthenticated.
 """
 import boto3
@@ -29,7 +29,6 @@ async def health_deps():
         "zitadel": await _check_http(f"{settings.zitadel.issuer}/.well-known/openid-configuration"),
         "ray": await _check_http(f"{settings.ray.dashboard}/api/version"),
         "mlflow": await _check_http(f"{settings.mlflow.url}/health"),
-        "labelstudio": await _check_labelstudio(),
     }
 
 
@@ -83,13 +82,6 @@ def _check_lakefs() -> str:
         client.list_buckets()
         return "ok"
     except Exception as e:  # noqa: BLE001
-        return f"error: {e}"
-
-
-async def _check_labelstudio() -> str:
-    try:
-        return await _check_http(f"{secret_files.get('labelstudio')['url']}/health")
-    except secret_files.SecretError as e:
         return f"error: {e}"
 
 
