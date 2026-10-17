@@ -10,8 +10,8 @@ Source of truth: `../planning/04-identity-tenancy-authz.md`, ADR-021/024/026 in 
 ## State of the code vs the plan
 
 Done (shared pool, verify-only; migration `20261018090000_shared_identity_pool.sql`): `core/auth.py` verifies
-signature, issuer and audience and reads identity claims (`email`, `email_verified`, `name`, which the Zitadel
-access token carries only if the app/Action adds them); `core/tenancy.py` resolves the tenant from
+signature, issuer and audience and gets identity (`email`, `email_verified`, `name`) from the token or, when the access token lacks
+them (the usual case), from Zitadel's userinfo via `get_profile_claims`, used only by `/v1/me` and tenant creation; `core/tenancy.py` resolves the tenant from
 `tenant_members` on every request (`X-Tenant-Id`, optional when the user has exactly one tenant; no
 membership is 404); `GET /v1/me` and `POST /v1/tenants` live in `modules/user/auth/routes.py`; the signup
 saga, `signups`, the reaper and the `zitadel_oidc` secret are gone. `tenants.zitadel_org_id` is nullable and

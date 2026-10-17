@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core import rate_limit
-from app.core.auth import ZITADEL_ISSUER, Claims, get_claims
+from app.core.auth import ZITADEL_ISSUER, Claims, get_profile_claims
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 
@@ -35,7 +35,7 @@ async def _upsert_principal(conn, claims: Claims) -> None:
 
 
 @router.get("/me")
-async def me(claims: Claims = Depends(get_claims)):
+async def me(claims: Claims = Depends(get_profile_claims)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await _upsert_principal(conn, claims)
@@ -45,7 +45,7 @@ async def me(claims: Claims = Depends(get_claims)):
 
 
 @router.post("/tenants", status_code=201)
-async def create_tenant(body: TenantCreate, request: Request, claims: Claims = Depends(get_claims)):
+async def create_tenant(body: TenantCreate, request: Request, claims: Claims = Depends(get_profile_claims)):
     """Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo."""
     name = body.name.strip()
     if not name:

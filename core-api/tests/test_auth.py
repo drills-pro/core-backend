@@ -167,3 +167,36 @@ def test_jwks_client_uses_internal_url_with_public_host(monkeypatch):
     assert client.uri == "http://zitadel.zitadel.svc:8080/oauth/v2/keys"
     assert client.headers["Host"] == "auth.example.com"
     monkeypatch.setattr(auth, "_jwks_client", None)
+
+
+def test_profile_claims_come_from_userinfo_when_the_token_has_none(monkeypatch):
+    import asyncio
+
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return False
+        async def get(self, url, headers):
+            calls.append((url, headers["Authorization"]))
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"email": "a@b.co", "email_verified": True, "name": "Ann"},
+            )
+
+    monkeypatch.setattr(auth.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(auth, "_userinfo_cache", {})
+    monkeypatch.setattr(settings.zitadel, "internal_url", "http://z:8080")
+
+    def fetch():
+        return asyncio.run(auth.get_profile_claims(auth.Claims({"sub": "u"}, "tok")))
+
+    claims = fetch()
+    assert (claims.email, claims.email_verified, claims.display_name) == ("a@b.co", True, "Ann")
+    assert calls == [("http://z:8080/oidc/v1/userinfo", "Bearer tok")]
+    fetch()
+    assert len(calls) == 1  # cached per token
+    # A token that already carries the claims never calls out.
+    asyncio.run(auth.get_profile_claims(auth.Claims({"sub": "u", "email": "x@y.z"}, "tok2")))
+    assert len(calls) == 1
