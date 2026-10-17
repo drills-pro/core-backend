@@ -15,7 +15,6 @@ mlflow:
   url: http://localhost:5001
 observability:
   otlp_endpoint: http://localhost:4317
-  grafana_url: http://localhost:3000
 # Relative paths resolve against core-api/. The hostnames inside the secret files are the compose
 # service names, so anything that calls minio/lakefs from the host needs them reachable (OrbStack).
 secrets:

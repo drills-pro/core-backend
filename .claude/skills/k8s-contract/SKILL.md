@@ -11,7 +11,7 @@ The interface is `docs/runtime-contract.md`. The `k8s` repo is a sibling directo
 
 | Change here | Matching change in `../k8s` |
 |---|---|
-| New env knob only for prod | `config/prod.yaml` here, nothing there |
+| New prod setting | an identity fact: `config/prod.yaml` here. A cluster hostname or port: the ConfigMap `backend-config` in `apps/backend/` there (mounted at `/etc/core-api/deploy.yaml`) |
 | New or renamed secret / key | seed it in `bootstrap/04-vault-seed-secrets.sh`; injector template picks it up |
 | New dependency the backend calls | `apps/*/networkpolicy.yaml` allow rule |
 | New port, probe path, hostname | `apps/backend/deployment.yaml`, `ingress.yaml` |

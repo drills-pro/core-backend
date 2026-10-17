@@ -1,7 +1,8 @@
 """Every non-secret knob core-api reads, loaded once from config/*.yaml.
 
-Layers, lowest to highest precedence: config/base.yaml, config/<APP_ENV>.yaml, then
-CORE_<SECTION>__<KEY> environment variables. APP_ENV (local | compose | test | prod) selects the overlay. It is required and has no default
+Layers, lowest to highest precedence: config/base.yaml, config/<APP_ENV>.yaml, the deploy file
+(/etc/core-api/deploy.yaml, a ConfigMap owned by the k8s repo: the cluster's service hostnames),
+then CORE_<SECTION>__<KEY> environment variables. prod refuses to start without the deploy file. APP_ENV (local | compose | test | prod) selects the overlay. It is required and has no default
 here; the Docker image sets it to prod, so dev settings can never be picked up by accident.
 
 Secrets are not here. `secrets:` holds the *path* of each JSON file; app/core/secret_files.py
@@ -21,6 +22,7 @@ from pydantic_settings import (
 CORE_API_DIR = Path(__file__).resolve().parents[2]
 CONFIG_DIR = CORE_API_DIR / "config"
 ENVIRONMENTS = ("local", "compose", "test", "prod")
+DEPLOY_FILE = Path("/etc/core-api/deploy.yaml")
 
 
 class _Section(BaseModel):
@@ -64,7 +66,6 @@ class Mlflow(_Section):
 
 class Observability(_Section):
     otlp_endpoint: str
-    grafana_url: str
     ksm_endpoint: str
 
 
@@ -101,8 +102,11 @@ class Settings(BaseSettings):
         env = init_settings.init_kwargs["env"]
         # One source per file, highest precedence first: pydantic-settings deep-merges across
         # sources, but a single multi-file source only merges the top level.
-        yaml = lambda name: YamlConfigSettingsSource(settings_cls, yaml_file=CONFIG_DIR / name)  # noqa: E731
-        return init_settings, env_settings, yaml(f"{env}.yaml"), yaml("base.yaml")
+        yaml = lambda path: YamlConfigSettingsSource(settings_cls, yaml_file=path)  # noqa: E731
+        layers = [yaml(CONFIG_DIR / f"{env}.yaml"), yaml(CONFIG_DIR / "base.yaml")]
+        if DEPLOY_FILE.exists():
+            layers.insert(0, yaml(DEPLOY_FILE))
+        return (init_settings, env_settings, *layers)
 
     @model_validator(mode="after")
     def _check(self) -> "Settings":
@@ -126,6 +130,8 @@ def load(env: str | None = None) -> Settings:
     env = env or os.environ.get("APP_ENV", "")
     if env not in ENVIRONMENTS:
         raise RuntimeError(f"APP_ENV must be one of {ENVIRONMENTS}, got {env!r}")
+    if env == "prod" and not DEPLOY_FILE.exists():
+        raise RuntimeError(f"prod needs {DEPLOY_FILE} (ConfigMap backend-config in the k8s repo)")
     return Settings(env=env)
 
 

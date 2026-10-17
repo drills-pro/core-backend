@@ -29,7 +29,6 @@ mlflow:
 
 observability:
   otlp_endpoint: http://lgtm:4317
-  grafana_url: http://lgtm:3000
   ksm_endpoint: ""           # kube-state-metrics, for the GPU-quota poller; empty disables it
 
 public:                      # browser-facing, not the in-network names

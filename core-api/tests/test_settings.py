@@ -6,11 +6,12 @@ import pytest
 import yaml
 
 from app.core import secret_files
+from app.core import settings as settings_module
 from app.core.settings import CONFIG_DIR, ENVIRONMENTS, load, settings
 
 
 @pytest.mark.parametrize("env", ENVIRONMENTS)
-def test_every_environment_loads(env):
+def test_every_environment_loads(env, deploy_file):
     assert load(env).env == env
 
 
@@ -20,10 +21,28 @@ def test_app_env_is_required(monkeypatch):
         load()
 
 
-def test_env_file_overrides_base_and_deep_merges():
+DEPLOY = "pg:\n  host: pg-backend-rw.platform.svc.cluster.local\n  database: backend\n"
+
+
+@pytest.fixture
+def deploy_file(monkeypatch, tmp_path):
+    path = tmp_path / "deploy.yaml"
+    path.write_text(DEPLOY)
+    monkeypatch.setattr(settings_module, "DEPLOY_FILE", path)
+    return path
+
+
+def test_prod_requires_the_deploy_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings_module, "DEPLOY_FILE", tmp_path / "missing.yaml")
+    with pytest.raises(RuntimeError, match="backend-config"):
+        load("prod")
+
+
+def test_layers_merge_deploy_over_env_over_base(deploy_file):
     s = load("prod")
-    assert s.pg.host == "pg-backend-rw.platform.svc.cluster.local"  # prod.yaml
-    assert s.pg.pool_max == 20  # base.yaml, same section
+    assert s.pg.host == "pg-backend-rw.platform.svc.cluster.local"  # deploy file
+    assert s.zitadel.issuer == "https://auth.drills.pro"  # prod.yaml
+    assert s.pg.pool_max == 20  # base.yaml, same section as the deploy file's
     assert not s.auth.dev_headers
 
 
@@ -32,13 +51,13 @@ def test_env_var_overrides_yaml(monkeypatch):
     assert load("local").pg.host == "elsewhere"
 
 
-def test_prod_refuses_dev_headers(monkeypatch):
+def test_prod_refuses_dev_headers(monkeypatch, deploy_file):
     monkeypatch.setenv("CORE_AUTH__DEV_HEADERS", "true")
     with pytest.raises(ValueError, match="dev_headers"):
         load("prod")
 
 
-def test_prod_refuses_relative_secret_paths(monkeypatch):
+def test_prod_refuses_relative_secret_paths(monkeypatch, deploy_file):
     monkeypatch.setenv("CORE_SECRETS__LAKEFS", "relative/minio.json")
     with pytest.raises(ValueError, match="absolute"):
         load("prod")
@@ -94,5 +113,5 @@ def test_secret_errors_name_the_file(lakefs_file):
         secret_files.get("lakefs")
 
 
-def test_prod_has_the_zitadel_project_id():
+def test_prod_has_the_zitadel_project_id(deploy_file):
     assert load("prod").zitadel.project_id.isdigit()
