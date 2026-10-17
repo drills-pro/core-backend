@@ -41,7 +41,8 @@ class Pg(_Section):
 
 
 class Zitadel(_Section):
-    issuer: str
+    issuer: str  # the public URL: it is what tokens carry as `iss`
+    internal_url: str  # where to fetch signing keys from instead (in-cluster Service); "" = issuer
     project_id: str
 
 

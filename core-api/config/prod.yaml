@@ -6,6 +6,7 @@ pg:
   database: backend
 zitadel:
   issuer: https://auth.drills.pro
+  internal_url: http://zitadel.zitadel.svc.cluster.local:8080   # k8s infra/zitadel; Host header carries the issuer's name
   project_id: "395337035725930916"   # the Zitadel project the SPA and API share; tokens must carry it in aud
 ray:
   dashboard: http://ray-head-svc.ray.svc.cluster.local:8265

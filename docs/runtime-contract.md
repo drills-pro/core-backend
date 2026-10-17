@@ -15,7 +15,7 @@ digest. The k8s repo pins by digest.
 | File | Used when |
 |---|---|
 | `base.yaml` | always; defaults and the cluster's secret file paths |
-| `prod.yaml` | `APP_ENV=prod` (the cluster): all of its hostnames, the Zitadel issuer and project id |
+| `prod.yaml` | `APP_ENV=prod` (the cluster): all of its hostnames, the Zitadel issuer, in-cluster URL (signing keys are fetched there, over the `allow-traefik-and-core-api` policy) and project id |
 | `compose.yaml` | `APP_ENV=compose` (core-api inside docker compose) |
 | `local.yaml` | `APP_ENV=local` (`uv run uvicorn` on the host against compose services) |
 | `test.yaml` | `APP_ENV=test` (pytest sets it in `tests/conftest.py`) |

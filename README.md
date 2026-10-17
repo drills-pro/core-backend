@@ -139,8 +139,8 @@ curl "http://localhost:8090/v1/projects/<id>" -H "X-Tenant-Id: 22222222-2222-222
 
 ## Auth (req/02)
 
-`app/core/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS,
-checks the RS256 signature, issuer and audience (the Zitadel project id). Covered
+`app/core/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS
+(in-cluster in prod, `zitadel.internal_url`), checks the RS256 signature, issuer and audience (the Zitadel project id). Covered
 by `core-api/tests/test_auth.py` (self-signed keypair — wrong signature
 and missing-claim cases both rejected).
 

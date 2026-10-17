@@ -13,6 +13,7 @@ pg:
 
 zitadel:
   issuer: http://zitadel.monorepo.orb.local:8080
+  internal_url: ""           # prod fetches signing keys in-cluster, not through Cloudflare
   project_id: ""             # tokens must carry it in aud; prod.yaml sets it, locally CORE_ZITADEL__PROJECT_ID
 
 auth:

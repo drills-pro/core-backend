@@ -157,3 +157,13 @@ def test_member_tenant_resolution(monkeypatch):
     with pytest.raises(HTTPException) as e:
         _resolve(_pool(monkeypatch, mine=[t1, t2]), None)
     assert e.value.status_code == 400
+
+
+def test_jwks_client_uses_internal_url_with_public_host(monkeypatch):
+    monkeypatch.setattr(auth, "_jwks_client", None)
+    monkeypatch.setattr(auth, "ZITADEL_ISSUER", "https://auth.example.com")
+    monkeypatch.setattr(settings.zitadel, "internal_url", "http://zitadel.zitadel.svc:8080")
+    client = auth._get_jwks_client()
+    assert client.uri == "http://zitadel.zitadel.svc:8080/oauth/v2/keys"
+    assert client.headers["Host"] == "auth.example.com"
+    monkeypatch.setattr(auth, "_jwks_client", None)

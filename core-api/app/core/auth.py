@@ -8,6 +8,7 @@ moves to a platform_admins table.
 import jwt
 from fastapi import Header, HTTPException
 from jwt import PyJWKClient
+from urllib.parse import urlparse
 from starlette.concurrency import run_in_threadpool
 
 from app.core.settings import settings
@@ -24,8 +25,13 @@ def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
         # Cloudflare in front of auth.drills.pro answers urllib's default User-Agent with 403.
+        headers = {"User-Agent": "core-api"}
+        base = settings.zitadel.internal_url
+        if base:
+            # Zitadel picks its instance from the host name, which is the public one.
+            headers["Host"] = urlparse(ZITADEL_ISSUER).netloc
         _jwks_client = PyJWKClient(
-            f"{ZITADEL_ISSUER}/oauth/v2/keys", cache_keys=True, headers={"User-Agent": "core-api"}
+            f"{base or ZITADEL_ISSUER}/oauth/v2/keys", cache_keys=True, headers=headers
         )
     return _jwks_client
 
