@@ -8,13 +8,13 @@
 # *second* project, apps and IdPs; this script instead reads the existing
 # ids back out and re-issues just the secret.
 #
-#   ./scripts/zitadel-oidc-restore.sh
+#   ./scripts/steps/zitadel-oidc-restore.sh
 #
 # The client secret cannot be read back — Zitadel returns it only at
 # creation — so it is regenerated. Any copy of the previous secret stops
 # working, which after a Vault wipe is true regardless.
 set -eu
-. "$(dirname "$0")/lib-secrets.sh"
+. "$(dirname "$0")/../lib/secrets.sh"
 
 ZITADEL="${ZITADEL_URL:-http://localhost:8080}"
 HOST="Host: ${ZITADEL_HOST:-zitadel.monorepo.orb.local:8080}"

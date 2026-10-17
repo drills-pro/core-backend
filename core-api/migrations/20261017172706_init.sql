@@ -4,7 +4,7 @@
 -- Applied by dbmate as backend_admin: the role k8s already provisions for this app (CNPG managed
 -- role, owner of the database, Vault static creds `backend-admin`). It is not a superuser and has
 -- no BYPASSRLS, and this file creates no roles: core_app is created by the cluster (locally by
--- scripts/db-roles.sql).
+-- compose/postgres/core-api.sql).
 --
 -- backend_admin owns every object; core_app (the NOLOGIN group of the runtime's Vault users) owns
 -- nothing. There are no default privileges, so everything core_app uses is granted below.

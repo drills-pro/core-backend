@@ -1,7 +1,8 @@
 # Sourced by the bootstrap scripts. Writes core-api's local secret files (.local/secrets/*.json), the
 # same shape the Vault Agent Injector renders in the cluster. core-api re-reads a file when it
 # changes, so no restart is needed. Values must not contain double quotes or backslashes.
-SECRETS_DIR="${SECRETS_DIR:-$(cd "$(dirname "$0")/.." && pwd)/.local/secrets}"
+# The repo root via git, since callers sit at different depths (scripts/, scripts/steps/).
+SECRETS_DIR="${SECRETS_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/.local/secrets}"
 
 # write_secret <file> <key> <value> [<key> <value> ...]
 write_secret() {

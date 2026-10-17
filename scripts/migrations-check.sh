@@ -7,7 +7,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-# The compose postgres (fresh volume, so scripts/db-roles.sql runs) and dbmate services, in a
+# The compose postgres (fresh volume, so compose/postgres/core-api.sql runs) and dbmate services, in a
 # throwaway project with no published ports, so it runs next to a live dev stack.
 work=$(mktemp -d)
 export COMPOSE_PROJECT_NAME=migrations-check-$$

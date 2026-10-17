@@ -19,7 +19,7 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 1. `SecretPaths` in `settings.py` + a path in `base.yaml` (cluster path, `/var/app-secret/app-backend/<name>`) and in `local.yaml`/`compose.yaml` (`.json` under `.local/secrets`).
 2. Required keys in `secret_files.REQUIRED`.
 3. Use `secret_files.get("<name>")` at the point of use, not at import, so rotation works.
-4. Local value: `scripts/secrets-init.sh` (static) or the bootstrap script that generates it (`write_secret` in `scripts/lib-secrets.sh`).
+4. Local value: `scripts/secrets-init.sh` (static) or the bootstrap script that generates it (`write_secret` in `scripts/lib/secrets.sh`).
 5. Prod value: the `k8s` repo seeds it in Vault (`bootstrap/04-vault-seed-secrets.sh`, path `app-secret/app-backend/<name>`); the injector template already renders every key. Hand the user the `vault kv put` command; do not run root-token scripts.
 
 ## Rules
@@ -28,5 +28,5 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 - core-api never calls Vault. Postgres credentials are the `db` secret file, rewritten by the Vault agent on rotation; `app/core/db.py` swaps the pool when it changes.
 - Migrations have their own credential, not core-api's: the k8s Job renders `/vault/secrets/dbmate.env`
   (`DATABASE_URL` for `backend_admin`, Vault `database/static-creds/backend-admin`). core-api has no setting
-  for it. Locally the compose `dbmate` service logs in as `backend_admin` (`scripts/db-roles.sql`).
+  for it. Locally the compose `dbmate` service logs in as `backend_admin` (`compose/postgres/core-api.sql`).
 - `APP_ENV` has no default in code on purpose; the Dockerfile sets `prod`.

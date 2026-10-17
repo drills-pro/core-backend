@@ -12,7 +12,7 @@
 #
 # NOT covered: scripts/zitadel-bootstrap.sh, which creates the Zitadel
 # project, OIDC apps, roles and IdPs. That one is first-time-only and would
-# create duplicates if re-run — zitadel-oidc-restore.sh below is the
+# create duplicates if re-run — steps/zitadel-oidc-restore.sh below is the
 # re-runnable half, and it tells you if the first-time setup is missing.
 set -eu
 
@@ -28,7 +28,7 @@ VAULT="docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN
 $VAULT sh -c 'sh /vault-setup.sh' | tail -1
 # Same shape as the cluster's /vault/secrets/db. Each run issues a new Postgres user; old ones lapse at
 # VALID UNTIL.
-. ./scripts/lib-secrets.sh
+. ./scripts/lib/secrets.sh
 creds=$($VAULT vault read -format=json database/creds/core-app)
 user=$(printf '%s\n' "$creds" | sed -n 's/.*"username": "\(.*\)".*/\1/p')
 pass=$(printf '%s\n' "$creds" | sed -n 's/.*"password": "\(.*\)".*/\1/p')
@@ -36,13 +36,13 @@ write_secret db.json username "$user" password "$pass"
 echo "wrote $SECRETS_DIR/db.json ($user)"
 
 step "zitadel OIDC client credentials"
-./scripts/zitadel-oidc-restore.sh
+./scripts/steps/zitadel-oidc-restore.sh
 
 step "label studio refresh token"
-./scripts/labelstudio-bootstrap.sh
+./scripts/steps/labelstudio.sh
 
 step "lakefs: admin, bucket, repository"
-./scripts/lakefs-bootstrap.sh
+./scripts/steps/lakefs.sh
 
 step "restarting core-api"
 docker compose restart core-api > /dev/null

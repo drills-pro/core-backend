@@ -1,7 +1,7 @@
 #!/bin/sh
 # Real, automated Zitadel OIDC client registration (req/02) — no console
 # clicks. Uses the machine PAT Zitadel writes on first init (see
-# ZITADEL_FIRSTINSTANCE_* / scripts/zitadel-firstinstance.yaml in
+# ZITADEL_FIRSTINSTANCE_* / compose/zitadel/firstinstance.yaml in
 # docker-compose.yml) to drive the Management API directly.
 #
 # Run once after `docker compose up` (zitadel must have finished its
@@ -79,7 +79,7 @@ curl -s -4 "$ZITADEL/admin/v1/members/$AUTOMATION_USER_ID" -X PUT -H "$AUTH" -H 
   -d '{"roles":["IAM_OWNER","IAM_LOGIN_CLIENT"]}' > /dev/null
 echo "granted IAM_LOGIN_CLIENT to automation user $AUTOMATION_USER_ID"
 
-. "$(dirname "$0")/lib-secrets.sh"
+. "$(dirname "$0")/lib/secrets.sh"
 write_secret zitadel-oidc.json \
   client_id "$CLIENT_ID" client_secret "$CLIENT_SECRET" project_id "$PROJECT_ID" app_id "$APP_ID"
 echo "confidential app: client_id=$CLIENT_ID"

@@ -12,7 +12,7 @@ Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the
 ```bash
 mise install
 ./scripts/secrets-init.sh          # .local/secrets/lakefs.json
-docker compose up --build -d      # fresh pgdata: scripts/db-roles.sql; then the dbmate service migrates before core-api starts
+docker compose up --build -d      # fresh pgdata: compose/postgres/core-api.sql; then the dbmate service migrates before core-api starts
 ./scripts/zitadel-bootstrap.sh     # first time only: creates the Zitadel project and apps (re-running duplicates them)
 ./scripts/bootstrap.sh             # vault DB engine + .local/secrets/db.json, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
 ```

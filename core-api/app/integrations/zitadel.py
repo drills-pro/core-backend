@@ -2,7 +2,7 @@
 
 Local dev (self-hosted Zitadel via docker-compose) auto-provisions a
 machine user + long-lived PAT on first init (see
-scripts/zitadel-firstinstance.yaml), mounted from the `zitadel-pat` volume
+compose/zitadel/firstinstance.yaml), mounted from the `zitadel-pat` volume
 — read once, lazily, since it does not exist yet at import time on a cold
 stack.
 

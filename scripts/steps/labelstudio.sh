@@ -8,7 +8,7 @@
 # script obtains that refresh token and writes it to .local/secrets/labelstudio.json.
 #
 #
-#   ./scripts/labelstudio-bootstrap.sh
+#   ./scripts/steps/labelstudio.sh
 #
 # Re-runnable, but not free: Label Studio allows one refresh token per user
 # and refuses to mint a second (409), so step 2 revokes the existing one
@@ -19,7 +19,7 @@
 # Runs on the host because the flow needs a session cookie jar. Same shape as
 # scripts/zitadel-bootstrap.sh.
 set -eu
-. "$(dirname "$0")/lib-secrets.sh"
+. "$(dirname "$0")/../lib/secrets.sh"
 
 LS="${LS_URL:-http://localhost:8110}"                      # host-side, for this script
 LS_INTERNAL="${LS_INTERNAL_URL:-http://labelstudio:8080}"  # what core-api uses

@@ -86,7 +86,7 @@ owns nothing, and the migrations never create or alter roles.
   rows itself, and is `REVOKE`d from `PUBLIC`.
 - Nothing superuser-only (`CREATE EXTENSION`, ...), no `CREATE ROLE`.
 - `scripts/migrations-check.sh` proves all of this from an empty PG18 with these roles
-  (`scripts/db-roles.sql`), including that `core_app` sees one tenant while `SECURITY DEFINER` sees all.
+  (`compose/postgres/core-api.sql`), including that `core_app` sees one tenant while `SECURITY DEFINER` sees all.
   CI runs it before building the image.
 
 **k8s side:** the Job's credential becomes `database/static-creds/backend-admin` instead of

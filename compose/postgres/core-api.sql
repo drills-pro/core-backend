@@ -2,7 +2,7 @@
 -- the compose postgres as an init script, so a fresh volume gets them on first start; idempotent,
 -- so an older volume can take it by hand (README "Migrations"):
 --
---   docker compose exec -T postgres psql -U postgres < scripts/db-roles.sql
+--   docker compose exec -T postgres psql -U postgres < compose/postgres/core-api.sql
 --
 -- Mirrors k8s: backend_admin is pg-backend's CNPG managed role (LOGIN, CREATEROLE, owner of the
 -- database; apps/backend/db/cluster.yaml) and core_app the runtime group role created next to it

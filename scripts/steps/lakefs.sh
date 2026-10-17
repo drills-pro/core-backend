@@ -10,7 +10,7 @@
 #
 # Run once after `docker compose up` (lakefs + minio must be healthy):
 #
-#   ./scripts/lakefs-bootstrap.sh
+#   ./scripts/steps/lakefs.sh
 #
 # Idempotent, unlike scripts/zitadel-bootstrap.sh: re-running it against an
 # already-provisioned stack reports what already exists and exits 0, so it

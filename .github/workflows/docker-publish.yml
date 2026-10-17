@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - "core-api/**"
-      - "scripts/db-roles.sql"
+      - "compose/postgres/**"
+      - "docker-compose.yml"
       - "scripts/lint-migrations.py"
       - "scripts/migrations-check.sh"
   workflow_dispatch:

@@ -143,7 +143,7 @@ clean state (dropped DB, fresh volume) — not a one-off manual sequence.
 
 Getting there required tracking down a real, specific bug: Zitadel
 auto-provisions a machine user + PAT on first init via
-`ZITADEL_FIRSTINSTANCE_*` config (`scripts/zitadel-firstinstance.yaml`,
+`ZITADEL_FIRSTINSTANCE_*` config (`compose/zitadel/firstinstance.yaml`,
 loaded via `--steps`), but the schema I'd verified against Zitadel's
 `cmd/defaults.yaml` was still incomplete — `PatPath` (where to *write*
 the generated PAT) is a **top-level** `FirstInstance` key, not nested
@@ -367,7 +367,7 @@ exchange/caching transparently. Bootstrap is fully scripted — the session
 login is a plain Django form post, so no browser is involved:
 
 ```
-./scripts/labelstudio-bootstrap.sh
+./scripts/steps/labelstudio.sh
 ```
 
 It logs in (`/user/login/`, CSRF token echoed back), mints a refresh token
@@ -657,10 +657,10 @@ own open question — deferred, not decided in the spec itself).
 ## LakeFS one-time setup
 
 On first boot LakeFS has no admin user, no blockstore bucket, and no
-repository. `scripts/lakefs-bootstrap.sh` creates all three:
+repository. `scripts/steps/lakefs.sh` creates all three:
 
 ```
-./scripts/lakefs-bootstrap.sh
+./scripts/steps/lakefs.sh
 ```
 
 The repository matters as much as the admin user: `app/integrations/lakefs_client.py`
@@ -683,7 +683,7 @@ files whose *paths* are in the config (`secrets:`). `core-api` re-reads a file w
 | | Cluster | Local |
 |---|---|---|
 | Files | `/var/app-secret/app-backend/<name>`, rendered by the Vault Agent Injector | `.local/secrets/<name>.json` (gitignored), mounted at the same path in compose |
-| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `labelstudio-bootstrap.sh`, `zitadel-oidc-restore.sh` |
+| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `scripts/steps/labelstudio.sh`, `scripts/steps/zitadel-oidc-restore.sh` |
 
 `core-api` does not talk to Vault. Its Postgres credential is the `db` secret file too
 (`{"username", "password"}`): in the cluster the Vault agent issues it from `database/creds/core-app`,
@@ -720,7 +720,7 @@ nothing, so the policies always apply to it); every `SECURITY DEFINER` function 
 public, pg_temp` and filters rows itself; nothing creates roles or needs superuser rights. Never grant on
 `schema_migrations`.
 
-`docker compose up` does the local part: a fresh `pgdata` volume runs `scripts/db-roles.sql`
+`docker compose up` does the local part: a fresh `pgdata` volume runs `compose/postgres/core-api.sql`
 (`backend_admin`, `core_app`, the `core` database owned by `backend_admin`), then the `dbmate` service
 applies pending migrations as `backend_admin`, and `core-api` starts only after it succeeds.
 
@@ -736,7 +736,7 @@ does not start. Recreate only `core` (Zitadel, lakeFS and MLflow keep their data
 
 ```bash
 docker compose exec postgres psql -U postgres -c 'DROP DATABASE core WITH (FORCE)'
-docker compose exec -T postgres psql -U postgres < scripts/db-roles.sql
+docker compose exec -T postgres psql -U postgres < compose/postgres/core-api.sql
 docker compose up -d
 ```
 
