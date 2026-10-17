@@ -26,8 +26,8 @@ step "local secret files"
 step "vault: database secrets engine, core-api's Postgres credential"
 VAULT="docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault"
 $VAULT sh -c 'sh /vault-setup.sh' | tail -1
-# Same file the cluster's Vault agent writes (/vault/secrets/db). Each run issues a new Postgres user, as
-# core-api's own Vault calls did on every start before; old ones lapse at VALID UNTIL.
+# Same shape as the cluster's /vault/secrets/db. Each run issues a new Postgres user; old ones lapse at
+# VALID UNTIL.
 . ./scripts/lib-secrets.sh
 creds=$($VAULT vault read -format=json database/creds/core-app)
 user=$(printf '%s\n' "$creds" | sed -n 's/.*"username": "\(.*\)".*/\1/p')

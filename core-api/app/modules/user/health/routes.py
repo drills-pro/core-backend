@@ -32,9 +32,7 @@ async def health_deps():
 
 
 async def _check_postgres() -> str:
-    # Reuses the app's own connection pool (the `db` secret file: Vault-issued creds,
-    # database/creds/core-app) instead of a separate static superuser DSN — proves the real data
-    # path works, not a parallel one.
+    # The app's own pool (the `db` secret file), so this checks the real data path.
     try:
         pool = await db.get_pool()
         async with pool.acquire() as conn:

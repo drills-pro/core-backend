@@ -10,8 +10,7 @@ from app.core.settings import settings
 logger = logging.getLogger(__name__)
 
 PG = settings.pg
-# How often to look for rotated credentials. The Vault agent writes the new user well before the old lease
-# is revoked (it renews until max_ttl, then issues a new one), so a 30s lag is harmless.
+# The Vault agent writes a new user well before the old lease expires, so a 30s poll is enough.
 WATCH_SECONDS = 30
 
 _pool: asyncpg.Pool | None = None

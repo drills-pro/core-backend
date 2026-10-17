@@ -30,7 +30,6 @@ vault write database/roles/core-app \
   revocation_statements="DROP ROLE IF EXISTS \"{{name}}\";" \
   default_ttl="768h" \
   max_ttl="768h"
-# 768h (the dev server's maximum): locally nothing renews the lease the way the cluster's Vault agent does,
-# so bootstrap.sh's db.json stays valid for a month. Re-run bootstrap.sh after that, or after a Vault restart.
+# 768h is the dev server's maximum. Nothing renews the lease locally, so re-run bootstrap.sh after a month.
 
 echo "vault configured: secret/platform/zitadel, database/creds/core-app"
