@@ -11,13 +11,10 @@ app authenticates as a **Service User** via RFC 7523 JWT Profile: it
 self-signs a short-lived assertion with a Zitadel-issued RSA key
 (a mounted JSON file, see app/core/secret_files.py) and
 exchanges it for a bearer token, caching that token until shortly before
-it expires. This is a distinct credential from the plain client_id/secret
-`app/modules/user/auth/routes.py` uses for its own OIDC login flow — that
-one is a confidential client for authorization_code exchanges; this one is
-a machine identity granted org-management rights, for calling Zitadel's
-Management/Auth v2 APIs directly (create user, create session, ...).
+it expires. It is a machine identity granted org-management rights, for
+calling Zitadel's Management/Auth v2 APIs directly.
 
-The signup saga and the admin back-office authenticate as this token; before the modular split
+The admin back-office authenticates as this token; before the modular split
 the latter reached into the former's private `_get_pat`, which is what
 this module replaces.
 """
@@ -253,60 +250,3 @@ async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> dict | None:
         "display_name": owner.get("displayName") or owner.get("preferredLoginName"),
         "login_name": owner.get("preferredLoginName"),
     }
-
-
-# --- Self-serve signup provisioning (app/modules/user/auth/signup.py) ------
-# Roles a new org's project grant allows; the owner is then granted org_owner out of those.
-TENANT_ROLES = ["org_owner", "org_admin", "project_editor", "project_viewer"]
-
-
-async def create_org_with_owner(
-    client: httpx.AsyncClient, name: str, first_name: str, last_name: str, email: str, password: str
-) -> tuple[str, str]:
-    """Org and its first human ORG_OWNER in one call → (org_id, owner_user_id).
-
-    The email is left unverified on purpose, so Zitadel sends its own verification code.
-    """
-    resp = await client.post(
-        f"{ISSUER}/v2/organizations",
-        headers=auth_header(),
-        json={
-            "name": name,
-            "admins": [
-                {
-                    "human": {
-                        "profile": {"givenName": first_name, "familyName": last_name},
-                        "email": {"email": email},
-                        "password": {"password": password},
-                    },
-                    "roles": ["ORG_OWNER"],
-                }
-            ],
-        },
-    )
-    resp.raise_for_status()
-    body = resp.json()
-    return body["organizationId"], body["createdAdmins"][0]["userId"]
-
-
-async def create_project_grant(client: httpx.AsyncClient, project_id: str, org_id: str) -> str:
-    """Let `org_id` use the platform project with the tenant role set → grant id."""
-    resp = await client.post(
-        f"{ISSUER}/management/v1/projects/{project_id}/grants",
-        headers=auth_header(),
-        json={"grantedOrgId": org_id, "roleKeys": TENANT_ROLES},
-    )
-    resp.raise_for_status()
-    return resp.json()["grantId"]
-
-
-async def create_user_grant(
-    client: httpx.AsyncClient, org_id: str, user_id: str, project_id: str, grant_id: str
-) -> None:
-    """Give the org's owner the org_owner role under that project grant."""
-    resp = await client.post(
-        f"{ISSUER}/management/v1/users/{user_id}/grants",
-        headers={**auth_header(), "x-zitadel-orgid": org_id},
-        json={"projectId": project_id, "projectGrantId": grant_id, "roleKeys": ["org_owner"]},
-    )
-    resp.raise_for_status()

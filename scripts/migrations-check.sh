@@ -63,7 +63,6 @@ BEGIN
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity
        AND EXISTS (SELECT FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id')
-       AND c.relname NOT IN ('signups')  -- written before its tenant exists
     UNION ALL
     SELECT 'core_app can read schema_migrations'
      WHERE has_table_privilege('core_app', 'public.schema_migrations', 'SELECT')

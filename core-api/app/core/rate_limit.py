@@ -1,4 +1,4 @@
-"""req/04 FR4: rate limiting on the inference endpoint per deployment (and on signup).
+"""req/04 FR4: rate limiting on the inference endpoint per deployment (and on tenant creation).
 
 Fixed one-minute windows counted in Postgres, so every core-api replica shares the count. One
 atomic upsert per check. A fixed window allows up to 2x the limit across a minute boundary,

@@ -21,4 +21,3 @@ secrets:
   lakefs: ../.local/secrets-host/lakefs.json
   labelstudio: ../.local/secrets-host/labelstudio.json
   zitadel: ../.local/secrets-host/zitadel.json
-  zitadel_oidc: ../.local/secrets-host/zitadel-oidc.json

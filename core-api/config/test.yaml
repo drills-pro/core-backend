@@ -12,4 +12,3 @@ secrets:
   lakefs: /nonexistent/lakefs.json
   labelstudio: /nonexistent/labelstudio.json
   zitadel: /nonexistent/zitadel.json
-  zitadel_oidc: /nonexistent/zitadel-oidc.json

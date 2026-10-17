@@ -14,7 +14,6 @@ import httpx
 from app.core import metrics, rate_limit
 from app.core.settings import settings
 from app.core.db import get_pool
-from app.modules.user.auth import reap_stale_signups
 from app.modules.user.datasets import reconcile_inflight_imports
 from app.modules.user.deployments import reconcile_inflight_deployments
 from app.modules.user.preprocessing import reconcile_inflight_preprocessing
@@ -64,7 +63,6 @@ POLLERS = (
     ("dataset-import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
     ("preprocessing-reconcile", reconcile_inflight_preprocessing, RECONCILE_INTERVAL_SECONDS),
-    ("signup-reaper", reap_stale_signups, 60),
     ("rate-limit-purge", rate_limit.purge, 60),
 )
 

@@ -13,7 +13,7 @@ pg:
 
 zitadel:
   issuer: http://zitadel.monorepo.orb.local:8080
-  project_id: ""             # tokens must carry it in aud; local falls back to the zitadel_oidc secret
+  project_id: ""             # tokens must carry it in aud; prod.yaml sets it, locally CORE_ZITADEL__PROJECT_ID
 
 auth:
   dev_headers: false         # X-Tenant-Id / X-User-Id / X-Admin-User stand in for a token
@@ -34,4 +34,3 @@ secrets:                     # paths of JSON files, mounted into the pod (Vault 
   lakefs: /var/app-secret/app-backend/lakefs
   labelstudio: /var/app-secret/app-backend/labelstudio
   zitadel: /var/app-secret/app-backend/zitadel
-  zitadel_oidc: /var/app-secret/app-backend/zitadel-oidc

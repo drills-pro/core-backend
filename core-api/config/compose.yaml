@@ -10,7 +10,6 @@ secrets:
   lakefs: /var/app-secret/app-backend/lakefs.json
   labelstudio: /var/app-secret/app-backend/labelstudio.json
   zitadel: /var/app-secret/app-backend/zitadel.json
-  zitadel_oidc: /var/app-secret/app-backend/zitadel-oidc.json
 ray:
   dashboard: http://ray-head:8265
 mlflow:

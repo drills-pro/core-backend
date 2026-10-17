@@ -17,7 +17,6 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "lakefs": ("endpoint", "access_key", "secret_key"),
     "labelstudio": ("url", "refresh_token"),
     "zitadel": ("USER_ID", "KEY_ID", "PRIVATE_KEY"),
-    "zitadel_oidc": (),
 }
 
 _cache: dict[str, tuple[Path, int, dict]] = {}

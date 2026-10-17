@@ -1,23 +1,18 @@
-"""JWT verification against Zitadel (req/02-auth-identity.md FR1/FR3/NFR2).
+"""JWT verification against Zitadel (04-identity-tenancy-authz.md, ADR-021).
 
-Zitadel puts the org (=tenant, see req/01) on the `urn:zitadel:iam:user:resourceowner:id`
-claim, and per-project roles on `urn:zitadel:iam:org:project:roles` (a dict of
-role -> {org_id: org_name}). Both are stable, documented Zitadel claim keys,
-not something to reverse-engineer per token.
+A token proves who someone is and nothing else: tenant membership and roles are Postgres rows
+(core/tenancy.py). The one claim still read for authorization is the platform_admin project role
+on `urn:zitadel:iam:org:project:roles` (a dict of role -> {org_id: org_name}), until /v1/admin
+moves to a platform_admins table.
 """
 import jwt
 from fastapi import Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
-from app.core import secret_files
 from app.core.settings import settings
 
 ZITADEL_ISSUER = settings.zitadel.issuer
-# Real tokens carry this as three flat claims (…:id, …:name, …:primary_domain),
-# not a nested object under the bare "urn:...:resourceowner" key — verified
-# against a live token, contradicting the docs' apparent structure.
-ORG_ID_CLAIM = "urn:zitadel:iam:user:resourceowner:id"
 ROLES_CLAIM = "urn:zitadel:iam:org:project:roles"
 
 # NFR2: cache JWKS, don't fetch on every request. PyJWKClient caches by
@@ -32,16 +27,9 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-def _oidc_project_id() -> str:
-    try:
-        return secret_files.get("zitadel_oidc").get("project_id", "")
-    except secret_files.SecretError:
-        return ""
-
-
 def project_id() -> str:
     # Fail closed: without an audience to check, any token the instance signed would pass.
-    pid = settings.zitadel.project_id or _oidc_project_id()
+    pid = settings.zitadel.project_id
     if not pid:
         raise HTTPException(status_code=500, detail="ZITADEL_PROJECT_ID is not configured")
     return pid
@@ -51,7 +39,11 @@ class Claims:
     def __init__(self, raw: dict):
         self.raw = raw
         self.subject: str = raw["sub"]
-        self.org_id: str = raw[ORG_ID_CLAIM]
+        # Identity copy for the principals table; Zitadel only puts these on the access token
+        # when the app/Action is configured to, so they may be absent.
+        self.email: str | None = raw.get("email")
+        self.email_verified: bool = raw.get("email_verified") is True
+        self.display_name: str | None = raw.get("name")
         self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
 
 
@@ -68,9 +60,6 @@ def verify_token(token: str) -> Claims:
         )
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
-
-    if ORG_ID_CLAIM not in raw:
-        raise HTTPException(status_code=401, detail="token missing org claim")
     return Claims(raw)
 
 

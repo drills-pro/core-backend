@@ -48,8 +48,6 @@ def _check_secrets() -> str:
     for name in secret_files.REQUIRED:
         if name == "zitadel" and settings.env != "prod":
             continue  # local Zitadel is reached with the PAT volume, not a service-user key
-        if name == "zitadel_oidc" and settings.zitadel.project_id:
-            continue  # the project id is configured; this file is only a local-dev fallback
         try:
             secret_files.get(name)
         except secret_files.SecretError as e:

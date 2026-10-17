@@ -73,7 +73,6 @@ class SecretPaths(_Section):
     lakefs: Path
     labelstudio: Path
     zitadel: Path
-    zitadel_oidc: Path
 
 
 class Settings(BaseSettings):
