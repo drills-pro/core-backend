@@ -30,38 +30,12 @@ HOST="Host: zitadel.monorepo.orb.local:8080"  # externaldomain-based routing, se
 # gets {"code":5,"message":"Not Found"}. Fall back to the v1 login UI, which
 # is built into the core binary. Drop this once a login service is added to
 # docker-compose.yml; login v1 is deprecated and goes away in Zitadel v5.
-#
-# Instance-wide only: the core-api-web app below opts back in to login v2
-# per-app ("loginVersion"), because app/embedded_auth.py needs the V2_-prefixed
-# auth request id that only the v2 flow mints — it parses that id out of the
-# authorize redirect and never navigates to the (absent) v2 login UI, so no
-# login service is needed for it. Without the per-app override, /oauth/v2/authorize
-# hands back a v1 "?authRequestID=<numeric>" redirect and login 502s with
-# "could not start auth request".
 curl -s -4 -o /dev/null "$ZITADEL/v2/features/instance" -X PUT -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{"loginV2":{"required":false}}'
 echo "loginV2 requirement disabled (using built-in login v1)"
 
 PROJECT=$(curl -s -4 "$ZITADEL/management/v1/projects" -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{"name":"platform"}')
 PROJECT_ID=$(echo "$PROJECT" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 echo "project: $PROJECT_ID"
-
-# accessTokenType JWT: Zitadel's default access token is an opaque/encrypted
-# reference token, not a signed JWT — app/auth.py's RS256 verification
-# needs the JWT variant. See app/embedded_auth.py for what uses this app.
-APP=$(curl -s -4 "$ZITADEL/management/v1/projects/$PROJECT_ID/apps/oidc" -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{
-  "name": "core-api-web",
-  "redirectUris": ["http://localhost:8090/auth/callback"],
-  "responseTypes": ["OIDC_RESPONSE_TYPE_CODE"],
-  "grantTypes": ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
-  "appType": "OIDC_APP_TYPE_WEB",
-  "authMethodType": "OIDC_AUTH_METHOD_TYPE_BASIC",
-  "accessTokenType": "OIDC_TOKEN_TYPE_JWT",
-  "loginVersion": {"loginV2": {"baseUri": ""}}
-}')
-echo "app: $APP"
-CLIENT_ID=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['clientId'])")
-CLIENT_SECRET=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['clientSecret'])")
-APP_ID=$(echo "$APP" | python3 -c "import sys,json;print(json.load(sys.stdin)['appId'])")
 
 # req/02 FR3: minimum role set, provisioned as project roles. platform_admin
 # is the one above them: it belongs to whoever runs the platform, not to a
@@ -72,18 +46,7 @@ for role in org_owner org_admin project_editor project_viewer platform_admin; do
 done
 echo "roles: org_owner org_admin project_editor project_viewer platform_admin"
 
-# req/02's embedded login (app/embedded_auth.py) needs the automation
-# machine user to hold IAM_LOGIN_CLIENT — the specific instance-level role
-# for finalizing OIDC auth requests on a user's behalf via the Session API.
-AUTOMATION_USER_ID=$(curl -s -4 "$ZITADEL/auth/v1/users/me" -H "$AUTH" -H "$HOST" | python3 -c "import sys,json;print(json.load(sys.stdin)['user']['id'])")
-curl -s -4 "$ZITADEL/admin/v1/members/$AUTOMATION_USER_ID" -X PUT -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" \
-  -d '{"roles":["IAM_OWNER","IAM_LOGIN_CLIENT"]}' > /dev/null
-echo "granted IAM_LOGIN_CLIENT to automation user $AUTOMATION_USER_ID"
-
-. "$(dirname "$0")/lib/secrets.sh"
-write_secret zitadel-oidc.json \
-  client_id "$CLIENT_ID" client_secret "$CLIENT_SECRET" project_id "$PROJECT_ID" app_id "$APP_ID"
-echo "confidential app: client_id=$CLIENT_ID"
+echo "run core-api on the host with: export CORE_ZITADEL__PROJECT_ID=$PROJECT_ID"
 
 # Public SPA client (PKCE, no secret) for frontend/ — separate app since a
 # browser app can't hold a client_secret safely. appType WEB (not

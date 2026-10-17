@@ -7,7 +7,7 @@
 #   docker compose exec vault sh /vault-setup.sh
 set -eu
 
-# Static secrets (lakefs, labelstudio, zitadel-oidc) are no longer in Vault: core-api reads
+# Static secrets (lakefs, labelstudio) are no longer in Vault: core-api reads
 # them from JSON files (scripts/secrets-init.sh). Vault only issues the Postgres credentials below.
 
 # The zitadel *server's* own masterkey (docker-compose.yml passes it directly as a CLI flag).

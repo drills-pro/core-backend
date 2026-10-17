@@ -12,7 +12,7 @@
 #
 # NOT covered: scripts/zitadel-bootstrap.sh, which creates the Zitadel
 # project, OIDC apps, roles and IdPs. That one is first-time-only and would
-# create duplicates if re-run — steps/zitadel-oidc-restore.sh below is the
+# create duplicates if re-run — steps/zitadel-restore.sh below is the
 # re-runnable half, and it tells you if the first-time setup is missing.
 set -eu
 
@@ -35,8 +35,8 @@ pass=$(printf '%s\n' "$creds" | sed -n 's/.*"password": "\(.*\)".*/\1/p')
 write_secret db.json username "$user" password "$pass"
 echo "wrote $SECRETS_DIR/db.json ($user)"
 
-step "zitadel OIDC client credentials"
-./scripts/steps/zitadel-oidc-restore.sh
+step "zitadel SPA client config and project id"
+./scripts/steps/zitadel-restore.sh
 
 step "label studio refresh token"
 ./scripts/steps/labelstudio.sh

@@ -99,9 +99,10 @@ async def list_tenant_members(tenant_id: uuid.UUID):
     in the listing (admin_tenant_stats()), so the two agree.
     """
     async with (await get_pool()).acquire() as conn:
-        org_id = await conn.fetchval("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
-        if org_id is None:
+        tenant = await conn.fetchrow("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
+        if tenant is None:
             raise HTTPException(status_code=404, detail="no such tenant")
+        org_id = tenant["zitadel_org_id"]  # None for a tenant created through POST /v1/tenants
         rows = await conn.fetch("SELECT * FROM admin_tenant_members($1)", tenant_id)
 
     async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
@@ -198,9 +199,12 @@ async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=
         raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn:
-        org_id = await conn.fetchval("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
-    if org_id is None:
+        tenant = await conn.fetchrow("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
+    if tenant is None:
         raise HTTPException(status_code=404, detail="no such tenant")
+    org_id = tenant["zitadel_org_id"]
+    if org_id is None:
+        raise HTTPException(status_code=409, detail="tenant has no Zitadel org, so it cannot be suspended here")
 
     async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
         try:

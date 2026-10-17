@@ -54,7 +54,8 @@ database engine and core-api's Postgres credential. Every step is idempotent. It
 
 1. writes static secrets (`secrets-init.sh`);
 2. configures Vault's database engine and writes a fresh `db.json` (768h lease, nothing renews it locally);
-3. restores `zitadel-oidc.json` (`scripts/steps/zitadel-oidc-restore.sh`);
+3. restores the SPA client config in Vault and prints the Zitadel project id to export as
+   `CORE_ZITADEL__PROJECT_ID` (`scripts/steps/zitadel-restore.sh`);
 4. issues a Label Studio refresh token (`steps/labelstudio.sh`) and provisions lakeFS: admin, MinIO bucket,
    repository (`steps/lakefs.sh`);
 5. writes `.local/secrets-host/`: copies of `.local/secrets/*.json` with `http://<service>:<port>` rewritten to

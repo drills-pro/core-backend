@@ -140,7 +140,7 @@ curl "http://localhost:8090/v1/projects/<id>" -H "X-Tenant-Id: 22222222-2222-222
 ## Auth (req/02)
 
 `app/core/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS,
-checks the RS256 signature, issuer, and the Zitadel org-id claim. Covered
+checks the RS256 signature, issuer and audience (the Zitadel project id). Covered
 by `core-api/tests/test_auth.py` (self-signed keypair — wrong signature
 and missing-claim cases both rejected).
 
@@ -148,10 +148,9 @@ and missing-claim cases both rejected).
 
 `scripts/zitadel-bootstrap.sh` drives Zitadel's Management API directly
 — no console clicks, no Terraform, just `curl`. It creates a real
-project, a real OIDC app (`core-api-web`), and all 4 of req/02 FR3's
-roles (`org_owner`, `org_admin`, `project_editor`, `project_viewer`),
-then stores the resulting `client_id`/`client_secret` in Vault
-(`secret/platform/zitadel-oidc`). Verified reproducible from a fully
+project, the SPA's public OIDC app, and the project roles,
+then stores the SPA's `client_id` in Vault (`secret/platform/zitadel-spa`) and prints the
+project id to export as `CORE_ZITADEL__PROJECT_ID` for a host-run core-api. Verified reproducible from a fully
 clean state (dropped DB, fresh volume) — not a one-off manual sequence.
 
 Getting there required tracking down a real, specific bug: Zitadel
@@ -696,7 +695,7 @@ files whose *paths* are in the config (`secrets:`). `core-api` re-reads a file w
 | | Cluster | Local |
 |---|---|---|
 | Files | `/var/app-secret/app-backend/<name>`, rendered by the Vault Agent Injector | `.local/secrets/<name>.json` (gitignored), mounted at the same path in compose |
-| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `scripts/steps/labelstudio.sh`, `scripts/steps/zitadel-oidc-restore.sh` |
+| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `scripts/steps/labelstudio.sh` |
 
 `core-api` does not talk to Vault. Its Postgres credential is the `db` secret file too
 (`{"username", "password"}`): in the cluster the Vault agent issues it from `database/creds/core-app`,

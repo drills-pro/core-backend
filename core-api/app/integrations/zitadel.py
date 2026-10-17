@@ -150,8 +150,11 @@ async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, di
     One call for the whole org rather than a lookup per member: the
     back-office joins this onto its own project_members rows, which only
     hold the Zitadel subject. Returns {} when the org is gone or Zitadel is
-    down, and callers fall back to showing the bare user id.
+    down, and callers fall back to showing the bare user id. Tenants created through
+    POST /v1/tenants have no org (org_id None): nobody to look up.
     """
+    if not org_id:
+        return {}
     try:
         resp = await client.post(
             f"{ISSUER}/management/v1/users/_search",
@@ -227,8 +230,10 @@ async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> dict | None:
     Scoped with x-zitadel-orgid, which is how the management API acts on an
     org other than the token's own. None when the org is gone (a tenant row
     outliving its Zitadel org answers 403 here), has no human owner, or
-    Zitadel is down.
+    Zitadel is down. Also None for a tenant with no org (created through POST /v1/tenants).
     """
+    if not org_id:
+        return None
     try:
         resp = await client.post(
             f"{ISSUER}/management/v1/orgs/me/members/_search",

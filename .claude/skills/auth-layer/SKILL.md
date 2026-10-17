@@ -1,6 +1,6 @@
 ---
 name: auth-layer
-description: The authentication and authorization rework for core-api (principals, tenant_members, BFF session, authorize(), signup saga removal). Use when touching app/core/auth.py, tenancy.py, signup, invitations, /auth/* or /v1/me routes, roles, or Zitadel integration.
+description: The authentication and authorization rework for core-api (principals, tenant_members, BFF session, authorize(), admin without Zitadel orgs). Use when touching app/core/auth.py, tenancy.py, tenant creation, invitations, /auth/* or /v1/me routes, roles, or Zitadel integration.
 ---
 
 # Auth layer rework
@@ -9,23 +9,26 @@ Source of truth: `../planning/04-identity-tenancy-authz.md`, ADR-021/024/026 in 
 
 ## State of the code vs the plan
 
-The code is still org-per-tenant: tenant resolved from the token's Zitadel org claim, roles from a Zitadel claim, the signup saga in `modules/user/auth/signup.py`, the SPA sending Bearer tokens. The plan: Zitadel only authenticates; tenants, members and roles are Postgres rows; core-api is the OIDC client with a cookie session (BFF).
+Done (shared pool, verify-only; migration `20261018090000_shared_identity_pool.sql`): `core/auth.py` verifies
+signature, issuer and audience and reads identity claims (`email`, `email_verified`, `name`, which the Zitadel
+access token carries only if the app/Action adds them); `core/tenancy.py` resolves the tenant from
+`tenant_members` on every request (`X-Tenant-Id`, optional when the user has exactly one tenant; no
+membership is 404); `GET /v1/me` and `POST /v1/tenants` live in `modules/user/auth/routes.py`; the signup
+saga, `signups`, the reaper and the `zitadel_oidc` secret are gone. `tenants.zitadel_org_id` is nullable and
+only legacy tenants and the admin back-office still use it (admin code treats NULL as "no org").
 
-## Order
+Still to do, in order:
 
-1. Migration: `principals`, `tenant_members`, `platform_admins`, `sessions`, `realms`, `consents`; `tenants.zitadel_org_id` nullable.
-2. Test harness: fake JWT issuer, two tenants, two principals (extends `tests/test_auth.py`).
-3. `core/auth.py`: issuer allowlist, drop org and role claims.
-4. `core/tenancy.py`: session or Bearer -> principal -> `X-Tenant-Id` membership check -> `SET LOCAL app.tenant_id`.
-5. BFF endpoints (login, callback, logout, refresh, CSRF), `/v1/me`.
-6. `POST /v1/tenants` in one transaction; then delete the saga, `signups`, the reaper and the provisioner user.
-7. `core/authz.py`: closed action enum, one role table, `require(action, resource)`, plus the route x role matrix test.
-8. Invitations accept flow; admin routes use `platform_admins` + MFA `amr`.
+1. Test harness with two tenants and two principals (today `tests/test_auth.py` fakes the pool).
+2. Issuer allowlist and `realms`; `platform_admins` (+ MFA `amr`) replacing the `platform_admin` Zitadel role claim that `get_platform_admin` still reads; then delete the provisioner service user and the org helpers the admin routes use.
+3. BFF endpoints (login, callback, logout, refresh, CSRF) and `sessions`; this is the only step that needs an OIDC client secret, as a new secret file.
+4. `core/authz.py`: closed action enum, one role table, `require(action, resource)`, plus the route x role matrix test. Roles gate nothing yet.
+5. Invitations accept flow with the verified-email check; `consents` and Turnstile on tenant creation.
 
-Steps 1-4 keep the Bearer path working; steps 5-6 break the current frontend and need a matching `customer-frontend` change.
+`POST /v1/tenants` replaced `POST /v1/auth/signup`, so `customer-frontend` must call it (and `/v1/me`) instead.
 
 ## Rules
 
 - Membership is checked in Postgres on every request; tokens carry identity only.
 - Missing membership is 404, wrong role on a visible resource is 403.
-- Settings and secret handling: skill `config-and-secrets`. New OIDC client secret = a new secret file, not an env var.
+- Settings and secret handling: skill `config-and-secrets`. A future OIDC client secret = a new secret file, not an env var. Locally the audience comes from `CORE_ZITADEL__PROJECT_ID` (printed by `scripts/steps/zitadel-restore.sh`); prod sets `zitadel.project_id` in `prod.yaml`.

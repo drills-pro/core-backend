@@ -1,25 +1,15 @@
 #!/bin/sh
-# Restore .local/secrets/zitadel-oidc.json and secret/platform/zitadel-spa (Vault).
+# Restore secret/platform/zitadel-spa (Vault) and print the project id core-api checks as `aud`.
 #
-# A lost secrets file (or a wiped dev Vault) loses the OIDC
-# client credentials core-api needs — while Zitadel's own
-# database (CloudNativePG on the kind cluster) keeps the project, the apps
-# and the users. Re-running scripts/zitadel-bootstrap.sh would create a
-# *second* project, apps and IdPs; this script instead reads the existing
-# ids back out and re-issues just the secret.
+# A wiped dev Vault loses the SPA's client config, while Zitadel's own database keeps the project,
+# the apps and the users. Re-running scripts/zitadel-bootstrap.sh would create a *second* project,
+# apps and IdPs; this script instead reads the existing ids back out.
 #
-#   ./scripts/steps/zitadel-oidc-restore.sh
-#
-# The client secret cannot be read back — Zitadel returns it only at
-# creation — so it is regenerated. Any copy of the previous secret stops
-# working, which after a Vault wipe is true regardless.
+#   ./scripts/steps/zitadel-restore.sh
 set -eu
-. "$(dirname "$0")/../lib/secrets.sh"
-
 ZITADEL="${ZITADEL_URL:-http://localhost:8080}"
 HOST="Host: ${ZITADEL_HOST:-zitadel.monorepo.orb.local:8080}"
 PROJECT_NAME="${ZITADEL_PROJECT:-platform}"
-APP_NAME="${ZITADEL_APP:-core-api-web}"
 SPA_NAME="${ZITADEL_SPA:-core-frontend-spa}"
 SPA_ISSUER="${ZITADEL_SPA_ISSUER:-http://zitadel.monorepo.orb.local:8080}"
 SPA_REDIRECT="${ZITADEL_SPA_REDIRECT:-http://localhost:5173/callback}"
@@ -56,36 +46,17 @@ for p in json.load(sys.stdin).get('result') or []:
 APPS=$(curl -sf -4 "$ZITADEL/management/v1/projects/$PROJECT_ID/apps/_search" -X POST \
   -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{}')
 
-read_app() {
-  echo "$APPS" | "$PY" -c "
+SPA_CLIENT_ID=$(echo "$APPS" | "$PY" -c "
 import sys, json
-want, field = '$1', '$2'
 for a in json.load(sys.stdin).get('result') or []:
-    if a['name'] == want:
-        print(a['id'] if field == 'appId' else (a.get('oidcConfig') or {}).get('clientId', '')); break
-"
-}
-
-APP_ID=$(read_app "$APP_NAME" appId)
-CLIENT_ID=$(read_app "$APP_NAME" clientId)
-SPA_CLIENT_ID=$(read_app "$SPA_NAME" clientId)
-[ -n "$APP_ID" ] && [ -n "$CLIENT_ID" ] || { echo "app '$APP_NAME' not found in project $PROJECT_ID" >&2; exit 1; }
-
-CLIENT_SECRET=$(curl -sf -4 \
-  "$ZITADEL/management/v1/projects/$PROJECT_ID/apps/$APP_ID/oidc_config/_generate_client_secret" \
-  -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{}' \
-  | "$PY" -c "import sys,json;print(json.load(sys.stdin).get('clientSecret',''))")
-[ -n "$CLIENT_SECRET" ] || { echo "Zitadel did not return a regenerated client secret" >&2; exit 1; }
+    if a['name'] == '$SPA_NAME':
+        print((a.get('oidcConfig') or {}).get('clientId', '')); break
+")
 
 vault_put() {
   docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault \
     vault kv put "$@" > /dev/null
 }
-
-write_secret zitadel-oidc.json \
-  client_id "$CLIENT_ID" client_secret "$CLIENT_SECRET" \
-  project_id "$PROJECT_ID" app_id "$APP_ID"
-echo "secret written: zitadel-oidc.json (client_id=$CLIENT_ID)"
 
 if [ -n "$SPA_CLIENT_ID" ]; then
   vault_put secret/platform/zitadel-spa \
@@ -94,3 +65,5 @@ if [ -n "$SPA_CLIENT_ID" ]; then
 else
   echo "warning: app '$SPA_NAME' not found — skipped secret/platform/zitadel-spa" >&2
 fi
+
+echo "run core-api on the host with: export CORE_ZITADEL__PROJECT_ID=$PROJECT_ID"

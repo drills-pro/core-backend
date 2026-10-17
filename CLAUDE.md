@@ -41,8 +41,8 @@ push there deploys to production.
 
 ## Auth rework
 
-The code still implements org-per-tenant; the plan (ADR-021/024) is shared pool + BFF session. Skill:
-`auth-layer`.
+Shared pool is in (ADR-021): the backend verifies the Zitadel token and reads tenant membership from
+Postgres; the BFF cookie session (ADR-024) and `platform_admins` are not. Skill: `auth-layer`.
 
 ## Commits
 
