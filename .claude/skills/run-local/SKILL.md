@@ -12,9 +12,9 @@ Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the
 ```bash
 mise install
 ./scripts/secrets-init.sh          # .local/secrets/lakefs.json
-docker compose up --build -d
+docker compose up --build -d      # fresh pgdata: scripts/db-roles.sql; then the dbmate service migrates before core-api starts
 ./scripts/zitadel-bootstrap.sh     # first time only: creates the Zitadel project and apps (re-running duplicates them)
-./scripts/bootstrap.sh             # migrations (dbmate as backend_migrator), vault DB engine + .local/secrets/db.json, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
+./scripts/bootstrap.sh             # vault DB engine + .local/secrets/db.json, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
 ```
 
 After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (idempotent). Vault is in dev mode (in memory): a restart loses the database engine; `db.json` keeps working until its 768h lease lapses, then re-run bootstrap. Static secret files live in `.local/secrets/` (gitignored) and survive.
@@ -26,15 +26,17 @@ After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (i
 | Unit tests (no services, no network) | `.venv/bin/python -m pytest tests -q` |
 | API on the host, services in compose | `APP_ENV=local uv run uvicorn app.main:app --reload` |
 | Which dependency is down | `curl localhost:8090/health/deps` (compose) |
-| Migrations from an empty PG18 as the non-superuser, with full rollback and re-up (repo root, Docker only) | `./scripts/migrations-check.sh` |
+| Migration status / roll back one (repo root) | `docker compose run --rm dbmate status` / `... rollback` |
+| Migrations from an empty PG18 as backend_admin, with rollback and re-up (repo root, Docker only) | `./scripts/migrations-check.sh` |
 | Lint migrations for destructive SQL (repo root) | `python3 scripts/lint-migrations.py core-api/migrations/*.sql` |
 
 - `APP_ENV` is required: `local` (host process), `compose` (set by docker-compose.yml), `test` (set by `tests/conftest.py`).
 - The `secrets` entry in `/health/deps` names a missing file or key. `postgres: error` with an auth failure means `db.json` is missing or expired: run `./scripts/bootstrap.sh`.
 - Host-run (`APP_ENV=local`) reaches lakeFS and MinIO through the hostnames inside the secret files, which only resolve on OrbStack; otherwise run core-api in compose.
 - `uv run pytest` may not resolve under the rtk shim; use `.venv/bin/python -m pytest`.
-- `bootstrap.sh` stops with "the core database predates dbmate" on a database built from hand-applied SQL. The fix
-  drops only `core` (`DROP DATABASE core WITH (FORCE)`); ask before running it, and see README "Migrations".
+- `core-api` not starting and the `dbmate` service failing (`docker compose logs dbmate`) on a volume from before
+  dbmate: it has no `backend_admin` and hand-applied tables. The fix recreates only the `core` database (README
+  "Migrations"); ask before running it.
 - Do not run `docker compose down -v` without asking: Postgres and Zitadel state live in those volumes.
 
 ## Ports

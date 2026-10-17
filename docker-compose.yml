@@ -10,6 +10,8 @@ services:
       # path. Mount the parent and let the image pick the subdirectory.
       - pgdata:/var/lib/postgresql
       - ./scripts/init-multi-db.sql:/docker-entrypoint-initdb.d/init-multi-db.sql
+      # core-api's database and roles, shaped like the cluster's (backend_admin owns it).
+      - ./scripts/db-roles.sql:/docker-entrypoint-initdb.d/db-roles.sql
     ports: ["5432:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -161,14 +163,14 @@ services:
   core-api:
     build: ./core-api
     depends_on:
-      - postgres
-      - lakefs
-      - zitadel
-      - ray-head
-      - lgtm
-      - vault
-      - mlflow
-      - labelstudio
+      dbmate: { condition: service_completed_successfully }
+      lakefs: { condition: service_started }
+      zitadel: { condition: service_started }
+      ray-head: { condition: service_started }
+      lgtm: { condition: service_started }
+      vault: { condition: service_started }
+      mlflow: { condition: service_started }
+      labelstudio: { condition: service_started }
     environment:
       # Everything else is core-api/config/{base,compose}.yaml; secrets are the files mounted below.
       APP_ENV: compose
@@ -178,19 +180,19 @@ services:
       - ./.local/secrets:/var/app-secret/app-backend:ro
     ports: ["8090:8000"]
 
-  # Applies core-api/migrations the way the cluster's backend-migrate Job does (same image and flags),
-  # as backend_migrator, which switches to backend_owner at login (scripts/db-roles.sql). Not a
-  # superuser, so privilege bugs show up here first. Run by scripts/bootstrap.sh.
+  # Applies core-api/migrations on every `up`, like the cluster's backend-migrate Job: same image and
+  # flags, logged in as backend_admin (not a superuser), so privilege bugs show up here first.
+  # core-api waits for it. Other commands: `docker compose run --rm dbmate status | rollback`.
   dbmate:
     image: ghcr.io/amacneil/dbmate:2.36.0
-    profiles: ["tools"]
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://backend_migrator:backend_migrator@postgres:5432/core?sslmode=disable
+      DATABASE_URL: postgres://backend_admin:backend_admin@postgres:5432/core?sslmode=disable
     volumes:
       - ./core-api/migrations:/migrations:ro
-    command: [--migrations-dir, /migrations, --migrations-table, schema_migrations, --wait, --no-dump-schema, up]
+    entrypoint: [dbmate, --migrations-dir, /migrations, --migrations-table, schema_migrations, --wait, --no-dump-schema]
+    command: [up]
 
 volumes:
   pgdata:

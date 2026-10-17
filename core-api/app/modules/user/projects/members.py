@@ -15,7 +15,7 @@ VALID_ROLES = ("project_editor", "project_viewer")
 
 
 def _hash_token(token: str) -> str:
-    # Only this hash is stored (migration 0037): a database read never yields a usable invite link.
+    # Only this hash is stored (init migration): a database read never yields a usable invite link.
     return hashlib.sha256(token.encode()).hexdigest()
 
 

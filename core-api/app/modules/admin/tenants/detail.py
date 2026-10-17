@@ -30,7 +30,7 @@ from app.modules.user.projects import VALID_TASK_TYPES
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
 # The org-level policy switches, with the value a tenant that has never
-# been edited reports. They are stored (0030) and returned, but nothing in
+# been edited reports. They are stored (tenants.settings) and returned, but nothing in
 # the user-facing API reads them yet: they record the operator's intent,
 # and the modules that would enforce them — project creation, training
 # submission, publishing — still have to be taught to ask.
@@ -96,7 +96,7 @@ async def list_tenant_members(tenant_id: uuid.UUID):
     project_members holds the membership and Zitadel holds the person, so
     each row is one joined onto the other. A member of the Zitadel org who
     is on no project yet is not here — same definition as the member count
-    in the listing (0028), so the two agree.
+    in the listing (admin_tenant_stats()), so the two agree.
     """
     async with (await get_pool()).acquire() as conn:
         org_id = await conn.fetchval("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)

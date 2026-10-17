@@ -104,7 +104,7 @@ def auth_header() -> dict[str, str]:
 
 # --- Org-level reads for the back-office (app/modules/admin) ---------------
 # Zitadel owns org state and org membership; core-api's `tenants` table only
-# holds the mapping to them (0001: "org maps 1:1 to tenant"). Rather than
+# holds the mapping to them (init migration: "org maps 1:1 to tenant"). Rather than
 # shadow-copying either into Postgres, the admin list reads them here.
 
 ORG_STATE_TO_STATUS = {"ORG_STATE_ACTIVE": "active", "ORG_STATE_INACTIVE": "suspended"}

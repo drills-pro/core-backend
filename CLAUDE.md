@@ -24,10 +24,11 @@ Full stack: `docker compose up --build`, then `./scripts/bootstrap.sh` (idempote
 - **Secrets**: never in YAML, env or git. `config` holds the path of a JSON file; read it with `secret_files.get(name)`. Do not print secret values; inspect key names only.
 - `APP_ENV` is required by the code (`local | compose | test | prod`); the Dockerfile sets `prod`. `auth.dev_headers` is refused in `prod`.
 - Every route needs tenant scoping through `TenantConn` (Postgres RLS). New tables get RLS in their migration.
-- Migrations are dbmate files in `core-api/migrations/` (`-- migrate:up` / `-- migrate:down`). Take the next
-  free number. They run as `backend_owner`, not a superuser, with no default privileges: grant `core_app`
-  every new table, sequence and function, and pin `search_path` on SECURITY DEFINER. Check with
-  `./scripts/migrations-check.sh` (README "Migrations").
+- Migrations are dbmate files in `core-api/migrations/` named `<UTC YYYYMMDDHHMMSS>_<name>.sql`
+  (`-- migrate:up` / `-- migrate:down`). They run as `backend_admin` (database owner, no superuser, no
+  BYPASSRLS) with no default privileges: grant `core_app` every new table, sequence and function, ENABLE
+  (not FORCE) RLS, pin `search_path` on SECURITY DEFINER, never create roles. `docker compose up` applies
+  them; check with `./scripts/migrations-check.sh` (README "Migrations").
 
 ## Cross-repo
 

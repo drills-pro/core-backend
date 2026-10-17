@@ -4,7 +4,7 @@ The user-facing API already serves one project's trail
 (`GET /v1/projects/{id}/audit-log`, app/modules/user/projects/members.py).
 This is the same table read the other way round — across every tenant at
 once, which is the operator's view and nobody else's, so it goes through
-get_platform_admin and a SECURITY DEFINER function (0032) rather than the
+get_platform_admin and a SECURITY DEFINER function (admin_activity()) rather than the
 RLS-scoped connection that route uses.
 
 Two sources per row:
@@ -102,7 +102,7 @@ async def activity_summary():
 async def _org_ids(conn, tenant_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """{tenant_id: zitadel_org_id} for the tenants this page names.
 
-    tenants is the one table here with no RLS on it (0001), so this is a
+    tenants is the one table here with no RLS on it (init migration), so this is a
     plain SELECT rather than another SECURITY DEFINER hop.
     """
     if not tenant_ids:

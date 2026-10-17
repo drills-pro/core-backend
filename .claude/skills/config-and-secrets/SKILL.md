@@ -27,6 +27,6 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 - A secret value never goes in YAML, env vars, logs, tests or this repo. `tests/test_settings.py` fails on secret-looking keys.
 - core-api never calls Vault. Postgres credentials are the `db` secret file, rewritten by the Vault agent on rotation; `app/core/db.py` swaps the pool when it changes.
 - Migrations have their own credential, not core-api's: the k8s Job renders `/vault/secrets/dbmate.env`
-  (`DATABASE_URL`, Vault `database/creds/core-migrator`, switches to `backend_owner`). core-api has no setting
-  for it. Locally the compose `dbmate` service logs in as `backend_migrator` (`scripts/db-roles.sql`).
+  (`DATABASE_URL` for `backend_admin`, Vault `database/static-creds/backend-admin`). core-api has no setting
+  for it. Locally the compose `dbmate` service logs in as `backend_admin` (`scripts/db-roles.sql`).
 - `APP_ENV` has no default in code on purpose; the Dockerfile sets `prod`.

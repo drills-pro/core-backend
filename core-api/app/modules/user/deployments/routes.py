@@ -216,7 +216,7 @@ async def predict(
     # customer's own downstream systems call." Genuinely separate: no
     # tenant/JWT credential accepted here at all, just the per-deployment
     # secret handed back once at deploy time (see create_deployment). The
-    # lookup runs SECURITY DEFINER (see migrations/0009) so this path
+    # lookup runs SECURITY DEFINER (deployment_for_predict() in the init migration) so this path
     # never needs a tenant session context.
     pool = await get_pool()
     async with pool.acquire() as conn:

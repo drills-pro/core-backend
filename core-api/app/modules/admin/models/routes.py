@@ -2,9 +2,9 @@
 
 The user-facing registry is tenant-scoped (`/v1/projects/{id}/models`,
 app/modules/user/model_registry) and the tenant detail page counts models
-per organisation (0030). This is the third view of the same table: every
+per organisation (admin_tenant_projects()). This is the third view of the same table: every
 model side by side, which is the operator's view alone, so it goes through
-get_platform_admin and the SECURITY DEFINER function in 0033 rather than
+get_platform_admin and the SECURITY DEFINER function admin_models() rather than
 an RLS-scoped connection.
 
 One row is one *model* — `model_versions` is one row per version, so the
@@ -32,11 +32,11 @@ from app.core.db import get_pool
 
 router = APIRouter(prefix="/v1/admin/models", tags=["admin"])
 
-# The statuses 0033 derives. Validated here rather than passed through, so
+# The statuses admin_models() derives. Validated here rather than passed through, so
 # a typo comes back as a 400 instead of as a convincing empty page.
 STATUSES = ("deployed", "deploying", "stopped", "not_deployed")
 
-# projects.task_type (0002) and projects.visibility (0024).
+# projects.task_type and projects.visibility.
 TASK_TYPES = (
     "image_classification",
     "object_detection",

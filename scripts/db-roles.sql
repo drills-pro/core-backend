@@ -1,30 +1,22 @@
--- Prod-shaped migration roles for a local or CI Postgres, run as the postgres superuser:
+-- The app's Postgres roles and database, shaped like the cluster's, for compose and CI. Mounted into
+-- the compose postgres as an init script, so a fresh volume gets them on first start; idempotent,
+-- so an older volume can take it by hand (README "Migrations"):
 --
---   psql -U postgres -v db=<database> -v migrator_password=<pw> -f scripts/db-roles.sql
+--   docker compose exec -T postgres psql -U postgres < scripts/db-roles.sql
 --
--- Mirrors k8s docs/operations.md "Migrator role": backend_admin owns the database, backend_owner owns
--- every migrated object, and backend_migrator stands in for Vault's short-lived core-migrator user
--- (LOGIN, IN ROLE backend_owner, SET role at login). Idempotent.
+-- Mirrors k8s: backend_admin is pg-backend's CNPG managed role (LOGIN, CREATEROLE, owner of the
+-- database; apps/backend/db/cluster.yaml) and core_app the runtime group role created next to it
+-- (bootstrap/18-pg-split.sh). The database is `core` here, `backend` in the cluster. The password
+-- is a laptop-only value; in the cluster Vault owns it.
 \set ON_ERROR_STOP on
 SET client_min_messages = warning;
 
-SELECT 'CREATE ROLE backend_admin NOLOGIN'
+SELECT 'CREATE ROLE backend_admin LOGIN CREATEROLE'
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_admin') \gexec
-SELECT 'CREATE ROLE backend_owner NOLOGIN'
-  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_owner') \gexec
-SELECT 'CREATE ROLE backend_migrator LOGIN'
-  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_migrator') \gexec
+ALTER ROLE backend_admin PASSWORD 'backend_admin';
+SELECT 'CREATE ROLE core_app NOLOGIN'
+  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'core_app') \gexec
+GRANT core_app TO backend_admin WITH ADMIN OPTION;
 
-ALTER ROLE backend_owner NOLOGIN CREATEROLE BYPASSRLS NOSUPERUSER;
-GRANT backend_admin TO backend_owner WITH INHERIT TRUE, SET FALSE;
--- On a fresh server core_app does not exist yet: 0001 creates it as backend_owner (ADMIN implied).
-SELECT 'GRANT core_app TO backend_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE'
-  WHERE EXISTS (SELECT FROM pg_roles WHERE rolname = 'core_app') \gexec
-
-SELECT format('ALTER ROLE backend_migrator LOGIN PASSWORD %L', :'migrator_password') \gexec
-GRANT backend_owner TO backend_migrator;
-ALTER ROLE backend_migrator SET role = 'backend_owner';
-
-SELECT format('CREATE DATABASE %I OWNER backend_admin', :'db')
-  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db') \gexec
-SELECT format('ALTER DATABASE %I OWNER TO backend_admin', :'db') \gexec
+SELECT 'CREATE DATABASE core OWNER backend_admin'
+  WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'core') \gexec

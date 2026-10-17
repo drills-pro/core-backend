@@ -72,24 +72,28 @@ gate in `k8s/apps/backend/flux.yaml`) runs before the Deployment rolls out:
 
 dbmate wraps each file in a transaction; no file uses `transaction:false`.
 
-**Roles.** The Job logs in to the `backend` database as a 1h Vault user (`database/creds/core-migrator`)
-that switches at login to `backend_owner`: `NOLOGIN`, `CREATEROLE`, `BYPASSRLS`, not a superuser; a member
-of `backend_admin` (the database owner) and ADMIN on `core_app`. Every object, and `schema_migrations`,
-is owned by `backend_owner`. `core_app`, the runtime group role, owns nothing, so RLS applies to it.
+**Roles.** The Job logs in to the `backend` database as `backend_admin`, the role k8s already provisions
+for this app (CNPG managed role in `apps/backend/db/cluster.yaml`: LOGIN, CREATEROLE, owner of the
+database; Vault static role `backend-admin`). Not a superuser, no `BYPASSRLS`. It owns every object and
+`schema_migrations`. `core_app`, the runtime group role, is created by the cluster (`bootstrap/18-pg-split.sh`),
+owns nothing, and the migrations never create or alter roles.
 
 **Rules for a migration.**
 - No default privileges: each new table, sequence and function `GRANT`s what `core_app` needs in the same
   file. Never grant on `schema_migrations`. `core_app` has `USAGE` on `public`, not `CREATE`.
-- `SECURITY DEFINER` functions run as `backend_owner`, so they bypass RLS: each one sets
-  `search_path = public, pg_temp`, filters rows itself, and is `REVOKE`d from `PUBLIC`.
-- Keep `FORCE ROW LEVEL SECURITY`. Data migrations over RLS tables work through `BYPASSRLS`.
-- Nothing superuser-only (`CREATE EXTENSION`, ...), and no `RESET ROLE` (objects would belong to the
-  short-lived user, and Vault's `DROP ROLE` would fail).
+- Tables `ENABLE ROW LEVEL SECURITY`, not `FORCE`: the owner skips the policies, which is how `SECURITY
+  DEFINER` functions read across tenants. Each of those sets `search_path = public, pg_temp`, filters
+  rows itself, and is `REVOKE`d from `PUBLIC`.
+- Nothing superuser-only (`CREATE EXTENSION`, ...), no `CREATE ROLE`.
 - `scripts/migrations-check.sh` proves all of this from an empty PG18 with these roles
-  (`scripts/db-roles.sql`), and CI runs it before building the image.
+  (`scripts/db-roles.sql`), including that `core_app` sees one tenant while `SECURITY DEFINER` sees all.
+  CI runs it before building the image.
 
-**k8s side:** the one-time "Migrator role" steps in `k8s/docs/operations.md`, then the `backend-migrate`
-Kustomization in `k8s/apps/backend/flux.yaml`. A new migration needs nothing in k8s.
+**k8s side:** the Job's credential becomes `database/static-creds/backend-admin` instead of
+`database/creds/core-migrator` (template in `apps/backend/migrate/config/kustomization.yaml`, policy in
+`apps/platform-base/vault-roles/config/app-backend-migrate.hcl`); the "Migrator role" steps in
+`docs/operations.md` are no longer needed. Then enable `backend-migrate` in `apps/backend/flux.yaml`. A
+new migration needs nothing in k8s.
 
 ## Models, experiments and MLflow
 
