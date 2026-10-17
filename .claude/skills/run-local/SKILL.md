@@ -1,51 +1,110 @@
 ---
 name: run-local
-description: Set up, run, test or debug core-api locally. Use when asked to start the backend, set up a fresh checkout, run tests, bring up the docker compose stack, or when a local dependency (Postgres, Vault, lakeFS, Zitadel, MinIO, Label Studio) looks broken.
+description: Set up, run, test or debug core-api locally, either natively on the Mac (uvicorn) against Docker services or fully in docker compose. Use when asked to start the backend, run the server, set up a fresh checkout, run tests, bring up the compose stack, or when a local dependency (Postgres, Vault, lakeFS, Zitadel, MinIO, MLflow, Ray, Label Studio) looks broken.
 ---
 
 # Run core-api locally
 
-Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the console is the separate `customer-frontend` repo.
+Config and secrets model: skill `config-and-secrets`. This repo ships no UI; the console is the separate
+`customer-frontend` repo. Commands run from the repo root unless they say `core-api/`.
 
-## Fresh checkout, full stack (in order)
+Docker is OrbStack (`docker context show` → `orbstack`). `docker info` failing means it is not running:
+`open -a OrbStack`. Native mode needs OrbStack; compose mode works on any Docker.
+
+## Two ways to run
+
+| | Native (default for development) | Compose |
+|---|---|---|
+| core-api | `uvicorn --reload` on the Mac, `APP_ENV=local`, `config/local.yaml` | container, `APP_ENV=compose`, `config/compose.yaml` |
+| Services | compose, every service except `core-api` | compose, everything |
+| Secret files | `.local/secrets-host/` (hostnames rewritten for the Mac) | `.local/secrets/`, mounted at the cluster path |
+| URL | http://127.0.0.1:8090 | http://localhost:8090 |
+
+The service list for native mode, used below as `$DEPS`:
+
+```bash
+DEPS="postgres minio lakefs zitadel ray-head lgtm mlflow labelstudio vault"
+```
+
+## First time on a checkout
 
 ```bash
 mise install
-./scripts/secrets-init.sh          # .local/secrets/lakefs.json
-docker compose up --build -d      # fresh pgdata: compose/postgres/core-api.sql; then the dbmate service migrates before core-api starts
-./scripts/zitadel-bootstrap.sh     # first time only: creates the Zitadel project and apps (re-running duplicates them)
-./scripts/bootstrap.sh             # vault DB engine + .local/secrets/db.json, OIDC + Label Studio secrets, lakeFS repo; prints /health/deps
+(cd core-api && uv sync --group dev)
+./scripts/secrets-init.sh              # static secrets: .local/secrets/lakefs.json
+docker compose up -d --build $DEPS     # or without $DEPS for compose mode
+./scripts/zitadel-bootstrap.sh         # ONCE per Zitadel volume: project, OIDC apps, roles (re-running duplicates them)
+./scripts/bootstrap.sh
 ```
 
-Native core-api (services in Docker, Python on the Mac, OrbStack required): `(cd core-api && uv sync --group dev)`, then
-`docker compose up -d postgres minio lakefs zitadel ray-head lgtm mlflow labelstudio vault` (all but core-api), `./scripts/bootstrap.sh` (also writes `.local/secrets-host/`, the
-copies `config/local.yaml` reads, with `<service>.<project>.orb.local` hostnames), then from `core-api/`:
-`APP_ENV=local uv run uvicorn app.main:app --reload --port 8090`.
+A fresh `pgdata` volume runs `compose/postgres/*.sql` (other services' databases; `backend_admin`, `core_app`
+and the `core` database, shaped like the cluster), and the `dbmate` service applies `core-api/migrations/`
+before anything that depends on it. `zitadel-bootstrap.sh` also seeds the tenant row for your Zitadel org.
 
-After that, every `docker compose up` is followed by `./scripts/bootstrap.sh` (idempotent). Vault is in dev mode (in memory): a restart loses the database engine; `db.json` keeps working until its 768h lease lapses, then re-run bootstrap. Static secret files live in `.local/secrets/` (gitignored) and survive.
+## Every day
 
-## Everyday
+```bash
+docker compose up -d $DEPS
+./scripts/bootstrap.sh
+cd core-api && APP_ENV=local uv run uvicorn app.main:app --reload --port 8090
+```
 
-| Goal | Command (from `core-api/`) |
+Re-run `bootstrap.sh` after any `docker compose up`: Vault runs in dev mode (in memory), so a restart loses the
+database engine and core-api's Postgres credential. Every step is idempotent. It:
+
+1. writes static secrets (`secrets-init.sh`);
+2. configures Vault's database engine and writes a fresh `db.json` (768h lease, nothing renews it locally);
+3. restores `zitadel-oidc.json` (`scripts/steps/zitadel-oidc-restore.sh`);
+4. issues a Label Studio refresh token (`steps/labelstudio.sh`) and provisions lakeFS: admin, MinIO bucket,
+   repository (`steps/lakefs.sh`);
+5. writes `.local/secrets-host/`: copies of `.local/secrets/*.json` with `http://<service>:<port>` rewritten to
+   `http://<service>.<project>.orb.local:<port>`. Those names resolve on the Mac and inside containers, which
+   matters because core-api hands the lakeFS endpoint on to Ray jobs running in `ray-head`;
+6. restarts the `core-api` container if it runs in compose and prints `/health/deps`; otherwise prints the
+   uvicorn command.
+
+Done when `curl -s 127.0.0.1:8090/health/deps` shows every entry `ok`: postgres, secrets, lakefs_s3, zitadel,
+ray, mlflow. Dev auth is header-based (`auth.dev_headers` in `local.yaml`/`compose.yaml`):
+
+```bash
+curl -s 127.0.0.1:8090/v1/projects -H 'X-Tenant-Id: 11111111-1111-1111-1111-111111111111' -H 'X-User-Id: dev-user'
+```
+
+## Tests, migrations, lint
+
+| Goal | Command |
 |---|---|
-| Unit tests (no services, no network) | `.venv/bin/python -m pytest tests -q` |
-| API on the host, services in compose | `APP_ENV=local uv run uvicorn app.main:app --reload --port 8090` |
-| Which dependency is down | `curl 127.0.0.1:8090/health/deps` |
-| Migration status / roll back one (repo root) | `docker compose run --rm dbmate status` / `... rollback` |
-| Migrations from an empty PG18 as backend_admin, with rollback and re-up (repo root, Docker only) | `./scripts/migrations-check.sh` |
-| Lint migrations for destructive SQL (repo root) | `python3 scripts/lint-migrations.py core-api/migrations/*.sql` |
+| Unit tests (no services, no network) | `cd core-api && .venv/bin/python -m pytest tests -q` |
+| Migration status / roll back the last one | `docker compose run --rm dbmate status` / `... rollback` |
+| Migrations from an empty PG18 as `backend_admin`, with rollback and re-up (Docker only, own throwaway project) | `./scripts/migrations-check.sh` |
+| Lint migrations for destructive SQL | `python3 scripts/lint-migrations.py core-api/migrations/*.sql` |
+| Logs of a service | `docker compose logs <service> --tail 50` |
 
-- `APP_ENV` is required: `local` (host process), `compose` (set by docker-compose.yml), `test` (set by `tests/conftest.py`).
-- The `secrets` entry in `/health/deps` names a missing file or key. `postgres: error` with an auth failure means `db.json` is missing or expired: run `./scripts/bootstrap.sh`.
-- Host-run (`APP_ENV=local`) reads `.local/secrets-host/`, where compose hostnames are rewritten to OrbStack names that resolve on the Mac and inside containers (Ray jobs get the lakeFS endpoint too). Without OrbStack, run core-api in compose.
-- Use `127.0.0.1`, not `localhost`, from the Mac: `localhost` tries `::1` first and OrbStack resets IPv6 for containers listening on IPv4 only (Ray, MLflow, Label Studio).
-- `uv run uvicorn` failing with "Failed to spawn" or a `bad interpreter` path under another directory: the venv was made at an old checkout path. `uv sync --group dev --reinstall`.
-- `uv run pytest` may not resolve under the rtk shim; use `.venv/bin/python -m pytest`.
-- `core-api` not starting and the `dbmate` service failing (`docker compose logs dbmate`) on a volume from before
-  dbmate: it has no `backend_admin` and hand-applied tables. The fix recreates only the `core` database (README
-  "Migrations"); ask before running it.
-- Do not run `docker compose down -v` without asking: Postgres and Zitadel state live in those volumes.
+## When something is broken
+
+| Symptom | Cause and fix |
+|---|---|
+| `/health/deps` `secrets: error` naming a file | That file is missing: run `./scripts/bootstrap.sh` (native mode reads `.local/secrets-host/`, which only bootstrap writes) |
+| `postgres: error` with an auth failure | `db.json` missing or its Vault lease gone (Vault restarted): `./scripts/bootstrap.sh` |
+| `dbmate` exits non-zero, `core-api` never starts | `docker compose logs dbmate`. On a `pgdata` volume from before dbmate (no `backend_admin`, tables owned by `postgres`) the fix recreates only the `core` database (README "Migrations"). **Ask before dropping it.** |
+| `ray`/`mlflow: error` natively, or `curl localhost:...` returns nothing | `localhost` tries `::1` first and OrbStack resets IPv6 for containers listening on IPv4 only (Ray, MLflow, Label Studio). Use `127.0.0.1`; `local.yaml` already does |
+| `zitadel: error` | `zitadel.monorepo.orb.local` (Zitadel's external domain, kept from the old checkout name) comes from the `dev.orbstack.domains` label in `docker-compose.yml`: OrbStack must be running, and the container recreated after a label change |
+| `uv run uvicorn` → "Failed to spawn", or `bad interpreter` naming another directory | The venv was created at an old checkout path: `cd core-api && uv sync --group dev --reinstall` |
+| `uv run pytest` not resolving | rtk shim; use `.venv/bin/python -m pytest` |
+| Label Studio step: "could not read csrfmiddlewaretoken" | Label Studio still starting (about a minute): re-run `bootstrap.sh`. Recreating its container drops its state, so bootstrap issues a new token |
+| `Address already in use` on 8090 | The compose `core-api` container or an earlier uvicorn: `docker compose stop core-api` / `pkill -f "uvicorn app.main:app"` |
+| Warning about orphan `core-backend-frontend-1` | Leftover from an old compose file: `docker compose up -d --remove-orphans` |
+
+- `APP_ENV` is required: `local` (host process), `compose` (set by `docker-compose.yml`), `test` (set by `tests/conftest.py`).
+- Do not run `docker compose down -v` without asking: Postgres (core, Zitadel, lakeFS, MLflow) and the Zitadel PAT live in those volumes.
 
 ## Ports
 
-core-api 8090, Postgres 5432, MinIO 9000/9001, lakeFS 8000, Zitadel 8080, MLflow 5001, Ray 8265, Grafana 3000, Vault 8200, Label Studio 8110.
+core-api 8090, Postgres 5432, MinIO 9000/9001, lakeFS 8000, Zitadel 8080, MLflow 5001, Ray 8265, Grafana 3000,
+OTLP 4317, Vault 8200, Label Studio 8110.
+
+## Where things live
+
+`scripts/` is what you run (`steps/`: the pieces `bootstrap.sh` runs, each runnable alone; `lib/secrets.sh`:
+sourced). `compose/<service>/` holds files `docker-compose.yml` mounts into or builds for containers. `.local/`
+(gitignored) holds `secrets/` and `secrets-host/`.

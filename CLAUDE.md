@@ -12,10 +12,11 @@ Run from `core-api/` (tools via `mise`; ask before installing anything):
 ```bash
 uv sync --group dev                  # first time
 .venv/bin/python -m pytest tests -q  # tests need no services and no network
-APP_ENV=local uv run uvicorn app.main:app --reload
+APP_ENV=local uv run uvicorn app.main:app --reload --port 8090   # services in compose, see below
 ```
 
-Full stack: `docker compose up --build`, then `./scripts/bootstrap.sh` (idempotent, run after every `up`).
+Services: `docker compose up -d` with every service but `core-api` (or all of them to run it in compose), then
+`./scripts/bootstrap.sh` (idempotent, run after every `up`). Native mode needs OrbStack. Skill: `run-local`.
 
 ## Layout and rules
 
