@@ -98,21 +98,3 @@ async def transition_stage(*, name: str, version: str, stage: str) -> dict:
         )
         resp.raise_for_status()
         return resp.json()["model_version"]
-
-
-async def get_model_version(*, name: str, version: str) -> dict:
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{MLFLOW_URL}/api/2.0/mlflow/model-versions/get", params={"name": name, "version": version}
-        )
-        resp.raise_for_status()
-        return resp.json()["model_version"]
-
-
-async def search_model_versions(*, name: str) -> list[dict]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{MLFLOW_URL}/api/2.0/mlflow/model-versions/search", params={"filter": f"name='{name}'"}
-        )
-        resp.raise_for_status()
-        return resp.json().get("model_versions", [])

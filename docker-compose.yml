@@ -178,15 +178,6 @@ services:
       - ./.local/secrets:/var/app-secret/app-backend:ro
     ports: ["8090:8000"]
 
-  frontend:
-    build: ./frontend
-    depends_on:
-      - core-api
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-    ports: ["5173:5173"]
-
 volumes:
   pgdata:
   miniodata:

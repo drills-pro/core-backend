@@ -21,7 +21,6 @@ import contextlib
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from prometheus_client import make_asgi_app
 
 from app import background
@@ -42,7 +41,6 @@ from app.modules.user import (
     teams,
     training,
     usage,
-    users,
 )
 
 # Registration order is significant: FastAPI matches routes in the order
@@ -67,7 +65,6 @@ ROUTERS = (
     public.router,
     teams.router,
     training.router,
-    users.router,
     usage.router,
     health.router,
 )
@@ -100,7 +97,6 @@ def create_app() -> FastAPI:
     tracing.setup(app)
     for router in ROUTERS:
         app.include_router(router)
-    app.mount("/ui", StaticFiles(directory="ui", html=True), name="ui")
     app.mount("/metrics", make_asgi_app())
     return app
 

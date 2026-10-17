@@ -17,8 +17,7 @@ one is a confidential client for authorization_code exchanges; this one is
 a machine identity granted org-management rights, for calling Zitadel's
 Management/Auth v2 APIs directly (create user, create session, ...).
 
-Both the embedded login flow (app/modules/auth) and profile/IdP linking
-(app/modules/users) authenticate as this token; before the modular split
+The signup saga and the admin back-office authenticate as this token; before the modular split
 the latter reached into the former's private `_get_pat`, which is what
 this module replaces.
 """

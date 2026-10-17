@@ -31,7 +31,7 @@ async def get_tenant_id(
     """Real Zitadel JWT when present (req/02 FR1: verify a token, never
     trust a client-supplied header) — this is what the frontend's genuine
     OIDC login sends. Falls back to the X-Tenant-Id dev header when no
-    Authorization header is present, so /ui and every existing curl-based
+    Authorization header is present, so every existing curl-based
     flow keep working unchanged; both paths are equally real, just
     different callers."""
     claims = await _get_claims(authorization)

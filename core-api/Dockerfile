@@ -8,7 +8,6 @@ RUN uv sync --no-install-project
 
 COPY app ./app
 COPY config ./config
-COPY ui ./ui
 RUN uv sync
 
 EXPOSE 8000

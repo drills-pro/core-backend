@@ -39,6 +39,8 @@ async def _poll_gpu_quota() -> None:
     # k8s/tenant-quota-example.yaml). Plain-text Prometheus exposition
     # format — parsed by hand rather than pulling in a client library for
     # two label values.
+    if not settings.observability.ksm_endpoint:
+        return  # not configured (local dev, or no kube-state-metrics to scrape)
     async with httpx.AsyncClient(timeout=5) as client:
         resp = await client.get(settings.observability.ksm_endpoint)
         resp.raise_for_status()

@@ -35,7 +35,6 @@ stack, run it once before `bootstrap.sh`.
 |---|---|
 | core-api | http://localhost:8090/health/deps |
 | core-api docs (OpenAPI) | http://localhost:8090/docs |
-| dev console (req/05 stub) | http://localhost:8090/ui/ |
 | Ray dashboard | http://localhost:8265 |
 | MinIO console | http://localhost:9001 (AKIAIOSFODNN7EXAMPLE / wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY) |
 | LakeFS | http://localhost:8000 (see one-time setup below) |
@@ -57,7 +56,7 @@ Ray, Grafana, MLflow) — `"ok"` per service once everything is wired.
 | 02 auth/identity | ✅ JWT verification against Zitadel JWKS, unit-tested; Zitadel on a real separate CloudNativePG cluster; **automated OIDC client registration via the Management API is real** (`scripts/zitadel-bootstrap.sh`) — a real project, OIDC app, and all 4 FR3 roles, created via API calls with no console clicks, verified reproducible from a clean database. `AUTH_MODE=dev` remains the compose default only because exercising it needs a browser-driven authorization-code flow this environment can't automate — see Auth section |
 | 03 project/user mgmt | ✅ project CRUD/archive/soft-delete, per-project roles, invitations, audit log — all live-tested |
 | 04 API | ✅ by construction (FastAPI → OpenAPI, path-versioned `/v1`, 202+idempotency on training runs, pagination) + real Deployments group, Models group (MLflow registry wrapper), `POST /v1/predict/{deployment_id}` with its own separate auth scope and real **per-plan-tier** rate limiting (verified: `pro` tenant → 120/min default; a 3/min-throttled deployment → `200,200,200,429,429`) |
-| 05 UI/no-code builder | 🟡 working console at `/ui`: project/training CRUD, a **real native HTML5 drag-and-drop** block builder, real dataset upload + manifest CSV ingestion, a real **in-app labeling canvas** (upload → view → click-to-label → real S3 move + manifest append), real Label Studio labeling project creation, and a real customer-facing usage/cost dashboard. No in-app model-promotion UI |
+| 05 UI/no-code builder | The console lives in the separate `customer-frontend` repo; this repo ships no UI. The labeling, dataset-upload and training APIs it uses are all here |
 | 06 ML training (MLflow/Ludwig/Ultralytics) | ✅ orchestration + MLflow logging real and tested; **three real training backends** — numpy default (deployable via fitted weights), literal `ultralytics.YOLO(...).train()` on real uploaded files (deployable via real ONNX export served through `onnxruntime`, verified on real photos), and literal `LudwigModel(...).train()` (real, non-canned accuracy logged to MLflow). Manifest CSV ingestion and MLflow Model Registry promotion both real |
 | 07 compute (Ray/K8s) | ✅ real KubeRay on a local kind cluster — 3 labeled node pools, priority classes, scale-to-zero training pool, per-tenant namespace+quota, all live-verified |
 | 08 observability (LGTM) | ✅ OTel traces + metrics verified live in Tempo/Prometheus; **all 4 of FR2's named alerts real and actively evaluating**, including GPU node pool exhaustion — verified to actually fire, not just evaluate, via real K8s `ResourceQuota` tracking of `nvidia.com/gpu` requests (real even at 0 physical GPUs) relayed through `kube-state-metrics`. Plus a real customer-facing usage dashboard (see req/05) |
@@ -383,11 +382,9 @@ current token *without its signature*: unusable for auth, but still
 accepted by `/api/token/blacklist/`, which is how the revoke works without
 knowing the original.
 
-There's also now a real, minimal **in-app labeling canvas** at `/ui` —
-distinct from the full Label Studio integration above, for teams that
-want something lighter: upload a raw file (lands in a dataset's
-`_unlabeled/` prefix), the UI displays it via a presigned GET URL, and
-clicking a class button (`app/modules/datasets/routes.py::label_file`) does a real S3
+There's also a lightweight **in-app labeling** API, distinct from the Label
+Studio integration above: upload a raw file (lands in a dataset's
+`_unlabeled/` prefix), read it via a presigned GET URL, and a label call (`app/modules/datasets/routes.py::label_file`) does a real S3
 copy into the class folder + delete of the original + manifest.csv
 append — the exact convention the Ultralytics training backend already
 reads. Verified live: uploaded a file, labeled it "cat", confirmed the

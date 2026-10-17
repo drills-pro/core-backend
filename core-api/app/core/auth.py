@@ -6,7 +6,7 @@ role -> {org_id: org_name}). Both are stable, documented Zitadel claim keys,
 not something to reverse-engineer per token.
 """
 import jwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
@@ -78,18 +78,6 @@ async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
-
-
-def require_role(*allowed: str):
-    """FR1 (04-api.md): mutating endpoints need an org-scoped RBAC check in
-    shared middleware/dependency, not per-handler string comparisons."""
-
-    async def _dep(claims: Claims = Depends(get_claims)) -> Claims:
-        if not claims.roles & set(allowed):
-            raise HTTPException(status_code=403, detail=f"requires one of roles: {allowed}")
-        return claims
-
-    return _dep
 
 
 # The platform's own operators, not a tenant's users. req/02 FR3 fixes the

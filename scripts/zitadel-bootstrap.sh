@@ -129,7 +129,7 @@ echo "default team seeded for org $ORG_ID"
 # makes "same email, one account" happen, no app code involved.
 # ponytail: client_id/client_secret below are placeholders — swap for real
 # OAuth app credentials from Google/GitHub when available, nothing else
-# in this script or app/users.py's idp-intent flow changes.
+# in this script changes.
 curl -s -4 "$ZITADEL/management/v1/idps/generic_oidc" -X POST -H "$AUTH" -H "$HOST" -H "Content-Type: application/json" -d '{
   "name": "google",
   "issuer": "https://accounts.google.com",
