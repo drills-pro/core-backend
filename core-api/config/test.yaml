@@ -2,7 +2,14 @@
 pg:
   host: localhost
 vault:
+  addr: http://localhost:8200
   token_file: /nonexistent/vault-token
+ray:
+  dashboard: http://localhost:8265
+mlflow:
+  url: http://localhost:5000
+observability:
+  otlp_endpoint: http://localhost:4317
 secrets:
   lakefs: /nonexistent/lakefs.json
   labelstudio: /nonexistent/labelstudio.json

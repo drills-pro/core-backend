@@ -1,8 +1,10 @@
 # Defaults for every environment. Non-secret only: secrets are referenced by the path of the JSON
 # file that holds them (secrets: below), never by value. Per-environment files override this one;
 # CORE_<SECTION>__<KEY> environment variables override both (e.g. CORE_PG__HOST=...).
+# Service hostnames are deliberately absent here: each environment must set pg.host, vault.addr,
+# ray.dashboard, mlflow.url and observability.otlp_endpoint (prod via the deploy ConfigMap), so a
+# missing one fails at startup instead of silently pointing at a compose name.
 pg:
-  host: postgres
   port: 5432
   database: backend
   pool_min: 2
@@ -10,7 +12,6 @@ pg:
   command_timeout: 30
 
 vault:                       # Vault issues only the dynamic Postgres credentials
-  addr: http://vault:8200
   token_file: /vault/secrets/token
 
 zitadel:
@@ -21,14 +22,10 @@ auth:
   dev_headers: false         # X-Tenant-Id / X-User-Id / X-Admin-User stand in for a token
 
 ray:
-  dashboard: http://ray-head:8265
   max_concurrent_training_runs: 3
 
-mlflow:
-  url: http://mlflow:5000
 
 observability:
-  otlp_endpoint: http://lgtm:4317
   ksm_endpoint: ""           # kube-state-metrics, for the GPU-quota poller; empty disables it
 
 public:                      # browser-facing, not the in-network names

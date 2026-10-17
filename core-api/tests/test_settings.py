@@ -21,7 +21,13 @@ def test_app_env_is_required(monkeypatch):
         load()
 
 
-DEPLOY = "pg:\n  host: pg-backend-rw.platform.svc.cluster.local\n  database: backend\n"
+DEPLOY = (
+    "pg: {host: pg-backend-rw.platform.svc.cluster.local, database: backend}\n"
+    "vault: {addr: 'http://vault:8200'}\n"
+    "ray: {dashboard: 'http://ray:8265'}\n"
+    "mlflow: {url: 'http://mlflow:5000'}\n"
+    "observability: {otlp_endpoint: 'http://otel:4317'}\n"
+)
 
 
 @pytest.fixture
@@ -35,6 +41,14 @@ def deploy_file(monkeypatch, tmp_path):
 def test_prod_requires_the_deploy_file(monkeypatch, tmp_path):
     monkeypatch.setattr(settings_module, "DEPLOY_FILE", tmp_path / "missing.yaml")
     with pytest.raises(RuntimeError, match="backend-config"):
+        load("prod")
+
+
+def test_prod_fails_loudly_when_the_deploy_file_lacks_a_hostname(monkeypatch, tmp_path):
+    path = tmp_path / "deploy.yaml"
+    path.write_text(DEPLOY.replace("pg: {host: pg-backend-rw.platform.svc.cluster.local, database: backend}\n", ""))
+    monkeypatch.setattr(settings_module, "DEPLOY_FILE", path)
+    with pytest.raises(ValueError, match="pg.host"):
         load("prod")
 
 
