@@ -22,7 +22,7 @@ def test_app_env_is_required(monkeypatch):
 
 def test_env_file_overrides_base_and_deep_merges():
     s = load("prod")
-    assert s.pg.host == "pg-rw.db.svc.cluster.local"  # prod.yaml
+    assert s.pg.host == "pg-backend-rw.platform.svc.cluster.local"  # prod.yaml
     assert s.pg.pool_max == 20  # base.yaml, same section
     assert not s.auth.dev_headers
 

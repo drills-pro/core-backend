@@ -53,6 +53,7 @@ The one thing still read from Vault's API is the **dynamic Postgres credential**
 ## Other expectations of the cluster
 
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
+- Postgres is the per-app CNPG cluster `pg-backend` (host in `prod.yaml`); Vault's `core-app` role must point at the same cluster or logins fail with "password authentication failed".
 - Egress used: Postgres, Vault, OTel gateway, Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
 - Migrations: `core-api/migrations/*.sql`, applied by hand as the `postgres` superuser (README), not by the app or an init container.
 
