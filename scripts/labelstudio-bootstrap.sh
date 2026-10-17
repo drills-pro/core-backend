@@ -5,23 +5,21 @@
 # (`legacy_api_tokens_enabled: false` — a `Token <...>` header gets 401), so
 # app/integrations/labelstudio_client.py authenticates with a long-lived JWT
 # *refresh* token that it exchanges for short-lived access tokens. This
-# script obtains that refresh token and stores it in Vault.
+# script obtains that refresh token and writes it to .local/secrets/labelstudio.json.
 #
-# Vault runs in dev mode (in-memory): every `docker compose restart vault`
-# wipes it, so run this alongside scripts/vault-setup.sh.
 #
 #   ./scripts/labelstudio-bootstrap.sh
 #
 # Re-runnable, but not free: Label Studio allows one refresh token per user
 # and refuses to mint a second (409), so step 2 revokes the existing one
 # first. Any copy of the previous token stops working — which is exactly the
-# situation after a Vault wipe, where the old token is unrecoverable anyway
+# situation after a lost secrets file, where the old token is unrecoverable anyway
 # (GET /api/token/ returns it without its signature, deliberately).
 #
-# Lives outside vault-setup.sh because that script runs *inside* the Vault
-# container, whose BusyBox wget cannot hold the session cookie this flow
-# needs. Same host-side shape as scripts/zitadel-bootstrap.sh.
+# Runs on the host because the flow needs a session cookie jar. Same shape as
+# scripts/zitadel-bootstrap.sh.
 set -eu
+. "$(dirname "$0")/lib-secrets.sh"
 
 LS="${LS_URL:-http://localhost:8110}"                      # host-side, for this script
 LS_INTERNAL="${LS_INTERNAL_URL:-http://labelstudio:8080}"  # what core-api uses
@@ -72,7 +70,6 @@ curl -sf -X POST "$LS/api/token/refresh/" -H "Content-Type: application/json" \
   -d "{\"refresh\":\"$REFRESH\"}" > /dev/null \
   || { echo "refresh token was rejected by /api/token/refresh/" >&2; exit 1; }
 
-docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault \
-  vault kv put app-secret/app-backend/labelstudio refresh_token="$REFRESH" url="$LS_INTERNAL" > /dev/null
+write_secret labelstudio.json refresh_token "$REFRESH" url "$LS_INTERNAL"
 
-echo "vault configured: app-secret/app-backend/labelstudio (url=$LS_INTERNAL)"
+echo "secret written: labelstudio.json (url=$LS_INTERNAL)"

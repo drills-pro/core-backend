@@ -4,14 +4,15 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.core import auth, config
+from app.core import auth
+from app.core.settings import settings
 
 PROJECT = "proj-1"
 
 
 @pytest.fixture(autouse=True)
 def _project(monkeypatch):
-    monkeypatch.setattr(config, "ZITADEL_PROJECT_ID", PROJECT)
+    monkeypatch.setattr(settings.zitadel, "project_id", PROJECT)
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ def test_dev_headers_rejected_unless_enabled(monkeypatch):
 
     from app.core import tenancy
 
-    monkeypatch.setattr(config, "AUTH_DEV_HEADERS", False)
+    monkeypatch.setattr(settings.auth, "dev_headers", False)
     with pytest.raises(HTTPException) as e:
         asyncio.run(tenancy.get_tenant_id(authorization=None, x_tenant_id="t"))
     assert e.value.status_code == 401

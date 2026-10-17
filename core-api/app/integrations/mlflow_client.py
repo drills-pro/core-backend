@@ -8,9 +8,9 @@ import time
 
 import httpx
 
-from app.core import config
+from app.core.settings import settings
 
-MLFLOW_URL = config.MLFLOW_URL
+MLFLOW_URL = settings.mlflow.url
 
 
 async def _get_or_create_experiment(client: httpx.AsyncClient, name: str) -> str:

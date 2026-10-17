@@ -170,29 +170,12 @@ services:
       - mlflow
       - labelstudio
     environment:
-      # The app→DB connection (including /health/deps's own check) is Vault-issued, see
-      # PG_HOST/PG_PORT/PG_DATABASE + VAULT_* below and app/core/db.py.
-      PG_HOST: postgres
-      PG_PORT: "5432"
-      PG_DATABASE: core
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: root
-      ZITADEL_ISSUER: http://zitadel.monorepo.orb.local:8080
-      RAY_DASHBOARD: http://ray-head:8265
-      GRAFANA_URL: http://lgtm:3000
-      MLFLOW_URL: http://mlflow:5000
-      MAX_CONCURRENT_TRAINING_RUNS: "3"
-      AUTH_DEV_HEADERS: "1"  # local only; see app/core/config.py
-      # AUTH_MODE=dev stays the default (see app/tenancy.py — dev mode
-      # now also accepts a real Bearer token when present, so the new
-      # frontend's genuine Zitadel login works without breaking /ui or
-      # any of the X-Tenant-Id-based curl flows already verified above).
-      # req/08 FR2 "GPU node pool exhaustion" signal — see k8s/tenant-quota-example.yaml
-      # and the Observability section. ponytail: no kind cluster/ksm-nodeport in plain
-      # local dev — config.py's own default just fails this one poller harmlessly
-      # (app/background.py logs and retries, never blocks startup), so nothing to set here.
+      # Everything else is core-api/config/{base,compose}.yaml; secrets are the files mounted below.
+      APP_ENV: compose
     volumes:
       - zitadel-pat:/pat:ro
+      # Same path the cluster's Vault Agent Injector writes to; ./scripts/secrets-init.sh fills it.
+      - ./.local/secrets:/var/app-secret/app-backend:ro
     ports: ["8090:8000"]
 
   frontend:

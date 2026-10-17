@@ -12,9 +12,9 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from app.core import config
+from app.core.settings import settings
 
-OTLP_ENDPOINT = config.OTLP_ENDPOINT
+OTLP_ENDPOINT = settings.observability.otlp_endpoint
 
 
 def setup(app) -> None:

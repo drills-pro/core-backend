@@ -12,13 +12,14 @@ import boto3
 import httpx
 from botocore.client import Config
 
-from app.core import config, vault
+from app.core import secret_files
+from app.core.settings import settings
 
 REPO = "platform-datasets"
 # Same host-vs-container split as object_storage.py's MINIO_PUBLIC_ENDPOINT
 # — presigned URLs are handed to the browser, which needs the published
 # host address, not the internal docker-network name.
-PUBLIC_ENDPOINT = config.LAKEFS_PUBLIC_ENDPOINT
+PUBLIC_ENDPOINT = settings.public.lakefs_endpoint
 
 _LAKEFS_API_BASE = None
 _client = None
@@ -27,7 +28,7 @@ _ensured_branches: set[str] = set()
 
 
 def _creds() -> dict:
-    return vault.get_kv("lakefs")
+    return secret_files.get("lakefs")
 
 
 def _api_client() -> httpx.Client:

@@ -10,9 +10,11 @@ import textwrap
 
 import httpx
 
-from app.core import vault
-from app.core.config import RAY_DASHBOARD
+from app.core import secret_files
+from app.core.settings import settings
 from app.integrations import lakefs_client
+
+RAY_DASHBOARD = settings.ray.dashboard
 
 DEFAULT_CONFIG = {
     "model_type": "classification",
@@ -503,7 +505,7 @@ def _build_entrypoint(
     test_lakefs_ref = (test_dataset_version or test_dataset_id) if test_dataset_id else None
 
     if config.get("backend") == "ludwig":
-        lakefs_creds = vault.get_kv("lakefs")
+        lakefs_creds = secret_files.get("lakefs")
         script = textwrap.dedent(_LUDWIG_TEMPLATE).format(
             seed=seed,
             epochs={**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}["epochs"],
@@ -523,8 +525,8 @@ def _build_entrypoint(
             s3_secret_key=lakefs_creds["secret_key"],
         )
     elif config.get("backend") == "ultralytics":
-        lakefs_creds = vault.get_kv("lakefs")
-        minio_creds = vault.get_kv("minio")
+        lakefs_creds = secret_files.get("lakefs")
+        minio_creds = secret_files.get("minio")
         script = textwrap.dedent(_ULTRALYTICS_TEMPLATE).format(
             seed=seed,
             epochs={**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}["epochs"],
@@ -649,7 +651,7 @@ async def submit_hf_import(
     project_id: str,
     use_lakefs: bool = True,
 ) -> str:
-    lakefs_creds = vault.get_kv("lakefs")
+    lakefs_creds = secret_files.get("lakefs")
     seed = int(hashlib.sha256(hf_dataset.encode()).hexdigest(), 16) % (2**32)
     script = textwrap.dedent(_HF_IMPORT_TEMPLATE).format(
         hf_dataset=hf_dataset,

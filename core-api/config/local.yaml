@@ -1,0 +1,26 @@
+# core-api run on the host (uv run uvicorn ...) against `docker compose up` services.
+pg:
+  host: localhost
+  database: core
+vault:
+  addr: http://localhost:8200
+  token_file: ../.local/secrets/vault-token
+zitadel:
+  issuer: http://zitadel.monorepo.orb.local:8080
+auth:
+  dev_headers: true
+ray:
+  dashboard: http://localhost:8265
+mlflow:
+  url: http://localhost:5001
+observability:
+  otlp_endpoint: http://localhost:4317
+  grafana_url: http://localhost:3000
+# Relative paths resolve against core-api/. The hostnames inside the secret files are the compose
+# service names, so anything that calls minio/lakefs from the host needs them reachable (OrbStack).
+secrets:
+  minio: ../.local/secrets/minio.json
+  lakefs: ../.local/secrets/lakefs.json
+  labelstudio: ../.local/secrets/labelstudio.json
+  zitadel: ../.local/secrets/zitadel.json
+  zitadel_oidc: ../.local/secrets/zitadel-oidc.json

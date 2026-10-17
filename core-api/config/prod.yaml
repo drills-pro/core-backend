@@ -1,0 +1,15 @@
+# Cluster values, from k8s/apps/backend/deployment.yaml and k8s/docs/architecture.md.
+# auth.dev_headers must stay unset here: the app refuses to start in prod with it on.
+pg:
+  host: pg-rw.db.svc.cluster.local
+  database: backend
+vault:
+  addr: http://vault.vault.svc.cluster.local:8200
+zitadel:
+  issuer: https://auth.drills.pro
+ray:
+  dashboard: http://ray-head-svc.ray.svc.cluster.local:8265
+mlflow:
+  url: http://mlflow.platform.svc.cluster.local:5000
+observability:
+  otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317

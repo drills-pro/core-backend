@@ -1,0 +1,45 @@
+# Defaults for every environment. Non-secret only: secrets are referenced by the path of the JSON
+# file that holds them (secrets: below), never by value. Per-environment files override this one;
+# CORE_<SECTION>__<KEY> environment variables override both (e.g. CORE_PG__HOST=...).
+pg:
+  host: postgres
+  port: 5432
+  database: backend
+  pool_min: 2
+  pool_max: 20
+  command_timeout: 30
+
+vault:                       # Vault issues only the dynamic Postgres credentials
+  addr: http://vault:8200
+  token_file: /vault/secrets/token
+
+zitadel:
+  issuer: http://zitadel.monorepo.orb.local:8080
+  project_id: ""             # falls back to the zitadel_oidc secret's project_id
+
+auth:
+  dev_headers: false         # X-Tenant-Id / X-User-Id / X-Admin-User stand in for a token
+
+ray:
+  dashboard: http://ray-head:8265
+  max_concurrent_training_runs: 3
+
+mlflow:
+  url: http://mlflow:5000
+
+observability:
+  otlp_endpoint: http://lgtm:4317
+  grafana_url: http://lgtm:3000
+  ksm_endpoint: ""           # kube-state-metrics, for the GPU-quota poller; empty disables it
+
+public:                      # browser-facing, not the in-network names
+  lakefs_endpoint: http://localhost:8000
+  minio_endpoint: http://localhost:9000
+  labelstudio_endpoint: http://labelstudio.monorepo.orb.local:8080
+
+secrets:                     # paths of JSON files, mounted into the pod (Vault Agent Injector in prod)
+  minio: /var/app-secret/app-backend/minio
+  lakefs: /var/app-secret/app-backend/lakefs
+  labelstudio: /var/app-secret/app-backend/labelstudio
+  zitadel: /var/app-secret/app-backend/zitadel
+  zitadel_oidc: /var/app-secret/app-backend/zitadel-oidc

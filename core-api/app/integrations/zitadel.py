@@ -9,7 +9,7 @@ stack.
 The cluster's Zitadel Cloud org has no such auto-provisioning. Instead this
 app authenticates as a **Service User** via RFC 7523 JWT Profile: it
 self-signs a short-lived assertion with a Zitadel-issued RSA key
-(disk-loaded via the Vault Agent Injector, see app/core/config.py) and
+(a mounted JSON file, see app/core/secret_files.py) and
 exchanges it for a bearer token, caching that token until shortly before
 it expires. This is a distinct credential from the plain client_id/secret
 `app/modules/user/auth/routes.py` uses for its own OIDC login flow — that
@@ -28,12 +28,12 @@ import time
 import httpx
 import jwt
 
-from app.core import config
-from app.core.config import ZITADEL_LOGIN_ISSUER
+from app.core import secret_files
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
-ISSUER = ZITADEL_LOGIN_ISSUER
+ISSUER = settings.zitadel.issuer
 PAT_PATH = "/pat/zitadel-automation.pat"
 # Reserved scope that authorizes a JWT-Profile token for Zitadel's own
 # Management/Auth APIs (not a placeholder — see Zitadel's "JWT Profile"
@@ -54,17 +54,18 @@ def _read_pat_file() -> str | None:
 
 def _build_assertion() -> str:
     now = int(time.time())
+    creds = secret_files.get("zitadel")
     return jwt.encode(
         {
-            "iss": config.ZITADEL_USER_ID,
-            "sub": config.ZITADEL_USER_ID,
+            "iss": creds["USER_ID"],
+            "sub": creds["USER_ID"],
             "aud": ISSUER,
             "iat": now,
             "exp": now + 60,
         },
-        config.ZITADEL_PRIVATE_KEY,
+        creds["PRIVATE_KEY"],
         algorithm="RS256",
-        headers={"kid": config.ZITADEL_KEY_ID},
+        headers={"kid": creds["KEY_ID"]},
     )
 
 

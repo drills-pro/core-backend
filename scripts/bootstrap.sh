@@ -5,7 +5,8 @@
 #
 # Why this is needed at all: Vault runs in dev mode, which keeps everything
 # in memory. Restarting that one container empties it, and core-api then
-# cannot get so much as a Postgres credential. Every step below is
+# cannot get a Postgres credential. (Static secrets are files under .local/secrets,
+# not in Vault, so they survive.) Every step below is
 # idempotent, so running this after any `docker compose up` is safe and is
 # the intended habit. (The kind node IP dance in scripts/kind-node-ip.sh is
 # now only relevant if you're also running a kind cluster for k8s-adjacent
@@ -30,20 +31,23 @@ else
   echo "no kind cluster — skipping (only the GPU-quota metric poller wants it, harmless without)"
 fi
 
-step "vault: KV + database secrets engine"
+step "local secret files"
+./scripts/secrets-init.sh
+
+step "vault: database secrets engine"
 docker compose exec -T -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault \
   sh -c 'sh /vault-setup.sh' | tail -1
 
-step "vault: zitadel OIDC client credentials"
+step "zitadel OIDC client credentials"
 ./scripts/zitadel-oidc-restore.sh
 
-step "vault: label studio refresh token"
+step "label studio refresh token"
 ./scripts/labelstudio-bootstrap.sh
 
 step "lakefs: admin, bucket, repository"
 ./scripts/lakefs-bootstrap.sh
 
-step "restarting core-api to pick up the restored secrets"
+step "restarting core-api to pick up fresh Vault database credentials"
 docker compose restart core-api > /dev/null
 
 printf '\n'

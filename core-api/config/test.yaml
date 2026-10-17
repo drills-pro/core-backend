@@ -1,0 +1,11 @@
+# pytest: no network, no dev headers, secret files that do not exist (tests fake what they need).
+pg:
+  host: localhost
+vault:
+  token_file: /nonexistent/vault-token
+secrets:
+  minio: /nonexistent/minio.json
+  lakefs: /nonexistent/lakefs.json
+  labelstudio: /nonexistent/labelstudio.json
+  zitadel: /nonexistent/zitadel.json
+  zitadel_oidc: /nonexistent/zitadel-oidc.json

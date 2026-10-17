@@ -1,0 +1,14 @@
+# core-api running inside docker-compose: base.yaml already uses the compose service names.
+# Secret files come from ./.local/secrets mounted at /var/app-secret/app-backend (docker-compose.yml).
+auth:
+  dev_headers: true
+pg:
+  database: core
+vault:
+  token_file: /var/app-secret/app-backend/vault-token
+secrets:
+  minio: /var/app-secret/app-backend/minio.json
+  lakefs: /var/app-secret/app-backend/lakefs.json
+  labelstudio: /var/app-secret/app-backend/labelstudio.json
+  zitadel: /var/app-secret/app-backend/zitadel.json
+  zitadel_oidc: /var/app-secret/app-backend/zitadel-oidc.json

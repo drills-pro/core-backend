@@ -1,0 +1,43 @@
+# core-backend (core-api)
+
+FastAPI modular monolith for the drills.pro no-code ML platform. Production is the `k8s` repo (sibling
+directory, Flux + Kustomize on a 2-node k3s). Design docs are in `../planning/` (auth and tenancy:
+`04-identity-tenancy-authz.md`, sprint specs `21` and `23`). This repo owns code, image, migrations and
+config; the `k8s` repo owns manifests, Vault policies and versions.
+
+## Commands
+
+Run from `core-api/` (tools via `mise`; ask before installing anything):
+
+```bash
+uv sync --group dev                  # first time
+.venv/bin/python -m pytest tests -q  # tests need no services and no network
+APP_ENV=local uv run uvicorn app.main:app --reload
+```
+
+Full stack: `docker compose up --build`, then `./scripts/bootstrap.sh` (idempotent, run after every `up`).
+
+## Layout and rules
+
+- `app/core` (settings, secrets, db, auth, tenancy) -> `app/integrations` (clients) -> `app/modules/{user,admin}/<context>` (routes). Imports go one way; `tests/test_architecture.py` enforces it.
+- **Config**: `core-api/config/*.yaml`, loaded by `app/core/settings.py`. Add a knob there plus `base.yaml`, never `os.environ`. Skill: `config-and-secrets`.
+- **Secrets**: never in YAML, env or git. `config` holds the path of a JSON file; read it with `secret_files.get(name)`. Do not print secret values; inspect key names only.
+- `APP_ENV` is required (`local | compose | test | prod`); `auth.dev_headers` is refused in `prod`.
+- Every route needs tenant scoping through `TenantConn` (Postgres RLS). New tables get RLS in their migration.
+- Migrations are numbered SQL files in `core-api/migrations/`. Take the next free number.
+
+## Cross-repo
+
+A change to `config/prod.yaml`, secret file names or keys, the image's port or probes needs a matching
+`k8s` change (skill `k8s-contract`). Do not edit or push the `k8s` repo from here without being asked: a
+push there deploys to production.
+
+## Auth rework
+
+The code still implements org-per-tenant; the plan (ADR-021/024) is shared pool + BFF session. Skill:
+`auth-layer`.
+
+## Commits
+
+Conventional style (`feat(scope):`, `fix(scope):`, `chore(scope):`), imperative, explaining the why. No
+Claude co-author trailer. Stage files by name.

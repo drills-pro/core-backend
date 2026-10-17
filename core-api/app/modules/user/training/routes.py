@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from app.core.config import MAX_CONCURRENT_TRAINING_RUNS
+from app.core.settings import settings
 from app.core.tenancy import get_tenant_id
 from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, mlflow_client, ray_client
@@ -13,7 +13,7 @@ from app.modules.user.training.service import RAY_TO_STATUS, transition
 
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
 
-MAX_CONCURRENT = MAX_CONCURRENT_TRAINING_RUNS
+MAX_CONCURRENT = settings.ray.max_concurrent_training_runs
 MIN_LABELED_SAMPLES = 10  # FR3 (03-dataset-governance.md)
 
 

@@ -8,6 +8,7 @@ see each section's "try it" for the exact commands used to prove it.
 
 ```
 mise install
+./scripts/secrets-init.sh   # local secret files, once
 docker compose up --build
 ```
 
@@ -99,8 +100,10 @@ The rules: `core/` depends on nothing above it, `integrations/` may use `core/`,
 and a module reaches another module **only** through its package root
 (`from app.modules.usage import record_usage`, never
 `app.modules.usage.service`). `tests/test_architecture.py` fails the build on
-any violation, so the boundaries can't quietly rot. Every environment variable
-the service reads is declared in `app/core/config.py`.
+any violation, so the boundaries can't quietly rot. Every setting the service reads
+is declared in `app/core/settings.py` and set in `core-api/config/*.yaml`
+(see [docs/runtime-contract.md](docs/runtime-contract.md)); secrets are JSON
+files referenced by path, never values.
 
 ## Multi-tenancy (req/01)
 
@@ -360,8 +363,8 @@ exists in Label Studio itself via a direct API call (`id: 4, title:
 Label Studio's newer versions disabled static API tokens org-wide by
 default — auth is short-lived JWT access tokens exchanged from a
 long-lived refresh token obtained once via an authenticated session
-login. That refresh token lives in Vault
-(`app-secret/app-backend/labelstudio`); `app/integrations/labelstudio_client.py` handles the
+login. That refresh token lives in
+`.local/secrets/labelstudio.json`; `app/integrations/labelstudio_client.py` handles the
 exchange/caching transparently. Bootstrap is fully scripted — the session
 login is a plain Django form post, so no browser is involved:
 
@@ -673,57 +676,32 @@ catch this; its `lakefs_s3` probe only exercises the S3 gateway.
 
 Unlike `scripts/zitadel-bootstrap.sh`, this one is idempotent — re-running
 it after any `docker compose up` reports what already exists and exits 0.
-Credentials it installs match `app-secret/app-backend/lakefs` in Vault (below).
+Credentials it installs match `.local/secrets/lakefs.json` (below).
 
-## Secrets management (Vault)
+## Secrets and configuration
 
-`vault` runs in dev mode (in-memory, auto-unsealed, root token `root` —
-laptop-only, see the `ponytail:` note in `docker-compose.yml`). After
-`docker compose up`, configure it once:
+Non-secret settings are committed YAML (`core-api/config/base.yaml`, plus `local`, `compose`, `test`,
+`prod`); `APP_ENV` picks the overlay and `CORE_<SECTION>__<KEY>` env vars override. Secrets are JSON
+files whose *paths* are in the config (`secrets:`). `core-api` re-reads a file when it changes.
 
-```
-docker compose exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault sh /vault-setup.sh
-./scripts/labelstudio-bootstrap.sh
-```
+| | Cluster | Local |
+|---|---|---|
+| Files | `/var/app-secret/app-backend/<name>`, rendered by the Vault Agent Injector | `.local/secrets/<name>.json` (gitignored), mounted at the same path in compose |
+| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `labelstudio-bootstrap.sh`, `zitadel-oidc-restore.sh` |
 
-Dev mode means **in-memory**: restarting the container empties Vault
-completely and every consumer fails at the first secret read (`core-api`
-cannot get Postgres credentials at all). Re-run both commands above, and
-re-issue the Zitadel OIDC client secret — the bootstrap script is not
-idempotent, so restore that one key rather than re-running it:
+Vault now only issues `core-api`'s Postgres credential. `vault` runs in dev mode (in-memory,
+auto-unsealed, root token `root`, laptop-only). Restarting it empties it, after which `core-api`
+cannot get a database credential; re-run `./scripts/bootstrap.sh` (idempotent). Static secret files
+survive a Vault restart.
 
-```
-# read the existing app's ids, regenerate its secret, put it back in Vault
-# — see the Zitadel section for the project/app ids
-curl -s -4 "http://localhost:8080/management/v1/projects/<project_id>/apps/<app_id>/oidc_config/_generate_client_secret"   -X POST -H "Authorization: Bearer $PAT" -H "Host: zitadel.monorepo.orb.local:8080"
-```
+`app/core/db.py` fetches a fresh, short-lived Postgres role (`database/creds/core-app`, 1h default
+TTL) at startup and re-rotates at half the lease, closing the old pool and opening a new one.
+`core_app` is a `NOLOGIN` group role holding grants and RLS policies; nothing connects as it directly
+(`SELECT rolname, rolcanlogin FROM pg_roles` shows `v-token-core-app-...` rows).
 
-Two distinct uses, on purpose:
-
-- **KV v2** (`app-secret/app-backend/{minio,lakefs,labelstudio,zitadel}`) —
-  `core-api`'s own static creds, isolated under its own app-secret subtree
-  (nothing else consumes them). `core-api` reads them from here
-  (`app/core/vault.py::get_kv`) instead of env vars — in the cluster, the
-  Vault Agent Injector sidecar renders each to its own file on disk
-  (`k8s/apps/backend/deployment.yaml`); locally, `get_kv` falls back to a
-  live read since there's no injector. `secret/platform/zitadel` is a
-  separate, unrelated entry — the zitadel *server's* own masterkey, which
-  `core-api` never reads.
-- **Database secrets engine** (`database/creds/core-app`) — `core-api`'s
-  own Postgres connection is **not** a static password. `app/core/db.py`
-  fetches a fresh, short-lived Postgres role from Vault at startup
-  (`CREATE ROLE ... IN ROLE core_app`, 1h default TTL) and re-rotates
-  automatically at half the lease TTL, closing the old connection pool
-  and opening a new one. `core_app` itself is a `NOLOGIN` group role that
-  only holds grants + the RLS policies — nothing ever connects as it
-  directly; verify with `SELECT rolname, rolcanlogin FROM pg_roles` and
-  you'll see `v-token-core-app-...` rows, not `core_app`.
-
-`/health/deps`'s Postgres check reuses this same dynamic pool (`db.get_pool()`)
-rather than a separate static DSN — there's no static superuser credential
-in `core-api`'s own config at all. Migrations are a genuinely separate ops
-path, applied by hand as the `postgres` superuser directly (see below),
-not through anything `core-api` reads.
+`/health/deps` reports `postgres`, `vault` (token valid) and `secrets` (every file loads with its
+required keys). Migrations are applied by hand as the `postgres` superuser (see below), not by
+`core-api`.
 
 ## Dev credentials
 

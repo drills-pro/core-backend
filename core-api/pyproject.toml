@@ -17,6 +17,8 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.48b0",
     "opentelemetry-instrumentation-httpx>=0.48b0",
     "opentelemetry-instrumentation-asyncpg>=0.48b0",
+    "pydantic-settings>=2.16.0",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]

@@ -4,13 +4,12 @@ import logging
 
 import asyncpg
 
-from app.core import config, vault
+from app.core import vault
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
-PG_HOST = config.PG_HOST
-PG_PORT = config.PG_PORT
-PG_DATABASE = config.PG_DATABASE
+PG = settings.pg
 
 _pool: asyncpg.Pool | None = None
 _refresh_task: asyncio.Task | None = None
@@ -32,7 +31,7 @@ async def _rotate() -> int:
     """Issue fresh Vault-backed credentials, swap the pool, return the lease TTL."""
     global _pool
     username, password, lease_seconds = vault.get_db_creds()
-    dsn = f"postgresql://{username}:{password}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"
+    dsn = f"postgresql://{username}:{password}@{PG.host}:{PG.port}/{PG.database}"
 
     async def _init(conn):
         # Without this, jsonb columns (training_runs.config/metrics/model_artifact,
@@ -43,9 +42,9 @@ async def _rotate() -> int:
     new_pool = await asyncpg.create_pool(
         dsn,
         init=_init,
-        min_size=config.PG_POOL_MIN,
-        max_size=config.PG_POOL_MAX,
-        command_timeout=config.PG_COMMAND_TIMEOUT,
+        min_size=PG.pool_min,
+        max_size=PG.pool_max,
+        command_timeout=PG.command_timeout,
     )
     old_pool, _pool = _pool, new_pool
     if old_pool is not None:

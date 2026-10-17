@@ -1,8 +1,8 @@
 #!/bin/sh
-# Restore app-secret/app-backend/zitadel-oidc and secret/platform/zitadel-spa into Vault.
+# Restore .local/secrets/zitadel-oidc.json and secret/platform/zitadel-spa (Vault).
 #
-# Vault runs in dev mode (in-memory), so a vault restart loses the OIDC
-# client credentials app/modules/auth/routes.py needs — while Zitadel's own
+# A lost secrets file (or a wiped dev Vault) loses the OIDC
+# client credentials core-api needs — while Zitadel's own
 # database (CloudNativePG on the kind cluster) keeps the project, the apps
 # and the users. Re-running scripts/zitadel-bootstrap.sh would create a
 # *second* project, apps and IdPs; this script instead reads the existing
@@ -14,6 +14,7 @@
 # creation — so it is regenerated. Any copy of the previous secret stops
 # working, which after a Vault wipe is true regardless.
 set -eu
+. "$(dirname "$0")/lib-secrets.sh"
 
 ZITADEL="${ZITADEL_URL:-http://localhost:8080}"
 HOST="Host: ${ZITADEL_HOST:-zitadel.monorepo.orb.local:8080}"
@@ -81,10 +82,10 @@ vault_put() {
     vault kv put "$@" > /dev/null
 }
 
-vault_put app-secret/app-backend/zitadel-oidc \
-  client_id="$CLIENT_ID" client_secret="$CLIENT_SECRET" \
-  project_id="$PROJECT_ID" app_id="$APP_ID"
-echo "vault configured: app-secret/app-backend/zitadel-oidc (client_id=$CLIENT_ID)"
+write_secret zitadel-oidc.json \
+  client_id "$CLIENT_ID" client_secret "$CLIENT_SECRET" \
+  project_id "$PROJECT_ID" app_id "$APP_ID"
+echo "secret written: zitadel-oidc.json (client_id=$CLIENT_ID)"
 
 if [ -n "$SPA_CLIENT_ID" ]; then
   vault_put secret/platform/zitadel-spa \

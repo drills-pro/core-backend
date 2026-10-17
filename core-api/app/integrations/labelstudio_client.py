@@ -11,7 +11,8 @@ import time
 
 import httpx
 
-from app.core import config, vault
+from app.core import secret_files
+from app.core.settings import settings
 
 # Same host-vs-container split as object_storage.py's MINIO_PUBLIC_ENDPOINT/
 # lakefs_client.py's PUBLIC_ENDPOINT — vault's "url" is the internal
@@ -20,7 +21,7 @@ from app.core import config, vault
 # OrbStack's <service>.<project>.orb.local DNS (already used for Zitadel,
 # see docker-compose.yml) resolves from the host too and isn't subject to
 # the localhost:<port> forward's occasional connection resets.
-PUBLIC_ENDPOINT = config.LABELSTUDIO_PUBLIC_ENDPOINT
+PUBLIC_ENDPOINT = settings.public.labelstudio_endpoint
 
 _access_token: str | None = None
 _access_token_expires_at: float = 0
@@ -31,7 +32,7 @@ async def _get_access_token() -> str:
     if _access_token and time.time() < _access_token_expires_at:
         return _access_token
 
-    creds = vault.get_kv("labelstudio")
+    creds = secret_files.get("labelstudio")
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             f"{creds['url']}/api/token/refresh/", json={"refresh": creds["refresh_token"]}
@@ -43,7 +44,7 @@ async def _get_access_token() -> str:
 
 
 async def _client() -> httpx.AsyncClient:
-    creds = vault.get_kv("labelstudio")
+    creds = secret_files.get("labelstudio")
     token = await _get_access_token()
     return httpx.AsyncClient(base_url=creds["url"], headers={"Authorization": f"Bearer {token}"}, timeout=10)
 

@@ -11,7 +11,8 @@ import zlib
 
 import httpx
 
-from app.core import config, metrics, rate_limit
+from app.core import metrics, rate_limit
+from app.core.settings import settings
 from app.core.db import get_pool
 from app.modules.user.auth import reap_stale_signups
 from app.modules.user.datasets import reconcile_inflight_imports
@@ -39,7 +40,7 @@ async def _poll_gpu_quota() -> None:
     # format — parsed by hand rather than pulling in a client library for
     # two label values.
     async with httpx.AsyncClient(timeout=5) as client:
-        resp = await client.get(config.KSM_ENDPOINT)
+        resp = await client.get(settings.observability.ksm_endpoint)
         resp.raise_for_status()
     used = hard = 0
     for line in resp.text.splitlines():

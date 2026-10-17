@@ -9,7 +9,7 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 
-from app.core import vault
+from app.core import secret_files
 from app.integrations import ray_client
 
 RAY_SERVE_HTTP = "http://ray-head:8000"
@@ -109,7 +109,7 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     if "onnx_key" in weights:
-        minio = vault.get_kv("minio")
+        minio = secret_files.get("minio")
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
             onnx_key=weights["onnx_key"],
             class_names=weights["class_names"],

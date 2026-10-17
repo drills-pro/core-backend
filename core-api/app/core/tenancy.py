@@ -1,7 +1,7 @@
 from fastapi import Header, HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from app.core import config
+from app.core.settings import settings
 from app.core.auth import Claims, verify_token
 from app.core.db import get_pool
 from app.core.tracing import tag_current_span
@@ -40,7 +40,7 @@ async def get_tenant_id(
         tag_current_span(tenant_id=tenant_id)
         return tenant_id
 
-    if not config.AUTH_DEV_HEADERS or not x_tenant_id:
+    if not settings.auth.dev_headers or not x_tenant_id:
         raise HTTPException(status_code=401, detail="missing Authorization bearer token or X-Tenant-Id")
     tag_current_span(tenant_id=x_tenant_id)
     return x_tenant_id
@@ -53,6 +53,6 @@ async def get_actor(
     claims = await _get_claims(authorization)
     if claims is not None:
         return claims.subject
-    if not config.AUTH_DEV_HEADERS:
+    if not settings.auth.dev_headers:
         raise HTTPException(status_code=401, detail="missing Authorization bearer token")
     return x_user_id or "dev-user"

@@ -8,7 +8,8 @@ import boto3
 import httpx
 from fastapi import APIRouter
 
-from app.core import config, db, vault
+from app.core import db, secret_files, vault
+from app.core.settings import settings
 
 router = APIRouter(tags=["health"])
 
@@ -23,11 +24,12 @@ async def health_deps():
     return {
         "postgres": await _check_postgres(),
         "vault": _check_vault(),
+        "secrets": _check_secrets(),
         "lakefs_s3": _check_lakefs(),
-        "zitadel": await _check_http(f"{config.ZITADEL_ISSUER}/.well-known/openid-configuration"),
-        "ray": await _check_http(f"{config.RAY_DASHBOARD}/api/version"),
-        "grafana": await _check_http(f"{config.GRAFANA_URL}/api/health"),
-        "mlflow": await _check_http(f"{config.MLFLOW_URL}/health"),
+        "zitadel": await _check_http(f"{settings.zitadel.issuer}/.well-known/openid-configuration"),
+        "ray": await _check_http(f"{settings.ray.dashboard}/api/version"),
+        "grafana": await _check_http(f"{settings.observability.grafana_url}/api/health"),
+        "mlflow": await _check_http(f"{settings.mlflow.url}/health"),
         "labelstudio": await _check_http("http://labelstudio:8080/health"),
     }
 
@@ -46,14 +48,23 @@ async def _check_postgres() -> str:
 
 
 def _check_vault() -> str:
-    # Reads this app's own zitadel secret (app-secret/app-backend/zitadel) rather than
-    # platform-secret's — this is a Vault-reachability probe, not a real dependency on
-    # Zitadel's server masterkey, so it should only ever touch what backend actually owns.
     try:
-        vault.get_kv("zitadel")
-        return "ok"
+        return "ok" if vault.is_authenticated() else "error: token rejected"
     except Exception as e:  # noqa: BLE001
         return f"error: {e}"
+
+
+def _check_secrets() -> str:
+    # Every mounted secret file loads and has the keys its consumers rely on.
+    bad = []
+    for name in secret_files.REQUIRED:
+        if name == "zitadel" and settings.env != "prod":
+            continue  # local Zitadel is reached with the PAT volume, not a service-user key
+        try:
+            secret_files.get(name)
+        except secret_files.SecretError as e:
+            bad.append(str(e))
+    return "ok" if not bad else "error: " + "; ".join(bad)
 
 
 def _check_lakefs() -> str:
@@ -61,7 +72,7 @@ def _check_lakefs() -> str:
     # the point is to prove the credentials and endpoint work right now, not to
     # exercise the cached client the rest of the app shares.
     try:
-        creds = vault.get_kv("lakefs")
+        creds = secret_files.get("lakefs")
         client = boto3.client(
             "s3",
             endpoint_url=creds["endpoint"],

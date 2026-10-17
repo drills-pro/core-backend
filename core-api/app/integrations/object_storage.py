@@ -4,7 +4,8 @@ bytes; req/01: per-tenant key prefix)."""
 import boto3
 from botocore.client import Config
 
-from app.core import config, vault
+from app.core import secret_files
+from app.core.settings import settings
 
 BUCKET = "datasets"
 # FR4 (07-identity-oauth-linking.md): avatars aren't versioned dataset
@@ -13,7 +14,7 @@ PLATFORM_ASSETS_BUCKET = "platform-assets"
 # Presigned URLs are consumed by external clients (browser, curl from the
 # host) — they need MinIO's host-published address, not the internal
 # docker-network name core-api itself uses for server-side calls.
-PUBLIC_ENDPOINT = config.MINIO_PUBLIC_ENDPOINT
+PUBLIC_ENDPOINT = settings.public.minio_endpoint
 
 _client = None
 _presign_client = None
@@ -22,7 +23,7 @@ _presign_client = None
 def _get_client():
     global _client
     if _client is None:
-        creds = vault.get_kv("minio")
+        creds = secret_files.get("minio")
         _client = boto3.client(
             "s3",
             endpoint_url="http://minio:9000",
@@ -40,7 +41,7 @@ def _get_client():
 def _get_presign_client():
     global _presign_client
     if _presign_client is None:
-        creds = vault.get_kv("minio")
+        creds = secret_files.get("minio")
         _presign_client = boto3.client(
             "s3",
             endpoint_url=PUBLIC_ENDPOINT,

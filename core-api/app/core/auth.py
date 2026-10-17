@@ -10,9 +10,10 @@ from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
-from app.core import config, vault
+from app.core import secret_files
+from app.core.settings import settings
 
-ZITADEL_ISSUER = config.ZITADEL_ISSUER
+ZITADEL_ISSUER = settings.zitadel.issuer
 # Real tokens carry this as three flat claims (…:id, …:name, …:primary_domain),
 # not a nested object under the bare "urn:...:resourceowner" key — verified
 # against a live token, contradicting the docs' apparent structure.
@@ -31,9 +32,16 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
+def _oidc_project_id() -> str:
+    try:
+        return secret_files.get("zitadel_oidc").get("project_id", "")
+    except secret_files.SecretError:
+        return ""
+
+
 def project_id() -> str:
     # Fail closed: without an audience to check, any token the instance signed would pass.
-    pid = config.ZITADEL_PROJECT_ID or vault.get_kv("zitadel-oidc").get("project_id", "")
+    pid = settings.zitadel.project_id or _oidc_project_id()
     if not pid:
         raise HTTPException(status_code=500, detail="ZITADEL_PROJECT_ID is not configured")
     return pid
@@ -109,7 +117,7 @@ async def get_platform_admin(
             raise HTTPException(status_code=403, detail=f"requires the {PLATFORM_ADMIN_ROLE} role")
         return claims.subject
 
-    if not config.AUTH_DEV_HEADERS or not x_admin_user:
+    if not settings.auth.dev_headers or not x_admin_user:
         raise HTTPException(
             status_code=401, detail="missing Authorization bearer token or X-Admin-User"
         )

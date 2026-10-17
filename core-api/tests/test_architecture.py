@@ -80,8 +80,8 @@ def _imported_modules(path: Path) -> list[tuple[str, int]]:
             if node.level or not node.module or not node.module.startswith("app"):
                 continue
             for alias in node.names:
-                # `from app.core import config` imports the submodule
-                # app.core.config; `from app.core.db import get_pool` does not.
+                # `from app.core import settings` imports the submodule
+                # app.core.settings; `from app.core.db import get_pool` does not.
                 candidate = f"{node.module}.{alias.name}"
                 exists = (APP.parent / Path(*candidate.split("."))).with_suffix(".py").exists()
                 found.append((candidate if exists else node.module, node.lineno))
