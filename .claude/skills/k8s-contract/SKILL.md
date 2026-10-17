@@ -21,5 +21,5 @@ The interface is `docs/runtime-contract.md`. The `k8s` repo is a sibling directo
 ## Rules
 
 - Write the k8s change as a diff or description and let the user apply it; do not edit or push `../k8s` unprompted.
-- Land the image and the manifest together when the image needs a new env var or secret (for example `APP_ENV=prod`); otherwise the pod fails to start. Say which order is safe.
+- Land the image and the manifest together when the image needs a new env var or secret (for example a new secret file); otherwise the pod fails to start. Say which order is safe.
 - Validate on that side before pushing: `kubectl kustomize apps` builds cleanly (see `../k8s/CLAUDE.md`).

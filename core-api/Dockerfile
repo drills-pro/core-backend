@@ -10,5 +10,8 @@ COPY app ./app
 COPY config ./config
 RUN uv sync
 
+# The image is the production one; compose and local runs override this (config/*.yaml).
+ENV APP_ENV=prod
+
 EXPOSE 8000
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

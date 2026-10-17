@@ -26,4 +26,4 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 
 - A secret value never goes in YAML, env vars, logs, tests or this repo. `tests/test_settings.py` fails on secret-looking keys.
 - Postgres credentials are the only thing fetched from Vault's API (`app/core/vault.py`).
-- `APP_ENV` has no default on purpose.
+- `APP_ENV` has no default in code on purpose; the Dockerfile sets `prod`.

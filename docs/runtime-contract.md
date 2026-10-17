@@ -23,10 +23,11 @@ digest. The k8s repo pins by digest.
 Precedence, lowest to highest: `base.yaml`, `<APP_ENV>.yaml`, then `CORE_<SECTION>__<KEY>` environment
 variables (for example `CORE_PG__HOST`). The schema is `app/core/settings.py`; unknown keys are an error.
 
-`APP_ENV` has no default. A pod without it does not start. In `prod`, `auth.dev_headers` and relative
-secret paths are refused at startup.
+`APP_ENV` is required by the code and set to `prod` by the Dockerfile, so the cluster needs no
+setting for it; compose sets `compose` and host runs set `local`. In `prod`, `auth.dev_headers` and
+relative secret paths are refused at startup.
 
-**k8s side:** the deployment sets `APP_ENV=prod`. Its other env vars (`PG_HOST`, `RAY_DASHBOARD`,
+**k8s side:** nothing is required for the config rework. The deployment's env vars (`PG_HOST`, `RAY_DASHBOARD`,
 `VAULT_ADDR`, ...) are no longer read and can be removed; their values now live in `prod.yaml`.
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_METRICS_EXPORTER` are still read by the OpenTelemetry SDK itself.
 

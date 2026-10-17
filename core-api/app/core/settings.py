@@ -1,8 +1,8 @@
 """Every non-secret knob core-api reads, loaded once from config/*.yaml.
 
 Layers, lowest to highest precedence: config/base.yaml, config/<APP_ENV>.yaml, then
-CORE_<SECTION>__<KEY> environment variables. APP_ENV (local | compose | test | prod) is required:
-there is no default, so a pod that forgot it fails to start instead of running dev settings.
+CORE_<SECTION>__<KEY> environment variables. APP_ENV (local | compose | test | prod) selects the overlay. It is required and has no default
+here; the Docker image sets it to prod, so dev settings can never be picked up by accident.
 
 Secrets are not here. `secrets:` holds the *path* of each JSON file; app/core/secret_files.py
 reads them.
