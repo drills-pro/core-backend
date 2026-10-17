@@ -92,3 +92,7 @@ def test_secret_errors_name_the_file(minio_file):
     minio_file.write_text(json.dumps({"access_key": "a"}))
     with pytest.raises(secret_files.SecretError, match="secret_key"):
         secret_files.get("minio")
+
+
+def test_prod_has_the_zitadel_project_id():
+    assert load("prod").zitadel.project_id.isdigit()

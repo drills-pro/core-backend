@@ -15,7 +15,7 @@ vault:                       # Vault issues only the dynamic Postgres credential
 
 zitadel:
   issuer: http://zitadel.monorepo.orb.local:8080
-  project_id: ""             # falls back to the zitadel_oidc secret's project_id
+  project_id: ""             # tokens must carry it in aud; local falls back to the zitadel_oidc secret
 
 auth:
   dev_headers: false         # X-Tenant-Id / X-User-Id / X-Admin-User stand in for a token

@@ -42,7 +42,7 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 | `lakefs` | `/var/app-secret/app-backend/lakefs` | `endpoint`, `access_key`, `secret_key` |
 | `labelstudio` | `/var/app-secret/app-backend/labelstudio` | `url`, `refresh_token` |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |
-| `zitadel_oidc` | `/var/app-secret/app-backend/zitadel-oidc` | `project_id` (+ client id and secret) |
+| `zitadel_oidc` | `/var/app-secret/app-backend/zitadel-oidc` | optional in prod (project id is in `prod.yaml`); local dev fallback |
 
 In the cluster the Vault Agent Injector renders one file per key under `app-secret/app-backend/*`
 (`deployment.yaml` template). Locally `scripts/secrets-init.sh` and the bootstrap scripts write the same

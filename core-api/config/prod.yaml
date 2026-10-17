@@ -7,6 +7,7 @@ vault:
   addr: http://vault.vault.svc.cluster.local:8200
 zitadel:
   issuer: https://auth.drills.pro
+  project_id: "395337035725930916"   # the Zitadel project the SPA and API share; tokens must carry it in aud
 ray:
   dashboard: http://ray-head-svc.ray.svc.cluster.local:8265
 mlflow:
