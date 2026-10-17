@@ -23,7 +23,10 @@ _jwks_client: PyJWKClient | None = None
 def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        _jwks_client = PyJWKClient(f"{ZITADEL_ISSUER}/oauth/v2/keys", cache_keys=True)
+        # Cloudflare in front of auth.drills.pro answers urllib's default User-Agent with 403.
+        _jwks_client = PyJWKClient(
+            f"{ZITADEL_ISSUER}/oauth/v2/keys", cache_keys=True, headers={"User-Agent": "core-api"}
+        )
     return _jwks_client
 
 
