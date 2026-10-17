@@ -14,7 +14,7 @@ import httpx
 from app.core import secret_files
 from app.core.settings import settings
 
-# Same host-vs-container split as object_storage.py's MINIO_PUBLIC_ENDPOINT/
+# Browsers reach Label Studio at its published address, not the in-network name
 # lakefs_client.py's PUBLIC_ENDPOINT — vault's "url" is the internal
 # docker-network address core-api uses server-to-server; the browser
 # embedding Label Studio in an iframe needs an address it can resolve.

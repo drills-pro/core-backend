@@ -4,7 +4,7 @@ pg:
 vault:
   token_file: /nonexistent/vault-token
 secrets:
-  minio: /nonexistent/minio.json
+  s3: /nonexistent/s3.json
   lakefs: /nonexistent/lakefs.json
   labelstudio: /nonexistent/labelstudio.json
   zitadel: /nonexistent/zitadel.json

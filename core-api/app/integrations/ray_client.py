@@ -262,15 +262,15 @@ import boto3 as _boto3
 from botocore.client import Config as _Config
 onnx_path = model.export(format="onnx", imgsz=(64 if task == "detect" else 32), opset=17)
 onnx_key = f"models/{seed}/model.onnx"
-# Deliberately the raw MinIO "datasets" bucket, not the LakeFS-gateway
+# Deliberately the platform's own bucket (the `s3` secret), not the LakeFS-gateway
 # creds used above for training data — model artifacts aren't
 # dataset-versioned, and app/integrations/serve_client.py's deployment path reads
 # them from this bucket directly.
-s3_upload = _boto3.client("s3", endpoint_url={minio_s3_endpoint!r},
-    aws_access_key_id={minio_s3_access_key!r}, aws_secret_access_key={minio_s3_secret_key!r},
+s3_upload = _boto3.client("s3", endpoint_url={model_s3_endpoint!r},
+    aws_access_key_id={model_s3_access_key!r}, aws_secret_access_key={model_s3_secret_key!r},
     config=_Config(signature_version="s3v4"))
 with open(onnx_path, "rb") as f:
-    s3_upload.put_object(Bucket="datasets", Key=onnx_key, Body=f.read())
+    s3_upload.put_object(Bucket={model_s3_bucket!r}, Key=onnx_key, Body=f.read())
 class_names = [model.names[i] for i in sorted(model.names)]
 print(f"model:{{json.dumps({{'onnx_key': onnx_key, 'class_names': class_names, 'task': task}})}}")
 """
@@ -526,7 +526,7 @@ def _build_entrypoint(
         )
     elif config.get("backend") == "ultralytics":
         lakefs_creds = secret_files.get("lakefs")
-        minio_creds = secret_files.get("minio")
+        model_store = secret_files.get("s3")
         script = textwrap.dedent(_ULTRALYTICS_TEMPLATE).format(
             seed=seed,
             epochs={**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}["epochs"],
@@ -540,9 +540,10 @@ def _build_entrypoint(
             s3_endpoint=lakefs_creds["endpoint"],
             s3_access_key=lakefs_creds["access_key"],
             s3_secret_key=lakefs_creds["secret_key"],
-            minio_s3_endpoint="http://minio:9000",
-            minio_s3_access_key=minio_creds["access_key"],
-            minio_s3_secret_key=minio_creds["secret_key"],
+            model_s3_endpoint=model_store["S3_ENDPOINT"],
+            model_s3_bucket=model_store["S3_BUCKET"],
+            model_s3_access_key=model_store["AWS_ACCESS_KEY_ID"],
+            model_s3_secret_key=model_store["AWS_SECRET_ACCESS_KEY"],
         )
     else:
         trainer = {**DEFAULT_CONFIG["trainer"], **config.get("trainer", {})}

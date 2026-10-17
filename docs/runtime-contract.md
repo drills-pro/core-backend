@@ -38,7 +38,7 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 
 | Secret | Cluster path | Keys |
 |---|---|---|
-| `minio` | `/var/app-secret/app-backend/minio` | `access_key`, `secret_key` |
+| `s3` | `/var/app-secret/app-backend/s3` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_BUCKET` (the platform bucket: trained models under `models/`, pictures; datasets go through lakeFS) |
 | `lakefs` | `/var/app-secret/app-backend/lakefs` | `endpoint`, `access_key`, `secret_key` |
 | `labelstudio` | `/var/app-secret/app-backend/labelstudio` | `url`, `refresh_token` |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |

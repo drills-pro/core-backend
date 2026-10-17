@@ -84,7 +84,7 @@ core-api/app/
   main.py          composition root — mounts every module's router, nothing else
   background.py    the pollers: each module owns the reconcile, this owns the timer
   core/            shared kernel — config, db pool, tenancy/RLS, auth, audit, telemetry
-  integrations/    one client per outside system — Ray, LakeFS, MLflow, MinIO,
+  integrations/    one client per outside system — Ray, LakeFS, MLflow, S3,
                    Label Studio, Zitadel, Vault
   modules/         one package per context: projects, datasets, labeling,
                    preprocessing, training, model_registry, deployments, usage,
@@ -318,10 +318,9 @@ curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=v
 ## Dataset upload (req/04 + req/06)
 
 `core-api/migrations/0006_datasets.sql` + `app/modules/datasets/routes.py` +
-`app/integrations/object_storage.py`: real presigned-URL upload against MinIO, per
-req/04's "upload returns presigned S3/MinIO URL, client PUTs directly —
-don't proxy large files through the app backend". A `datasets` bucket is
-created on first use; keys are prefixed `tenants/{tenant_id}/projects/{project_id}/datasets/{id}/{label}/{filename}`
+`app/integrations/lakefs_client.py`: presigned-URL upload through lakeFS's S3 gateway, per
+req/04's "upload returns presigned S3 URL, client PUTs directly —
+don't proxy large files through the app backend". Keys are prefixed `tenants/{tenant_id}/projects/{project_id}/datasets/{id}/{label}/{filename}`
 per req/01's per-tenant object-storage isolation. The `label` path segment
 is the YOLO-classify class folder the Ultralytics training backend reads
 directly (see Training section).

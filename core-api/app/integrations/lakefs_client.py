@@ -3,10 +3,7 @@ already running in this stack (docker-compose.yml) but not previously
 wired to anything. One shared repo ("platform-datasets"), one branch per
 platform dataset (branch name = dataset UUID) — each branch's commit
 history *is* that dataset's version history. Object bytes are addressed
-through LakeFS's own S3 gateway (same wire protocol as MinIO, just a
-different endpoint/bucket), so the function shapes mirror
-app/integrations/object_storage.py deliberately — datasets.py swaps between them with
-a dataset_id added, not a rewrite.
+through LakeFS's own S3 gateway.
 """
 import boto3
 import httpx
@@ -16,7 +13,7 @@ from app.core import secret_files
 from app.core.settings import settings
 
 REPO = "platform-datasets"
-# Same host-vs-container split as object_storage.py's MINIO_PUBLIC_ENDPOINT
+# Browsers reach lakeFS at its published address, not the in-network name
 # — presigned URLs are handed to the browser, which needs the published
 # host address, not the internal docker-network name.
 PUBLIC_ENDPOINT = settings.public.lakefs_endpoint
@@ -126,7 +123,7 @@ def presigned_get_url(dataset_id: str, key: str, expires_in: int = 3600, ref: st
 
 def list_files(dataset_id: str, prefix: str = "", ref: str = "") -> list[str]:
     """Returns keys relative to the dataset (branch prefix stripped),
-    same shape as object_storage.list_files did with s3_prefix."""
+    as a flat list of object keys."""
     full_prefix = f"{ref or dataset_id}/{prefix}"
     resp = _get_client().list_objects_v2(Bucket=REPO, Prefix=full_prefix)
     branch_prefix = f"{ref or dataset_id}/"

@@ -70,12 +70,11 @@ class Observability(_Section):
 
 class Public(_Section):
     lakefs_endpoint: str
-    minio_endpoint: str
     labelstudio_endpoint: str
 
 
 class SecretPaths(_Section):
-    minio: Path
+    s3: Path
     lakefs: Path
     labelstudio: Path
     zitadel: Path

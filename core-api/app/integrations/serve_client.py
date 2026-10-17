@@ -56,6 +56,7 @@ import onnxruntime as ort
 class_names = {class_names!r}
 onnx_key = {onnx_key!r}
 s3_endpoint = {s3_endpoint!r}
+s3_bucket = {s3_bucket!r}
 s3_access_key = {s3_access_key!r}
 s3_secret_key = {s3_secret_key!r}
 
@@ -69,7 +70,7 @@ class Predictor:
         s3 = boto3.client("s3", endpoint_url=s3_endpoint,
             aws_access_key_id=s3_access_key, aws_secret_access_key=s3_secret_key,
             config=Config(signature_version="s3v4"))
-        onnx_bytes = s3.get_object(Bucket="datasets", Key=onnx_key)["Body"].read()
+        onnx_bytes = s3.get_object(Bucket=s3_bucket, Key=onnx_key)["Body"].read()
         self.session = ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
 
@@ -109,13 +110,14 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     if "onnx_key" in weights:
-        minio = secret_files.get("minio")
+        model_store = secret_files.get("s3")
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
             onnx_key=weights["onnx_key"],
             class_names=weights["class_names"],
-            s3_endpoint="http://minio:9000",
-            s3_access_key=minio["access_key"],
-            s3_secret_key=minio["secret_key"],
+            s3_endpoint=model_store["S3_ENDPOINT"],
+            s3_bucket=model_store["S3_BUCKET"],
+            s3_access_key=model_store["AWS_ACCESS_KEY_ID"],
+            s3_secret_key=model_store["AWS_SECRET_ACCESS_KEY"],
             name=name,
             route_prefix=route_prefix,
         )
