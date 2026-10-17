@@ -1,6 +1,17 @@
-# Production facts that belong to this repo. The cluster's service hostnames (Postgres, Vault, Ray,
-# MLflow, OTel) live in the k8s repo's ConfigMap backend-config, mounted at /etc/core-api/deploy.yaml,
-# which the app requires in prod. auth.dev_headers must stay unset: prod refuses to start with it on.
+# Everything specific to the cluster. Service names come from the k8s repo (apps/backend/, apps/mlflow/,
+# apps/ray/, infra/monitoring/); when they change there, change them here. Secrets are never here: they
+# are the files named under `secrets:` in base.yaml. auth.dev_headers must stay unset (prod refuses it).
+pg:
+  host: pg-backend-rw.platform.svc.cluster.local   # per-app CNPG cluster (k8s apps/backend/cluster.yaml)
+  database: backend
+vault:
+  addr: http://vault.vault.svc.cluster.local:8200
 zitadel:
   issuer: https://auth.drills.pro
   project_id: "395337035725930916"   # the Zitadel project the SPA and API share; tokens must carry it in aud
+ray:
+  dashboard: http://ray-head-svc.ray.svc.cluster.local:8265
+mlflow:
+  url: http://mlflow.platform.svc.cluster.local:5000
+observability:
+  otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317

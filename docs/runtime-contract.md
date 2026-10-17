@@ -15,20 +15,19 @@ digest. The k8s repo pins by digest.
 | File | Used when |
 |---|---|
 | `base.yaml` | always; defaults and the cluster's secret file paths |
-| `prod.yaml` | `APP_ENV=prod` (the cluster): identity facts such as the Zitadel issuer and project id |
-| `/etc/core-api/deploy.yaml` | prod only, **required**: the k8s repo's ConfigMap `backend-config` with the cluster's service hostnames (Postgres, Vault, Ray, MLflow, OTel) |
+| `prod.yaml` | `APP_ENV=prod` (the cluster): all of its hostnames, the Zitadel issuer and project id |
 | `compose.yaml` | `APP_ENV=compose` (core-api inside docker compose) |
 | `local.yaml` | `APP_ENV=local` (`uv run uvicorn` on the host against compose services) |
 | `test.yaml` | `APP_ENV=test` (pytest sets it in `tests/conftest.py`) |
 
-Precedence, lowest to highest: `base.yaml`, `<APP_ENV>.yaml`, the deploy file, then `CORE_<SECTION>__<KEY>` environment
+Precedence, lowest to highest: `base.yaml` (shared defaults), `<APP_ENV>.yaml`, then `CORE_<SECTION>__<KEY>` environment
 variables (for example `CORE_PG__HOST`). The schema is `app/core/settings.py`; unknown keys are an error.
 
 `APP_ENV` is required by the code and set to `prod` by the Dockerfile, so the cluster needs no
 setting for it; compose sets `compose` and host runs set `local`. In `prod`, `auth.dev_headers` and
 relative secret paths are refused at startup.
 
-**k8s side:** the deployment mounts ConfigMap `backend-config` at `/etc/core-api/` (hostnames live there, next to the manifests that define them). The deployment's old env vars (`PG_HOST`, `RAY_DASHBOARD`,
+**k8s side:** nothing is needed. The deployment's old env vars (`PG_HOST`, `RAY_DASHBOARD`,
 `VAULT_ADDR`, ...) are no longer read and can be removed; their values now live in `prod.yaml`.
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_METRICS_EXPORTER` are still read by the OpenTelemetry SDK itself.
 

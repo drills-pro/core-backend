@@ -6,12 +6,11 @@ import pytest
 import yaml
 
 from app.core import secret_files
-from app.core import settings as settings_module
 from app.core.settings import CONFIG_DIR, ENVIRONMENTS, load, settings
 
 
 @pytest.mark.parametrize("env", ENVIRONMENTS)
-def test_every_environment_loads(env, deploy_file):
+def test_every_environment_loads(env):
     assert load(env).env == env
 
 
@@ -21,42 +20,10 @@ def test_app_env_is_required(monkeypatch):
         load()
 
 
-DEPLOY = (
-    "pg: {host: pg-backend-rw.platform.svc.cluster.local, database: backend}\n"
-    "vault: {addr: 'http://vault:8200'}\n"
-    "ray: {dashboard: 'http://ray:8265'}\n"
-    "mlflow: {url: 'http://mlflow:5000'}\n"
-    "observability: {otlp_endpoint: 'http://otel:4317'}\n"
-)
-
-
-@pytest.fixture
-def deploy_file(monkeypatch, tmp_path):
-    path = tmp_path / "deploy.yaml"
-    path.write_text(DEPLOY)
-    monkeypatch.setattr(settings_module, "DEPLOY_FILE", path)
-    return path
-
-
-def test_prod_requires_the_deploy_file(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings_module, "DEPLOY_FILE", tmp_path / "missing.yaml")
-    with pytest.raises(RuntimeError, match="backend-config"):
-        load("prod")
-
-
-def test_prod_fails_loudly_when_the_deploy_file_lacks_a_hostname(monkeypatch, tmp_path):
-    path = tmp_path / "deploy.yaml"
-    path.write_text(DEPLOY.replace("pg: {host: pg-backend-rw.platform.svc.cluster.local, database: backend}\n", ""))
-    monkeypatch.setattr(settings_module, "DEPLOY_FILE", path)
-    with pytest.raises(ValueError, match="pg.host"):
-        load("prod")
-
-
-def test_layers_merge_deploy_over_env_over_base(deploy_file):
+def test_layers_merge_env_over_base():
     s = load("prod")
-    assert s.pg.host == "pg-backend-rw.platform.svc.cluster.local"  # deploy file
-    assert s.zitadel.issuer == "https://auth.drills.pro"  # prod.yaml
-    assert s.pg.pool_max == 20  # base.yaml, same section as the deploy file's
+    assert s.pg.host == "pg-backend-rw.platform.svc.cluster.local"  # prod.yaml
+    assert s.pg.pool_max == 20  # base.yaml, same section
     assert not s.auth.dev_headers
 
 
@@ -65,13 +32,13 @@ def test_env_var_overrides_yaml(monkeypatch):
     assert load("local").pg.host == "elsewhere"
 
 
-def test_prod_refuses_dev_headers(monkeypatch, deploy_file):
+def test_prod_refuses_dev_headers(monkeypatch):
     monkeypatch.setenv("CORE_AUTH__DEV_HEADERS", "true")
     with pytest.raises(ValueError, match="dev_headers"):
         load("prod")
 
 
-def test_prod_refuses_relative_secret_paths(monkeypatch, deploy_file):
+def test_prod_refuses_relative_secret_paths(monkeypatch):
     monkeypatch.setenv("CORE_SECRETS__LAKEFS", "relative/minio.json")
     with pytest.raises(ValueError, match="absolute"):
         load("prod")
@@ -127,5 +94,5 @@ def test_secret_errors_name_the_file(lakefs_file):
         secret_files.get("lakefs")
 
 
-def test_prod_has_the_zitadel_project_id(deploy_file):
+def test_prod_has_the_zitadel_project_id():
     assert load("prod").zitadel.project_id.isdigit()
