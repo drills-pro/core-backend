@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.core import rate_limit
 from app.core.auth import ZITADEL_ISSUER, Claims, get_profile_claims
+from app.core.authz import TenantRole, public
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 
@@ -34,7 +35,7 @@ async def _upsert_principal(conn, claims: Claims) -> None:
     )
 
 
-@router.get("/me")
+@router.get("/me", dependencies=[Depends(public)])  # self-scoped: any valid token, no tenant yet
 async def me(claims: Claims = Depends(get_profile_claims)):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -44,7 +45,7 @@ async def me(claims: Claims = Depends(get_profile_claims)):
             "tenants": [dict(t, id=str(t["id"])) for t in tenants]}
 
 
-@router.post("/tenants", status_code=201)
+@router.post("/tenants", status_code=201, dependencies=[Depends(public)])  # creates the caller's own tenant
 async def create_tenant(body: TenantCreate, request: Request, claims: Claims = Depends(get_profile_claims)):
     """Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo."""
     name = body.name.strip()
@@ -64,8 +65,8 @@ async def create_tenant(body: TenantCreate, request: Request, claims: Claims = D
         await _upsert_principal(conn, claims)
         await conn.execute("INSERT INTO tenants (id, name) VALUES ($1, $2)", tenant_id, name)
         await conn.execute(
-            "INSERT INTO tenant_members (tenant_id, user_sub, role) VALUES ($1, $2, 'owner')",
-            tenant_id, claims.subject,
+            "INSERT INTO tenant_members (tenant_id, user_sub, role) VALUES ($1, $2, $3)",
+            tenant_id, claims.subject, TenantRole.OWNER,
         )
         await conn.execute("INSERT INTO teams (tenant_id, name) VALUES ($1, 'Default')", tenant_id)
-    return {"id": str(tenant_id), "name": name, "role": "owner"}
+    return {"id": str(tenant_id), "name": name, "role": TenantRole.OWNER}

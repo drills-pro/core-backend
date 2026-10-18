@@ -111,7 +111,7 @@ core-api/app/
 The rules: `core/` depends on nothing above it, `integrations/` may use `core/`,
 and a module reaches another module **only** through its package root
 (`from app.modules.usage import record_usage`, never
-`app.modules.usage.service`). `tests/test_architecture.py` fails the build on
+`app.modules.usage.service`). `tests/architecture/test_architecture.py` fails the build on
 any violation, so the boundaries can't quietly rot. Every setting the service reads
 is declared in `app/core/settings.py` and set in `core-api/config/*.yaml`
 (see [docs/runtime-contract.md](docs/runtime-contract.md)); secrets are JSON
@@ -141,7 +141,7 @@ curl "http://localhost:8090/v1/projects/<id>" -H "X-Tenant-Id: 22222222-2222-222
 
 `app/core/auth.py` verifies Zitadel-issued JWTs for real: fetches/caches JWKS
 (in-cluster in prod, `zitadel.internal_url`), checks the RS256 signature, issuer and audience (the Zitadel project id). Covered
-by `core-api/tests/test_auth.py` (self-signed keypair — wrong signature
+by `core-api/tests/core/test_auth.py` (self-signed keypair — wrong signature
 and missing-claim cases both rejected).
 
 ### OIDC client registration is real, automated, and reproducible

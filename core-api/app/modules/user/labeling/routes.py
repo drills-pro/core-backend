@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends
 
-from app.core.tenancy import get_tenant_id
+from app.core.authz import Action, AuthzContext, require
+from app.core.enums import TaskType
+from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, labelstudio_client
 
@@ -39,19 +41,19 @@ async def _existing_labels(dataset_id: uuid.UUID) -> list[str]:
 
 @router.post("", status_code=201)
 async def create_labeling_project(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         dataset = await conn.fetchrow(
             "SELECT name FROM datasets WHERE id = $1 AND project_id = $2", dataset_id, project_id
         )
         if dataset is None:
-            raise HTTPException(status_code=404, detail="dataset not found")
+            raise not_found()
         task_type = await conn.fetchval("SELECT task_type FROM projects WHERE id = $1", project_id)
 
         labels = await _existing_labels(dataset_id)
-        template = _BBOX_CONFIG if task_type == "object_detection" else _CLASSIFY_CONFIG
-        tag = "Label" if task_type == "object_detection" else "Choice"
+        template = _BBOX_CONFIG if task_type == TaskType.OBJECT_DETECTION else _CLASSIFY_CONFIG
+        tag = "Label" if task_type == TaskType.OBJECT_DETECTION else "Choice"
         choices = "\n".join(f'    <{tag} value="{label}"/>' for label in labels)
         label_config = template.format(choices=choices)
 
@@ -72,7 +74,7 @@ async def create_labeling_project(
         row = await conn.fetchrow(
             "INSERT INTO labeling_projects (tenant_id, project_id, dataset_id, label_studio_id) "
             "VALUES ($1, $2, $3, $4) RETURNING id, label_studio_id, created_at",
-            tenant_id,
+            ctx.tenant_id,
             project_id,
             dataset_id,
             ls_project_id,
@@ -86,9 +88,9 @@ async def create_labeling_project(
 
 @router.get("")
 async def get_labeling_status(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_READ))
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT label_studio_id FROM labeling_projects WHERE project_id = $1 AND dataset_id = $2 "
             "ORDER BY created_at DESC LIMIT 1",
@@ -96,7 +98,7 @@ async def get_labeling_status(
             dataset_id,
         )
     if row is None:
-        raise HTTPException(status_code=404, detail="no labeling project for this dataset")
+        raise not_found()
     stats = await labelstudio_client.get_project_stats(row["label_studio_id"])
     return {
         "label_studio_id": row["label_studio_id"],
@@ -106,9 +108,9 @@ async def get_labeling_status(
 
 
 @router.get("/export")
-async def export_labels(project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)):
+async def export_labels(project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_READ))):
     """FR: "pull labeled export"."""
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT label_studio_id FROM labeling_projects WHERE project_id = $1 AND dataset_id = $2 "
             "ORDER BY created_at DESC LIMIT 1",
@@ -116,13 +118,13 @@ async def export_labels(project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id:
             dataset_id,
         )
     if row is None:
-        raise HTTPException(status_code=404, detail="no labeling project for this dataset")
+        raise not_found()
     return await labelstudio_client.export_annotations(row["label_studio_id"])
 
 
 @router.post("/import-label-studio-export")
 async def import_label_studio_export(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
 ):
     """FR2: pull the current Label Studio export and write completed
     labels back to LakeFS as a real commit — same parse-and-write shape as
@@ -130,7 +132,7 @@ async def import_label_studio_export(
     move the file from _unlabeled/ into its class folder (Phase 1's
     existing convention); object_detection annotations write a YOLO-style
     labels/<file>.txt."""
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT label_studio_id FROM labeling_projects WHERE project_id = $1 AND dataset_id = $2 "
             "ORDER BY created_at DESC LIMIT 1",
@@ -138,7 +140,7 @@ async def import_label_studio_export(
             dataset_id,
         )
         if row is None:
-            raise HTTPException(status_code=404, detail="no labeling project for this dataset")
+            raise not_found()
         task_type = await conn.fetchval("SELECT task_type FROM projects WHERE id = $1", project_id)
 
     export = await labelstudio_client.export_annotations(row["label_studio_id"])
@@ -154,7 +156,7 @@ async def import_label_studio_export(
             continue
         filename = key.rsplit("/", 1)[-1]
 
-        if task_type == "object_detection":
+        if task_type == TaskType.OBJECT_DETECTION:
             # ponytail: class_id hardcoded to 0 — no per-project class-name
             # registry exists yet to map rectanglelabels[0] to an index;
             # add one (and a real classes.txt) once multi-class detection

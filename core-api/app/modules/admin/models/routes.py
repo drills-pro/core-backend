@@ -28,6 +28,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.core.auth import get_platform_admin
+from app.core.authz import Visibility
+from app.core.enums import TaskType
 from app.core.db import get_pool
 
 router = APIRouter(prefix="/v1/admin/models", tags=["admin"])
@@ -36,15 +38,8 @@ router = APIRouter(prefix="/v1/admin/models", tags=["admin"])
 # a typo comes back as a 400 instead of as a convincing empty page.
 STATUSES = ("deployed", "deploying", "stopped", "not_deployed")
 
-# projects.task_type and projects.visibility.
-TASK_TYPES = (
-    "image_classification",
-    "object_detection",
-    "tabular_classification",
-    "text_classification",
-    "legacy_untyped",
-)
-VISIBILITIES = ("private", "public")
+# projects.visibility.
+VISIBILITIES = tuple(Visibility)
 
 
 @router.get("", dependencies=[Depends(get_platform_admin)])
@@ -52,8 +47,8 @@ async def list_models(
     response: Response,
     q: str | None = Query(default=None, description="matches model, project or organisation"),
     tenant_id: uuid.UUID | None = Query(default=None, description="one organisation only"),
-    task_type: str | None = Query(default=None, description="image_classification | ..."),
-    visibility: str | None = Query(default=None, description="private | public"),
+    task_type: TaskType | None = Query(default=None),
+    visibility: str | None = Query(default=None, description="private | internal"),
     status: str | None = Query(default=None, description="deployed | deploying | stopped | not_deployed"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -63,7 +58,6 @@ async def list_models(
     `X-Total-Count` carries the size of the filtered set so a pager costs
     no second request — the same contract as the other admin listings."""
     reject_unknown("status", status, STATUSES)
-    reject_unknown("task_type", task_type, TASK_TYPES)
     reject_unknown("visibility", visibility, VISIBILITIES)
 
     async with (await get_pool()).acquire() as conn:

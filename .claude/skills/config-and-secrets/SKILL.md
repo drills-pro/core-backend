@@ -10,7 +10,7 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 ## Add a setting
 
 1. Add the field to the matching section class in `core-api/app/core/settings.py` (new section: add a class and a field on `Settings`).
-2. Give it a value in `config/base.yaml`; override in `local.yaml`, `compose.yaml`, `prod.yaml` only where it differs. Every environment must still load: `tests/test_settings.py` checks all of them.
+2. Give it a value in `config/base.yaml`; override in `local.yaml`, `compose.yaml`, `prod.yaml` only where it differs. Every environment must still load: `tests/core/test_settings.py` checks all of them.
    A service URL differs per environment: compose service name in `compose.yaml` (`http://lakefs:8000`), `127.0.0.1`
    and the published port in `local.yaml` (not `localhost`: it tries `::1` first, which OrbStack resets for
    IPv4-only containers; publish the port in `docker-compose.yml` if it is not), cluster DNS in `prod.yaml`.
@@ -32,7 +32,7 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
 
 ## Rules
 
-- A secret value never goes in YAML, env vars, logs, tests or this repo. `tests/test_settings.py` fails on secret-looking keys.
+- A secret value never goes in YAML, env vars, logs, tests or this repo. `tests/core/test_settings.py` fails on secret-looking keys.
 - core-api never calls Vault. Postgres credentials are the `db` secret file, rewritten by the Vault agent on rotation; `app/core/db.py` swaps the pool when it changes.
 - Migrations have their own credential, not core-api's: the k8s Job renders `/vault/secrets/dbmate.env`
   (`DATABASE_URL` for `backend_admin`, Vault `database/static-creds/backend-admin`). core-api has no setting

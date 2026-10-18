@@ -8,11 +8,12 @@ name — "exists" is visible, contents are not, unless the owner opted in.
 """
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.core.authz import public
 from app.core.db import get_pool
 
-router = APIRouter(prefix="/v1/public", tags=["public"])
+router = APIRouter(prefix="/v1/public", tags=["public"], dependencies=[Depends(public)])
 
 
 @router.get("/projects")

@@ -4,7 +4,7 @@ Same three sources as the listing (tenants, SECURITY DEFINER counters,
 Zitadel), asked about a single tenant instead of all of them, plus the
 three writes the back-office owns:
 
-    POST   /{id}/status     suspend or reactivate  -> Zitadel org state
+    POST   /{id}/status     suspend or reactivate  -> tenants.status (+ Zitadel org)
     PATCH  /{id}/settings   org policy switches    -> tenants.settings
     POST   /{id}/projects   create a project       -> that tenant's RLS
 
@@ -21,11 +21,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.core import audit
 from app.core.auth import get_platform_admin
+from app.core.authz import TenantStatus
 from app.core.db import get_pool
+from app.core.enums import TaskType
 from app.core.tenant_conn import TenantConn
 from app.integrations import zitadel
 from app.modules.admin.tenants.routes import ZITADEL_TIMEOUT, zitadel_refused
-from app.modules.user.projects import VALID_TASK_TYPES
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
@@ -121,7 +122,7 @@ async def list_tenant_datasets(tenant_id: uuid.UUID):
 async def create_tenant_project(
     tenant_id: uuid.UUID,
     name: str = Body(..., embed=True),
-    task_type: str = Body(..., embed=True),
+    task_type: TaskType = Body(..., embed=True),
     actor: str = Depends(get_platform_admin),
 ):
     """Create a project inside the tenant, as the tenant.
@@ -131,9 +132,6 @@ async def create_tenant_project(
     the audit row — so a project the operator creates is indistinguishable
     from one the tenant created itself.
     """
-    if task_type not in VALID_TASK_TYPES:
-        raise HTTPException(status_code=400, detail=f"task_type must be one of {VALID_TASK_TYPES}")
-
     async with (await get_pool()).acquire() as conn:
         if not await conn.fetchval("SELECT true FROM tenants WHERE id = $1", tenant_id):
             raise HTTPException(status_code=404, detail="no such tenant")
@@ -144,7 +142,7 @@ async def create_tenant_project(
             raise HTTPException(status_code=409, detail="tenant has no team; create one first")
         row = await conn.fetchrow(
             "INSERT INTO projects (tenant_id, name, team_id, task_type) VALUES ($1, $2, $3, $4) "
-            "RETURNING id, name, status, task_type, visibility, created_at",
+            "RETURNING id, name, status, task_type, visibility, default_access, gallery_published, created_at",
             tenant_id,
             name,
             team_id,
@@ -188,32 +186,28 @@ async def update_tenant_settings(tenant_id: uuid.UUID, settings: dict = Body(...
 
 @router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)])
 async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=True)):
-    """Suspend or reactivate the tenant, by moving its Zitadel org.
+    """Suspend or reactivate the tenant.
 
-    Nothing is mirrored into Postgres: Zitadel owns this state (req/02
-    FR2), and a copy here would be the thing that goes stale. That also
-    means this is the one admin write with no local row to roll back — it
-    either took effect in Zitadel or it answers with why it didn't.
+    tenants.status is what require() enforces. A tenant with a Zitadel org
+    has that org moved too; the UPDATE rolls back if Zitadel refuses, so the
+    two never disagree.
     """
-    if status not in ("active", "suspended"):
+    if status not in tuple(TenantStatus):
         raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
 
-    async with (await get_pool()).acquire() as conn:
-        tenant = await conn.fetchrow("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
-    if tenant is None:
-        raise HTTPException(status_code=404, detail="no such tenant")
-    org_id = tenant["zitadel_org_id"]
-    if org_id is None:
-        raise HTTPException(status_code=409, detail="tenant has no Zitadel org, so it cannot be suspended here")
-
-    async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
-        try:
-            await zitadel.set_org_state(client, org_id, active=status == "active")
-        except httpx.HTTPStatusError as error:
-            # The org is gone, or is already in that state: Zitadel's own
-            # wording, same as provisioning passes through.
-            raise zitadel_refused(error) from error
-        except (httpx.HTTPError, OSError) as error:
-            raise HTTPException(status_code=502, detail=f"zitadel unreachable: {error}") from error
+    async with (await get_pool()).acquire() as conn, conn.transaction():
+        org_id = await conn.fetchval("UPDATE tenants SET status = $2 WHERE id = $1 RETURNING coalesce(zitadel_org_id, '')", tenant_id, status)
+        if org_id is None:
+            raise HTTPException(status_code=404, detail="no such tenant")
+        if org_id:
+            async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
+                try:
+                    await zitadel.set_org_state(client, org_id, active=status == TenantStatus.ACTIVE)
+                except httpx.HTTPStatusError as error:
+                    # The org is gone, or is already in that state: Zitadel's own
+                    # wording, same as provisioning passes through.
+                    raise zitadel_refused(error) from error
+                except (httpx.HTTPError, OSError) as error:
+                    raise HTTPException(status_code=502, detail=f"zitadel unreachable: {error}") from error
 
     return {"status": status}

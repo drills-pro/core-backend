@@ -14,7 +14,8 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.core import secret_files
-from app.core.tenancy import get_tenant_id
+from app.core.authz import Action, AuthzContext, require
+from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, ray_client
 
@@ -93,19 +94,19 @@ async def preprocess_dataset(
     resize: dict | None = Body(default=None),
     dedupe: bool = Body(default=False),
     class_balance: str | None = Body(default=None),
-    tenant_id: str = Depends(get_tenant_id),
+    ctx: AuthzContext = Depends(require(Action.DATASET_WRITE)),
 ):
     if class_balance not in _VALID_CLASS_BALANCE:
         raise HTTPException(status_code=400, detail=f"class_balance must be one of {_VALID_CLASS_BALANCE}")
     if resize is not None and not ({"width", "height"} <= resize.keys()):
         raise HTTPException(status_code=400, detail="resize must have 'width' and 'height'")
 
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         dataset = await conn.fetchrow(
             "SELECT id FROM datasets WHERE id = $1 AND project_id = $2", dataset_id, project_id
         )
         if dataset is None:
-            raise HTTPException(status_code=404, detail="dataset not found")
+            raise not_found()
 
         ds_id = str(dataset_id)
         keys = [k for k in lakefs_client.list_files(ds_id) if not k.startswith("_unlabeled/") and "/" in k]
@@ -129,12 +130,12 @@ async def preprocess_dataset(
         entrypoint = f'python -c "import base64; exec(base64.b64decode(\'{encoded}\'))"'
         ray_job_id = await ray_client.submit_raw_job(
             entrypoint=entrypoint,
-            metadata={"tenant_id": tenant_id, "project_id": str(project_id), "job_type": "preprocess"},
+            metadata={"tenant_id": ctx.tenant_id, "project_id": str(project_id), "job_type": "preprocess"},
         )
         row = await conn.fetchrow(
             "INSERT INTO dataset_preprocessing_jobs (tenant_id, project_id, dataset_id, ray_job_id, config) "
             "VALUES ($1, $2, $3, $4, $5) RETURNING id, status, config, created_at",
-            tenant_id,
+            ctx.tenant_id,
             project_id,
             dataset_id,
             ray_job_id,
@@ -145,9 +146,9 @@ async def preprocess_dataset(
 
 @router.get("")
 async def list_preprocessing_jobs(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_READ))
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(
             "SELECT id, status, config, output_ref, error, created_at, completed_at "
             "FROM dataset_preprocessing_jobs WHERE dataset_id = $1 AND project_id = $2 ORDER BY created_at DESC",

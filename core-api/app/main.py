@@ -4,7 +4,7 @@ The only place that knows the full list of modules. It wires each module's
 router into one FastAPI app and starts the background pollers; it contains
 no domain logic of its own — everything below /v1 lives in app/modules/*.
 
-Layering, enforced by tests/test_architecture.py:
+Layering, enforced by tests/architecture/test_architecture.py:
 
     modules  ->  integrations  ->  core
        |                            ^
@@ -24,11 +24,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
 from app import background
-from app.core import tracing
+from app.core import problem, tracing
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import models as admin_models
 from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
+    api_keys,
     auth,
     datasets,
     deployments,
@@ -61,6 +62,7 @@ ROUTERS = (
     labeling.router,
     model_registry.router,
     projects.members_router,
+    api_keys.router,
     preprocessing.router,
     public.router,
     teams.router,
@@ -95,6 +97,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     tracing.setup(app)
+    problem.install(app)
     for router in ROUTERS:
         app.include_router(router)
     app.mount("/metrics", make_asgi_app())

@@ -6,12 +6,13 @@ shelling into each container. Both are deliberately unauthenticated.
 """
 import boto3
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.core import db, secret_files
+from app.core.authz import public
 from app.core.settings import settings
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], dependencies=[Depends(public)])
 
 
 @router.get("/health")

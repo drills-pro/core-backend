@@ -7,11 +7,10 @@ import uuid
 import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
+from app.core.authz import Action, AuthzContext, require
 from app.core.settings import settings
-from app.core.tenancy import get_tenant_id
 from app.core.tenant_conn import TenantConn
 from app.integrations import lakefs_client, mlflow_client, ray_client
-from app.modules.user.training.service import RAY_TO_STATUS, transition
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ async def _close_run(mlflow_run_id: str | None, status: str) -> None:
 async def create_training_run(
     project_id: uuid.UUID,
     dataset_ref: str,
-    tenant_id: str = Depends(get_tenant_id),
+    ctx: AuthzContext = Depends(require(Action.JOB_CREATE)),
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     config: dict = Body(default_factory=lambda: dict(ray_client.DEFAULT_CONFIG)),
     dataset_id: uuid.UUID | None = None,
@@ -46,7 +45,7 @@ async def create_training_run(
 ):
     # FR2 (04-api.md): idempotency key — a retried submission returns the
     # already-created run instead of double-submitting a GPU job.
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         existing = await conn.fetchrow(
             "SELECT id, status, ray_job_id, config FROM training_runs "
             "WHERE project_id = $1 AND idempotency_key = $2",
@@ -61,7 +60,7 @@ async def create_training_run(
         inflight = await conn.fetchval(
             "SELECT count(*) FROM training_runs "
             "WHERE tenant_id = $1 AND status IN ('submitted', 'running')",
-            tenant_id,
+            ctx.tenant_id,
         )
         if inflight >= MAX_CONCURRENT:
             raise HTTPException(
@@ -131,13 +130,13 @@ async def create_training_run(
         # row can never point at a run that was not created for this tenant and project.
         try:
             mlflow_run_id, mlflow_artifact_path = await mlflow_client.start_run(
-                tenant_id=tenant_id, project_id=str(project_id), dataset_ref=dataset_ref
+                tenant_id=ctx.tenant_id, project_id=str(project_id), dataset_ref=dataset_ref
             )
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail="experiment tracking is unavailable") from e
         try:
             ray_job_id = await ray_client.submit_job(
-                tenant_id=tenant_id,
+                tenant_id=ctx.tenant_id,
                 project_id=str(project_id),
                 dataset_ref=dataset_ref,
                 config=config,
@@ -159,7 +158,7 @@ async def create_training_run(
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
             "RETURNING id, status, ray_job_id, config, dataset_id, dataset_version, test_dataset_id, "
             "test_dataset_version, reproduction_group_id",
-            tenant_id,
+            ctx.tenant_id,
             project_id,
             idempotency_key,
             ray_job_id,
@@ -178,11 +177,11 @@ async def create_training_run(
 @router.get("")
 async def list_training_runs(
     project_id: uuid.UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    ctx: AuthzContext = Depends(require(Action.JOB_READ)),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(
             "SELECT id, status, dataset_ref, ray_job_id, mlflow_run_id, config, metrics, created_at, completed_at "
             "FROM training_runs WHERE project_id = $1 "
@@ -196,27 +195,21 @@ async def list_training_runs(
 
 @router.get("/{run_id}")
 async def get_training_run(
-    project_id: uuid.UUID, run_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT * FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
         )
         if row is None:
             raise HTTPException(status_code=404, detail="training run not found")
-        row = dict(row)
-
-        if row["status"] in ("submitted", "running"):
-            ray_status = await ray_client.get_status(row["ray_job_id"])
-            new_status = RAY_TO_STATUS.get(ray_status, row["status"])
-            if new_status != row["status"]:
-                row = await transition(conn, row, new_status, tenant_id)
-    return row
+        # Read-only: status sync is the background reconciler's job (service.py).
+    return dict(row)
 
 
 @router.get("/{run_id}/logs")
 async def get_training_run_logs(
-    project_id: uuid.UUID, run_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
 ):
     """Live progress while a run is still submitted/running — not just the
     final result. Ray's job-logs endpoint returns whatever a still-running
@@ -224,7 +217,7 @@ async def get_training_run_logs(
     line scanners that already work fine on a partial log (Ultralytics'
     own per-epoch console output shows up here as the job progresses, no
     change needed in the training templates)."""
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT ray_job_id, status FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
         )
@@ -242,12 +235,12 @@ async def get_training_run_logs(
 
 @router.get("/{run_id}/lineage")
 async def get_training_run_lineage(
-    project_id: uuid.UUID, run_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
 ):
     """FR1 (05-reproducibility-lineage.md): one endpoint joining dataset
     commit -> training run -> model registry entry -> active deployment,
     instead of four separate lookups a user has to correlate by hand."""
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         run = await conn.fetchrow(
             "SELECT id, status, dataset_id, dataset_version, test_dataset_id, test_dataset_version, "
             "mlflow_run_id, reproduction_group_id, config, created_at FROM training_runs "
@@ -288,9 +281,9 @@ async def get_training_run_lineage(
 
 @router.post("/{run_id}/cancel")
 async def cancel_training_run(
-    project_id: uuid.UUID, run_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_CANCEL))
 ):
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT * FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
         )

@@ -78,12 +78,13 @@ BEGIN;
 INSERT INTO projects (id, tenant_id, name) VALUES
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'a'),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'b');
+INSERT INTO tenant_members (tenant_id, user_sub, role) VALUES ('22222222-2222-2222-2222-222222222222', 'u', 'member');
 SET LOCAL ROLE core_app;
 SET LOCAL app.tenant_id = '11111111-1111-1111-1111-111111111111';
 DO $$
 BEGIN
   IF (SELECT count(*) FROM projects) <> 1 THEN RAISE EXCEPTION 'core_app sees another tenant''s projects'; END IF;
-  IF NOT project_exists_any_tenant('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') THEN
+  IF NOT EXISTS (SELECT FROM accessible_project_ids('u', '22222222-2222-2222-2222-222222222222')) THEN
     RAISE EXCEPTION 'SECURITY DEFINER cannot see across tenants';
   END IF;
 END

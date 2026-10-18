@@ -19,7 +19,7 @@ only legacy tenants and the admin back-office still use it (admin code treats NU
 
 Still to do, in order:
 
-1. Test harness with two tenants and two principals (today `tests/test_auth.py` fakes the pool).
+1. Test harness with two tenants and two principals (today `tests/core/test_auth.py` fakes the pool).
 2. Issuer allowlist and `realms`; `platform_admins` (+ MFA `amr`) replacing the `platform_admin` Zitadel role claim that `get_platform_admin` still reads; then delete the provisioner service user and the org helpers the admin routes use.
 3. BFF endpoints (login, callback, logout, refresh, CSRF) and `sessions`; this is the only step that needs an OIDC client secret, as a new secret file.
 4. `core/authz.py`: closed action enum, one role table, `require(action, resource)`, plus the route x role matrix test. Roles gate nothing yet.

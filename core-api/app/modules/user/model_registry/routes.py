@@ -1,17 +1,24 @@
 import re
 import uuid
+from enum import StrEnum
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from app.core.tenancy import get_tenant_id
+from app.core.authz import Action, AuthzContext, require
+from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import mlflow_client
 
 router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
 # req/06 FR2: registry stages map to customer-facing states.
-CUSTOMER_STAGE_LABELS = {"None": "internal only", "Staging": "candidate", "Production": "live/deployed"}
-VALID_STAGES = set(CUSTOMER_STAGE_LABELS)
+class Stage(StrEnum):
+    NONE = "None"
+    STAGING = "Staging"
+    PRODUCTION = "Production"
+
+
+CUSTOMER_STAGE_LABELS = {Stage.NONE: "internal only", Stage.STAGING: "candidate", Stage.PRODUCTION: "live/deployed"}
 MODEL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 
 
@@ -27,8 +34,9 @@ async def register_model(
     project_id: uuid.UUID,
     training_run_id: uuid.UUID,
     name: str = Query(pattern=MODEL_NAME.pattern),
-    tenant_id: str = Depends(get_tenant_id),
+    ctx: AuthzContext = Depends(require(Action.MODEL_WRITE)),
 ):
+    tenant_id = ctx.tenant_id
     async with TenantConn(tenant_id) as conn:
         run = await conn.fetchrow(
             "SELECT mlflow_run_id, status FROM training_runs WHERE id = $1 AND project_id = $2",
@@ -36,7 +44,7 @@ async def register_model(
             project_id,
         )
         if run is None:
-            raise HTTPException(status_code=404, detail="training run not found")
+            raise not_found()
         if run["status"] != "succeeded" or run["mlflow_run_id"] is None:
             raise HTTPException(status_code=409, detail="training run has no completed MLflow run to register")
 
@@ -56,7 +64,8 @@ async def register_model(
 
 
 @router.get("")
-async def list_models(project_id: uuid.UUID, tenant_id: str = Depends(get_tenant_id)):
+async def list_models(project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.MODEL_READ))):
+    tenant_id = ctx.tenant_id
     async with TenantConn(tenant_id) as conn:
         rows = await conn.fetch(
             "SELECT id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
@@ -71,14 +80,18 @@ async def list_models(project_id: uuid.UUID, tenant_id: str = Depends(get_tenant
 
 @router.post("/{model_version_id}/promote")
 async def promote_model(
-    project_id: uuid.UUID, model_version_id: uuid.UUID, stage: str, tenant_id: str = Depends(get_tenant_id)
+    project_id: uuid.UUID,
+    model_version_id: uuid.UUID,
+    stage: str,
+    ctx: AuthzContext = Depends(require(Action.MODEL_PROMOTE)),
 ):
     """FR2: None (internal) -> Staging (candidate) -> Production (live).
     Also covers rollback — promoting an older version to Production is
     the rollback path (MLflow doesn't distinguish "promote" from
     "rollback" mechanically, and neither does this endpoint)."""
-    if stage not in VALID_STAGES:
-        raise HTTPException(status_code=400, detail=f"stage must be one of {sorted(VALID_STAGES)}")
+    tenant_id = ctx.tenant_id
+    if stage not in set(Stage):
+        raise HTTPException(status_code=400, detail=f"stage must be one of {sorted(Stage)}")
     async with TenantConn(tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT mlflow_model_name, mlflow_version FROM model_versions WHERE id = $1 AND project_id = $2",
@@ -86,7 +99,7 @@ async def promote_model(
             project_id,
         )
         if row is None:
-            raise HTTPException(status_code=404, detail="model version not found")
+            raise not_found()
 
         await mlflow_client.transition_stage(
             name=row["mlflow_model_name"], version=row["mlflow_version"], stage=stage
@@ -106,13 +119,13 @@ async def publish_model(
     model_version_id: uuid.UUID,
     publish_metadata: bool | None = Body(default=None),
     publish_artifact: bool | None = Body(default=None),
-    tenant_id: str = Depends(get_tenant_id),
+    ctx: AuthzContext = Depends(require(Action.PROJECT_WRITE)),
 ):
     # FR7 (08-collaboration-visibility.md): metrics/config vs. the weights
     # artifact are separate disclosures, independently toggleable.
     if publish_metadata is None and publish_artifact is None:
         raise HTTPException(status_code=400, detail="nothing to update")
-    async with TenantConn(tenant_id) as conn:
+    async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "UPDATE model_versions SET publish_metadata = COALESCE($2, publish_metadata), "
             "publish_artifact = COALESCE($3, publish_artifact) WHERE id = $1 AND project_id = $4 "
@@ -123,5 +136,5 @@ async def publish_model(
             project_id,
         )
         if row is None:
-            raise HTTPException(status_code=404, detail="model version not found")
+            raise not_found()
     return dict(row)

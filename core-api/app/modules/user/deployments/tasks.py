@@ -2,6 +2,7 @@
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import ray_client
+from app.modules.user.deployments.status import DeploymentStatus
 
 
 async def reconcile_inflight_deployments() -> None:
@@ -17,7 +18,7 @@ async def reconcile_inflight_deployments() -> None:
     for tenant_id in tenant_ids:
         async with TenantConn(str(tenant_id)) as conn:
             rows = await conn.fetch(
-                "SELECT id, ray_job_id FROM deployments WHERE tenant_id = $1 AND status = 'deploying'", tenant_id
+                "SELECT id, ray_job_id FROM deployments WHERE tenant_id = $1 AND status = $2", tenant_id, DeploymentStatus.DEPLOYING
             )
             for row in rows:
                 try:
@@ -25,9 +26,9 @@ async def reconcile_inflight_deployments() -> None:
                 except Exception:  # noqa: BLE001 - one bad job shouldn't block the sweep
                     continue
                 if ray_status == "SUCCEEDED":
-                    new_status = "active"
+                    new_status = DeploymentStatus.ACTIVE
                 elif ray_status == "FAILED":
-                    new_status = "failed"
+                    new_status = DeploymentStatus.FAILED
                 else:
                     continue
                 await conn.execute("UPDATE deployments SET status = $2 WHERE id = $1", row["id"], new_status)
