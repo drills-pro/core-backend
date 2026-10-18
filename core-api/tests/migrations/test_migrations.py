@@ -3,7 +3,7 @@
 import importlib.util
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("lint_migrations", ROOT / "scripts/lint-migrations.py")
 lint_migrations = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lint_migrations)

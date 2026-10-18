@@ -15,14 +15,14 @@ Contexts live at the leaves of app/modules. The directories above them
 (app/modules/user/) are groupings that own no routes, so the depth of the
 tree is free to change without touching this file.
 
-Run it directly (`python tests/test_architecture.py`) for the same checks
+Run it directly (`python tests/architecture/test_architecture.py`) for the same checks
 without pytest.
 """
 import ast
 import sys
 from pathlib import Path
 
-APP = Path(__file__).resolve().parent.parent / "app"
+APP = Path(__file__).resolve().parents[2] / "app"
 MODULES = APP / "modules"
 ROOT_FILES = {"main.py", "background.py", "__init__.py"}
 
