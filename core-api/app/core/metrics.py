@@ -80,3 +80,37 @@ gpu_quota_requests = _meter.create_observable_gauge(
     callbacks=[_gpu_quota_callback],
     description="requests.nvidia.com/gpu ResourceQuota used/hard, polled every 30s (req/08 FR2 GPU-exhaustion signal)",
 )
+
+# Sign-in health. Login and logout happen at Zitadel (core/auth.py); what this process sees is every
+# bearer token it checks, each identity it meets for the first time, and who has been seen lately.
+auth_token_verifications_total = _meter.create_counter(
+    "auth_token_verifications_total", description="Bearer token checks by result (enums.AuthResult)"
+)
+auth_principals_created_total = _meter.create_counter(
+    "auth_principals_created_total", description="Zitadel identities seen for the first time (sign-ups)"
+)
+zitadel_userinfo_total = _meter.create_counter(
+    "zitadel_userinfo_total", description="Zitadel userinfo lookups by result (enums.UserinfoResult)"
+)
+
+# Principals whose last_seen_at (bumped by /v1/me) falls inside each window, polled every 30s by
+# background.py like the DB size above.
+ACTIVE_PRINCIPAL_WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
+_active_principals: dict[str, int] = {}
+
+
+def set_active_principals(counts: dict[str, int]) -> None:
+    global _active_principals
+    _active_principals = counts
+
+
+def _active_principals_callback(_options):
+    for window, count in _active_principals.items():
+        yield metrics.Observation(count, {"window": window})
+
+
+auth_active_principals = _meter.create_observable_gauge(
+    "auth_active_principals",
+    callbacks=[_active_principals_callback],
+    description="Distinct principals seen via /v1/me within each window (1d/7d/30d)",
+)

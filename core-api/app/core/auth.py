@@ -15,6 +15,8 @@ from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
+from app.core import metrics
+from app.core.enums import AuthResult, UserinfoResult
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,22 @@ class Claims:
         self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
 
 
+# Most specific first: InvalidSignatureError is a DecodeError and PyJWKClientConnectionError a
+# PyJWKClientError, so the parent would otherwise match. Anything unlisted is MALFORMED.
+_FAILURE_RESULTS = (
+    (jwt.ExpiredSignatureError, AuthResult.EXPIRED),
+    (jwt.InvalidAudienceError, AuthResult.WRONG_AUDIENCE),
+    (jwt.InvalidIssuerError, AuthResult.WRONG_ISSUER),
+    (jwt.InvalidSignatureError, AuthResult.BAD_SIGNATURE),
+    (jwt.PyJWKClientConnectionError, AuthResult.JWKS_UNAVAILABLE),
+    (jwt.PyJWKClientError, AuthResult.UNKNOWN_KEY),
+)
+
+
+def _count_verification(result: AuthResult) -> None:
+    metrics.auth_token_verifications_total.add(1, {"result": result})
+
+
 def verify_token(token: str) -> Claims:
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
@@ -79,12 +97,15 @@ def verify_token(token: str) -> Claims:
             options={"require": ["exp", "iat", "sub", "aud"]},
         )
     except jwt.PyJWTError as e:
+        _count_verification(next((r for cls, r in _FAILURE_RESULTS if isinstance(e, cls)), AuthResult.MALFORMED))
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
+    _count_verification(AuthResult.OK)
     return Claims(raw, token)
 
 
 async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
+        _count_verification(AuthResult.NOT_BEARER)
         raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
@@ -109,10 +130,14 @@ async def get_profile_claims(claims: Claims = Depends(get_claims)) -> Claims:
             resp.raise_for_status()
         except (httpx.HTTPError, OSError):
             logger.warning("zitadel userinfo failed for sub %s", claims.subject, exc_info=True)
+            metrics.zitadel_userinfo_total.add(1, {"result": UserinfoResult.FAILED})
             return claims
         if len(_userinfo_cache) > 1000:
             _userinfo_cache.clear()  # ponytail: crude bound; an LRU if this ever matters
         hit = _userinfo_cache[claims.token] = (now + _USERINFO_TTL, resp.json())
+        metrics.zitadel_userinfo_total.add(1, {"result": UserinfoResult.FETCHED})
+    else:
+        metrics.zitadel_userinfo_total.add(1, {"result": UserinfoResult.CACHED})
     info = hit[1]
     claims.email = info.get("email")
     claims.email_verified = info.get("email_verified") is True
