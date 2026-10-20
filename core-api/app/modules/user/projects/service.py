@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.core import audit
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
 from app.core.enums import TaskType
+from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.modules.user.projects.constants import (
@@ -46,18 +47,18 @@ async def _record(conn, ctx: AuthzContext, project_id: uuid.UUID, action: AuditA
                        action=action, entity_type=entity_type, entity_id=entity_id)
 
 
-async def list_projects(ctx: AuthzContext, limit: int, offset: int) -> list[ProjectSummary]:
+async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSummary]:
     async with TenantConn(ctx.tenant_id) as conn:
         ids = await ctx.accessible_project_ids(conn)
+        cond, args = keyset_clause(page.page_token, SortDir.ASC, first_param=3)
         rows = await conn.fetch(
-            f"SELECT {_SUMMARY} FROM projects "
-            "WHERE id = ANY($1) AND status != $2 ORDER BY created_at LIMIT $3 OFFSET $4",
+            f"SELECT {_SUMMARY} FROM projects WHERE id = ANY($1) AND status != $2 {cond} "
+            f"ORDER BY {order_by(SortDir.ASC)} LIMIT {page.page_size + 1}",
             ids,
             ProjectStatus.PENDING_DELETE,
-            limit,
-            offset,
+            *args,
         )
-    return [ProjectSummary.model_validate(dict(r)) for r in rows]
+    return build_page(rows, page.page_size, ProjectSummary)
 
 
 async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team_id: uuid.UUID | None) -> ProjectSummary:
@@ -275,13 +276,13 @@ async def remove_member(ctx: AuthzContext, project_id: uuid.UUID, user_sub: str)
         await _record(conn, ctx, project_id, AuditAction.REMOVE_MEMBER, EntityType.PROJECT_MEMBER, user_sub)
 
 
-async def audit_log(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[AuditEntry]:
+async def audit_log(ctx: AuthzContext, project_id: uuid.UUID, page: PageParams) -> Page[AuditEntry]:
     async with TenantConn(ctx.tenant_id) as conn:
+        cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=2)
         rows = await conn.fetch(
             "SELECT id, actor, action, entity_type, entity_id, created_at FROM audit_log "
-            "WHERE project_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            f"WHERE project_id = $1 {cond} ORDER BY {order_by(SortDir.DESC)} LIMIT {page.page_size + 1}",
             project_id,
-            limit,
-            offset,
+            *args,
         )
-    return [AuditEntry.model_validate(dict(r)) for r in rows]
+    return build_page(rows, page.page_size, AuditEntry)

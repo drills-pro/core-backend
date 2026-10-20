@@ -1,10 +1,11 @@
 """Projects HTTP surface: parse, authorize, call the service, shape the response."""
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from app.core.authz import Action, AuthzContext, DefaultAccess, Visibility, require
 from app.core.enums import TaskType
+from app.core.pagination import Page, PageParams
 from app.modules.user.projects import service
 from app.modules.user.projects.constants import ProjectStatus
 from app.modules.user.projects.schemas import (
@@ -26,13 +27,9 @@ router = APIRouter(prefix="/v1/projects", tags=["projects"])
 members_router = APIRouter(prefix="/v1/projects/{project_id}", tags=["project-members"])
 
 
-@router.get("", response_model=list[ProjectSummary])
-async def list_projects(
-    ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-):
-    return await service.list_projects(ctx, limit, offset)
+@router.get("", response_model=Page[ProjectSummary])
+async def list_projects(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
+    return await service.list_projects(ctx, page)
 
 
 @router.post("", status_code=201, response_model=ProjectSummary)
@@ -114,11 +111,8 @@ async def remove_member(
     await service.remove_member(ctx, project_id, user_sub)
 
 
-@members_router.get("/audit-log", response_model=list[AuditEntry])
+@members_router.get("/audit-log", response_model=Page[AuditEntry])
 async def get_audit_log(
-    project_id: uuid.UUID,
-    ctx: AuthzContext = Depends(require(Action.AUDIT_READ)),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.AUDIT_READ)), page: PageParams = Depends()
 ):
-    return await service.audit_log(ctx, project_id, limit, offset)
+    return await service.audit_log(ctx, project_id, page)

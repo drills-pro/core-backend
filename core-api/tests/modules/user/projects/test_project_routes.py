@@ -74,3 +74,7 @@ def test_gallery_project_cannot_be_made_private_but_can_change_default_access(ca
     assert call(row, "PATCH", "/visibility?visibility=internal", gallery=True).status_code == 200
     assert call(row, "PATCH", "/visibility?default_access=edit", gallery=True).status_code == 200
 
+
+
+def test_list_rejects_a_bad_page_token(call):
+    assert call(access(), "GET", "?page_token=garbage", on_project=False).status_code == 400
