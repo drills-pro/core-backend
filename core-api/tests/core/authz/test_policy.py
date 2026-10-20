@@ -87,7 +87,6 @@ def _check_values(constraint: str) -> set[str]:
     ("enum", "constraint"),
     [
         (Role, "CONSTRAINT project_members_role_check"),
-        (Role, "CONSTRAINT project_invitations_role_check"),
         (Scope, "CONSTRAINT api_key_scopes_scope_check"),
         (Visibility, "CONSTRAINT projects_visibility_check"),
         (DefaultAccess, "CONSTRAINT projects_default_access_check"),

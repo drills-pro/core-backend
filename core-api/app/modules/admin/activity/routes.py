@@ -1,7 +1,7 @@
 """The platform-wide activity log: every tenant's audit trail, interleaved.
 
 The user-facing API already serves one project's trail
-(`GET /v1/projects/{id}/audit-log`, app/modules/user/projects/members.py).
+(`GET /v1/projects/{id}/audit-log`, app/modules/user/projects/routes.py).
 This is the same table read the other way round — across every tenant at
 once, which is the operator's view and nobody else's, so it goes through
 get_platform_admin and a SECURITY DEFINER function (admin_activity()) rather than the

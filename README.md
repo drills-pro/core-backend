@@ -67,7 +67,7 @@ Ray, MLflow) — `"ok"` per service once everything is wired.
 | 00 overview | n/a — index |
 | 01 multi-tenancy | ✅ real Postgres RLS, verified 403-vs-404 semantics |
 | 02 auth/identity | ✅ JWT verification against Zitadel JWKS, unit-tested; Zitadel on a real separate CloudNativePG cluster; **automated OIDC client registration via the Management API is real** (`scripts/zitadel-bootstrap.sh`) — a real project, OIDC app, and all 4 FR3 roles, created via API calls with no console clicks, verified reproducible from a clean database. `AUTH_MODE=dev` remains the compose default only because exercising it needs a browser-driven authorization-code flow this environment can't automate — see Auth section |
-| 03 project/user mgmt | ✅ project CRUD/archive/soft-delete, per-project roles, invitations, audit log — all live-tested |
+| 03 project/user mgmt | ✅ project CRUD/archive/soft-delete, per-project roles, audit log — all live-tested |
 | 04 API | ✅ by construction (FastAPI → OpenAPI, path-versioned `/v1`, 202+idempotency on training runs, pagination) + real Deployments group, Models group (MLflow registry wrapper), `POST /v1/predict/{deployment_id}` with its own separate auth scope and real **per-plan-tier** rate limiting (verified: `pro` tenant → 120/min default; a 3/min-throttled deployment → `200,200,200,429,429`) |
 | 05 UI/no-code builder | The console lives in the separate `customer-frontend` repo; this repo ships no UI. The labeling, dataset-upload and training APIs it uses are all here |
 | 06 ML training (MLflow/Ludwig/Ultralytics) | ✅ orchestration + MLflow logging real and tested; **three real training backends** — numpy default (deployable via fitted weights), literal `ultralytics.YOLO(...).train()` on real uploaded files (deployable via real ONNX export served through `onnxruntime`, verified on real photos), and literal `LudwigModel(...).train()` (real, non-canned accuracy logged to MLflow). Manifest CSV ingestion and MLflow Model Registry promotion both real |
@@ -184,10 +184,9 @@ string, so nothing downstream changes.
 ## Project & user management (req/03)
 
 `core-api/migrations/20261017172706_init.sql` +
-`app/modules/projects/routes.py`/`app/modules/projects/members.py`: project lifecycle
+`app/modules/user/projects/`: project lifecycle
 (create/rename/archive/soft-delete with a `pending_delete` grace state),
-per-project roles independent of org role, email invitations with 7-day
-expiry, and an append-only audit log (`INSERT`-only grant — the app
+per-project roles independent of org role, and an append-only audit log (`INSERT`-only grant — the app
 connection literally cannot rewrite history). All paginated.
 
 ```

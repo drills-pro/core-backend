@@ -1,11 +1,14 @@
 """Projects routes: the role / 404 table through the real dependency."""
+from datetime import datetime
+
 import pytest
 
 from app.core.authz import DefaultAccess, Visibility
-from app.modules.user.projects import routes
+from app.modules.user.projects import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
-PROJECT_ROW = {"id": PROJECT, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False}
+PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "legacy_untyped", "created_at": datetime.now(),
+               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False}
 
 
 @pytest.fixture
@@ -14,7 +17,7 @@ def call(monkeypatch, dev_headers):
 
     def go(row, method, path, on_project=True, gallery=False):
         conn = FakeConn(row, row=PROJECT_ROW, val=[PROJECT], vals={"gallery_published": gallery}, result="INSERT 1")
-        patch_tenant_conn(monkeypatch, conn, routes)
+        patch_tenant_conn(monkeypatch, conn, service)
         return client.request(method, f"/v1/projects{f'/{PROJECT}' if on_project else ''}{path}")
 
     return go
@@ -70,3 +73,4 @@ def test_gallery_project_cannot_be_made_private_but_can_change_default_access(ca
     assert (r.status_code, r.json()["code"]) == (409, "gallery_published")
     assert call(row, "PATCH", "/visibility?visibility=internal", gallery=True).status_code == 200
     assert call(row, "PATCH", "/visibility?default_access=edit", gallery=True).status_code == 200
+
