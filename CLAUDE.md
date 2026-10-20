@@ -29,7 +29,10 @@ Services: `docker compose up -d` with every service but `core-api` (or all of th
 - **No magic strings or numbers.** A closed set of values (roles, actions, statuses, visibility, task types) is an `enum.StrEnum`/`IntEnum` (or a `TypedDict`/`Literal` for shapes) defined once in code and imported everywhere; never repeat a bare literal like `"owner"` or `3` in handlers or SQL parameters. A non-obvious number (limit, TTL) is a named constant or a config knob. Mirror each enum in the DB with a `CHECK` and keep a test that fails if the two drift.
 - Every route needs tenant scoping through `TenantConn` (Postgres RLS). New tables get RLS in their migration.
 - Migrations are dbmate files in `core-api/migrations/` named `<UTC YYYYMMDDHHMMSS>_<name>.sql`
-  (`-- migrate:up` / `-- migrate:down`). They run as `backend_admin` (database owner, no superuser, no
+  (`-- migrate:up` / `-- migrate:down`). Take the timestamp from `date -u +%Y%m%d%H%M%S` when you create the
+  file, never a round number; it must sort after the newest existing version (if the clock is behind it, use
+  newest + a few seconds). A migration that is pushed is frozen: never edit, rename or delete it, add a new one.
+  Only an unpushed migration may be amended or renamed. They run as `backend_admin` (database owner, no superuser, no
   BYPASSRLS) with no default privileges: grant `core_app` every new table, sequence and function, ENABLE
   (not FORCE) RLS, pin `search_path` on SECURITY DEFINER, never create roles. `docker compose up` applies
   them; check with `./scripts/migrations-check.sh` (README "Migrations").
