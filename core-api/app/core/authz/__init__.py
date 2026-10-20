@@ -8,6 +8,7 @@ from app.core.authz.policy import (
     ROLE_ACTIONS,
     Action,
     DefaultAccess,
+    InviteRole,
     Role,
     Scope,
     TenantRole,
@@ -17,6 +18,6 @@ from app.core.authz.policy import (
 )
 
 __all__ = [
-    "ROLE_ACTIONS", "Action", "AuthzContext", "DefaultAccess", "KeyContext", "Role", "Scope", "TenantRole",
+    "ROLE_ACTIONS", "Action", "AuthzContext", "DefaultAccess", "InviteRole", "KeyContext", "Role", "Scope", "TenantRole",
     "TenantStatus", "Visibility", "allowed_actions", "generate_key", "public", "require", "require_key",
 ]

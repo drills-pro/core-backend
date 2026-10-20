@@ -32,6 +32,11 @@ from app.core.tenancy import get_actor, get_tenant_id
 from app.core.tenant_conn import TenantConn
 
 
+class TenantProblem(StrEnum):
+    SUSPENDED = "tenant_suspended"
+    PENDING_DELETE = "tenant_pending_delete"
+
+
 class AuditAction(StrEnum):
     IMPLICIT_ACCESS = "implicit_access"  # followed by ".<action>": an owner/admin acted without a binding
 
@@ -47,6 +52,11 @@ class AuthzContext:
     project_id: uuid.UUID | None  # None for tenant-level actions
     actions: frozenset[Action]
 
+    def ensure_tenant(self, tenant_id: uuid.UUID) -> None:
+        """The path names the tenant, the X-Tenant-Id header (checked for membership) selects it: they must agree."""
+        if str(tenant_id) != self.tenant_id:
+            raise not_found()
+
     async def accessible_project_ids(self, conn) -> list[uuid.UUID]:
         """For list endpoints: `WHERE project_id = ANY($n)` keeps rows the caller cannot see out."""
         return await conn.fetchval("SELECT array_agg(i) FROM accessible_project_ids($1, $2) i", self.actor, self.tenant_id) or []
@@ -59,7 +69,7 @@ def _parse_uuid(value: str) -> uuid.UUID:
         raise not_found() from None
 
 
-def require(action: Action):
+def require(action: Action, *, allow_pending_delete: bool = False):
     """Route dependency that enforces `action` and returns an AuthzContext.
 
     Tenant-level actions (Action in TENANT_ACTIONS) need no project. Any other action acts on the
@@ -86,7 +96,9 @@ def require(action: Action):
                 raise not_found()
             return AuthzContext(tenant_id, actor, TenantRole.OWNER, project_id, frozenset(Action))
         if row["tenant_status"] == TenantStatus.SUSPENDED:
-            raise Problem(403, "tenant_suspended", "this tenant is suspended")
+            raise Problem(403, TenantProblem.SUSPENDED, "this tenant is suspended")
+        if row["tenant_status"] == TenantStatus.PENDING_DELETE and not allow_pending_delete:
+            raise Problem(403, TenantProblem.PENDING_DELETE, "this tenant is pending deletion")
 
         tenant_role = TenantRole(row["tenant_role"])
         visibility = Visibility(row["visibility"]) if row["visibility"] else None

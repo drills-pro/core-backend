@@ -40,6 +40,8 @@ from app.modules.user import (
     projects,
     public,
     teams,
+    tenant_members,
+    tenants,
     training,
     usage,
 )
@@ -66,6 +68,8 @@ ROUTERS = (
     preprocessing.router,
     public.router,
     teams.router,
+    tenant_members.router,
+    tenants.router,
     training.router,
     usage.router,
     health.router,

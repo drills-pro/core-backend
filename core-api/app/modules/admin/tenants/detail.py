@@ -35,6 +35,9 @@ router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 # the user-facing API reads them yet: they record the operator's intent,
 # and the modules that would enforce them — project creation, training
 # submission, publishing — still have to be taught to ask.
+# pending_delete belongs to the owner's delete/restore flow, not to an operator's switch.
+ADMIN_SETTABLE_STATUSES = (TenantStatus.ACTIVE, TenantStatus.SUSPENDED)
+
 SETTINGS_DEFAULTS = {
     "members_can_create_projects": True,
     "require_review_before_training": True,
@@ -192,7 +195,7 @@ async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=
     has that org moved too; the UPDATE rolls back if Zitadel refuses, so the
     two never disagree.
     """
-    if status not in tuple(TenantStatus):
+    if status not in ADMIN_SETTABLE_STATUSES:
         raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn, conn.transaction():

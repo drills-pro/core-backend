@@ -13,9 +13,17 @@ class TenantRole(StrEnum):
     MEMBER = "member"
 
 
+class InviteRole(StrEnum):
+    """What a tenant invitation may grant: owner is handed over by an owner, never by invite."""
+
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 class TenantStatus(StrEnum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    PENDING_DELETE = "pending_delete"  # soft-deleted by its owner, restorable
 
 
 class Visibility(StrEnum):
@@ -49,6 +57,8 @@ class Action(StrEnum):
     TENANT_ADMIN = "tenant.admin"
     TENANT_MEMBER_MANAGE = "tenant.member.manage"
     BILLING_MANAGE = "billing.manage"
+    TENANT_DELETE = "tenant.delete"
+    TENANT_TRANSFER_OWNERSHIP = "tenant.transfer_ownership"
     PROJECT_CREATE = "project.create"
     PROJECT_LIST = "project.list"
     # project-scoped
@@ -73,7 +83,9 @@ class Action(StrEnum):
 
 
 A = Action
-TENANT_ACTIONS = frozenset({A.TENANT_ADMIN, A.TENANT_MEMBER_MANAGE, A.BILLING_MANAGE, A.PROJECT_CREATE, A.PROJECT_LIST})
+# Only an owner may delete the tenant or hand it over; an admin holds every other action.
+OWNER_ONLY_ACTIONS = frozenset({A.TENANT_DELETE, A.TENANT_TRANSFER_OWNERSHIP})
+TENANT_ACTIONS = frozenset({A.TENANT_ADMIN, A.TENANT_MEMBER_MANAGE, A.BILLING_MANAGE, A.PROJECT_CREATE, A.PROJECT_LIST}) | OWNER_ONLY_ACTIONS
 PROJECT_ACTIONS = frozenset(Action) - TENANT_ACTIONS
 
 _VIEWER = frozenset({A.PROJECT_READ, A.DATASET_READ, A.JOB_READ, A.MODEL_READ, A.DEPLOYMENT_READ, A.USAGE_READ})
@@ -105,8 +117,10 @@ def allowed_actions(
     A member whose result holds no project action cannot see the project (private, unbound): the
     caller answers that with 404, not 403.
     """
-    if tenant_role in MANAGER_ROLES:
+    if tenant_role is TenantRole.OWNER:
         return frozenset(Action)
+    if tenant_role is TenantRole.ADMIN:
+        return frozenset(Action) - OWNER_ONLY_ACTIONS
     actions = set(_MEMBER_TENANT_ACTIONS)
     if visibility is Visibility.INTERNAL:
         actions |= ROLE_ACTIONS[DEFAULT_ACCESS_ROLE[default_access]]

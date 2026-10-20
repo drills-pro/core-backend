@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.authz import ROLE_ACTIONS, Action, DefaultAccess, Role, Scope, TenantRole, TenantStatus, Visibility, allowed_actions
+from app.core.authz import ROLE_ACTIONS, Action, DefaultAccess, InviteRole, Role, Scope, TenantRole, TenantStatus, Visibility, allowed_actions
 from app.core.enums import TaskType
 
 VIEWER = {"project.read", "dataset.read", "job.read", "model.read", "deployment.read", "usage.read"}
@@ -33,10 +33,10 @@ def member(visibility, default_access, *roles):
     return allowed_actions(TenantRole.MEMBER, visibility, default_access, roles)
 
 
-@pytest.mark.parametrize("role", [TenantRole.OWNER, TenantRole.ADMIN])
 @pytest.mark.parametrize("visibility", [None, PRIVATE, INTERNAL])
-def test_owner_and_admin_hold_everything(role, visibility):
-    assert allowed_actions(role, visibility, READ, []) == frozenset(Action)
+def test_owner_holds_everything_and_admin_all_but_the_owner_only_actions(visibility):
+    assert allowed_actions(TenantRole.OWNER, visibility, READ, []) == frozenset(Action)
+    assert allowed_actions(TenantRole.ADMIN, visibility, READ, []) == frozenset(Action) - {Action.TENANT_DELETE, Action.TENANT_TRANSFER_OWNERSHIP}
 
 
 def test_member_holds_only_create_and_list_outside_a_project():
@@ -67,7 +67,7 @@ def test_private_bound_roles_are_a_union():
 
 def test_tenant_level_actions_are_not_granted_by_project_roles():
     got = member(INTERNAL, EDIT, Role.PROJECT_ADMIN)
-    assert not got & {Action.TENANT_ADMIN, Action.TENANT_MEMBER_MANAGE, Action.BILLING_MANAGE}
+    assert not got & {Action.TENANT_ADMIN, Action.TENANT_MEMBER_MANAGE, Action.BILLING_MANAGE, Action.TENANT_DELETE}
 
 
 # Drift: each enum equals the CHECK constraint that mirrors it, read from the migration files.
@@ -92,6 +92,7 @@ def _check_values(constraint: str) -> set[str]:
         (Visibility, "CONSTRAINT projects_visibility_check"),
         (DefaultAccess, "CONSTRAINT projects_default_access_check"),
         (TenantStatus, "CONSTRAINT tenants_status_check"),
+        (InviteRole, "CONSTRAINT tenant_invitations_role_check"),
         (TaskType, r"task_type\s+text"),  # projects.task_type, inline in init
         (TenantRole, r"role\s+text NOT NULL"),  # tenant_members.role, inline in the shared-pool migration
     ],
