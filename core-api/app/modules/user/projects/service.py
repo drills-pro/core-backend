@@ -212,6 +212,22 @@ async def delete_project(ctx: AuthzContext, project_id: uuid.UUID) -> DeleteResu
     return DeleteResult(id=row["id"], status=ProjectStatus.PENDING_DELETE)
 
 
+async def restore_project(ctx: AuthzContext, project_id: uuid.UUID) -> ProjectSummary:
+    """Undo a soft delete inside the grace period. The pre-delete status is not kept, so it comes back `active`."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            "UPDATE projects SET status = $2, deleted_at = NULL WHERE id = $1 AND status = $3 "
+            f"RETURNING {_SUMMARY}",
+            project_id,
+            ProjectStatus.ACTIVE,
+            ProjectStatus.PENDING_DELETE,
+        )
+        if row is None:  # authz already proved the project exists, so it is simply not deleted
+            raise Problem(409, ProblemCode.NOT_PENDING_DELETE, "this project is not pending deletion")
+        await _record(conn, ctx, project_id, AuditAction.RESTORE, EntityType.PROJECT, project_id)
+    return ProjectSummary.model_validate(dict(row))
+
+
 async def _keep_an_admin(conn, ctx: AuthzContext, project_id: uuid.UUID, user_sub: str) -> None:
     """Refuse to strip the last project_admin; tenant owner/admin can always recover the project, so they may."""
     if ctx.tenant_role in (TenantRole.OWNER, TenantRole.ADMIN):

@@ -13,6 +13,7 @@ class AuditAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+    RESTORE = "restore"
     SET_MEMBER_ROLES = "set_member_roles"
     REMOVE_MEMBER = "remove_member"
 
@@ -36,6 +37,7 @@ class ProblemCode(StrEnum):
     GALLERY_PUBLISHED = "gallery_published"
     LAST_PROJECT_ADMIN = "last_project_admin"
     NOT_A_TENANT_MEMBER = "not_a_tenant_member"
+    NOT_PENDING_DELETE = "not_pending_delete"
 
 
 # Details of plain HTTPExceptions (no machine-readable code).

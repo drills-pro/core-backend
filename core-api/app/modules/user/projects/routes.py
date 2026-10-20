@@ -89,6 +89,11 @@ async def delete_project(project_id: uuid.UUID, ctx: AuthzContext = Depends(requ
     return await service.delete_project(ctx, project_id)
 
 
+@router.post("/{project_id}:restore", response_model=ProjectSummary)
+async def restore_project(project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.PROJECT_DELETE))):
+    return await service.restore_project(ctx, project_id)
+
+
 @members_router.get("/members", response_model=list[Member])
 async def list_members(project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.PROJECT_READ))):
     return await service.list_members(ctx, project_id)

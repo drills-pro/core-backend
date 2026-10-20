@@ -75,6 +75,18 @@ def test_gallery_project_cannot_be_made_private_but_can_change_default_access(ca
     assert call(row, "PATCH", "/visibility?default_access=edit", gallery=True).status_code == 200
 
 
+def test_restore_is_project_admin_only(call):
+    r = call(access(roles=["editor"]), "POST", ":restore")
+    assert (r.status_code, r.json()["action"]) == (403, "project.delete")
+    assert call(access(roles=["project_admin"]), "POST", ":restore").status_code == 200
+
+
+def test_restore_of_a_project_that_is_not_pending_delete_is_409(monkeypatch, dev_headers):
+    client = make_client(routes.router)
+    patch_tenant_conn(monkeypatch, FakeConn(access(roles=["project_admin"]), row=None, val=[PROJECT]), service)
+    r = client.post(f"/v1/projects/{PROJECT}:restore")
+    assert (r.status_code, r.json()["code"]) == (409, "not_pending_delete")
+
 
 def test_list_rejects_a_bad_page_token(call):
     assert call(access(), "GET", "?page_token=garbage", on_project=False).status_code == 400
