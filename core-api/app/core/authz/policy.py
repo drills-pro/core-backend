@@ -56,6 +56,7 @@ class Action(StrEnum):
     # tenant-level
     TENANT_ADMIN = "tenant.admin"
     TENANT_MEMBER_MANAGE = "tenant.member.manage"
+    TENANT_AUDIT_READ = "tenant.audit.read"
     BILLING_MANAGE = "billing.manage"
     TENANT_DELETE = "tenant.delete"
     TENANT_TRANSFER_OWNERSHIP = "tenant.transfer_ownership"
@@ -85,7 +86,7 @@ class Action(StrEnum):
 A = Action
 # Only an owner may delete the tenant or hand it over; an admin holds every other action.
 OWNER_ONLY_ACTIONS = frozenset({A.TENANT_DELETE, A.TENANT_TRANSFER_OWNERSHIP})
-TENANT_ACTIONS = frozenset({A.TENANT_ADMIN, A.TENANT_MEMBER_MANAGE, A.BILLING_MANAGE, A.PROJECT_CREATE, A.PROJECT_LIST}) | OWNER_ONLY_ACTIONS
+TENANT_ACTIONS = frozenset({A.TENANT_ADMIN, A.TENANT_MEMBER_MANAGE, A.TENANT_AUDIT_READ, A.BILLING_MANAGE, A.PROJECT_CREATE, A.PROJECT_LIST}) | OWNER_ONLY_ACTIONS
 PROJECT_ACTIONS = frozenset(Action) - TENANT_ACTIONS
 
 _VIEWER = frozenset({A.PROJECT_READ, A.DATASET_READ, A.JOB_READ, A.MODEL_READ, A.DEPLOYMENT_READ, A.USAGE_READ})

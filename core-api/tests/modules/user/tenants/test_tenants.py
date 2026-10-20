@@ -64,3 +64,20 @@ def test_restore_only_when_pending_delete(monkeypatch, dev_headers):
     assert (r.status_code, r.json()["code"]) == (409, ProblemCode.NOT_PENDING_DELETE)
     c, _ = client(monkeypatch, dev_headers, TenantRole.ADMIN, status=TenantStatus.PENDING_DELETE)
     assert c.post(f"{T}:restore").status_code == 403
+
+
+@pytest.mark.parametrize("role,status", [(TenantRole.OWNER, 200), (TenantRole.ADMIN, 200), (TenantRole.MEMBER, 403)])
+def test_audit_log_is_for_owner_and_admin(monkeypatch, dev_headers, role, status):
+    c, _ = client(monkeypatch, dev_headers, role)
+    r = c.get(f"{T}/audit-log")
+    assert r.status_code == status
+    if status == 403:
+        assert r.json()["action"] == "tenant.audit.read"
+    else:
+        assert r.json() == {"items": [], "next_page_token": None}
+
+
+def test_audit_log_path_must_match_and_bad_token_is_400(monkeypatch, dev_headers):
+    c, _ = client(monkeypatch, dev_headers, TenantRole.OWNER)
+    assert c.get("/v1/tenants/00000000-0000-0000-0000-000000000000/audit-log").status_code == 404
+    assert c.get(f"{T}/audit-log?page_token=garbage").status_code == 400

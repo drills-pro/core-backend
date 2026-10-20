@@ -1,9 +1,10 @@
 from app.core import audit
 from app.core.authz import AuthzContext, TenantStatus
+from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.modules.user.tenants.constants import AuditAction, EntityType, ProblemCode
-from app.modules.user.tenants.schemas import TenantDetail
+from app.modules.user.tenants.schemas import TenantAuditEntry, TenantDetail
 
 _DETAIL = "SELECT id, name, status, plan_tier, created_at, deleted_at FROM tenants WHERE id = $1"
 
@@ -50,3 +51,15 @@ async def restore(ctx: AuthzContext) -> TenantDetail:
             raise Problem(409, ProblemCode.NOT_PENDING_DELETE, "this tenant is not pending deletion")
         await _record(conn, ctx, AuditAction.RESTORE)
         return _detail(await conn.fetchrow(_DETAIL, ctx.tenant_id), ctx)
+
+
+async def audit_log(ctx: AuthzContext, page: PageParams) -> Page[TenantAuditEntry]:
+    """Every audit row of the tenant, project events included, newest first. RLS scopes the table to the tenant."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=1)
+        rows = await conn.fetch(
+            "SELECT id, project_id, actor, action, entity_type, entity_id, created_at FROM audit_log "
+            f"WHERE true {cond} ORDER BY {order_by(SortDir.DESC)} LIMIT {page.page_size + 1}",
+            *args,
+        )
+    return build_page(rows, page.page_size, TenantAuditEntry)

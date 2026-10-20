@@ -23,3 +23,15 @@ class TenantDetail(BaseModel):
     plan_tier: str
     created_at: datetime
     deleted_at: datetime | None = None
+
+
+class TenantAuditEntry(BaseModel):
+    """One audit row of the tenant: tenant-level events have no project."""
+
+    id: uuid.UUID
+    project_id: uuid.UUID | None
+    actor: str
+    action: str  # free text: the actions of several modules share the table
+    entity_type: str
+    entity_id: str
+    created_at: datetime
