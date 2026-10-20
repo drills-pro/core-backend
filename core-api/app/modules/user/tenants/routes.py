@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.authz import Action, AuthzContext, require
 from app.core.pagination import Page, PageParams
+from app.core.tenant_settings import TenantSettings
 from app.modules.user.tenants import service
 from app.modules.user.tenants.schemas import TenantAuditEntry, TenantDelete, TenantDetail, TenantRename
 
@@ -21,6 +22,18 @@ async def get_tenant(tenant_id: uuid.UUID, ctx: AuthzContext = Depends(require(A
 async def rename_tenant(tenant_id: uuid.UUID, body: TenantRename, ctx: AuthzContext = Depends(require(Action.TENANT_ADMIN))):
     ctx.ensure_tenant(tenant_id)
     return await service.rename(ctx, body.name)
+
+
+@router.get("/{tenant_id}/settings", response_model=TenantSettings)
+async def get_settings(tenant_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.PROJECT_LIST))):
+    ctx.ensure_tenant(tenant_id)
+    return await service.get_settings(ctx)
+
+
+@router.patch("/{tenant_id}/settings", response_model=TenantSettings)
+async def update_settings(tenant_id: uuid.UUID, body: TenantSettings, ctx: AuthzContext = Depends(require(Action.TENANT_ADMIN))):
+    ctx.ensure_tenant(tenant_id)
+    return await service.update_settings(ctx, body)
 
 
 @router.post("/{tenant_id}:delete", response_model=TenantDetail)

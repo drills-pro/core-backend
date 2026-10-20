@@ -9,6 +9,7 @@ from app.core.auth import ZITADEL_ISSUER, Claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
 from app.core.db import get_pool
+from app.core.schemas import slugify
 from app.core.tenant_conn import TenantConn
 from app.modules.user.auth.constants import (
     DEFAULT_TEAM_NAME,
@@ -18,6 +19,7 @@ from app.modules.user.auth.constants import (
     TENANT_CREATE_IP_RATE_KEY,
     TENANT_CREATE_USER_LIMIT,
     TENANT_CREATE_USER_RATE_KEY,
+    TENANT_SLUG_CONSTRAINT,
 )
 from app.modules.user.auth.schemas import Me, TenantCreate, TenantCreated, TenantSummary
 
@@ -58,6 +60,17 @@ async def me(claims: Claims = Depends(get_profile_claims)):
     )
 
 
+async def _slug_for(conn, name: str, requested: str | None) -> str | None:
+    """The slug to insert. A requested one is taken as is (a clash is a 409); otherwise the name's own if free,
+    else None, and the tenants_set_slug trigger appends the tenant id's prefix."""
+    if requested:
+        return requested
+    suggested = slugify(name)
+    if suggested and not await conn.fetchval("SELECT true FROM tenants WHERE slug = $1", suggested):
+        return suggested
+    return None
+
+
 @router.post("/tenants", status_code=201, dependencies=[Depends(public)], response_model=TenantCreated)  # creates the caller's own tenant
 async def create_tenant(
     body: TenantCreate,
@@ -72,10 +85,10 @@ async def create_tenant(
     pool = await get_pool()
     async with pool.acquire() as conn:  # a retry gets the first answer, and costs no rate-limit budget
         replay = await conn.fetchrow(
-            "SELECT t.id, t.name FROM tenant_create_keys k JOIN tenants t ON t.id = k.new_tenant "
+            "SELECT t.id, t.name, t.slug FROM tenant_create_keys k JOIN tenants t ON t.id = k.new_tenant "
             "WHERE k.user_sub = $1 AND k.key = $2", claims.subject, idempotency_key)
     if replay is not None:
-        return TenantCreated(id=replay["id"], name=replay["name"])
+        return TenantCreated(id=replay["id"], name=replay["name"], slug=replay["slug"])
     if not (
         await rate_limit.check(TENANT_CREATE_USER_RATE_KEY.format(claims.subject), TENANT_CREATE_USER_LIMIT)
         and await rate_limit.check(TENANT_CREATE_IP_RATE_KEY.format(_client_ip(request)), TENANT_CREATE_IP_LIMIT)
@@ -90,12 +103,16 @@ async def create_tenant(
             # Claim the key first: a concurrent retry waits on this row, then fails and rolls back its own tenant.
             await conn.execute("INSERT INTO tenant_create_keys (user_sub, key, new_tenant) VALUES ($1, $2, $3)",
                                claims.subject, idempotency_key, tenant_id)
-            await conn.execute("INSERT INTO tenants (id, name) VALUES ($1, $2)", tenant_id, name)
+            created_slug = await conn.fetchval(
+                "INSERT INTO tenants (id, name, slug) VALUES ($1, $2, $3) RETURNING slug",
+                tenant_id, name, await _slug_for(conn, name, body.slug))
             await conn.execute(
                 "INSERT INTO tenant_members (tenant_id, user_sub, role) VALUES ($1, $2, $3)",
                 tenant_id, claims.subject, TenantRole.OWNER,
             )
             await conn.execute("INSERT INTO teams (tenant_id, name) VALUES ($1, $2)", tenant_id, DEFAULT_TEAM_NAME)
-    except asyncpg.UniqueViolationError:  # same key in flight on another request
-        raise HTTPException(status_code=409, detail="request in progress, retry") from None
-    return TenantCreated(id=tenant_id, name=name)
+    except asyncpg.UniqueViolationError as error:
+        if error.constraint_name == TENANT_SLUG_CONSTRAINT:
+            raise HTTPException(status_code=409, detail="slug already taken") from None
+        raise HTTPException(status_code=409, detail="request in progress, retry") from None  # same key in flight
+    return TenantCreated(id=tenant_id, name=name, slug=created_slug)

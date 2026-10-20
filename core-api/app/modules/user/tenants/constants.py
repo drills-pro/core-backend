@@ -5,6 +5,7 @@ class AuditAction(StrEnum):
     RENAME = "rename"
     DELETE = "delete"
     RESTORE = "restore"
+    UPDATE_SETTINGS = "update_settings"
 
 
 class EntityType(StrEnum):

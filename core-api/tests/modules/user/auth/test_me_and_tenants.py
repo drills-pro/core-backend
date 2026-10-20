@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 
+import asyncpg
 import pytest
 from starlette.exceptions import HTTPException
 
@@ -8,6 +9,7 @@ from app.core.auth import Claims
 from app.core.authz import Action, TenantRole, allowed_actions
 from app.core.authz.policy import TENANT_ACTIONS
 from app.modules.user.auth import routes
+from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT
 from app.modules.user.tenant_members import routes as member_routes
 from app.modules.user.tenant_members import service as member_service
 from tests.support import FakeConn, TenantCtx
@@ -61,18 +63,65 @@ def _create(claims, key="k1"):
 
 def test_replay_with_the_same_key_returns_the_first_tenant_and_creates_nothing(monkeypatch):
     T = uuid.uuid4()
-    conn = FakeConn(row={"id": T, "name": "Acme"})
+    conn = FakeConn(row={"id": T, "name": "Acme", "slug": "acme"})
     _patch(monkeypatch, conn)
     out = asyncio.run(_create(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     assert out.id == T and not conn.executed
 
 
 def test_first_call_claims_the_key_before_inserting_the_tenant(monkeypatch):
-    conn = FakeConn(row=None)
+    conn = FakeConn(row=None, val="acme")
     _patch(monkeypatch, conn)
     asyncio.run(_create(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     sqls = [s for s, _ in conn.calls]
     assert next(i for i, s in enumerate(sqls) if "tenant_create_keys (" in s) < next(i for i, s in enumerate(sqls) if "INSERT INTO tenants" in s)
+
+
+def _create_with(slug, conn, monkeypatch):
+    class Req:
+        headers, client = {}, None
+
+    _patch(monkeypatch, conn)
+    claims = Claims({"sub": "u", "email": "a@b.co", "email_verified": True})
+    return asyncio.run(routes.create_tenant(routes.TenantCreate(name="Acme Inc.", slug=slug), Req(), claims, "k1"))
+
+
+def _inserted_slug(conn):
+    return next(a[2] for s, a in conn.calls if "INSERT INTO tenants" in s)
+
+
+def test_slug_is_derived_from_the_name_when_free_and_left_to_the_trigger_when_taken(monkeypatch):
+    conn = FakeConn(row=None, vals={"SELECT true": None, "INSERT INTO tenants": "acme-inc"})
+    assert _create_with(None, conn, monkeypatch).slug == "acme-inc" and _inserted_slug(conn) == "acme-inc"
+    conn = FakeConn(row=None, vals={"SELECT true": True, "INSERT INTO tenants": "acme-inc-1a2b3c4d"})
+    assert _create_with(None, conn, monkeypatch).slug == "acme-inc-1a2b3c4d" and _inserted_slug(conn) is None
+
+
+def test_a_requested_slug_is_used_as_is(monkeypatch):
+    conn = FakeConn(row=None, vals={"INSERT INTO tenants": "mine"})
+    assert _create_with("mine", conn, monkeypatch).slug == "mine" and _inserted_slug(conn) == "mine"
+    assert not any("SELECT true" in s for s, _ in conn.calls)
+
+
+@pytest.mark.parametrize("slug", ["ab", "x" * 41, "-a-b", "a--b", "has space", "admin", "Upper"])
+def test_bad_slugs_are_rejected(slug):
+    with pytest.raises(ValueError):
+        routes.TenantCreate(name="Acme", slug=slug)
+
+
+def test_a_taken_slug_is_a_409_not_a_retry_hint(monkeypatch):
+    class Taken(asyncpg.UniqueViolationError):
+        constraint_name = TENANT_SLUG_CONSTRAINT
+
+    class Boom(FakeConn):
+        async def fetchval(self, sql, *args):
+            if "INSERT INTO tenants" in sql:
+                raise Taken()
+            return await super().fetchval(sql, *args)
+
+    with pytest.raises(HTTPException) as e:
+        _create_with("mine", Boom(row=None), monkeypatch)
+    assert (e.value.status_code, e.value.detail) == (409, "slug already taken")
 
 
 def test_unverified_email_is_refused(monkeypatch):

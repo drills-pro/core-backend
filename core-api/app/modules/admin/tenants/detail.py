@@ -25,6 +25,7 @@ from app.core.authz import TenantStatus
 from app.core.db import get_pool
 from app.core.enums import TaskType
 from app.core.tenant_conn import TenantConn
+from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
 from app.modules.admin.tenants.routes import ZITADEL_TIMEOUT, zitadel_refused
 
@@ -37,12 +38,6 @@ router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 # submission, publishing — still have to be taught to ask.
 # pending_delete belongs to the owner's delete/restore flow, not to an operator's switch.
 ADMIN_SETTABLE_STATUSES = (TenantStatus.ACTIVE, TenantStatus.SUSPENDED)
-
-SETTINGS_DEFAULTS = {
-    "members_can_create_projects": True,
-    "require_review_before_training": True,
-    "allow_public_models": False,
-}
 
 # A member whose Zitadel user is gone, or whose org Zitadel won't answer
 # for. The listing degrades the same way (owner=null, status="unknown")
@@ -80,7 +75,7 @@ async def get_tenant(tenant_id: uuid.UUID):
         row,
         status=states.get(row["zitadel_org_id"], "unknown"),
         owner=owner,
-        settings={**SETTINGS_DEFAULTS, **row["settings"]},
+        settings=TenantSettings.model_validate(row["settings"]).model_dump(),
     )
 
 
@@ -164,27 +159,21 @@ async def create_tenant_project(
 
 
 @router.patch("/{tenant_id}/settings", dependencies=[Depends(get_platform_admin)])
-async def update_tenant_settings(tenant_id: uuid.UUID, settings: dict = Body(...)):
+async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings):
     """Merge a partial settings object into the tenant's, and return all of it.
 
     A merge, not a replace: the page sends the one switch that moved, and
     two operators on two switches don't overwrite each other.
     """
-    unknown = sorted(set(settings) - set(SETTINGS_DEFAULTS))
-    if unknown:
-        raise HTTPException(status_code=400, detail=f"unknown settings: {unknown}")
-    if not all(isinstance(value, bool) for value in settings.values()):
-        raise HTTPException(status_code=400, detail="every setting is a boolean")
-
     async with (await get_pool()).acquire() as conn:
         row = await conn.fetchrow(
             "UPDATE tenants SET settings = settings || $2::jsonb WHERE id = $1 RETURNING settings",
             tenant_id,
-            settings,
+            settings.model_dump(exclude_unset=True),
         )
     if row is None:
         raise HTTPException(status_code=404, detail="no such tenant")
-    return {"settings": {**SETTINGS_DEFAULTS, **row["settings"]}}
+    return {"settings": TenantSettings.model_validate(row["settings"]).model_dump()}
 
 
 @router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)])

@@ -3,16 +3,18 @@ import uuid
 from pydantic import BaseModel, Field
 
 from app.core.authz import TenantRole, TenantStatus
-from app.core.schemas import TenantName
+from app.core.schemas import TenantName, TenantSlug
 
 
 class TenantCreate(BaseModel):
     name: TenantName
+    slug: TenantSlug | None = None  # omitted: derived from the name
 
 
 class TenantCreated(BaseModel):
     id: uuid.UUID
     name: str
+    slug: str
     role: TenantRole = TenantRole.OWNER
 
 

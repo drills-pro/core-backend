@@ -18,6 +18,7 @@ class TenantDelete(BaseModel):
 class TenantDetail(BaseModel):
     id: uuid.UUID
     name: str
+    slug: str
     status: TenantStatus
     role: TenantRole
     plan_tier: str

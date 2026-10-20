@@ -3,10 +3,11 @@ from app.core.authz import AuthzContext, TenantStatus
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
+from app.core.tenant_settings import TenantSettings
 from app.modules.user.tenants.constants import AuditAction, EntityType, ProblemCode
 from app.modules.user.tenants.schemas import TenantAuditEntry, TenantDetail
 
-_DETAIL = "SELECT id, name, status, plan_tier, created_at, deleted_at FROM tenants WHERE id = $1"
+_DETAIL = "SELECT id, name, slug, status, plan_tier, created_at, deleted_at FROM tenants WHERE id = $1"
 
 
 async def _record(conn, ctx: AuthzContext, action: AuditAction) -> None:
@@ -28,6 +29,22 @@ async def rename(ctx: AuthzContext, name: str) -> TenantDetail:
         await conn.execute("UPDATE tenants SET name = $2 WHERE id = $1", ctx.tenant_id, name)
         await _record(conn, ctx, AuditAction.RENAME)
         return _detail(await conn.fetchrow(_DETAIL, ctx.tenant_id), ctx)
+
+
+async def get_settings(ctx: AuthzContext) -> TenantSettings:
+    async with TenantConn(ctx.tenant_id) as conn:
+        return TenantSettings.model_validate(await conn.fetchval("SELECT settings FROM tenants WHERE id = $1", ctx.tenant_id))
+
+
+async def update_settings(ctx: AuthzContext, changes: TenantSettings) -> TenantSettings:
+    """Merge only the fields the caller sent, so two people on two switches do not overwrite each other."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        stored = await conn.fetchval(
+            "UPDATE tenants SET settings = settings || $2::jsonb WHERE id = $1 RETURNING settings",
+            ctx.tenant_id, changes.model_dump(exclude_unset=True),
+        )
+        await _record(conn, ctx, AuditAction.UPDATE_SETTINGS)
+        return TenantSettings.model_validate(stored)
 
 
 async def delete(ctx: AuthzContext, confirm_name: str) -> TenantDetail:
