@@ -34,6 +34,23 @@ Services: `docker compose up -d` with every service but `core-api` (or all of th
   (not FORCE) RLS, pin `search_path` on SECURITY DEFINER, never create roles. `docker compose up` applies
   them; check with `./scripts/migrations-check.sh` (README "Migrations").
 
+## Code style (applies to every session and coding agent)
+
+1. **No magic strings or numbers.** Audit actions, entity types, problem codes, header names, limits, TTLs and
+   default names are named: an `enum.StrEnum`/`IntEnum` for a closed set, a module constant (or a config knob)
+   for a single value. Defined once, imported everywhere, never repeated as a literal in a handler, SQL
+   parameter or test. (Detail and DB mirroring: the "No magic strings" rule above.)
+2. **Modular code.** A package under `app/modules/**` splits by job: `routes.py` is HTTP only (parse, authorize,
+   call, shape the response), `service.py` holds the business rules and queries, `schemas.py` the pydantic
+   models, `constants.py` the enums and named values. A function does one thing; a handler does not grow past
+   a screen. Do not put logic in `routes.py` that a second caller would need.
+3. **Typed structures are pydantic.** Request bodies, response shapes (`response_model=`), service inputs and
+   outputs that cross a function boundary are `pydantic.BaseModel`s, not loose `dict`s. Reuse and extend the
+   existing models before adding a new one; use `model_validate` on DB rows. Settings stay in `settings.py`.
+   `TypedDict`/`Literal` only where a model would be pure overhead (e.g. a single fixed-shape enum value).
+
+Apply these to code you add or touch; do not rewrite unrelated code to match (surgical changes).
+
 ## Cross-repo
 
 A change to `config/prod.yaml`, secret file names or keys, the image's port or probes needs a matching
