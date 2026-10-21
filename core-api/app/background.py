@@ -55,10 +55,23 @@ async def _poll_gpu_quota() -> None:
     metrics.set_gpu_quota(used, hard)
 
 
+async def _poll_active_principals() -> None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        counts = {
+            window: await conn.fetchval(
+                "SELECT count(*) FROM principals WHERE last_seen_at > now() - make_interval(days => $1)", days
+            )
+            for window, days in metrics.ACTIVE_PRINCIPAL_WINDOW_DAYS.items()
+        }
+    metrics.set_active_principals(counts)
+
+
 # (name, coroutine function, seconds between runs)
 POLLERS = (
     ("pg-size", _poll_pg_size, TELEMETRY_INTERVAL_SECONDS),
     ("gpu-quota", _poll_gpu_quota, TELEMETRY_INTERVAL_SECONDS),
+    ("active-principals", _poll_active_principals, TELEMETRY_INTERVAL_SECONDS),
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
     ("dataset-import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
