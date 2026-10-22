@@ -66,4 +66,9 @@ else
   echo "warning: app '$SPA_NAME' not found — skipped secret/platform/zitadel-spa" >&2
 fi
 
-echo "run core-api on the host with: export CORE_ZITADEL__PROJECT_ID=$PROJECT_ID"
+# core-api run natively (APP_ENV=local) reads this gitignored file, so no `export` is needed. The id belongs to this stack's Zitadel
+# volume, which is why it is not in the committed config/local.yaml.
+OVERRIDE="$(dirname "$0")/../../core-api/config/local.override.yaml"
+printf '# Written by scripts/steps/zitadel-restore.sh (gitignored): this stack'"'"'s Zitadel project id, the aud core-api checks.\nzitadel:\n  project_id: "%s"\n' "$PROJECT_ID" > "$OVERRIDE"
+echo "wrote core-api/config/local.override.yaml (project_id=$PROJECT_ID); restart a native core-api to pick it up"
+echo "in compose or elsewhere use: export CORE_ZITADEL__PROJECT_ID=$PROJECT_ID"

@@ -46,10 +46,14 @@ def _patch(monkeypatch, conn):
 
 def test_me_lists_every_tenant_with_capabilities(monkeypatch):
     T1, T2 = uuid.uuid4(), uuid.uuid4()
-    rows = [{"id": T1, "name": "A", "role": "owner", "status": "active"}, {"id": T2, "name": "B", "role": "member", "status": "pending_delete"}]
+    rows = [
+        {"id": T1, "name": "A", "slug": "a-team", "role": "owner", "status": "active"},
+        {"id": T2, "name": "B", "slug": "b-team", "role": "member", "status": "pending_delete"},
+    ]
     _patch(monkeypatch, FakeConn(rowset=rows))
     out = asyncio.run(routes.me(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     assert [t.id for t in out.tenants] == [T1, T2]
+    assert [t.slug for t in out.tenants] == ["a-team", "b-team"]
     assert out.tenants[1].status == "pending_delete"
     assert out.tenants[1].capabilities == ["project.create", "project.list"] and out.email_verified is True
 

@@ -21,6 +21,7 @@ class TenantCreated(BaseModel):
 class TenantSummary(BaseModel):
     id: uuid.UUID
     name: str
+    slug: str
     role: TenantRole
     status: TenantStatus
     capabilities: list[str] = Field(description="Tenant-level actions the role holds")

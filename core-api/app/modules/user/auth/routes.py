@@ -56,7 +56,7 @@ async def me(claims: Claims = Depends(get_profile_claims)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await _upsert_principal(conn, claims)
-        tenants = await conn.fetch("SELECT id, name, role, status FROM my_tenants($1)", claims.subject)
+        tenants = await conn.fetch("SELECT id, name, slug, role, status FROM my_tenants($1)", claims.subject)
     # A user may belong to many tenants; capabilities are the tenant-level actions of the role held in each.
     return Me(
         sub=claims.subject, email=claims.email, email_verified=claims.email_verified, name=claims.display_name,
