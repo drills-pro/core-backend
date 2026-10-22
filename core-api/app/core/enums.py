@@ -26,9 +26,3 @@ class AuthResult(StrEnum):
     MALFORMED = "malformed"
 
 
-class UserinfoResult(StrEnum):
-    """Outcome of a Zitadel userinfo lookup: the `result` label on zitadel_userinfo_total."""
-
-    CACHED = "cached"
-    FETCHED = "fetched"
-    FAILED = "failed"

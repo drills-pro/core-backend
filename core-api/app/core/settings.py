@@ -21,6 +21,7 @@ from pydantic_settings import (
 
 CORE_API_DIR = Path(__file__).resolve().parents[2]
 CONFIG_DIR = CORE_API_DIR / "config"
+SERVICE_NAME = "core-backend"  # OTel service.name of traces and metrics; metric names use it snake_cased
 ENVIRONMENTS = ("local", "compose", "test", "prod")
 
 
@@ -61,8 +62,6 @@ class Mlflow(_Section):
 
 class Observability(_Section):
     otlp_endpoint: str
-    metrics_otlp_endpoint: str  # OTLP gRPC receiver for pushed metrics (core/metrics.py)
-    ksm_endpoint: str
 
 
 class Public(_Section):

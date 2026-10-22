@@ -12,7 +12,6 @@ dependencies = [
     "pyjwt[crypto]>=2.8",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
-    "opentelemetry-exporter-prometheus>=0.48b0",
     "opentelemetry-instrumentation-fastapi>=0.48b0",
     "opentelemetry-instrumentation-httpx>=0.48b0",
     "opentelemetry-instrumentation-asyncpg>=0.48b0",

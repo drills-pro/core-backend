@@ -21,7 +21,6 @@ import contextlib
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import make_asgi_app
 
 from app import background
 from app.core import problem, tracing
@@ -104,7 +103,6 @@ def create_app() -> FastAPI:
     problem.install(app)
     for router in ROUTERS:
         app.include_router(router)
-    app.mount("/metrics", make_asgi_app())
     return app
 
 

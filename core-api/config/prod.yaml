@@ -14,4 +14,3 @@ mlflow:
   url: http://mlflow.platform.svc.cluster.local:5000
 observability:
   otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317
-  metrics_otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317

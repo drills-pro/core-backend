@@ -9,10 +9,7 @@ import asyncio
 import logging
 import zlib
 
-import httpx
-
-from app.core import metrics, rate_limit
-from app.core.settings import settings
+from app.core import rate_limit
 from app.core.db import get_pool
 from app.modules.user.datasets import reconcile_inflight_imports
 from app.modules.user.deployments import reconcile_inflight_deployments
@@ -22,56 +19,10 @@ from app.modules.user.training import reconcile_inflight_runs
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_SECONDS = 10
-TELEMETRY_INTERVAL_SECONDS = 30
-
-
-async def _poll_pg_size() -> None:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        size = await conn.fetchval("SELECT pg_database_size(current_database())")
-    metrics.set_pg_size_bytes(size)
-
-
-async def _poll_gpu_quota() -> None:
-    # req/08 FR2 GPU-exhaustion signal: scrapes kube-state-metrics' real
-    # kube_resourcequota series for requests.nvidia.com/gpu (see
-    # k8s/tenant-quota-example.yaml). Plain-text Prometheus exposition
-    # format — parsed by hand rather than pulling in a client library for
-    # two label values.
-    if not settings.observability.ksm_endpoint:
-        return  # not configured (local dev, or no kube-state-metrics to scrape)
-    async with httpx.AsyncClient(timeout=5) as client:
-        resp = await client.get(settings.observability.ksm_endpoint)
-        resp.raise_for_status()
-    used = hard = 0
-    for line in resp.text.splitlines():
-        if 'resource="requests.nvidia.com/gpu"' not in line:
-            continue
-        value = int(float(line.rsplit(" ", 1)[-1]))
-        if 'type="used"' in line:
-            used = value
-        elif 'type="hard"' in line:
-            hard = value
-    metrics.set_gpu_quota(used, hard)
-
-
-async def _poll_active_principals() -> None:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        counts = {
-            window: await conn.fetchval(
-                "SELECT count(*) FROM principals WHERE last_seen_at > now() - make_interval(days => $1)", days
-            )
-            for window, days in metrics.ACTIVE_PRINCIPAL_WINDOW_DAYS.items()
-        }
-    metrics.set_active_principals(counts)
 
 
 # (name, coroutine function, seconds between runs)
 POLLERS = (
-    ("pg-size", _poll_pg_size, TELEMETRY_INTERVAL_SECONDS),
-    ("gpu-quota", _poll_gpu_quota, TELEMETRY_INTERVAL_SECONDS),
-    ("active-principals", _poll_active_principals, TELEMETRY_INTERVAL_SECONDS),
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
     ("dataset-import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
