@@ -61,6 +61,7 @@ class Mlflow(_Section):
 
 class Observability(_Section):
     otlp_endpoint: str
+    metrics_otlp_endpoint: str  # OTLP gRPC receiver for pushed metrics (core/metrics.py)
     ksm_endpoint: str
 
 

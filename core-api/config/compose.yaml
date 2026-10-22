@@ -16,3 +16,4 @@ mlflow:
   url: http://mlflow:5000
 observability:
   otlp_endpoint: http://lgtm:4317
+  metrics_otlp_endpoint: http://lgtm:4317

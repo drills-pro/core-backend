@@ -7,6 +7,7 @@ mlflow:
   url: http://localhost:5000
 observability:
   otlp_endpoint: http://localhost:4317
+  metrics_otlp_endpoint: http://localhost:4317
 secrets:
   db: /nonexistent/db.json
   lakefs: /nonexistent/lakefs.json
