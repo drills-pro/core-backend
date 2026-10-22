@@ -75,6 +75,8 @@ web_modules/
 
 # local dev secret files (scripts/secrets-init.sh)
 .local/
+# per-developer config overrides, only read with APP_ENV=local (scripts/steps/zitadel-restore.sh writes it)
+core-api/config/local.override.yaml
 
 # dotenv environment variable files
 .env

@@ -97,7 +97,11 @@ class Settings(BaseSettings):
         # One source per file, highest precedence first: pydantic-settings deep-merges across
         # sources, but a single multi-file source only merges the top level.
         yaml = lambda path: YamlConfigSettingsSource(settings_cls, yaml_file=path)  # noqa: E731
-        return init_settings, env_settings, yaml(CONFIG_DIR / f"{env}.yaml"), yaml(CONFIG_DIR / "base.yaml")
+        layers = [yaml(CONFIG_DIR / f"{env}.yaml"), yaml(CONFIG_DIR / "base.yaml")]
+        if env == "local":
+            # Gitignored, per developer (scripts/steps/zitadel-restore.sh writes the stack's Zitadel project id here). A missing file is skipped.
+            layers.insert(0, yaml(CONFIG_DIR / "local.override.yaml"))
+        return (init_settings, env_settings, *layers)
 
     @model_validator(mode="after")
     def _check(self) -> "Settings":

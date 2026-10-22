@@ -32,6 +32,15 @@ def test_env_var_overrides_yaml(monkeypatch):
     assert load("local").pg.host == "elsewhere"
 
 
+def test_local_override_file_wins_over_yaml_but_only_in_local(monkeypatch, tmp_path):
+    for name in ("base.yaml", "local.yaml", "prod.yaml"):
+        (tmp_path / name).write_text((CONFIG_DIR / name).read_text())
+    (tmp_path / "local.override.yaml").write_text('zitadel:\n  project_id: "from-override"\n')
+    monkeypatch.setattr("app.core.settings.CONFIG_DIR", tmp_path)
+    assert load("local").zitadel.project_id == "from-override"
+    assert load("prod").zitadel.project_id != "from-override"
+
+
 def test_prod_refuses_dev_headers(monkeypatch):
     monkeypatch.setenv("CORE_AUTH__DEV_HEADERS", "true")
     with pytest.raises(ValueError, match="dev_headers"):
