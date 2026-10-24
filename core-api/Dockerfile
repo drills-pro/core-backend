@@ -9,7 +9,7 @@ RUN uv sync --no-install-project
 COPY core-api/app ./app
 COPY core-api/config ./config
 # The Ray job package: app/integrations/data_plane/job_package.py zips it, stages it and the ingest job downloads it.
-# Two levels up from /app/app/integrations/data_plane, the same relative path as in the checkout. Not installed here.
+# job_package.py finds it four levels up from /app/app/integrations/data_plane, the same relative path as in the checkout. Not installed here.
 COPY ray-jobs/ray_jobs /ray-jobs/ray_jobs
 # Read by the cluster's backend-migrate Job: an init container runs `cp -R /migrations/. /work/` and
 # dbmate (its own image) applies them. This image ships no migration runner.
