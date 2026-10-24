@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.core.enums import TaskType
 from app.core.settings import DatasetLimits
-from app.integrations.data_plane import ingest as core_ingest, layout, report as report_model
+from app.integrations.data_plane import ingest as core_ingest, job_catalog, layout, report as report_model
 from app.modules.user.datasets.constants import ImportSource
 from ray_jobs.common import constants as job
 from ray_jobs.common.enums import BOX_FIELDS, INDEX_COLUMNS, Code, ColumnType, Outcome, Param, Source
@@ -64,14 +64,14 @@ def test_job_params_keys_cover_what_core_api_sends():
 
 
 def test_every_job_type_has_an_entrypoint_module_that_runs_as_main():
-    for kind in core_ingest.JobType:
-        module = import_module(core_ingest.ENTRYPOINT_MODULE.format(kind.value))
-        assert callable(module.extract), kind
+    assert set(job_catalog.CATALOG) == set(job_catalog.JobType)
+    for kind, spec in job_catalog.CATALOG.items():
+        assert callable(import_module(spec.entrypoint).extract), kind
 
 
 def test_every_source_and_task_picks_a_job_type():
-    picked = {(s, t): core_ingest.job_type(s, t) for s in ImportSource for t in TaskType}
-    assert set(picked.values()) == set(core_ingest.JobType)
-    assert picked[(ImportSource.UPLOAD, TaskType.OBJECT_DETECTION)] == core_ingest.JobType.UPLOAD_IMAGES
-    assert picked[(ImportSource.UPLOAD, TaskType.TABULAR_REGRESSION)] == core_ingest.JobType.UPLOAD_CSV
-    assert picked[(ImportSource.HUGGINGFACE, TaskType.IMAGE_CLASSIFICATION)] == core_ingest.JobType.HUGGINGFACE
+    picked = {(s, t): job_catalog.ingest_job_type(s, t) for s in ImportSource for t in TaskType}
+    assert set(picked.values()) == set(job_catalog.JobType)
+    assert picked[(ImportSource.UPLOAD, TaskType.OBJECT_DETECTION)] == job_catalog.JobType.UPLOAD_IMAGES
+    assert picked[(ImportSource.UPLOAD, TaskType.TABULAR_REGRESSION)] == job_catalog.JobType.UPLOAD_CSV
+    assert picked[(ImportSource.HUGGINGFACE, TaskType.IMAGE_CLASSIFICATION)] == job_catalog.JobType.HUGGINGFACE

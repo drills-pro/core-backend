@@ -5,7 +5,6 @@ caller passes ids only."""
 import json
 import shlex
 import uuid
-from enum import StrEnum
 
 from app.core import secret_files
 from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
@@ -14,17 +13,9 @@ from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import ray_client
 from app.integrations.data_plane import access, job_package, layout, lakefs
+from app.integrations.data_plane.job_catalog import CATALOG, JobType, ingest_job_type
 
 
-class JobType(StrEnum):
-    """The modules of ray_jobs.entrypoints; tests/ingest_job/test_contract.py checks each one exists."""
-
-    UPLOAD_IMAGES = "upload_images"
-    UPLOAD_CSV = "upload_csv"
-    HUGGINGFACE = "huggingface"
-
-
-ENTRYPOINT_MODULE = "ray_jobs.entrypoints.{}"
 # Fetches the package zip, makes it importable and runs the entrypoint as __main__ (argv: url, module, params json).
 # ponytail: stands in for runtime_env working_dir, which ray_client.submit_raw_job does not take yet; drop it then,
 # or once the package is baked into the Ray image (entrypoint becomes a plain `python -m`).
@@ -41,15 +32,9 @@ _IMPORT = (
 )
 
 
-def job_type(source: str, task_type: str) -> JobType:
-    if source == ImportSource.HUGGINGFACE:
-        return JobType.HUGGINGFACE
-    return JobType.UPLOAD_CSV if TaskType(task_type) in TABULAR_TASKS else JobType.UPLOAD_IMAGES
-
-
 def entrypoint(package_url: str, kind: JobType, job: dict) -> str:
     """Shell command Ray runs: the bootstrap, then the package url, the module and the params as plain argv."""
-    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, ENTRYPOINT_MODULE.format(kind.value), json.dumps(job)])
+    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, CATALOG[kind].entrypoint, json.dumps(job)])
 
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: str) -> dict:
@@ -86,7 +71,7 @@ async def start_ingest(tenant_id: str, dataset_id: str, import_id: str, submissi
         job["base"] = await _base(tenant_id, dataset_id, str(row["base_version_id"]), task_type)
     creds = secret_files.get(secret_files.INGEST)
     package_url = await job_package.presigned_url()
-    command = entrypoint(package_url, job_type(row["source"], task_type), job)
+    command = entrypoint(package_url, ingest_job_type(row["source"], task_type), job)
     return await ray_client.submit_raw_job(
         entrypoint=command,
         submission_id=submission_id,
