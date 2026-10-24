@@ -127,3 +127,36 @@ transfer) and core-api is the only door customers have to it.
   stores them in the bucket, so core-api and the trainers hold no storage credential for models.
 - **Serving:** the deployment script downloads the same artifact path from MLflow's artifact API.
 - **k8s:** the `ray` namespace needs a NetworkPolicy allowing ingress to `app=mlflow` on port 5000.
+
+## Worker mode and compute (RayJob)
+
+One image, two commands. The API (`uvicorn app.main:app`) serves HTTP; the worker (`python -m app.worker`, run as
+`uv run python -m app.worker` in this image) runs only the background loops of `app/background.py`: training,
+deployment and import reconcilers, import expiry, dataset purge, rate-limit purge. Each loop takes a Postgres
+advisory lock per sweep, so any number of replicas is safe and exactly one does each sweep; every state change is a
+compare-and-set. The worker serves no HTTP and needs no Service.
+
+Both knobs are config (`app/core/settings.py`), overridable by env var without a new image:
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `background.pollers_in_api` | `true` | `false` stops the API from running the loops. Set `CORE_BACKGROUND__POLLERS_IN_API=false` on the API Deployment **after** the worker is running |
+| `compute.backend` | `ray_dashboard` | `rayjob` submits a KubeRay `RayJob` CR and reads status from it; `ray_dashboard` is the Ray HTTP job API as today |
+| `compute.rayjob.namespace` | `ray` | where the CRs are created |
+| `compute.rayjob.cluster_name` | `""` | a warm shared `RayCluster` to run jobs on (`clusterSelector`), good for small ingest; empty = one ephemeral cluster per job from `compute.rayjob.cluster_spec` (training) |
+| `compute.rayjob.ttl_after_finished_seconds` | 86400 | how long a finished CR (and its status) stays; must exceed the longest reconcile gap |
+
+Rollout order: deploy the worker, then flip `pollers_in_api` off on the API. In between both run the loops, which is
+harmless. Flip `compute.backend` to `rayjob` only after the RBAC below exists; jobs already submitted keep their ids,
+so drain in-flight ones first (a job id from one backend is unknown to the other).
+
+**k8s side (not done; describe, apply by hand):**
+
+- **Worker Deployment** `core-worker` in the backend namespace: same image digest as the API, `command: ["uv", "run", "python", "-m", "app.worker"]`, 2 replicas (leader per loop, so both are active), same ServiceAccount (`app-backend`) and Vault agent annotations as the API (it reads the `db`, `lakefs`, `staging`, `ingest` and `zitadel` files), same ConfigMap/env. No Service, no Ingress, no probes on a port; use an `exec` liveness probe if one is wanted, otherwise a crash restarts the pod. Resources like the API's. PodDisruptionBudget `maxUnavailable: 1`.
+- **RBAC**, in the Ray namespace (`compute.rayjob.namespace`): a Role for `core-worker`'s and the API's ServiceAccount granting `rayjobs` in `ray.io`: `create`, `get`, `list`, `watch`, `delete`. The API needs `create` and `delete` (submit, cancel); the status readers (worker, and the API for `GET` of a single run) need `get`. `watch` is for a later event-driven reconciler and is not used yet. Nothing on pods, secrets or RayClusters.
+- **ServiceAccount token**: the default automount is what `app/integrations/compute.py` uses (`/var/run/secrets/kubernetes.io/serviceaccount`). If the namespace sets `automountServiceAccountToken: false`, turn it on for these two Deployments.
+- **NetworkPolicy**: egress from the backend namespace to the Kubernetes API (`kubernetes.default.svc`, 443) for the API and worker pods; the worker keeps the API's egress to Postgres, lakeFS, MLflow, Zitadel and the staging store; it no longer needs the Ray dashboard once `compute.backend: rayjob` is on (training log reads still use it until logs move off the dashboard, see below). Ingress to the worker: none. `mlflow` and `lakefs` policies (I6) allow `backend` and `core-worker` pods.
+- **KubeRay**: the operator must be at a version whose RayJob supports `clusterSelector`, `entrypointNumCpus`/`entrypointMemory`, `runtimeEnvYAML` and `activeDeadlineSeconds`; for a warm ingest cluster, an always-on `RayCluster` (CPU only) and its name in `compute.rayjob.cluster_name`; for per-run training, the `rayClusterSpec` (images, GPU worker group) goes in `prod.yaml` as `compute.rayjob.cluster_spec`. The ingest image requirements above apply to the cluster that runs it.
+- **Kueue** (later, not decided yet): add `kueue.x-k8s.io/queue-name` to the CR labels and a LocalQueue per tier; no core-api change beyond one label.
+
+**Known gaps (follow-ups, not in this change):** training job logs (`ray_client.get_logs`) still go to the Ray dashboard, so they only work for jobs on a cluster whose dashboard core-api can reach; a RayJob's logs need a log sink or the submitter pod's logs. Job env vars (including the `ingest` credential) sit in the CR's `runtimeEnvYAML`, readable by anyone with `get` on RayJobs; keep that verb to these ServiceAccounts. A stopped job's CR is deleted, so its status afterwards is a 404, which the reconcilers already treat as unknown.
