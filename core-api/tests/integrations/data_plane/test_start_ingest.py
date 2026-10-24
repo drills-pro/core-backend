@@ -1,8 +1,7 @@
 """start_ingest builds the job from Postgres and hands Ray the staging credential only."""
 import asyncio
-import base64
 import json
-import re
+import shlex
 import uuid
 
 from app.core.settings import settings
@@ -25,10 +24,15 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
         sent.update(kw)
         return "job-1"
 
+    async def package_url():
+        return "http://ray-side/jobs/ray-jobs-x.zip"
+
+    monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
     monkeypatch.setattr(ingest.ray_client, "submit_raw_job", submit)
     assert asyncio.run(ingest.start_ingest(TENANT, DATASET, IMPORT, "ingest-1")) == "job-1"
-    argv = base64.b64decode(re.search(r"b64decode\('([^']+)'\)\.decode", sent["entrypoint"]).group(1))
-    job = json.loads(argv)
+    argv = shlex.split(sent["entrypoint"])
+    assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]
+    job = json.loads(argv[5])
     assert job["prefix"] == layout.staging_prefix(TENANT, DATASET, IMPORT) and job["task"] == "tabular-regression"
     assert job["target"] == "y" and job["limits"]["upload_max_bytes"] == settings.dataset_limits.upload_max_bytes
     assert "base" not in job and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}

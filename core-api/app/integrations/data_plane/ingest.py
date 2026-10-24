@@ -1,10 +1,11 @@
-"""Starting the ingest job on Ray. The job gets the `ingest` credential (staging bucket only) and presigned reads of the base version
+"""Starting the ingest job on Ray. The job is the `ray_jobs` package (top-level ray-jobs/), one entrypoint per job type.
+It gets the `ingest` credential (staging bucket only) and presigned reads of the base version
 and nothing else: no lakeFS credential (plan decision 4). Its parameters are built here from Postgres, so the
 caller passes ids only."""
-import base64
 import json
+import shlex
 import uuid
-from pathlib import Path
+from enum import StrEnum
 
 from app.core import secret_files
 from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
@@ -12,14 +13,43 @@ from app.core.problem import not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import ray_client
-from app.integrations.data_plane import access, layout, lakefs
+from app.integrations.data_plane import access, job_package, layout, lakefs
 
-INGEST_SCRIPT = Path(__file__).parents[3] / "ingest_job" / "ingest.py"
+
+class JobType(StrEnum):
+    """The modules of ray_jobs.entrypoints; tests/ingest_job/test_contract.py checks each one exists."""
+
+    UPLOAD_IMAGES = "upload_images"
+    UPLOAD_CSV = "upload_csv"
+    HUGGINGFACE = "huggingface"
+
+
+ENTRYPOINT_MODULE = "ray_jobs.entrypoints.{}"
+# Fetches the package zip, makes it importable and runs the entrypoint as __main__ (argv: url, module, params json).
+# ponytail: stands in for runtime_env working_dir, which ray_client.submit_raw_job does not take yet; drop it then,
+# or once the package is baked into the Ray image (entrypoint becomes a plain `python -m`).
+_BOOTSTRAP = (
+    "import io, runpy, sys, tempfile, urllib.request, zipfile; d = tempfile.mkdtemp(); "
+    "zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(sys.argv[1], timeout=60).read())).extractall(d); "
+    "sys.path.insert(0, d); module = sys.argv[2]; sys.argv = [module, *sys.argv[3:]]; "
+    "runpy.run_module(module, run_name='__main__', alter_sys=True)"
+)
 HF_DEFAULT_REVISION = "main"  # the job records the commit sha it resolved in the report
 _IMPORT = (
     "SELECT i.source, i.params, i.base_version_id, p.task_type FROM dataset_imports i "
     "JOIN projects p ON p.id = i.project_id WHERE i.id = $1 AND i.dataset_id = $2 AND i.tenant_id = $3"
 )
+
+
+def job_type(source: str, task_type: str) -> JobType:
+    if source == ImportSource.HUGGINGFACE:
+        return JobType.HUGGINGFACE
+    return JobType.UPLOAD_CSV if TaskType(task_type) in TABULAR_TASKS else JobType.UPLOAD_IMAGES
+
+
+def entrypoint(package_url: str, kind: JobType, job: dict) -> str:
+    """Shell command Ray runs: the bootstrap, then the package url, the module and the params as plain argv."""
+    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, ENTRYPOINT_MODULE.format(kind.value), json.dumps(job)])
 
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: str) -> dict:
@@ -55,15 +85,10 @@ async def start_ingest(tenant_id: str, dataset_id: str, import_id: str, submissi
     if row["base_version_id"]:
         job["base"] = await _base(tenant_id, dataset_id, str(row["base_version_id"]), task_type)
     creds = secret_files.get(secret_files.INGEST)
-    script = base64.b64encode(INGEST_SCRIPT.read_bytes()).decode()
-    argv = base64.b64encode(json.dumps(job).encode()).decode()
-    # Same shipping as every Ray script here: base64 sidesteps shell quoting. exec() under `python -c` runs as __main__.
-    entrypoint = (
-        f"python -c \"import base64, sys; sys.argv = ['ingest.py', base64.b64decode('{argv}').decode()]; "
-        f"exec(base64.b64decode('{script}'))\""
-    )
+    package_url = await job_package.presigned_url()
+    command = entrypoint(package_url, job_type(row["source"], task_type), job)
     return await ray_client.submit_raw_job(
-        entrypoint=entrypoint,
+        entrypoint=command,
         submission_id=submission_id,
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
         num_cpus=settings.dataset_limits.ray_job_cpus,

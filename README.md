@@ -252,7 +252,7 @@ DELETE /datasets/{id}                              soft delete, 7-day retention;
 An import may carry `base_version_id` to merge on top of an earlier version (strict: exact duplicates are
 skipped, any other conflict fails the import with a report; `409 stale_base` if the base is no longer the
 latest). Archive rules and size limits are the `dataset_limits:` knobs in `config/base.yaml`; the ingest job
-is `core-api/ingest_job/ingest.py` and runs in the Ray image, writing only to a staging prefix. Background
+is the `ray_jobs` package in `ray-jobs/` (one entrypoint per job type) and runs in the Ray image, writing only to a staging prefix. Background
 pollers (`app/background.py`) move finished jobs to `awaiting_review`, expire stale imports and purge
 datasets 7 days after deletion.
 

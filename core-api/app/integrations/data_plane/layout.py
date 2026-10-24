@@ -12,6 +12,9 @@ staging bucket (settings.data_plane.staging_bucket), and nothing else:
             data.parquet       tabular tasks: the FULL merged rows, a nullable `split` column added by the job
             schema.json        tabular tasks: column names and inferred types
 
+The job code itself is staged next to the imports, content-addressed: `jobs/ray-jobs-<sha256>.zip` (job_package.py).
+It is not under `imports/`, so discarding or expiring an import never touches it.
+
 `commit_staged` imports `out/` onto the dataset's lakeFS main branch as one commit. A lakeFS import only adds or
 overwrites the paths it carries and never deletes the others, so the base version's `objects/*` stay in the repo
 untouched, and the job rewrites only the index/data/schema files whole. For a merge import the job reads the
@@ -21,6 +24,7 @@ and `report.json` never reach lakeFS.
 from enum import StrEnum
 
 STAGING_ROOT = "imports"
+JOB_PACKAGE_ROOT = "jobs"
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
 OUT_PREFIX = "out/"

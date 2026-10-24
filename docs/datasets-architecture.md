@@ -112,7 +112,7 @@ flowchart LR
     end
     GW -->|"presigned PUT"| STG[("Staging bucket<br/>imports/tenant/dataset/import/")]
     UI -.->|"direct upload"| STG
-    GW -->|"submit job + base-version URLs"| RAY["Ray<br/>ingest.py job"]
+    GW -->|"submit job + base-version URLs + job package URL"| RAY["Ray<br/>ray_jobs entrypoint"]
     RAY -->|"read upload, write out/ + report.json"| STG
     RAY -.->|"source=huggingface"| HF[Hugging Face Hub]
     GW -->|"commit: import out/ as one commit"| LFS[("lakeFS<br/>one repo per dataset")]
@@ -139,7 +139,8 @@ sequenceDiagram
     U->>A: POST /start
     A->>P: CAS awaiting_upload to queued
     A->>L: create repo (idempotent)
-    A->>R: submit job (staging cred + base index URL)
+    A->>S: stage the job package once (jobs/ray-jobs-sha.zip)
+    A->>R: submit job (staging cred + base index URL + package URL)
     loop every 10s
         A->>R: poll status
     end
@@ -160,6 +161,11 @@ sequenceDiagram
 - File bytes never pass through core-api. Uploads go to staging by presigned PUT, and lakeFS reads staging itself
   on commit.
 - The ingest job holds a staging credential and no lakeFS credential.
+- The job code is the `ray_jobs` package (`ray-jobs/`, own `pyproject.toml`), one entrypoint per job type
+  (`upload_images`, `upload_csv`, `huggingface`) over a shared runner that always writes `report.json`. core-api picks
+  the entrypoint from the import's source and task type, zips the package by content hash into
+  `jobs/ray-jobs-<sha256>.zip` in the staging bucket and passes a presigned GET; the job unpacks it and runs the
+  module. Details and the later options (Ray `working_dir`, baking it into the image): runtime-contract.md.
 - The lakeFS commit carries the import id as metadata, so retrying a failed commit returns the commit already made.
 - A commit holds a lease (`expires_at` while `committing`); a lapsed lease goes back to review via the expiry sweep
   or the next import's claim.

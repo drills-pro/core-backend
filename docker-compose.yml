@@ -158,7 +158,9 @@ services:
     ports: ["8200:8200"]
 
   core-api:
-    build: ./core-api
+    build:
+      context: .  # the image also carries ray-jobs/, which sits next to core-api/
+      dockerfile: core-api/Dockerfile
     depends_on:
       dbmate: { condition: service_completed_successfully }
       lakefs: { condition: service_started }

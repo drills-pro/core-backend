@@ -24,6 +24,6 @@ dependencies = [
 dev = ["pytest>=8.0", "cryptography>=42"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "../ray-jobs"]  # ray_jobs: the contract tests import the job package
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
