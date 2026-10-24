@@ -4,13 +4,13 @@
 service the API needs to do its job so an operator can tell *which* dependency is down without
 shelling into each container. Both are deliberately unauthenticated.
 """
-import boto3
 import httpx
 from fastapi import APIRouter, Depends
 
 from app.core import db, secret_files
 from app.core.authz import public
 from app.core.settings import settings
+from app.integrations.data_plane import lakefs, mlflow
 
 router = APIRouter(tags=["health"], dependencies=[Depends(public)])
 
@@ -25,10 +25,10 @@ async def health_deps():
     return {
         "postgres": await _check_postgres(),
         "secrets": _check_secrets(),
-        "lakefs_s3": _check_lakefs(),
+        "lakefs_s3": await lakefs.health(),
         "zitadel": await _check_http(f"{settings.zitadel.issuer}/.well-known/openid-configuration"),
         "ray": await _check_http(f"{settings.ray.dashboard}/api/version"),
-        "mlflow": await _check_http(f"{settings.mlflow.url}/health"),
+        "mlflow": await mlflow.health(),
     }
 
 
@@ -44,34 +44,11 @@ async def _check_postgres() -> str:
 
 
 def _check_secrets() -> str:
-    # Every mounted secret file loads and has the keys its consumers rely on.
-    bad = []
-    for name in secret_files.REQUIRED:
-        if name == "zitadel" and settings.env != "prod":
-            continue  # local Zitadel is reached with the PAT volume, not a service-user key
-        try:
-            secret_files.get(name)
-        except secret_files.SecretError as e:
-            bad.append(str(e))
+    # Every mounted secret file loads and has the keys its consumers rely on; the lakeFS and staging
+    # files are checked by the data plane's own health probe.
+    skip = secret_files.DATA_PLANE + (("zitadel",) if settings.env != "prod" else ())  # local Zitadel uses the PAT volume
+    bad = secret_files.problems(skip)
     return "ok" if not bad else "error: " + "; ".join(bad)
-
-
-def _check_lakefs() -> str:
-    # Deliberately a raw boto3 client rather than app/integrations/lakefs_client:
-    # the point is to prove the credentials and endpoint work right now, not to
-    # exercise the cached client the rest of the app shares.
-    try:
-        creds = secret_files.get("lakefs")
-        client = boto3.client(
-            "s3",
-            endpoint_url=creds["endpoint"],
-            aws_access_key_id=creds["access_key"],
-            aws_secret_access_key=creds["secret_key"],
-        )
-        client.list_buckets()
-        return "ok"
-    except Exception as e:  # noqa: BLE001
-        return f"error: {e}"
 
 
 async def _check_http(url: str) -> str:

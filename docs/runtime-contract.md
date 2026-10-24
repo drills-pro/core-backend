@@ -40,7 +40,8 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 |---|---|---|
 | `db` | `/vault/secrets/db` (k8s `apps/_components/vault-db-creds`, from `database/creds/core-app`) | `username`, `password`; the pool switches when the file changes |
 | `lakefs` | `/var/app-secret/app-backend/lakefs` | `endpoint`, `access_key`, `secret_key` |
-| `labelstudio` | `/var/app-secret/app-backend/labelstudio` | `url`, `refresh_token` |
+| `staging` | `/var/app-secret/app-backend/staging` | `endpoint`, `access_key`, `secret_key` |
+| `ingest` | `/var/app-secret/app-backend/ingest` | `endpoint`, `access_key`, `secret_key` (staging bucket only; see Datasets) |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |
 
 In the cluster the Vault Agent Injector renders one file per key under `app-secret/app-backend/*`
@@ -51,11 +52,28 @@ core-api makes no Vault API calls: the Vault agent sidecar renews the Postgres l
 `/vault/secrets/db` when it has to issue a new user. The k8s side keeps `agent-inject-token` only until
 this image is deployed; it can be removed after.
 
+## Datasets: staging store and lakeFS (data plane)
+
+Only `app/integrations/data_plane/` touches lakeFS, the staging bucket and MLflow. Before this image is
+deployed to prod, the k8s side needs (describe, apply by hand; `/health/deps` reports `secrets` as an error
+until the `staging` file exists):
+
+- Seed the `staging` secret (S3 `endpoint`, `access_key`, `secret_key`) in `bootstrap/04-vault-seed-secrets.sh`
+  so the injector renders `staging`. These credentials must read, write and delete in **both**
+  `data_plane.staging_bucket` and `data_plane.lakefs_blockstore_bucket`: `delete_dataset_repo` purges the lakeFS
+  storage namespace with them (lakeFS deletes only the repository record). 
+- Create those two buckets, and allow browsers to PUT to the staging bucket (CORS).
+- Set in `prod.yaml` once the hostnames exist: `public.staging_endpoint` (the address browsers reach the
+  staging store at; the default `http://localhost:9000` is local MinIO only) and `public.lakefs_endpoint`.
+- Seed a second secret, `ingest`, for the Ray ingest job: read, write and list on `data_plane.staging_bucket` only, never the lakeFS blockstore bucket (the job parses hostile input and its env is visible in the Ray job API). Per-import prefix scoping needs STS (plan risk). A matching k8s change is needed (`k8s-contract`).
+- Egress: core-api to the staging store (if not lakeFS's own S3), Ray to the staging store.
+- The ingest job (`core-api/ingest_job/ingest.py`, copied into the core-api image only so core-api can ship it to Ray) runs in the **Ray image**, not core-api's: that image must have Python >= 3.11, `pyarrow`, `Pillow` and `boto3` (checked against core-backend-ray-head; neither is in core-api's pyproject). The Dockerfile `COPY ingest_job` adds a file only: no port, probe, config key or secret change, so no k8s change for it.
+
 ## Other expectations of the cluster
 
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
 - Postgres is the per-app CNPG cluster `pg-backend` (host in `prod.yaml`); Vault's `core-app` role must point at the same cluster or logins fail with "password authentication failed".
-- Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Label Studio, Zitadel.
+- Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Zitadel.
 - Migrations: see the next section.
 
 ## Migrations: `/migrations` in the image

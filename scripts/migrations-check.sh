@@ -90,6 +90,88 @@ BEGIN
 END
 $$;
 ROLLBACK;
+
+-- A foreign tenant sees no dataset versions or imports.
+BEGIN;
+INSERT INTO projects (id, tenant_id, name) VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'a');
+INSERT INTO datasets (id, tenant_id, project_id, name)
+  VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'd');
+INSERT INTO dataset_imports (id, tenant_id, project_id, dataset_id, source, idempotency_key)
+  VALUES ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111',
+          'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'upload', 'k');
+INSERT INTO dataset_versions (tenant_id, dataset_id, number, lakefs_commit, import_id)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'c',
+          'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+SET LOCAL ROLE core_app;
+SET LOCAL app.tenant_id = '22222222-2222-2222-2222-222222222222';
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM dataset_versions) OR EXISTS (SELECT FROM dataset_imports) THEN
+    RAISE EXCEPTION 'core_app sees another tenant''s dataset versions or imports';
+  END IF;
+END
+$$;
+ROLLBACK;
+
+-- The retention sweep: purge_dataset_rows removes a dataset and everything pointing at it (as core_app,
+-- across tenants), and returns false for a dataset that was restored or is still inside the window.
+BEGIN;
+INSERT INTO projects (id, tenant_id, name) VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'a');
+INSERT INTO datasets (id, tenant_id, project_id, name, deleted_at) VALUES
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gone', now() - interval '2 days'),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'restored', NULL);
+INSERT INTO dataset_imports (id, tenant_id, project_id, dataset_id, source, status, idempotency_key, expires_at)
+  VALUES ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111',
+          'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'upload', 'awaiting_upload', 'k', now() - interval '1 day');
+INSERT INTO dataset_versions (id, tenant_id, dataset_id, number, lakefs_commit, import_id)
+  VALUES ('99999999-9999-9999-9999-999999999999', '11111111-1111-1111-1111-111111111111',
+          'dddddddd-dddd-dddd-dddd-dddddddddddd', 1, 'c', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+UPDATE datasets SET published_version_id = '99999999-9999-9999-9999-999999999999' WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+UPDATE dataset_imports SET base_version_id = '99999999-9999-9999-9999-999999999999';
+UPDATE projects SET default_test_dataset_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, dataset_ref, dataset_id, test_dataset_id)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'k', 'r', 'x',
+          'dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
+SET LOCAL ROLE core_app;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM expired_import_tenant_ids(now()) t WHERE t = '11111111-1111-1111-1111-111111111111') THEN
+    RAISE EXCEPTION 'expired_import_tenant_ids missed an expired import';
+  END IF;
+  IF (SELECT count(*) FROM purgeable_datasets(now() - interval '1 day')) <> 1 THEN
+    RAISE EXCEPTION 'purgeable_datasets must list only the deleted dataset past the cutoff';
+  END IF;
+  IF purge_dataset_rows('dddddddd-dddd-dddd-dddd-dddddddddddd', now() - interval '3 days') THEN
+    RAISE EXCEPTION 'purge_dataset_rows purged a dataset still inside the window';
+  END IF;
+  IF purge_dataset_rows('ffffffff-ffff-ffff-ffff-ffffffffffff', now()) THEN
+    RAISE EXCEPTION 'purge_dataset_rows purged a restored dataset';
+  END IF;
+  IF NOT purge_dataset_rows('dddddddd-dddd-dddd-dddd-dddddddddddd', now() - interval '1 day') THEN
+    RAISE EXCEPTION 'purge_dataset_rows did not purge an expired dataset';
+  END IF;
+  IF purge_dataset_rows('dddddddd-dddd-dddd-dddd-dddddddddddd', now()) THEN
+    RAISE EXCEPTION 'purge_dataset_rows must be idempotent once the rows are gone';
+  END IF;
+END
+$$;
+RESET ROLE;
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM datasets WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddddd')
+     OR EXISTS (SELECT FROM dataset_imports) OR EXISTS (SELECT FROM dataset_versions) THEN
+    RAISE EXCEPTION 'purge_dataset_rows left rows behind';
+  END IF;
+  IF NOT EXISTS (SELECT FROM datasets WHERE id = 'ffffffff-ffff-ffff-ffff-ffffffffffff') THEN
+    RAISE EXCEPTION 'purge_dataset_rows removed the restored dataset';
+  END IF;
+  IF EXISTS (SELECT FROM projects WHERE default_test_dataset_id IS NOT NULL)
+     OR EXISTS (SELECT FROM training_runs WHERE dataset_id IS NOT NULL OR test_dataset_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'purge_dataset_rows left dangling references';
+  END IF;
+END
+$$;
+ROLLBACK;
 SQL
 }
 

@@ -11,23 +11,25 @@ import zlib
 
 from app.core import rate_limit
 from app.core.db import get_pool
-from app.modules.user.datasets import reconcile_inflight_imports
+from app.modules.user.datasets import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
 from app.modules.user.deployments import reconcile_inflight_deployments
-from app.modules.user.preprocessing import reconcile_inflight_preprocessing
 from app.modules.user.training import reconcile_inflight_runs
 
 logger = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL_SECONDS = 10
+SWEEP_INTERVAL_SECONDS = 60
+PURGE_INTERVAL_SECONDS = 3600
 
 
 # (name, coroutine function, seconds between runs)
 POLLERS = (
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
-    ("dataset-import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
-    ("preprocessing-reconcile", reconcile_inflight_preprocessing, RECONCILE_INTERVAL_SECONDS),
-    ("rate-limit-purge", rate_limit.purge, 60),
+    ("import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
+    ("import-expiry", expire_stale_imports, SWEEP_INTERVAL_SECONDS),
+    ("dataset-purge", purge_deleted_datasets, PURGE_INTERVAL_SECONDS),
+    ("rate-limit-purge", rate_limit.purge, SWEEP_INTERVAL_SECONDS),
 )
 
 

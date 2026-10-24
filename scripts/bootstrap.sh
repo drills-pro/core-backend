@@ -38,9 +38,6 @@ echo "wrote $SECRETS_DIR/db.json ($user)"
 step "zitadel SPA client config and project id"
 ./scripts/steps/zitadel-restore.sh
 
-step "label studio refresh token"
-./scripts/steps/labelstudio.sh
-
 step "lakefs: admin, bucket, repository"
 ./scripts/steps/lakefs.sh
 

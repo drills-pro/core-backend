@@ -60,19 +60,48 @@ class Mlflow(_Section):
     url: str
 
 
+class DataPlane(_Section):
+    staging_bucket: str  # S3 bucket the ingest job writes to; core-api validates, then lakeFS imports from it
+    lakefs_blockstore_bucket: str  # bucket lakeFS keeps repository storage namespaces in
+    presign_ttl_seconds: int
+    commit_timeout_seconds: int  # how long commit_staged waits for the lakeFS import to finish
+
+
+class DatasetLimits(_Section):
+    """Ceilings the API and the ingest job enforce (docs/datasets-plan.md decision 16). Static knobs."""
+
+    upload_max_bytes: int  # one archive or CSV, single presigned PUT (S3 caps that at 5 GB)
+    extracted_max_bytes: int
+    extracted_max_ratio: int  # extracted size / archive size above this is a zip bomb
+    max_files: int
+    max_archive_depth: int  # directory levels inside an archive
+    max_path_length: int
+    image_max_dimension: int  # pixels, per side
+    image_max_bytes: int
+    csv_min_rows: int
+    csv_max_rows: int
+    csv_max_columns: int
+    hf_max_repo_bytes: int
+    job_timeout_seconds: int
+    ray_job_cpus: int
+    ray_job_memory_bytes: int
+    max_active_imports_per_tenant: int
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
 
 class Public(_Section):
     lakefs_endpoint: str
-    labelstudio_endpoint: str
+    staging_endpoint: str  # browsers PUT uploads here
 
 
 class SecretPaths(_Section):
     db: Path  # {"username", "password"} for Postgres; the Vault agent rewrites it on rotation
     lakefs: Path
-    labelstudio: Path
+    staging: Path  # {"endpoint", "access_key", "secret_key"} of the S3 store holding the staging bucket
+    ingest: Path  # same shape as staging, but limited to the staging bucket: the ingest job runs hostile input with it
     zitadel: Path
 
 
@@ -85,6 +114,8 @@ class Settings(BaseSettings):
     auth: Auth
     ray: Ray
     mlflow: Mlflow
+    data_plane: DataPlane
+    dataset_limits: DatasetLimits
     observability: Observability
     public: Public
     secrets: SecretPaths

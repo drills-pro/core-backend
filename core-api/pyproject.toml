@@ -17,6 +17,7 @@ dependencies = [
     "opentelemetry-instrumentation-asyncpg>=0.48b0",
     "pydantic-settings>=2.16.0",
     "pyyaml>=6.0.3",
+    "pyarrow>=15",  # preview reads the head of index.parquet / data.parquet
 ]
 
 [dependency-groups]

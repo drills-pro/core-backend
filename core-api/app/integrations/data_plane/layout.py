@@ -1,0 +1,70 @@
+"""The staging layout: the contract between core-api and the ingest job.
+
+The job holds no lakeFS credential. It reads its input and writes its output under one prefix of the
+staging bucket (settings.data_plane.staging_bucket), and nothing else:
+
+    imports/<tenant_id>/<dataset_id>/<import_id>/        <- staging_prefix(), stored as dataset_imports.staging_key
+        upload/source          the uploaded archive or CSV (the presigned PUT target); absent for Hugging Face
+        report.json            ImportReport (report.py); always written, also when the import fails
+        out/                   what the import ADDS to main (merged with the base when one is set)
+            index.parquet      image tasks: the FULL merged index, one row per object, columns INDEX_COLUMNS
+            objects/<path>     image tasks: only the NEW image files, at the path index.parquet names
+            data.parquet       tabular tasks: the FULL merged rows, a nullable `split` column added by the job
+            schema.json        tabular tasks: column names and inferred types
+
+`commit_staged` imports `out/` onto the dataset's lakeFS main branch as one commit. A lakeFS import only adds or
+overwrites the paths it carries and never deletes the others, so the base version's `objects/*` stay in the repo
+untouched, and the job rewrites only the index/data/schema files whole. For a merge import the job reads the
+base index or data through a presigned GET (core-api passes the URLs) and writes the merged result. `upload/`
+and `report.json` never reach lakeFS.
+"""
+from enum import StrEnum
+
+STAGING_ROOT = "imports"
+UPLOAD_KEY = "upload/source"
+REPORT_KEY = "report.json"
+OUT_PREFIX = "out/"
+OBJECTS_PREFIX = "objects/"
+INDEX_KEY = "index.parquet"
+DATA_KEY = "data.parquet"
+SCHEMA_KEY = "schema.json"
+
+# /health/deps values.
+HEALTH_OK = "ok"
+HEALTH_ERROR = "error: "
+
+# Name of the lakeFS branch every version is committed on.
+MAIN_BRANCH = "main"
+REPO_PREFIX = "ds-"
+
+
+class Split(StrEnum):
+    """Values of the nullable `split` column. Datasets never invent one (plan decision 9)."""
+
+    TRAIN = "train"
+    VALIDATION = "validation"
+    TEST = "test"
+
+
+class ColumnType(StrEnum):
+    """Column types the job writes to schema.json (and as Arrow types in data.parquet)."""
+
+    BOOL = "bool"
+    INT64 = "int64"
+    FLOAT64 = "float64"
+    STRING = "string"
+
+
+# index.parquet columns for image tasks. `label` is set for image-classification, `boxes` (a list of
+# {category, x, y, width, height} in pixels) for object-detection; the other is null. `split` is a Split or null.
+INDEX_COLUMNS = ("path", "size", "sha256", "label", "boxes", "split")
+# Fields of one entry of `boxes`, in pixels.
+BOX_FIELDS = ("category", "x", "y", "width", "height")
+
+
+def staging_prefix(tenant_id: str, dataset_id: str, import_id: str) -> str:
+    return f"{STAGING_ROOT}/{tenant_id}/{dataset_id}/{import_id}/"
+
+
+def repo_name(dataset_id: str) -> str:
+    return f"{REPO_PREFIX}{dataset_id}"

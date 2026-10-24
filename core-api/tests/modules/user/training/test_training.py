@@ -3,6 +3,7 @@ import uuid
 
 import pytest
 
+from app.core.authz import TenantRole
 from app.modules.user.training import routes
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
@@ -43,3 +44,8 @@ def test_private_unbound_is_404(call):
 
 def test_cross_tenant_project_is_404(call):
     assert call("GET", f"{BASE}/{RUN}", access(visibility=None, default_access=None, roles=None)).status_code == 404
+
+
+def test_create_is_a_501_stub_until_the_trainer_slice(call):
+    r = call("POST", f"{BASE}?dataset_ref=x", access(role=TenantRole.ADMIN), headers={"Idempotency-Key": "k"})
+    assert (r.status_code, r.json()["code"]) == (501, "not_implemented")

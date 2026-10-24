@@ -5,27 +5,26 @@ import logging
 import uuid
 
 import httpx
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.authz import Action, AuthzContext, require
-from app.core.settings import settings
+from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
-from app.integrations import lakefs_client, mlflow_client, ray_client
+from app.integrations import ray_client
+from app.integrations.data_plane import mlflow
 
 logger = logging.getLogger(__name__)
 
+NOT_IMPLEMENTED = "not_implemented"
+
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
 
-MAX_CONCURRENT = settings.ray.max_concurrent_training_runs
-MIN_LABELED_SAMPLES = 10  # FR3 (03-dataset-governance.md)
-
-
-async def _close_run(mlflow_run_id: str | None, status: str) -> None:
+async def _close_run(tenant_id: str, project_id: uuid.UUID, mlflow_run_id: str | None, status: mlflow.RunStatus) -> None:
     """Best effort: a tracking hiccup must not mask the error or block a cancel."""
     if mlflow_run_id is None:
         return
     try:
-        await mlflow_client.finish_run(run_id=mlflow_run_id, status=status)
+        await mlflow.finish_run(tenant_id, str(project_id), mlflow_run_id, status)
     except httpx.HTTPError:
         logger.warning("could not close MLflow run %s as %s", mlflow_run_id, status, exc_info=True)
 
@@ -33,145 +32,11 @@ async def _close_run(mlflow_run_id: str | None, status: str) -> None:
 @router.post("", status_code=202)
 async def create_training_run(
     project_id: uuid.UUID,
-    dataset_ref: str,
     ctx: AuthzContext = Depends(require(Action.JOB_CREATE)),
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
-    config: dict = Body(default_factory=lambda: dict(ray_client.DEFAULT_CONFIG)),
-    dataset_id: uuid.UUID | None = None,
-    dataset_version: str | None = None,
-    test_dataset_id: uuid.UUID | None = None,
-    test_dataset_version: str | None = None,
-    reproduction_group_id: uuid.UUID | None = None,
 ):
-    # FR2 (04-api.md): idempotency key — a retried submission returns the
-    # already-created run instead of double-submitting a GPU job.
-    async with TenantConn(ctx.tenant_id) as conn:
-        existing = await conn.fetchrow(
-            "SELECT id, status, ray_job_id, config FROM training_runs "
-            "WHERE project_id = $1 AND idempotency_key = $2",
-            project_id,
-            idempotency_key,
-        )
-        if existing:
-            return dict(existing)
-
-        # FR4 (07-compute-ray-k8s.md): hard quota, enforced at submission,
-        # not just billed after the fact.
-        inflight = await conn.fetchval(
-            "SELECT count(*) FROM training_runs "
-            "WHERE tenant_id = $1 AND status IN ('submitted', 'running')",
-            ctx.tenant_id,
-        )
-        if inflight >= MAX_CONCURRENT:
-            raise HTTPException(
-                status_code=429,
-                detail=f"tenant has {inflight} training runs in flight (max {MAX_CONCURRENT})",
-            )
-
-        # If a real dataset with uploaded files is referenced, the job
-        # trains on those real files instead of a generated placeholder
-        # set (see app/integrations/ray_client.py's Ultralytics template).
-        # dataset_version pins to a specific LakeFS commit (see
-        # app/integrations/lakefs_client.py / datasets.py's versions endpoints) for
-        # reproducible training; unset trains on the branch's current
-        # working state.
-        file_keys = []
-        if dataset_id is not None:
-            dataset = await conn.fetchrow(
-                "SELECT id FROM datasets WHERE id = $1 AND project_id = $2",
-                dataset_id,
-                project_id,
-            )
-            if dataset is None:
-                raise HTTPException(status_code=404, detail="dataset not found")
-            file_keys = lakefs_client.list_files(str(dataset_id), ref=dataset_version or "")
-
-        # FR5 (03-dataset-governance.md): a project can designate a default
-        # test dataset that pre-fills every run's picker; an explicit
-        # test_dataset_id on this call still wins.
-        if test_dataset_id is None:
-            test_dataset_id = await conn.fetchval(
-                "SELECT default_test_dataset_id FROM projects WHERE id = $1", project_id
-            )
-
-        # A separately versioned, user-designated held-out test set — any
-        # dataset can serve as one (app/modules/datasets/routes.py has no special "test"
-        # type; it's just which dataset you point at here). Skips the
-        # internal random split entirely when set (see ray_client.py).
-        test_file_keys = []
-        if test_dataset_id is not None:
-            test_dataset = await conn.fetchrow(
-                "SELECT id FROM datasets WHERE id = $1 AND project_id = $2",
-                test_dataset_id,
-                project_id,
-            )
-            if test_dataset is None:
-                raise HTTPException(status_code=404, detail="test dataset not found")
-            test_file_keys = lakefs_client.list_files(str(test_dataset_id), ref=test_dataset_version or "")
-
-        # FR3 (03-dataset-governance.md): >=10 labeled samples (dataset +
-        # its paired test set combined) before a run can target it —
-        # cheap since list_files above already fetched the full key list.
-        if dataset_id is not None:
-            labeled = [k for k in (*file_keys, *test_file_keys) if not k.startswith("_unlabeled/")]
-            if len(labeled) < MIN_LABELED_SAMPLES:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"{len(labeled)} / {MIN_LABELED_SAMPLES} minimum labeled samples",
-                )
-
-        # FR2/FR3 (06-project-settings-deployment.md): project-level compute
-        # target/base-model defaults.
-        settings = await conn.fetchval("SELECT settings FROM projects WHERE id = $1", project_id) or {}
-        if "base_model" not in config and settings.get("base_model"):
-            config = {**config, "base_model": settings["base_model"]}
-
-        # The MLflow run exists before the job does: the trainer uploads the model into it, and a run
-        # row can never point at a run that was not created for this tenant and project.
-        try:
-            mlflow_run_id, mlflow_artifact_path = await mlflow_client.start_run(
-                tenant_id=ctx.tenant_id, project_id=str(project_id), dataset_ref=dataset_ref
-            )
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail="experiment tracking is unavailable") from e
-        try:
-            ray_job_id = await ray_client.submit_job(
-                tenant_id=ctx.tenant_id,
-                project_id=str(project_id),
-                dataset_ref=dataset_ref,
-                config=config,
-                file_keys=file_keys,
-                dataset_id=str(dataset_id) if dataset_id else None,
-                dataset_version=dataset_version,
-                test_file_keys=test_file_keys,
-                test_dataset_id=str(test_dataset_id) if test_dataset_id else None,
-                test_dataset_version=test_dataset_version,
-                compute_target=settings.get("compute_target", "cpu"),
-                mlflow_artifact_path=mlflow_artifact_path,
-            )
-        except Exception:
-            await _close_run(mlflow_run_id, "FAILED")
-            raise
-        row = await conn.fetchrow(
-            "INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, dataset_ref, config, "
-            "dataset_id, dataset_version, test_dataset_id, test_dataset_version, reproduction_group_id, mlflow_run_id) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
-            "RETURNING id, status, ray_job_id, config, dataset_id, dataset_version, test_dataset_id, "
-            "test_dataset_version, reproduction_group_id",
-            ctx.tenant_id,
-            project_id,
-            idempotency_key,
-            ray_job_id,
-            dataset_ref,
-            config,
-            dataset_id,
-            dataset_version,
-            test_dataset_id,
-            test_dataset_version,
-            reproduction_group_id,
-            mlflow_run_id,
-        )
-    return dict(row)
+    # ponytail: data access is stubbed until the trainer slice rewires training to dataset version ids
+    # (docs/datasets-plan.md, Deferred); authz above still applies.
+    raise Problem(501, NOT_IMPLEMENTED, "training is not available until the trainer slice")
 
 
 @router.get("")
@@ -264,16 +129,9 @@ async def get_training_run_lineage(
                 run_id,
             )
 
-    commit_message = None
-    if run["dataset_id"] is not None and run["dataset_version"]:
-        versions = lakefs_client.list_versions(str(run["dataset_id"]))
-        commit = next((v for v in versions if v.get("id") == run["dataset_version"]), None)
-        if commit:
-            commit_message = commit.get("message")
-
     return {
         "training_run": dict(run),
-        "dataset_commit_message": commit_message,
+        "dataset_commit_message": None,  # ponytail: lineage joins dataset_versions once training is rewired
         "model_version": dict(model) if model else None,
         "deployment": dict(deployment) if deployment else None,
     }
@@ -297,5 +155,5 @@ async def cancel_training_run(
             "WHERE id = $1 RETURNING *",
             run_id,
         )
-    await _close_run(row["mlflow_run_id"], "KILLED")
+    await _close_run(ctx.tenant_id, project_id, row["mlflow_run_id"], mlflow.RunStatus.KILLED)
     return dict(updated)

@@ -1,0 +1,207 @@
+{
+  "$defs": {
+    "Issue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/IssueCode"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "IssueCode": {
+      "enum": [
+        "archive_unsafe_path",
+        "archive_symlink",
+        "archive_too_large",
+        "archive_too_many_files",
+        "archive_too_deep",
+        "archive_duplicate_path",
+        "path_too_long",
+        "unsupported_extension",
+        "corrupt_image",
+        "image_too_large",
+        "label_case_collision",
+        "no_data",
+        "coco_invalid",
+        "csv_no_header",
+        "csv_duplicate_columns",
+        "csv_too_few_rows",
+        "csv_too_many_rows",
+        "csv_too_many_columns",
+        "csv_row_too_long",
+        "target_missing",
+        "target_type_mismatch",
+        "schema_mismatch",
+        "merge_conflict",
+        "duplicate_skipped",
+        "hf_card_mismatch",
+        "hf_schema_mismatch",
+        "hf_too_large",
+        "hf_no_data_files",
+        "job_timeout",
+        "internal_error"
+      ],
+      "title": "IssueCode",
+      "type": "string"
+    },
+    "Outcome": {
+      "enum": [
+        "ok",
+        "failed"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "error",
+        "warning"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "Stats": {
+      "additionalProperties": false,
+      "description": "What the new version contains (after the merge). Stored as dataset_versions.stats.",
+      "properties": {
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "total_bytes": {
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "classes": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "default": {},
+          "title": "Classes",
+          "type": "object"
+        },
+        "splits": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "default": {},
+          "title": "Splits",
+          "type": "object"
+        },
+        "duplicates_skipped": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Duplicates Skipped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_count",
+        "total_bytes",
+        "row_count"
+      ],
+      "title": "Stats",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "#/$defs/Outcome"
+    },
+    "stats": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Stats"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "issues": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Issue"
+      },
+      "maxItems": 200,
+      "title": "Issues",
+      "type": "array"
+    },
+    "issues_omitted": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Issues Omitted",
+      "type": "integer"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "license": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "License"
+    }
+  },
+  "required": [
+    "outcome"
+  ],
+  "title": "ImportReport",
+  "type": "object"
+}

@@ -23,7 +23,7 @@ from app.core import audit
 from app.core.auth import get_platform_admin
 from app.core.authz import TenantStatus
 from app.core.db import get_pool
-from app.core.enums import TaskType
+from app.core.enums import TaskType, require_supported_task_type
 from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
@@ -130,6 +130,7 @@ async def create_tenant_project(
     the audit row — so a project the operator creates is indistinguishable
     from one the tenant created itself.
     """
+    require_supported_task_type(task_type)
     async with (await get_pool()).acquire() as conn:
         if not await conn.fetchval("SELECT true FROM tenants WHERE id = $1", tenant_id):
             raise HTTPException(status_code=404, detail="no such tenant")

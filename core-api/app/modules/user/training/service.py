@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from app.core.metrics import usage as usage_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import mlflow_client, ray_client
+from app.integrations import ray_client
+from app.integrations.data_plane import mlflow
 from app.modules.user.usage import record_usage
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
     metrics = None
     mlflow_run_id = row["mlflow_run_id"]
     if new_status == "cancelled" and mlflow_run_id:
-        await mlflow_client.finish_run(run_id=mlflow_run_id, status="KILLED")
+        await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
     if new_status in ("succeeded", "failed"):
         logs = await ray_client.get_logs(row["ray_job_id"])
         scalar_metrics = ray_client.parse_metrics(logs)
@@ -50,15 +51,14 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
         # row (below) but never sent to MLflow.
         metrics = {**scalar_metrics, **ray_client.parse_extra_metrics(logs)}
         model_artifact = ray_client.parse_model_artifact(logs)
-        if mlflow_run_id is None:  # submitted before runs were created at submit time
-            mlflow_run_id, _ = await mlflow_client.start_run(
-                tenant_id=tenant_id, project_id=str(row["project_id"]), dataset_ref=row["dataset_ref"]
+        if mlflow_run_id is not None:
+            await mlflow.finish_run(
+                tenant_id,
+                str(row["project_id"]),
+                mlflow_run_id,
+                mlflow.RunStatus.FINISHED if new_status == "succeeded" else mlflow.RunStatus.FAILED,
+                scalar_metrics,
             )
-        await mlflow_client.finish_run(
-            run_id=mlflow_run_id,
-            status="FINISHED" if new_status == "succeeded" else "FAILED",
-            metrics=scalar_metrics,
-        )
         if new_status == "succeeded":
             elapsed = (completed_at - row["created_at"]).total_seconds()
             await record_usage(

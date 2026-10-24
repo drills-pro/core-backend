@@ -143,17 +143,6 @@ services:
       --serve-artifacts"
     ports: ["5001:5000"]
 
-  labelstudio:
-    image: heartexlabs/label-studio:latest
-    labels:
-      dev.orbstack.domains: labelstudio.monorepo.orb.local  # public.labelstudio_endpoint (base.yaml)
-    environment:
-      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
-      LABEL_STUDIO_USERNAME: admin@platform.local
-      LABEL_STUDIO_PASSWORD: LabelStudioAdminPw1!
-      LABEL_STUDIO_USER_TOKEN: dev-label-studio-token-0123456789
-    ports: ["8110:8080"]
-
   vault:
     image: hashicorp/vault:latest
     cap_add: ["IPC_LOCK"]
@@ -178,7 +167,6 @@ services:
       lgtm: { condition: service_started }
       vault: { condition: service_started }
       mlflow: { condition: service_started }
-      labelstudio: { condition: service_started }
     environment:
       # Everything else is core-api/config/{base,compose}.yaml; secrets are the files mounted below.
       APP_ENV: compose

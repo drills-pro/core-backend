@@ -30,6 +30,14 @@ Non-secret config is committed YAML; secrets are mounted JSON files referenced b
    URL inside a secret uses the compose service name in that form, and both copies work.
 5. Prod value: the `k8s` repo seeds it in Vault (`bootstrap/04-vault-seed-secrets.sh`, path `app-secret/app-backend/<name>`); the injector template already renders every key. Hand the user the `vault kv put` command; do not run root-token scripts.
 
+## Datasets knobs and secrets
+
+`data_plane:` (buckets, presign TTL) and `dataset_limits:` (upload, archive, image, CSV, HF, job and per-tenant
+import caps) live in `base.yaml`; add a limit there and in `settings.py`, never as a literal in the ingest code.
+The secrets are `lakefs`, `staging` (core-api's S3 access to the staging and lakeFS blockstore buckets) and `ingest`
+(handed to the Ray ingest job; staging bucket only). Only `app/integrations/data_plane/` reads them. New `prod.yaml`
+keys or secret files need the `k8s` change listed in `docs/runtime-contract.md` (skill `k8s-contract`).
+
 ## Rules
 
 - A secret value never goes in YAML, env vars, logs, tests or this repo. `tests/core/test_settings.py` fails on secret-looking keys.

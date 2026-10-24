@@ -19,6 +19,7 @@ Run it directly (`python tests/architecture/test_architecture.py`) for the same 
 without pytest.
 """
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -164,11 +165,67 @@ def test_composition_root_registers_every_module():
     assert not unwired, f"modules exist but are never mounted in main.py: {unwired}"
 
 
+# Plan step 4: these modules and clients were deleted; nothing may import or mount them again.
+_REMOVED_CODE = re.compile(
+    r"modules\.user\.(labeling|preprocessing)\b|\blabelstudio_client\b|\bdatasets\.(tasks|types)\b"
+)
+
+
+def test_removed_legacy_code_is_gone_and_unreferenced():
+    assert not (MODULES / "user" / "labeling").exists() and not (MODULES / "user" / "preprocessing").exists()
+    assert not (APP / "integrations" / "labelstudio_client.py").exists()
+    hits = [str(p.relative_to(APP)) for p in APP.rglob("*.py") if _REMOVED_CODE.search(p.read_text(encoding="utf-8"))]
+    assert not hits, f"references to removed legacy modules: {hits}"
+
+
+# Only app/integrations/data_plane may build a lakeFS, S3 or MLflow client or read their secrets. No exceptions.
+_BACKEND_ACCESS = re.compile(
+    r"\bboto3\b|settings\.mlflow|\b(lakefs|mlflow)_client\b|^\s*(import|from) mlflow|from app\.core\.secret_files import",
+    re.M,
+)
+_SECRET_NAME = re.compile(r"""['"](lakefs|staging|ingest)['"]|secret_files\.(LAKEFS|STAGING|INGEST)\b""")
+# Looping over every secret (REQUIRED) and calling get() reads the data-plane ones too; use secret_files.problems().
+_SECRET_ITERATION = re.compile(r"secret_files\.REQUIRED")
+
+
+def _reaches_backend(source: str, rel: str) -> bool:
+    if _BACKEND_ACCESS.search(source):
+        return True
+    # secret_files.get(<name>) with the name quoted anywhere in the file (core/ defines the names).
+    if rel.startswith("app/core/") or "secret_files" not in source:
+        return False
+    return bool(_SECRET_NAME.search(source)) or bool(_SECRET_ITERATION.search(source))
+
+
+def test_only_the_data_plane_reaches_lakefs_and_mlflow():
+    offenders = [
+        rel
+        for p in _iter_python_files()
+        if "integrations/data_plane" not in p.as_posix()
+        and _reaches_backend(p.read_text(encoding="utf-8"), rel := str(p.relative_to(APP.parent)))
+    ]
+    assert not offenders, "only app/integrations/data_plane may use lakeFS/S3/MLflow clients:\n  " + "\n  ".join(offenders)
+
+
+def test_the_backend_rule_catches_what_it_claims_to():
+    assert _reaches_backend("import boto3", "app/x.py")
+    assert _reaches_backend("secret_files.get('staging')", "app/x.py")
+    assert _reaches_backend("name = 'lakefs'\nsecret_files.get(name)", "app/x.py")
+    assert _reaches_backend("from app.core.secret_files import get", "app/x.py")
+    assert not _reaches_backend("secret_files.get('db')", "app/x.py")
+    assert _reaches_backend("secret_files.get(secret_files.STAGING)", "app/x.py")
+    assert _reaches_backend("for n in secret_files.REQUIRED:\n    secret_files.get(n)", "app/x.py")
+    assert not _reaches_backend("secret_files.problems(secret_files.DATA_PLANE)", "app/x.py")
+
+
 if __name__ == "__main__":
     failures = 0
     for check in (test_layer_boundaries_hold, test_every_package_is_a_real_package,
                   test_every_module_exports_a_router,
-                  test_composition_root_registers_every_module):
+                  test_composition_root_registers_every_module,
+                  test_removed_legacy_code_is_gone_and_unreferenced,
+                  test_only_the_data_plane_reaches_lakefs_and_mlflow,
+                  test_the_backend_rule_catches_what_it_claims_to):
         try:
             check()
             print(f"PASS {check.__name__}")

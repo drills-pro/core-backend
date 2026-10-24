@@ -9,7 +9,8 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 
-from app.integrations import mlflow_client, ray_client
+from app.integrations import ray_client
+from app.integrations.data_plane import mlflow
 
 RAY_SERVE_HTTP = "http://ray-head:8000"
 
@@ -103,7 +104,7 @@ async def deploy(
 
     if "onnx_key" in weights:
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
-            model_url=f"{mlflow_client.ARTIFACTS_API}/{weights['onnx_key']}",
+            model_url=mlflow.artifact_url(weights['onnx_key']),
             class_names=weights["class_names"],
             name=name,
             route_prefix=route_prefix,

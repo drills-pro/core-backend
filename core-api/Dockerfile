@@ -8,6 +8,8 @@ RUN uv sync --no-install-project
 
 COPY app ./app
 COPY config ./config
+# Shipped to Ray as one file by app/integrations/data_plane/ingest.py.
+COPY ingest_job ./ingest_job
 # Read by the cluster's backend-migrate Job: an init container runs `cp -R /migrations/. /work/` and
 # dbmate (its own image) applies them. This image ships no migration runner.
 COPY migrations /migrations

@@ -13,7 +13,7 @@ docker compose up --build
 ```
 
 Then provision the services that need it — LakeFS, Vault, Zitadel's OIDC
-credentials, Label Studio, and the kind node IP:
+credentials, and the kind node IP:
 
 ```
 ./scripts/bootstrap.sh
@@ -34,7 +34,7 @@ Needs OrbStack (the host copies of the secret files use its `<service>.<project>
 mise install
 (cd core-api && uv sync --group dev)
 ./scripts/secrets-init.sh
-docker compose up -d postgres minio lakefs zitadel ray-head lgtm mlflow labelstudio vault   # all but core-api; dbmate migrates
+docker compose up -d postgres minio lakefs zitadel ray-head lgtm mlflow vault   # all but core-api; dbmate migrates
 ./scripts/bootstrap.sh          # also writes .local/secrets-host/ for config/local.yaml
 cd core-api && APP_ENV=local uv run uvicorn app.main:app --reload --port 8090
 ```
@@ -55,7 +55,6 @@ stack, run it once before `bootstrap.sh`.
 | MLflow | http://localhost:5001 |
 | Grafana (LGTM) | http://localhost:3000 |
 | Vault | http://localhost:8200 (root token: `root`) |
-| Label Studio | http://localhost:8110 (admin@platform.local / LabelStudioAdminPw1!) |
 
 `GET /health/deps` pings every dependency (Postgres, LakeFS, Zitadel,
 Ray, MLflow) — `"ok"` per service once everything is wired.
@@ -69,8 +68,8 @@ Ray, MLflow) — `"ok"` per service once everything is wired.
 | 02 auth/identity | ✅ JWT verification against Zitadel JWKS, unit-tested; Zitadel on a real separate CloudNativePG cluster; **automated OIDC client registration via the Management API is real** (`scripts/zitadel-bootstrap.sh`) — a real project, OIDC app, and all 4 FR3 roles, created via API calls with no console clicks, verified reproducible from a clean database. `AUTH_MODE=dev` remains the compose default only because exercising it needs a browser-driven authorization-code flow this environment can't automate — see Auth section |
 | 03 project/user mgmt | ✅ project CRUD/archive/soft-delete, per-project roles, audit log — all live-tested |
 | 04 API | ✅ by construction (FastAPI → OpenAPI, path-versioned `/v1`, 202+idempotency on training runs, pagination) + real Deployments group, Models group (MLflow registry wrapper), `POST /v1/predict/{deployment_id}` with its own separate auth scope and real **per-plan-tier** rate limiting (verified: `pro` tenant → 120/min default; a 3/min-throttled deployment → `200,200,200,429,429`) |
-| 05 UI/no-code builder | The console lives in the separate `customer-frontend` repo; this repo ships no UI. The labeling, dataset-upload and training APIs it uses are all here |
-| 06 ML training (MLflow/Ludwig/Ultralytics) | ✅ orchestration + MLflow logging real and tested; **three real training backends** — numpy default (deployable via fitted weights), literal `ultralytics.YOLO(...).train()` on real uploaded files (deployable via real ONNX export served through `onnxruntime`, verified on real photos), and literal `LudwigModel(...).train()` (real, non-canned accuracy logged to MLflow). Manifest CSV ingestion and MLflow Model Registry promotion both real |
+| 05 UI/no-code builder | The console lives in the separate `customer-frontend` repo; this repo ships no UI. The dataset and training APIs it uses are all here |
+| 06 ML training (MLflow) | Orchestration and MLflow logging are real and tested. Training data access is stubbed (`501 not_implemented`) until the trainer slice rewires it to dataset version ids. MLflow Model Registry promotion is real |
 | 07 compute (Ray/K8s) | ✅ real KubeRay on a local kind cluster — 3 labeled node pools, priority classes, scale-to-zero training pool, per-tenant namespace+quota, all live-verified |
 | 08 observability (LGTM) | ✅ OTel traces + metrics verified live in Tempo/Prometheus; **all 4 of FR2's named alerts real and actively evaluating**, including GPU node pool exhaustion — verified to actually fire, not just evaluate, via real K8s `ResourceQuota` tracking of `nvidia.com/gpu` requests (real even at 0 physical GPUs) relayed through `kube-state-metrics`. Plus a real customer-facing usage dashboard (see req/05) |
 | 09 usage metering | ✅ append-only `usage_events`, idempotent writes, wired to real training-run completion, queryable via API and the customer dashboard |
@@ -98,9 +97,9 @@ core-api/app/
   background.py    the pollers: each module owns the reconcile, this owns the timer
   core/            shared kernel — config, db pool, tenancy/RLS, auth, audit, telemetry
   integrations/    one client per outside system — Ray, LakeFS, MLflow, S3,
-                   Label Studio, Zitadel, Vault
-  modules/         one package per context: projects, datasets, labeling,
-                   preprocessing, training, model_registry, deployments, usage,
+                   Zitadel, Vault
+  modules/         one package per context: projects, datasets,
+                   training, model_registry, deployments, usage,
                    teams, users, auth, public, health
                      routes.py   HTTP surface
                      service.py  domain logic shared by HTTP and background callers
@@ -215,194 +214,47 @@ curl "http://localhost:8090/v1/admin/activity/summary" -H "X-Admin-User: admin-d
 `app/modules/training/routes.py` submits a Ray job (Ray's HTTP Job Submission API, not
 the Python SDK — core-api needs no Ray runtime) tagged with
 `tenant_id`/`project_id` metadata, polls it, and on completion logs
-metrics to MLflow (`app/integrations/mlflow_client.py`) and bills the run to
+metrics to MLflow (`app/integrations/data_plane/mlflow.py`) and bills the run to
 `usage_events` (`app/modules/usage/service.py`) — idempotently on both counts (retried
 submission with the same `Idempotency-Key` returns the existing run;
 retried completion polling never double-bills).
 
-The Ray entrypoint (`app/integrations/ray_client.py::_build_entrypoint`) supports two
-real backends, chosen by `config.backend`:
-
-- **default** — genuine gradient-descent logistic regression (numpy,
-  already in the Ray image) on a synthetic tabular dataset seeded from
-  `dataset_ref`. Verify it's real by submitting two runs with different
-  `learning_rate`/`epochs` and comparing `accuracy`/`loss` in MLflow —
-  they differ, because it's actually fitting.
-- **`{"backend": "ultralytics"}`** — **literal Ultralytics**:
-  `ultralytics.YOLO("yolo11n-cls.pt").train(...)`, a real pretrained
-  checkpoint, a real multi-epoch training loop, real validation `top1`
-  accuracy from `model.val()`. Built as a dedicated `ray-training/`
-  image (Ray + Ultralytics + torch CPU) since the base Ray image doesn't
-  carry ML training deps — see `ray-training/Dockerfile`. Verified live
-  end-to-end through the actual `POST /training-runs` API, not just
-  invoked directly (see below).
-
-The Ultralytics backend trains on **real uploaded files** when a dataset
-has any (see Dataset upload below) — it lists the dataset's real S3
-prefix, downloads the actual bytes inside the Ray job, and builds the
-YOLO-classify directory structure from real `label/filename` keys. Only
-falls back to a generated placeholder set when the dataset is empty (a
-brand-new project needs something to click "train" on before a customer
-uploads anything). Verified live: uploaded 12 real distinct PNGs across 2
-classes through the actual presigned-URL flow, submitted a real training
-run against that dataset, and confirmed via the Ray job's own logs that
-it used them (`metric:real_files_used=12`, `train: found 8 images in 2
-classes`) — not the synthetic fallback.
-
-**Ludwig is also wired in for real** — `{"backend": "ludwig"}` runs a
-literal `LudwigModel(config=...).train()` on tabular data, real accuracy
-computed via `model.evaluate()`. Getting there took two real, separate
-dependency conflicts to solve (not a skip — see the Ludwig subsection
-below for what actually broke and how it got fixed).
-
-Everything *around* the training call (submission with labels, polling,
-log retrieval, MLflow logging, billing) is identical across all three
-backends — proof that swapping in a real backend is a template addition,
-not an architecture change.
-
-```
-curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=commit-abc" \
-  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" -H "Idempotency-Key: run-1" \
-  -H "Content-Type: application/json" -d '{"backend":"ultralytics","trainer":{"epochs":3}}'
-```
-
-Hard per-tenant concurrency quota (`MAX_CONCURRENT_TRAINING_RUNS`, req/07
-FR4) is enforced at submission, not just billed after the fact.
-
-```
-curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=commit-abc" \
-  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" -H "Idempotency-Key: run-1"
-curl "http://localhost:8090/v1/projects/<id>/training-runs/<run_id>" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
-curl "http://localhost:8090/v1/projects/<id>/usage" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
-```
+Training data access is stubbed: `POST /training-runs` answers `501 not_implemented` (authz still applies)
+until the trainer slice rewires training to dataset version ids (`docs/datasets-plan.md`, Deferred).
 
 Ray image is pinned to `rayproject/ray:2.49.2` (multi-arch) rather than
 `2.9.0` (amd64-only) — the latter silently breaks job submission under
 QEMU emulation on Apple Silicon (`No available agent to submit job`).
 
-### Ludwig backend: what it took
+## Datasets
 
-Ludwig was first written off as environment-blocked (`pip install
-ludwig` failed building `thinc`/`blis` from source on the default
-`rayproject/ray:2.49.2` image, which pins Python 3.9 — no `linux/arm64`
-wheel resolves for that combination). That conclusion turned out to be
-based on testing `thinc` in isolation, not `ludwig`'s actual full
-dependency resolution — a background dry-run of the real `pip install
-ludwig` on `rayproject/ray:2.49.2-py311` (Python 3.11) came back clean
-after the fact, and directly contradicted it. Correcting course:
+Data enters through imports and every successful import is one immutable version. Decisions and deferred
+work: `docs/datasets-plan.md`. All lakeFS, staging-bucket and MLflow access goes through
+`app/integrations/data_plane/` (tenant-checked operations; nothing else touches those backends). A dataset
+takes its project's HF task slug (`image-classification`, `object-detection`, `tabular-classification`,
+`tabular-regression` are supported now).
 
-1. **Switched `ray-training/`'s base image to `-py311`.** Ludwig +
-   Ultralytics + onnxruntime all installed cleanly together. Re-ran the
-   full regression suite (numpy training, Ultralytics real-data training,
-   ONNX export, Serve deployment, real inference) to confirm nothing
-   broke — Ray Serve deployment failed on the first attempt with
-   `AttributeError: 'FieldDescriptor' object has no attribute 'label'`,
-   because Ludwig pulls `protobuf` 7.x and Ray Serve's internal proto
-   handling needs `<5`. Pinned `protobuf<5` after the Ludwig install; the
-   full regression suite passed clean after that.
-2. **Ludwig's trainer unconditionally imports `torch.utils.tensorboard`**,
-   which needs `protobuf>=6.31` — directly conflicting with the `<5` pin
-   Ray Serve needs. Rather than a third protobuf compromise (there isn't
-   one — the version ranges don't overlap), the training entrypoint stubs
-   `sys.modules["torch.utils.tensorboard"]` with a no-op `SummaryWriter`
-   before importing `ludwig` — we don't use TensorBoard output; metrics
-   are parsed from stdout like every other backend.
-3. **Ludwig auto-detects the live Ray cluster the job is already running
-   in** and defaults to its own Ray backend, which needs `dask` (not
-   installed). Forced `"backend": {"type": "local"}` in the Ludwig config
-   — this still satisfies req/06's "one compute layer, not two" (FR3):
-   the constraint is about not running a separate pipeline orchestrator
-   (Argo, etc.) alongside Ray, not about which internal executor Ludwig
-   itself uses inside a job that Ray already scheduled.
-
-Verified live end-to-end through the actual API: submitted a
-`{"backend": "ludwig"}` run, polled to `succeeded`, confirmed a real,
-non-canned accuracy (`0.655`) logged to MLflow with the standard
-tenant/project/dataset tags.
+Flow, all under `/v1/projects/{project_id}/datasets` (`$H` = `-H "X-Tenant-Id: ..."` in dev-header mode):
 
 ```
-curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=v1" \
-  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" -H "Idempotency-Key: run-1" \
-  -H "Content-Type: application/json" -d '{"backend":"ludwig","trainer":{"epochs":3}}'
+POST   /datasets                                   create (name)
+POST   /datasets/{id}/imports                      create an import, returns a presigned PUT to staging
+PUT    <presigned url> --data-binary @data.zip     browser/client uploads straight to staging
+POST   /datasets/{id}/imports/{imp}/start          queue the Ray ingest job (no bytes through the API)
+GET    /datasets/{id}/imports/{imp}                poll: running -> awaiting_review (report + sample)
+GET    /datasets/{id}/imports/{imp}/preview        sample rows and presigned URLs from the staged index
+POST   /datasets/{id}/imports/{imp}/commit         lakeFS commit -> new version (or .../discard, .../cancel)
+GET    /datasets/{id}/versions                     list versions (cursor pagination)
+PUT    /datasets/{id}/published                    publish a version; DELETE unpublishes
+DELETE /datasets/{id}                              soft delete, 7-day retention; POST /datasets/{id}:restore
 ```
 
-## Dataset upload (req/04 + req/06)
-
-`core-api/migrations/20261017172706_init.sql` + `app/modules/datasets/routes.py` +
-`app/integrations/lakefs_client.py`: presigned-URL upload through lakeFS's S3 gateway, per
-req/04's "upload returns presigned S3 URL, client PUTs directly —
-don't proxy large files through the app backend". Keys are prefixed `tenants/{tenant_id}/projects/{project_id}/datasets/{id}/{label}/{filename}`
-per req/01's per-tenant object-storage isolation. The `label` path segment
-is the YOLO-classify class folder the Ultralytics training backend reads
-directly (see Training section).
-
-```
-curl -X POST "http://localhost:8090/v1/projects/<id>/datasets?name=cats-vs-dogs" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
-curl -X POST "http://localhost:8090/v1/projects/<id>/datasets/<dsid>/upload-url?filename=cat1.png&label=cat" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
-curl -X PUT "<returned url>" --data-binary @cat1.png
-curl "http://localhost:8090/v1/projects/<id>/datasets/<dsid>/files" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111"
-curl -X POST "http://localhost:8090/v1/projects/<id>/training-runs?dataset_ref=v1&dataset_id=<dsid>" \
-  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" -H "Idempotency-Key: k1" \
-  -H "Content-Type: application/json" -d '{"backend":"ultralytics"}'
-```
-
-Manifest CSV ingestion is also real: `POST .../datasets/{id}/manifest`
-accepts req/06's exact format (`image_id,image_path,class_no`), validates
-the required columns, and stores it in the dataset's own S3 prefix;
-`GET .../manifest` parses it back. Verified live: uploaded a 3-row
-manifest, got `{"rows": 3, "classes": ["0", "1"]}` back, fetched it again
-and got the parsed rows.
-
-```
-curl -X POST "http://localhost:8090/v1/projects/<id>/datasets/<dsid>/manifest" -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" \
-  --data-binary $'image_id,image_path,class_no\nimg1,cat/cat_0.png,0\n'
-```
-
-## Labeling (req/04: "proxy/webhook to Label Studio project, pull labeled export")
-
-`app/integrations/labelstudio_client.py` + `app/modules/labeling/routes.py`: a real Label Studio
-instance (`labelstudio` service), not a stub. `POST
-.../datasets/{id}/labeling` creates a real Label Studio project via its
-API and points it at the dataset; `GET .../labeling` reports real
-task/annotation counts; `GET .../labeling/export` pulls the real labeled
-export. Verified live: created project via `core-api`'s API, confirmed it
-exists in Label Studio itself via a direct API call (`id: 4, title:
-"cats-vs-dogs-56600a7c"`).
-
-Label Studio's newer versions disabled static API tokens org-wide by
-default — auth is short-lived JWT access tokens exchanged from a
-long-lived refresh token obtained once via an authenticated session
-login. That refresh token lives in
-`.local/secrets/labelstudio.json`; `app/integrations/labelstudio_client.py` handles the
-exchange/caching transparently. Bootstrap is fully scripted — the session
-login is a plain Django form post, so no browser is involved:
-
-```
-./scripts/steps/labelstudio.sh
-```
-
-It logs in (`/user/login/`, CSRF token echoed back), mints a refresh token
-(`POST /api/token/`), verifies it exchanges, and writes it to Vault.
-Re-run it after any Vault restart.
-
-Label Studio allows one refresh token per user and answers a second
-`POST /api/token/` with 409, so the script revokes the existing one first
-— any copy still in use stops working. `GET /api/token/` returns the
-current token *without its signature*: unusable for auth, but still
-accepted by `/api/token/blacklist/`, which is how the revoke works without
-knowing the original.
-
-There's also a lightweight **in-app labeling** API, distinct from the Label
-Studio integration above: upload a raw file (lands in a dataset's
-`_unlabeled/` prefix), read it via a presigned GET URL, and a label call (`app/modules/datasets/routes.py::label_file`) does a real S3
-copy into the class folder + delete of the original + manifest.csv
-append — the exact convention the Ultralytics training backend already
-reads. Verified live: uploaded a file, labeled it "cat", confirmed the
-manifest row and the file's new location in S3.
-
-Not built: turning a Label Studio export back into a manifest CSV
-automatically (the export and the manifest ingestion both exist — the
-last connecting step doesn't).
+An import may carry `base_version_id` to merge on top of an earlier version (strict: exact duplicates are
+skipped, any other conflict fails the import with a report; `409 stale_base` if the base is no longer the
+latest). Archive rules and size limits are the `dataset_limits:` knobs in `config/base.yaml`; the ingest job
+is `core-api/ingest_job/ingest.py` and runs in the Ray image, writing only to a staging prefix. Background
+pollers (`app/background.py`) move finished jobs to `awaiting_review`, expire stale imports and purge
+datasets 7 days after deletion.
 
 ## Deployments & inference (req/04 Deployments group, req/07 FR3)
 
@@ -457,31 +309,6 @@ headers succeeds; the wrong key gets a 401.
 curl -X POST "http://localhost:8090/v1/predict/<deployment_id>" -H "X-Predict-Key: <key from deploy response>" \
   -H "Content-Type: application/json" -d '{"features": [1.0, 1.0, 1.0, 1.0]}'
 ```
-
-Ultralytics runs are also deployable now (req/06 FR3: "Export trained
-weights to ONNX at minimum, for BentoML/Ray Serve packaging"): the
-training job calls `model.export(format="onnx", opset=17)` for real,
-uploads the `.onnx` file to object storage, and `create_deployment`
-detects which artifact shape it got (`w`/`b` → numpy Serve template,
-`onnx_key` → a second Serve deployment class that loads the file via
-`onnxruntime.InferenceSession` and runs real inference on a base64 image,
-returning ranked class probabilities). Verified fully live end-to-end on
-the real cats-vs-dogs dataset uploaded earlier: trained → exported ONNX
-→ deployed → called `/predict` with a real cat photo and a real dog photo,
-got two different, real onnxruntime-computed probability distributions
-back (not the same canned response for both).
-
-```
-curl -X POST "http://localhost:8090/v1/predict/<deployment_id>" -H "X-Predict-Key: <key>" \
-  -H "Content-Type: application/json" -d "{\"image_base64\": \"$(base64 -i photo.png)\"}"
-```
-
-Two real bugs surfaced and got fixed building this: (1) the training job
-was listing `manifest.csv` alongside real images and trying to load it as
-one — fixed by filtering to actual image extensions; (2) Ray Serve can't
-pickle a loaded `onnxruntime.InferenceSession` if it's created at module
-scope in the deployment script — fixed by moving it into `Predictor.__init__`
-so only the class definition gets distributed, not the loaded session object.
 
 ## Model registry (req/04 Models group, req/06 FR2)
 
@@ -662,19 +489,14 @@ own open question — deferred, not decided in the spec itself).
 
 ## LakeFS one-time setup
 
-On first boot LakeFS has no admin user, no blockstore bucket, and no
-repository. `scripts/steps/lakefs.sh` creates all three:
+On first boot LakeFS has no admin user and there are no buckets. `scripts/steps/lakefs.sh` creates the admin
+user, the blockstore bucket and the staging bucket (plus a bucket-scoped `ingest` MinIO user):
 
 ```
 ./scripts/steps/lakefs.sh
 ```
 
-The repository matters as much as the admin user: `app/integrations/lakefs_client.py`
-addresses exactly one (`REPO = "platform-datasets"`, one branch per
-platform dataset inside it), and without it every
-`POST /v1/projects/{id}/datasets` 500s in `ensure_branch` — creating a
-branch in a repo that doesn't exist is a 404. `/health/deps` will not
-catch this; its `lakefs_s3` probe only exercises the S3 gateway.
+core-api creates one lakeFS repository per dataset itself, so no repository is made here.
 
 Unlike `scripts/zitadel-bootstrap.sh`, this one is idempotent — re-running
 it after any `docker compose up` reports what already exists and exits 0.
@@ -689,7 +511,7 @@ files whose *paths* are in the config (`secrets:`). `core-api` re-reads a file w
 | | Cluster | Local |
 |---|---|---|
 | Files | `/var/app-secret/app-backend/<name>`, rendered by the Vault Agent Injector | `.local/secrets/<name>.json` (gitignored), mounted at the same path in compose |
-| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh`, `scripts/steps/labelstudio.sh` |
+| Written by | `k8s/bootstrap/04-vault-seed-secrets.sh` | `scripts/secrets-init.sh` |
 
 `core-api` does not talk to Vault. Its Postgres credential is the `db` secret file too
 (`{"username", "password"}`): in the cluster the Vault agent issues it from `database/creds/core-app`,

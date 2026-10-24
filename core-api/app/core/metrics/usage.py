@@ -8,3 +8,5 @@ deployments_created = counter(
     "deployments.created", "New deployments; a 'main' re-deploy updates in place and is not counted"
 )
 training_runs = counter("training.runs", "Training runs by terminal status (req/08 FR2 failure-rate alert)")
+dataset_imports = counter("datasets.imports", "Dataset imports created, by source (datasets ImportSource)")
+dataset_import_bytes = counter("datasets.import_bytes", "Bytes in committed dataset versions")

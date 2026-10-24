@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.core import audit
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
-from app.core.enums import TaskType
+from app.core.enums import TaskType, require_supported_task_type
 from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
@@ -63,6 +63,7 @@ async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSumm
 
 
 async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team_id: uuid.UUID | None) -> ProjectSummary:
+    require_supported_task_type(task_type)
     async with TenantConn(ctx.tenant_id) as conn:
         if team_id is None:
             # Every org has >=1 team (seeded at provisioning); a project with no team_id given lands in
