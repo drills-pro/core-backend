@@ -7,7 +7,7 @@ drive the same transition — see app/background.py.
 import logging
 from datetime import datetime, timezone
 
-from app.core import metrics as app_metrics
+from app.core.metrics import usage as usage_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import mlflow_client, ray_client
@@ -73,7 +73,7 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
             )
 
     if new_status in ("succeeded", "failed", "cancelled"):
-        app_metrics.training_runs_total.add(1, {"status": new_status})
+        usage_metrics.training_runs.add(1, {"status": new_status})
 
     updated = await conn.fetchrow(
         "UPDATE training_runs SET status = $2, mlflow_run_id = $3, "

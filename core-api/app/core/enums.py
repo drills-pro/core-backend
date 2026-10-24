@@ -10,3 +10,19 @@ class TaskType(StrEnum):
     TABULAR_CLASSIFICATION = "tabular_classification"
     TEXT_CLASSIFICATION = "text_classification"
     LEGACY_UNTYPED = "legacy_untyped"
+
+
+class AuthResult(StrEnum):
+    """Outcome of checking a bearer token: the `result` label on auth_token_verifications_total."""
+
+    OK = "ok"
+    NOT_BEARER = "not_bearer"
+    EXPIRED = "expired"
+    WRONG_AUDIENCE = "wrong_audience"
+    WRONG_ISSUER = "wrong_issuer"
+    BAD_SIGNATURE = "bad_signature"
+    UNKNOWN_KEY = "unknown_key"  # kid not in Zitadel's JWKS
+    JWKS_UNAVAILABLE = "jwks_unavailable"  # could not fetch Zitadel's JWKS at all
+    MALFORMED = "malformed"
+
+

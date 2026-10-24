@@ -200,3 +200,84 @@ def test_profile_claims_come_from_userinfo_when_the_token_has_none(monkeypatch):
     # A token that already carries the claims never calls out.
     asyncio.run(auth.get_profile_claims(auth.Claims({"sub": "u", "email": "x@y.z"}, "tok2")))
     assert len(calls) == 1
+
+
+@pytest.fixture
+def counted(monkeypatch):
+    """Results recorded on the auth counters, in order."""
+    from app.core.metrics import auth as auth_metrics
+
+    seen = []
+
+    def recorder(name):
+        return SimpleNamespace(add=lambda n, attrs=None: seen.append((name, (attrs or {}).get("result"))))
+
+    for name in ("token_verifications", "principals_created"):
+        monkeypatch.setattr(auth_metrics, name, recorder(name))
+    return seen
+
+
+def test_verify_token_counts_each_result(monkeypatch, keypair, counted):
+    from app.core.enums import AuthResult
+
+    private_key, public_key = keypair
+    _patch_jwks(monkeypatch, public_key)
+    base = {"sub": "u", "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800}
+    cases = [
+        (base, AuthResult.OK),
+        ({**base, "exp": 2}, AuthResult.EXPIRED),
+        ({**base, "aud": ["other"]}, AuthResult.WRONG_AUDIENCE),
+        ({**base, "iss": "https://evil.example"}, AuthResult.WRONG_ISSUER),
+    ]
+    for claims, _ in cases:
+        try:
+            auth.verify_token(_sign(private_key, claims))
+        except Exception:
+            pass
+    other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    with pytest.raises(Exception):
+        auth.verify_token(_sign(other_key, base))
+    with pytest.raises(Exception):
+        auth.verify_token("not-a-jwt")
+
+    assert [r for _, r in counted] == [r for _, r in cases] + [AuthResult.BAD_SIGNATURE, AuthResult.MALFORMED]
+
+
+def test_verify_token_counts_jwks_failures(monkeypatch, counted):
+    from app.core.enums import AuthResult
+
+    for exc, expected in (
+        (jwt.PyJWKClientConnectionError("down"), AuthResult.JWKS_UNAVAILABLE),
+        (jwt.PyJWKClientError("no matching kid"), AuthResult.UNKNOWN_KEY),
+    ):
+        def boom(token, exc=exc):
+            raise exc
+
+        monkeypatch.setattr(auth, "_get_jwks_client", lambda: SimpleNamespace(get_signing_key_from_jwt=boom))
+        with pytest.raises(Exception):
+            auth.verify_token("t")
+        assert counted[-1][1] == expected
+
+
+def test_non_bearer_header_is_counted(counted):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from app.core.enums import AuthResult
+
+    with pytest.raises(HTTPException):
+        asyncio.run(auth.get_claims(authorization="Basic abc"))
+    assert counted == [("token_verifications", AuthResult.NOT_BEARER)]
+
+
+def test_principal_created_counted_only_on_first_sight(counted):
+    import asyncio
+
+    from app.modules.user.auth.routes import _upsert_principal
+    from tests.support import FakeConn
+
+    claims = auth.Claims({"sub": "u"})
+    asyncio.run(_upsert_principal(FakeConn(val=True), claims))
+    asyncio.run(_upsert_principal(FakeConn(val=False), claims))
+    assert counted == [("principals_created", None)]

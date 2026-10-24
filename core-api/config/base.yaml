@@ -24,7 +24,6 @@ ray:
 
 
 observability:
-  ksm_endpoint: ""           # kube-state-metrics, for the GPU-quota poller; empty disables it
 
 public:                      # browser-facing, not the in-network names
   lakefs_endpoint: http://localhost:8000

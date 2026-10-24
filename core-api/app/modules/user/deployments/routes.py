@@ -8,7 +8,8 @@ import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 
 from app.core.authz import Action, AuthzContext, public, require
-from app.core import metrics as app_metrics, rate_limit
+from app.core import rate_limit
+from app.core.metrics import inference as inference_metrics, usage as usage_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
@@ -105,6 +106,7 @@ async def create_deployment(
             _hash_key(predict_key),
             rate_limit_default,
         )
+    usage_metrics.deployments_created.add(1)
     return {**dict(row), "predict_key": predict_key, "plan_tier": plan_tier}
 
 
@@ -238,7 +240,7 @@ async def predict(
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(f"{serve_client.RAY_SERVE_HTTP}{row['route_prefix']}", json=body)
     elapsed_ms = (time.perf_counter() - start) * 1000
-    app_metrics.inference_latency_ms.record(elapsed_ms, {"deployment_id": str(deployment_id)})
+    inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
 
     resp.raise_for_status()
 

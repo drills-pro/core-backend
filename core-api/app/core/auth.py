@@ -15,6 +15,8 @@ from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
+from app.core.metrics import auth as auth_metrics
+from app.core.enums import AuthResult
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,22 @@ class Claims:
         self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
 
 
+# Most specific first: InvalidSignatureError is a DecodeError and PyJWKClientConnectionError a
+# PyJWKClientError, so the parent would otherwise match. Anything unlisted is MALFORMED.
+_FAILURE_RESULTS = (
+    (jwt.ExpiredSignatureError, AuthResult.EXPIRED),
+    (jwt.InvalidAudienceError, AuthResult.WRONG_AUDIENCE),
+    (jwt.InvalidIssuerError, AuthResult.WRONG_ISSUER),
+    (jwt.InvalidSignatureError, AuthResult.BAD_SIGNATURE),
+    (jwt.PyJWKClientConnectionError, AuthResult.JWKS_UNAVAILABLE),
+    (jwt.PyJWKClientError, AuthResult.UNKNOWN_KEY),
+)
+
+
+def _count_verification(result: AuthResult) -> None:
+    auth_metrics.token_verifications.add(1, {"result": result})
+
+
 def verify_token(token: str) -> Claims:
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
@@ -79,12 +97,15 @@ def verify_token(token: str) -> Claims:
             options={"require": ["exp", "iat", "sub", "aud"]},
         )
     except jwt.PyJWTError as e:
+        _count_verification(next((r for cls, r in _FAILURE_RESULTS if isinstance(e, cls)), AuthResult.MALFORMED))
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
+    _count_verification(AuthResult.OK)
     return Claims(raw, token)
 
 
 async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
+        _count_verification(AuthResult.NOT_BEARER)
         raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 

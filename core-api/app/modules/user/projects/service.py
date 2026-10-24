@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.core import audit
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
 from app.core.enums import TaskType
+from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
@@ -85,6 +86,7 @@ async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team
             ctx.actor,
             Role.PROJECT_ADMIN,
         )
+    usage_metrics.projects_created.add(1, {"task_type": task_type})
     return ProjectSummary.model_validate(dict(row))
 
 

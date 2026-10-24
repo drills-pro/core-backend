@@ -6,6 +6,7 @@ import zipfile
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, UploadFile
 
+from app.core.metrics import usage as usage_metrics
 from app.core.authz import Action, AuthzContext, require
 from app.core.enums import TaskType
 from app.core.problem import not_found
@@ -534,6 +535,8 @@ async def publish_dataset(
             published,
             published_ref,
         )
+    if published:
+        usage_metrics.datasets_published.add(1)
     return dict(row)
 
 

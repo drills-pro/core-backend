@@ -414,7 +414,7 @@ reads that artifact and submits a Ray job whose entrypoint calls
 outlive the submission job, which is the standard way to drive Serve from
 outside the cluster's own process. `POST /v1/predict/{deployment_id}`
 proxies to the deployed HTTP route and records **real** request latency
-(`app/core/metrics.py::inference_latency_ms`) — this is the actual signal
+(`app/core/metrics/inference.py::latency`) — this is the actual signal
 behind req/08's "inference p99 latency" alert (see Observability).
 
 Verified live end-to-end: trained a model, deployed it, called
@@ -606,24 +606,21 @@ label convention (`tenant_id`/`project_id` on everything) is applied via
 proxy and every `core-api` span carries `tenant_id`.
 
 ```
-curl "http://localhost:3000/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3Dcore-api&limit=5"
+curl "http://localhost:3000/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3Dcore-backend&limit=5"
 ```
 
-`app/core/metrics.py` also exports OTel metrics (same OTLP pipeline as traces)
-— `training_runs_total{status}`, incremented on every real training-run
+`app/core/metrics/` also pushes OTel metrics, all named `drills.core_backend.<namespace>.<name>` (same OTLP pipeline as traces)
+— `drills.core_backend.training.runs{status}`, incremented on every real training-run
 transition to a terminal state, is the signal for FR2's "training job
 failure rate" alert. Verified live in Prometheus:
 
 ```
-curl "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query?query=training_runs_total"
+curl "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query?query=drills_core_backend_training_runs_total"
 ```
 
-`postgres_database_size_bytes` is a second real signal — a background
-task in `app/background.py` polls the actual `pg_database_size('core')` every
-30s (a real number, currently ~8.5MB) and exposes it as an OTel observable
-gauge.
+Database size (disk pressure) is not a core-api metric: it comes from the Postgres exporter.
 
-`inference_latency_ms` is the third real signal — recorded on every real
+`drills.core_backend.inference.latency` is the third real signal — recorded on every real
 `POST /v1/predict/{id}` call (see Deployments section) as an OTel
 histogram.
 
@@ -641,9 +638,7 @@ genuine Kubernetes behavior, not simulated.
 
 The chain end to end: `kube-state-metrics` (installed via Helm, exposed
 through a NodePort Service) exposes the real `kube_resourcequota` series
-→ a background poller in `core-api` (`KSM_ENDPOINT`, same pattern as the
-Postgres-size poller) scrapes it every 30s → `app/core/metrics.py`'s
-`gpu_quota_requests` OTel gauge → Prometheus → a Grafana alert on
+→ Prometheus/Mimir → a Grafana alert on
 `used / hard > 0.8`.
 
 Verified live, including the alert actually *firing*, not just
