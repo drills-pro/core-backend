@@ -1,0 +1,39 @@
+name: Build the Ray jobs image
+
+# The cluster's Ray image plus the ray_jobs dependencies (ray-jobs/Dockerfile). Not deployed from here: put the digest
+# in k8s apps/ray/app/raycluster.yaml by hand, because that restarts the Ray head and the GPU worker.
+on:
+  push:
+    paths:
+      - "ray-jobs/Dockerfile"
+      - "ray-jobs/pyproject.toml"
+      - ".github/workflows/ray-jobs-image.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: sha
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./ray-jobs
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/ray-jobs:${{ steps.sha.outputs.tag }}
+          cache-from: type=gha,scope=ray-jobs
+          cache-to: type=gha,mode=max,scope=ray-jobs
