@@ -7,7 +7,7 @@ import re
 import httpx
 import pytest
 
-from app.integrations import ray_client, serve_client
+from app.integrations import compute, serve_client
 from app.integrations.data_plane import access, mlflow
 
 T, P = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
@@ -22,11 +22,11 @@ def _script_of(entrypoint: str) -> str:
 def scripts(monkeypatch):
     seen = []
 
-    async def submit(*, entrypoint, **_):
-        seen.append(_script_of(entrypoint))
+    async def submit(spec):
+        seen.append(_script_of(spec.entrypoint))
         return "job-1"
 
-    monkeypatch.setattr(ray_client, "submit_raw_job", submit)
+    monkeypatch.setattr(compute, "submit", submit)
     return seen
 
 

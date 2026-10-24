@@ -219,7 +219,7 @@ def env(monkeypatch):
 
     monkeypatch.setattr(svc, "TenantConn", db)
     monkeypatch.setattr(svc, "data_plane", gw)
-    monkeypatch.setattr(svc.ray_client, "stop_job", stop_job)
+    monkeypatch.setattr(svc.compute, "stop", stop_job)
     for counter in ("dataset_imports", "dataset_import_bytes"):
         monkeypatch.setattr(getattr(svc.usage, counter), "add", lambda n, attrs=None, c=counter: added.append((c, n)))
     db.usage = added

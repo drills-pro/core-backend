@@ -11,7 +11,7 @@ from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
 from app.core.problem import not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
-from app.integrations import ray_client
+from app.integrations import compute
 from app.integrations.data_plane import access, layout, lakefs
 
 INGEST_SCRIPT = Path(__file__).parents[3] / "ingest_job" / "ingest.py"
@@ -62,15 +62,16 @@ async def start_ingest(tenant_id: str, dataset_id: str, import_id: str, submissi
         f"python -c \"import base64, sys; sys.argv = ['ingest.py', base64.b64decode('{argv}').decode()]; "
         f"exec(base64.b64decode('{script}'))\""
     )
-    return await ray_client.submit_raw_job(
+    return await compute.submit(compute.JobSpec(
         entrypoint=entrypoint,
         submission_id=submission_id,
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
         num_cpus=settings.dataset_limits.ray_job_cpus,
         memory=settings.dataset_limits.ray_job_memory_bytes,
+        timeout_seconds=settings.dataset_limits.job_timeout_seconds,
         env_vars={
             "STAGING_ENDPOINT": creds["endpoint"],
             "STAGING_ACCESS_KEY": creds["access_key"],
             "STAGING_SECRET_KEY": creds["secret_key"],
         },
-    )
+    ))

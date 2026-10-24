@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.authz import Action, AuthzContext, require
 from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
-from app.integrations import ray_client
+from app.integrations import compute, ray_client
 from app.integrations.data_plane import mlflow
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ async def cancel_training_run(
             raise HTTPException(status_code=404, detail="training run not found")
         if row["status"] not in ("submitted", "running"):
             raise HTTPException(status_code=409, detail=f"run already {row['status']}")
-        await ray_client.stop_job(row["ray_job_id"])
+        await compute.stop(row["ray_job_id"])
         updated = await conn.fetchrow(
             "UPDATE training_runs SET status = 'cancelled', completed_at = now() "
             "WHERE id = $1 RETURNING *",

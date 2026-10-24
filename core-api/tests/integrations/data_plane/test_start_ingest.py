@@ -21,11 +21,11 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     monkeypatch.setattr(ingest.secret_files, "get", lambda name: asked.append(name) or {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
     sent = {}
 
-    async def submit(**kw):
-        sent.update(kw)
+    async def submit(spec):
+        sent.update(spec.model_dump())
         return "job-1"
 
-    monkeypatch.setattr(ingest.ray_client, "submit_raw_job", submit)
+    monkeypatch.setattr(ingest.compute, "submit", submit)
     assert asyncio.run(ingest.start_ingest(TENANT, DATASET, IMPORT, "ingest-1")) == "job-1"
     argv = base64.b64decode(re.search(r"b64decode\('([^']+)'\)\.decode", sent["entrypoint"]).group(1))
     job = json.loads(argv)
