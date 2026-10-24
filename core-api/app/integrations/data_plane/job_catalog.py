@@ -1,17 +1,14 @@
 """The catalog of Ray job types: one entry per job type, naming the module that runs it.
 
 Adding an ingest job type = a module in ray-jobs/ray_jobs/entrypoints/, a JobType member and one entry here.
-Image flavour and resources join JobSpec when job submission moves to RayJob; training types join as kind=TRAINING.
+Image flavour joins CatalogEntry when job submission moves to RayJob; training types join as kind=TRAINING.
 """
 from enum import StrEnum
 
 from pydantic import BaseModel
 
 from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
-
-
-class JobKind(StrEnum):
-    INGEST = "ingest"
+from app.integrations.job_spec import JobKind
 
 
 class JobType(StrEnum):
@@ -22,14 +19,14 @@ class JobType(StrEnum):
     HUGGINGFACE = "huggingface"
 
 
-class JobSpec(BaseModel):
+class CatalogEntry(BaseModel):
     kind: JobKind
     entrypoint: str  # module run as `python -m`
 
 
 _ENTRYPOINTS = "ray_jobs.entrypoints"
-CATALOG: dict[JobType, JobSpec] = {
-    t: JobSpec(kind=JobKind.INGEST, entrypoint=f"{_ENTRYPOINTS}.{t.value}") for t in JobType
+CATALOG: dict[JobType, CatalogEntry] = {
+    t: CatalogEntry(kind=JobKind.INGEST, entrypoint=f"{_ENTRYPOINTS}.{t.value}") for t in JobType
 }
 
 

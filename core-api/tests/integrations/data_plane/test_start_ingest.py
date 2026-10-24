@@ -32,10 +32,12 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     assert asyncio.run(ingest.start_ingest(TENANT, DATASET, IMPORT, "ingest-1")) == "job-1"
     argv = shlex.split(sent["entrypoint"])
     assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]
-    job = json.loads(argv[5])
+    spec = json.loads(argv[5])
+    job = spec["payload"]
+    assert spec["kind"] == "ingest" and spec["spec_version"] == 1 and spec["job_id"] == "ingest-1"
     assert job["prefix"] == layout.staging_prefix(TENANT, DATASET, IMPORT) and job["task"] == "tabular-regression"
     assert job["target"] == "y" and job["limits"]["upload_max_bytes"] == settings.dataset_limits.upload_max_bytes
-    assert "base" not in job and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
+    assert job["base"] is None and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
     assert asked == ["ingest"]  # never the staging secret, which also covers the lakeFS blockstore bucket
     assert sent["submission_id"] == "ingest-1"
     assert sent["num_cpus"] == settings.dataset_limits.ray_job_cpus

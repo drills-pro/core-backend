@@ -2,7 +2,6 @@
 It gets the `ingest` credential (staging bucket only) and presigned reads of the base version
 and nothing else: no lakeFS credential (plan decision 4). Its parameters are built here from Postgres, so the
 caller passes ids only."""
-import json
 import shlex
 import uuid
 
@@ -14,6 +13,7 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import ray_client
 from app.integrations.data_plane import access, job_package, layout, lakefs
 from app.integrations.data_plane.job_catalog import CATALOG, JobType, ingest_job_type
+from app.integrations.job_spec import IngestBase, IngestHf, IngestPayload, IngestSpec, Resources
 
 
 # Fetches the package zip, makes it importable and runs the entrypoint as __main__ (argv: url, module, params json).
@@ -32,9 +32,9 @@ _IMPORT = (
 )
 
 
-def entrypoint(package_url: str, kind: JobType, job: dict) -> str:
-    """Shell command Ray runs: the bootstrap, then the package url, the module and the params as plain argv."""
-    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, CATALOG[kind].entrypoint, json.dumps(job)])
+def entrypoint(package_url: str, kind: JobType, spec_json: str) -> str:
+    """Shell command Ray runs: the bootstrap, then the package url, the module and the job spec JSON as plain argv."""
+    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, CATALOG[kind].entrypoint, spec_json])
 
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: str) -> dict:
@@ -55,29 +55,33 @@ async def start_ingest(tenant_id: str, dataset_id: str, import_id: str, submissi
         row = await conn.fetchrow(_IMPORT, uuid.UUID(import_id), uuid.UUID(dataset_id), uuid.UUID(tenant_id))
     if row is None:
         raise not_found()
-    params, task_type = row["params"], row["task_type"]
-    job = {
-        "bucket": settings.data_plane.staging_bucket,
-        "prefix": layout.staging_prefix(tenant_id, dataset_id, import_id),
-        "source": row["source"],
-        "task": task_type,
-        "target": params.get("target"),
-        "split": params.get("split"),
-        "limits": settings.dataset_limits.model_dump(),
-    }
+    params, task_type, limits = row["params"], row["task_type"], settings.dataset_limits
+    payload = IngestPayload(
+        bucket=settings.data_plane.staging_bucket,
+        prefix=layout.staging_prefix(tenant_id, dataset_id, import_id),
+        source=row["source"],
+        task=task_type,
+        target=params.get("target"),
+        split=params.get("split"),
+        limits=limits,
+    )
     if row["source"] == ImportSource.HUGGINGFACE:
-        job["hf"] = {"repo": params["repo"], "revision": params.get("revision") or HF_DEFAULT_REVISION, "column": params.get("column")}
+        payload.hf = IngestHf(repo=params["repo"], revision=params.get("revision") or HF_DEFAULT_REVISION, column=params.get("column"))
     if row["base_version_id"]:
-        job["base"] = await _base(tenant_id, dataset_id, str(row["base_version_id"]), task_type)
+        payload.base = IngestBase(**await _base(tenant_id, dataset_id, str(row["base_version_id"]), task_type))
+    spec = IngestSpec(
+        job_id=submission_id, tenant_id=tenant_id, payload=payload,
+        resources=Resources(cpu=limits.ray_job_cpus, memory_bytes=limits.ray_job_memory_bytes, max_runtime_s=limits.job_timeout_seconds),
+    )
     creds = secret_files.get(secret_files.INGEST)
     package_url = await job_package.presigned_url()
-    command = entrypoint(package_url, ingest_job_type(row["source"], task_type), job)
+    command = entrypoint(package_url, ingest_job_type(row["source"], task_type), spec.model_dump_json())
     return await ray_client.submit_raw_job(
         entrypoint=command,
         submission_id=submission_id,
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
-        num_cpus=settings.dataset_limits.ray_job_cpus,
-        memory=settings.dataset_limits.ray_job_memory_bytes,
+        num_cpus=spec.resources.cpu,
+        memory=spec.resources.memory_bytes,
         env_vars={
             "STAGING_ENDPOINT": creds["endpoint"],
             "STAGING_ACCESS_KEY": creds["access_key"],

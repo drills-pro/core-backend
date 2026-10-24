@@ -20,6 +20,7 @@ from ray_jobs.common.report import Report
 from ray_jobs.common.stats import compute_stats
 from ray_jobs.common.store import S3Store, Sink
 from ray_jobs.common.table import Extracted
+from ray_jobs.spec import parse_spec
 from ray_jobs.merge import load_base, merge_index, merge_tables
 from ray_jobs.sources.images import pil_decode
 
@@ -64,9 +65,9 @@ def run(params: dict, store, extract: Extract, decode=pil_decode) -> Report:
 
 
 def main(argv: list[str], extract: Extract) -> int:
-    """Entry of every job type: `python -m ray_jobs.entrypoints.<name> '<params json>'`, staging credentials in the
+    """Entry of every job type: `python -m ray_jobs.entrypoints.<name> '<job spec json>'`, staging credentials in the
     environment. Exit code 1 when the report is failed."""
-    params = json.loads(argv[1])
+    params = parse_spec(argv[1])
     store = S3Store(params[Param.BUCKET], params[Param.PREFIX], os.environ["STAGING_ENDPOINT"],
                     os.environ["STAGING_ACCESS_KEY"], os.environ["STAGING_SECRET_KEY"])
 

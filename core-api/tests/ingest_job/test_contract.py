@@ -1,19 +1,22 @@
 """The contract between core-api and the ray_jobs package (top-level ray-jobs/): the job mirrors core-api's constants
 and enums instead of importing them, so these tests fail when the two drift. The job's own logic is tested in ray-jobs/tests."""
-import re
+import uuid
 from importlib import import_module
-from pathlib import Path
 
 from app.core.enums import TaskType
-from app.core.settings import DatasetLimits
-from app.integrations.data_plane import ingest as core_ingest, job_catalog, layout, report as report_model
+from app.core.settings import DatasetLimits, settings
+from app.integrations import job_spec
+from app.integrations.data_plane import job_catalog, layout, report as report_model
+from app.integrations.job_spec import IngestBase, IngestHf, IngestPayload, IngestSpec, Resources
 from app.modules.user.datasets.constants import ImportSource
 from ray_jobs.common import constants as job
-from ray_jobs.common.enums import BOX_FIELDS, INDEX_COLUMNS, Code, ColumnType, Outcome, Param, Source
+from ray_jobs.common.constants import SPEC_VERSION
+from ray_jobs.common.enums import BOX_FIELDS, INDEX_COLUMNS, Code, ColumnType, JobKind, Outcome, Param, Source
 from ray_jobs.common.limits import Limits
 from ray_jobs.common.report import Report
 from ray_jobs.common.rows import image_row
 from ray_jobs.common.stats import compute_stats
+from ray_jobs.spec import parse_spec
 
 JPG = b"\xff\xd8\xff" + b"x" * 20
 
@@ -58,9 +61,18 @@ def test_limits_cover_the_settings_knobs():
 
 
 def test_job_params_keys_cover_what_core_api_sends():
-    src = Path(core_ingest.__file__).read_text()
-    sent = set(re.findall(r'"(\w+)":', src.split("job = {")[1].split("creds =")[0]))
-    assert sent <= {p.value for p in Param}
+    nested = {"base": IngestBase, "hf": IngestHf}
+    keys = set(IngestPayload.model_fields) | {k for m in nested.values() for k in m.model_fields}
+    assert keys <= {p.value for p in Param}
+
+
+def test_the_job_reads_the_spec_core_api_writes():
+    spec = IngestSpec(job_id="j", tenant_id=uuid.uuid4(), resources=Resources(cpu=1, memory_bytes=1), payload=IngestPayload(
+        bucket="b", prefix="p/", source=ImportSource.UPLOAD, task=TaskType.IMAGE_CLASSIFICATION, limits=settings.dataset_limits))
+    params = parse_spec(spec.model_dump_json())
+    assert params["prefix"] == "p/" and Limits.from_dict(params["limits"])
+    assert (SPEC_VERSION, set(JobKind)) == (job_spec.SPEC_VERSION, set(job_spec.JobKind))
+    assert JobKind.INGEST == job_spec.JobKind.INGEST
 
 
 def test_every_job_type_has_an_entrypoint_module_that_runs_as_main():

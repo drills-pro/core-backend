@@ -1,0 +1,660 @@
+{
+  "$defs": {
+    "BaseModelRef": {
+      "description": "Pinned by catalog id and commit, never fetched from the Hub at run time.",
+      "properties": {
+        "catalog_id": {
+          "format": "uuid",
+          "title": "Catalog Id",
+          "type": "string"
+        },
+        "license": {
+          "title": "License",
+          "type": "string"
+        },
+        "repo_id": {
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ModelSource"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "source",
+        "repo_id",
+        "revision",
+        "license",
+        "uri"
+      ],
+      "title": "BaseModelRef",
+      "type": "object"
+    },
+    "DataFormat": {
+      "enum": [
+        "webdataset"
+      ],
+      "title": "DataFormat",
+      "type": "string"
+    },
+    "DatasetLimits": {
+      "additionalProperties": false,
+      "description": "Ceilings the API and the ingest job enforce (docs/datasets-plan.md decision 16). Static knobs.",
+      "properties": {
+        "csv_max_columns": {
+          "title": "Csv Max Columns",
+          "type": "integer"
+        },
+        "csv_max_rows": {
+          "title": "Csv Max Rows",
+          "type": "integer"
+        },
+        "csv_min_rows": {
+          "title": "Csv Min Rows",
+          "type": "integer"
+        },
+        "extracted_max_bytes": {
+          "title": "Extracted Max Bytes",
+          "type": "integer"
+        },
+        "extracted_max_ratio": {
+          "title": "Extracted Max Ratio",
+          "type": "integer"
+        },
+        "hf_max_repo_bytes": {
+          "title": "Hf Max Repo Bytes",
+          "type": "integer"
+        },
+        "image_max_bytes": {
+          "title": "Image Max Bytes",
+          "type": "integer"
+        },
+        "image_max_dimension": {
+          "title": "Image Max Dimension",
+          "type": "integer"
+        },
+        "job_timeout_seconds": {
+          "title": "Job Timeout Seconds",
+          "type": "integer"
+        },
+        "max_active_imports_per_tenant": {
+          "title": "Max Active Imports Per Tenant",
+          "type": "integer"
+        },
+        "max_archive_depth": {
+          "title": "Max Archive Depth",
+          "type": "integer"
+        },
+        "max_files": {
+          "title": "Max Files",
+          "type": "integer"
+        },
+        "max_path_length": {
+          "title": "Max Path Length",
+          "type": "integer"
+        },
+        "ray_job_cpus": {
+          "title": "Ray Job Cpus",
+          "type": "integer"
+        },
+        "ray_job_memory_bytes": {
+          "title": "Ray Job Memory Bytes",
+          "type": "integer"
+        },
+        "upload_max_bytes": {
+          "title": "Upload Max Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "upload_max_bytes",
+        "extracted_max_bytes",
+        "extracted_max_ratio",
+        "max_files",
+        "max_archive_depth",
+        "max_path_length",
+        "image_max_dimension",
+        "image_max_bytes",
+        "csv_min_rows",
+        "csv_max_rows",
+        "csv_max_columns",
+        "hf_max_repo_bytes",
+        "job_timeout_seconds",
+        "ray_job_cpus",
+        "ray_job_memory_bytes",
+        "max_active_imports_per_tenant"
+      ],
+      "title": "DatasetLimits",
+      "type": "object"
+    },
+    "ImportSource": {
+      "description": "Where a dataset import's data comes from. Mirrors the dataset_imports_source_check constraint.",
+      "enum": [
+        "upload",
+        "huggingface"
+      ],
+      "title": "ImportSource",
+      "type": "string"
+    },
+    "IngestBase": {
+      "description": "Presigned reads of the base version a merge import builds on: index (images) or data + schema (tabular).",
+      "properties": {
+        "data_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Url"
+        },
+        "index_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Url"
+        },
+        "schema_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Url"
+        }
+      },
+      "title": "IngestBase",
+      "type": "object"
+    },
+    "IngestHf": {
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "repo": {
+          "title": "Repo",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "revision"
+      ],
+      "title": "IngestHf",
+      "type": "object"
+    },
+    "IngestPayload": {
+      "description": "What the ingest entrypoints read (ray_jobs.common.enums.Param mirrors these keys; contract-tested).",
+      "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestBase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bucket": {
+          "title": "Bucket",
+          "type": "string"
+        },
+        "hf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestHf"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limits": {
+          "$ref": "#/$defs/DatasetLimits"
+        },
+        "prefix": {
+          "title": "Prefix",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ImportSource"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Split"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskType"
+        }
+      },
+      "required": [
+        "bucket",
+        "prefix",
+        "source",
+        "task",
+        "limits"
+      ],
+      "title": "IngestPayload",
+      "type": "object"
+    },
+    "IngestSpec": {
+      "properties": {
+        "attempt": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "ingest",
+          "default": "ingest",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/IngestPayload"
+        },
+        "reporting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "tenant_id",
+        "resources",
+        "payload"
+      ],
+      "title": "IngestSpec",
+      "type": "object"
+    },
+    "ModelSource": {
+      "enum": [
+        "hf"
+      ],
+      "title": "ModelSource",
+      "type": "string"
+    },
+    "Reporting": {
+      "description": "Where a job that streams events reports to; the token is injected as an env var, never put here.",
+      "properties": {
+        "events_url": {
+          "title": "Events Url",
+          "type": "string"
+        },
+        "token_env": {
+          "title": "Token Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "events_url",
+        "token_env"
+      ],
+      "title": "Reporting",
+      "type": "object"
+    },
+    "Resources": {
+      "description": "Declared, never inferred (planning 06): the scheduler and quotas act on these.",
+      "properties": {
+        "cpu": {
+          "exclusiveMinimum": 0,
+          "title": "Cpu",
+          "type": "number"
+        },
+        "gpu": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Gpu",
+          "type": "number"
+        },
+        "max_runtime_s": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Runtime S",
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Memory Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu",
+        "memory_bytes"
+      ],
+      "title": "Resources",
+      "type": "object"
+    },
+    "Split": {
+      "description": "Values of the nullable `split` column. Datasets never invent one (plan decision 9).",
+      "enum": [
+        "train",
+        "validation",
+        "test"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "TaskType": {
+      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today.",
+      "enum": [
+        "image-classification",
+        "object-detection",
+        "image-segmentation",
+        "tabular-classification",
+        "tabular-regression",
+        "text-classification",
+        "token-classification",
+        "question-answering",
+        "summarization",
+        "translation",
+        "text-generation",
+        "audio-classification",
+        "automatic-speech-recognition",
+        "text-to-speech"
+      ],
+      "title": "TaskType",
+      "type": "string"
+    },
+    "TrainData": {
+      "description": "Pinned by lakeFS commit, so retraining on the same data is exact.",
+      "properties": {
+        "commit": {
+          "title": "Commit",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/DataFormat"
+        },
+        "manifest_url": {
+          "title": "Manifest Url",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "repo": {
+          "title": "Repo",
+          "type": "string"
+        },
+        "shuffle_seed": {
+          "title": "Shuffle Seed",
+          "type": "integer"
+        },
+        "test_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test Commit"
+        }
+      },
+      "required": [
+        "repo",
+        "commit",
+        "path",
+        "format",
+        "manifest_url",
+        "shuffle_seed"
+      ],
+      "title": "TrainData",
+      "type": "object"
+    },
+    "TrainOutput": {
+      "properties": {
+        "artifact_prefix": {
+          "title": "Artifact Prefix",
+          "type": "string"
+        },
+        "register_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Register As"
+        }
+      },
+      "required": [
+        "artifact_prefix"
+      ],
+      "title": "TrainOutput",
+      "type": "object"
+    },
+    "TrainPayload": {
+      "properties": {
+        "base_model": {
+          "$ref": "#/$defs/BaseModelRef"
+        },
+        "data": {
+          "$ref": "#/$defs/TrainData"
+        },
+        "hyperparameters": {
+          "additionalProperties": true,
+          "title": "Hyperparameters",
+          "type": "object"
+        },
+        "output": {
+          "$ref": "#/$defs/TrainOutput"
+        },
+        "task": {
+          "$ref": "#/$defs/TrainTask"
+        },
+        "tracking": {
+          "$ref": "#/$defs/TrainTracking"
+        }
+      },
+      "required": [
+        "task",
+        "base_model",
+        "data",
+        "tracking",
+        "output"
+      ],
+      "title": "TrainPayload",
+      "type": "object"
+    },
+    "TrainSpec": {
+      "properties": {
+        "attempt": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "train",
+          "default": "train",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TrainPayload"
+        },
+        "reporting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "tenant_id",
+        "resources",
+        "payload"
+      ],
+      "title": "TrainSpec",
+      "type": "object"
+    },
+    "TrainTask": {
+      "properties": {
+        "preset": {
+          "title": "Preset",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/TaskType"
+        }
+      },
+      "required": [
+        "type",
+        "preset"
+      ],
+      "title": "TrainTask",
+      "type": "object"
+    },
+    "TrainTracking": {
+      "properties": {
+        "mlflow_experiment": {
+          "title": "Mlflow Experiment",
+          "type": "string"
+        },
+        "tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "object"
+        }
+      },
+      "required": [
+        "mlflow_experiment"
+      ],
+      "title": "TrainTracking",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "ingest": "#/$defs/IngestSpec",
+      "train": "#/$defs/TrainSpec"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/IngestSpec"
+    },
+    {
+      "$ref": "#/$defs/TrainSpec"
+    }
+  ]
+}

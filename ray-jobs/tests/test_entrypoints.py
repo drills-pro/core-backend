@@ -202,7 +202,8 @@ def test_main_arms_the_alarm_and_maps_failure_to_exit_code(monkeypatch, module):
         if failed:
             rep.error(Code.NO_DATA, "x")
         monkeypatch.setattr(runner, "run", lambda params, store, extract, rep=rep: rep)
-        argv = ["x", json.dumps({"bucket": "b", "prefix": "p/", **params(IMAGE_CLASSIFICATION)})]
+        payload = {"bucket": "b", "prefix": "p/", **params(IMAGE_CLASSIFICATION)}
+        argv = ["x", json.dumps({"spec_version": 1, "kind": "ingest", "payload": payload})]
         assert runner.main(argv, module.extract) == code
     assert alarms == [LIMITS.job_timeout_seconds, NO_ALARM] * 2  # armed, then cancelled after run()
     with pytest.raises(TimeoutError):

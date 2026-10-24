@@ -24,11 +24,11 @@ def test_the_bootstrap_makes_the_zip_importable_and_runs_the_entrypoint_as_main(
     data, _ = job_package.build()
     archive = tmp_path / "pkg.zip"
     archive.write_bytes(data)
-    argv = shlex.split(ingest.entrypoint(archive.as_uri(), job_catalog.JobType.UPLOAD_CSV, {}))
+    argv = shlex.split(ingest.entrypoint(archive.as_uri(), job_catalog.JobType.UPLOAD_CSV, "{}"))
     argv[0] = sys.executable  # `python` on PATH may be another interpreter
     done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, env={})
     assert "ModuleNotFoundError" not in done.stderr and done.returncode != 0
-    assert "KeyError: <Param.BUCKET" in done.stderr  # reached main() of the entrypoint: the params {} lack the bucket
+    assert "job spec version None" in done.stderr  # reached main() of the entrypoint: the spec {} is refused
 
 
 def test_presigned_url_uploads_a_new_version_once(monkeypatch):

@@ -21,6 +21,7 @@ TABULAR_REGRESSION = "tabular-regression"
 IMAGE_TASKS = (IMAGE_CLASSIFICATION, OBJECT_DETECTION)
 TABULAR_TASKS = (TABULAR_CLASSIFICATION, TABULAR_REGRESSION)
 
+SPEC_VERSION = 1  # the job spec version this code reads (core-api app/integrations/job_spec.py)
 HTTP_TIMEOUT_SECONDS = 60
 NO_ALARM = 0  # signal.alarm(0) cancels
 TIMEOUT_LIMIT = "job_timeout_seconds"  # the Limits field main() reads before Limits.from_dict can fail
