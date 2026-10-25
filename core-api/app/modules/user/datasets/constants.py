@@ -49,16 +49,6 @@ IMPORT_REVIEW_TTL = timedelta(days=7)  # an import nobody committed or discarded
 SYSTEM_ACTOR = "system"  # audit actor for what the background sweeps do
 
 
-class RayJobStatus(StrEnum):
-    """Ray's job states (the dashboard API)."""
-
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    STOPPED = "STOPPED"
-
-
 class AuditAction(StrEnum):
     DELETE = "delete"
     RESTORE = "restore"

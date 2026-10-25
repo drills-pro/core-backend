@@ -12,6 +12,7 @@ from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute, ray_client
 from app.integrations.data_plane import mlflow
+from app.modules.user.training.constants import INFLIGHT_STATUSES, TrainingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -147,13 +148,14 @@ async def cancel_training_run(
         )
         if row is None:
             raise HTTPException(status_code=404, detail="training run not found")
-        if row["status"] not in ("submitted", "running"):
+        if row["status"] not in INFLIGHT_STATUSES:
             raise HTTPException(status_code=409, detail=f"run already {row['status']}")
         await compute.stop(row["ray_job_id"])
         updated = await conn.fetchrow(
-            "UPDATE training_runs SET status = 'cancelled', completed_at = now() "
+            "UPDATE training_runs SET status = $2, completed_at = now() "
             "WHERE id = $1 RETURNING *",
             run_id,
+            TrainingStatus.CANCELLED,
         )
     await _close_run(ctx.tenant_id, project_id, row["mlflow_run_id"], mlflow.RunStatus.KILLED)
     return dict(updated)
