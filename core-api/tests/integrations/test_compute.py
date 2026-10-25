@@ -10,7 +10,7 @@ from app.integrations import compute, ray_client
 
 SPEC = compute.JobSpec(
     entrypoint="python job.py", metadata={"tenant_id": "t1", "import_id": "i1"}, env_vars={"K": "v"},
-    num_cpus=2, memory=1024, submission_id="ingest-1", timeout_seconds=60,
+    num_cpus=2, memory=1024, resources={"cpu_pool": 1}, submission_id="ingest-1", timeout_seconds=60,
 )
 RAYJOBS = "/apis/ray.io/v1/namespaces/ray/rayjobs"
 
@@ -51,6 +51,7 @@ def test_rayjob_submit_creates_a_cr_named_by_the_submission_id(kube):
     assert cr["spec"]["entrypoint"] == "python job.py" and cr["spec"]["jobId"] == "ingest-1"
     assert json.loads(cr["spec"]["runtimeEnvYAML"]) == {"env_vars": {"K": "v"}}
     assert cr["spec"]["entrypointNumCpus"] == 2 and cr["spec"]["entrypointMemory"] == 1024
+    assert json.loads(cr["spec"]["entrypointResources"]) == {"cpu_pool": 1}
     assert cr["spec"]["activeDeadlineSeconds"] == 60 and "entrypointNumGpus" not in cr["spec"]
     assert cr["metadata"]["labels"] == SPEC.metadata
     assert "rayClusterSpec" in cr["spec"] and "clusterSelector" not in cr["spec"]
@@ -112,7 +113,7 @@ def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
     monkeypatch.setattr(ray_client, "stop_job", stop_job)
     assert asyncio.run(compute.submit(SPEC)) == "ray-1"
     assert sent == dict(entrypoint="timeout 60 sh -c 'python job.py'", metadata=SPEC.metadata, num_gpus=0, num_cpus=2, memory=1024,
-                        env_vars={"K": "v"}, submission_id="ingest-1")
+                        resources={"cpu_pool": 1}, env_vars={"K": "v"}, submission_id="ingest-1")
     assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.RUNNING
     asyncio.run(compute.stop("ray-1"))
     assert stopped == ["ray-1"]

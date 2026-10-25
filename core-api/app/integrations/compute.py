@@ -30,6 +30,7 @@ JOB_NAME_LABEL = "job-name"  # set by the Job controller on the submitter pod
 CLUSTER_SELECTOR_LABEL = "ray.io/cluster"
 KUBE_TIMEOUT_SECONDS = 10
 DEFAULT_JOB_PREFIX = "job-"
+CPU_POOL_RESOURCE = "cpu_pool"  # custom Ray resource only the CPU worker group advertises (k8s apps/ray raycluster.yaml)
 
 
 class Backend(StrEnum):
@@ -54,6 +55,7 @@ class JobSpec(BaseModel):
     num_cpus: float = 0
     num_gpus: float = 0
     memory: int = 0  # bytes
+    resources: dict[str, float] = Field(default_factory=dict)  # custom Ray resources, to pin a job to a worker group
     submission_id: str | None = None  # the caller's id for the job, so it can stop it even if the answer is lost
     timeout_seconds: int = 0  # 0 = none; the RayJob backend enforces it as activeDeadlineSeconds
 
@@ -80,6 +82,8 @@ def rayjob_manifest(spec: JobSpec, name: str) -> dict:
         body["entrypointNumGpus"] = spec.num_gpus
     if spec.memory:
         body["entrypointMemory"] = spec.memory
+    if spec.resources:
+        body["entrypointResources"] = json.dumps(spec.resources)  # the CRD takes a JSON string
     if spec.timeout_seconds:
         body["activeDeadlineSeconds"] = spec.timeout_seconds
     return {
@@ -119,7 +123,8 @@ class _DashboardBackend:
         entrypoint = f"timeout {spec.timeout_seconds} sh -c {shlex.quote(spec.entrypoint)}" if spec.timeout_seconds else spec.entrypoint
         return await ray_client.submit_raw_job(
             entrypoint=entrypoint, metadata=spec.metadata, num_gpus=spec.num_gpus, num_cpus=spec.num_cpus,
-            memory=spec.memory, env_vars=spec.env_vars or None, submission_id=spec.submission_id,
+            memory=spec.memory, resources=spec.resources or None, env_vars=spec.env_vars or None,
+            submission_id=spec.submission_id,
         )
 
     async def status(self, job_id: str) -> JobStatus:

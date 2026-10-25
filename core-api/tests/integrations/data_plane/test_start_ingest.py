@@ -6,6 +6,7 @@ import uuid
 
 from app.core.enums import TaskType
 from app.core.settings import settings
+from app.integrations import compute
 from app.integrations.data_plane import access, ingest, layout
 from app.modules.user.datasets import ingest_spec
 from tests.support import FakeConn, TenantCtx
@@ -42,3 +43,4 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     assert asked == ["ingest"]  # never the staging secret, which also covers the lakeFS blockstore bucket
     assert sent["submission_id"] == "ingest-1"
     assert sent["num_cpus"] == settings.dataset_limits.ray_job_cpus
+    assert sent["resources"] == {compute.CPU_POOL_RESOURCE: 1}

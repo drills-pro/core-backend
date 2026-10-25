@@ -38,6 +38,7 @@ async def submit_ingest(tenant_id: str, dataset_id: str, import_id: str, spec: I
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
         num_cpus=spec.resources.cpu,
         memory=spec.resources.memory_bytes,
+        resources={compute.CPU_POOL_RESOURCE: 1},  # ingest is CPU-only: keep it off the GPU worker
         timeout_seconds=spec.resources.max_runtime_s,
         env_vars={
             "STAGING_ENDPOINT": creds["endpoint"],

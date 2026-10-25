@@ -11,8 +11,8 @@ RAY_DASHBOARD = settings.ray.dashboard
 
 
 async def submit_raw_job(
-    *, entrypoint: str, metadata: dict, num_gpus: float = 0, num_cpus: float = 0, memory: int = 0, env_vars: dict | None = None,
-    submission_id: str | None = None,
+    *, entrypoint: str, metadata: dict, num_gpus: float = 0, num_cpus: float = 0, memory: int = 0, resources: dict | None = None,
+    env_vars: dict | None = None, submission_id: str | None = None,
 ) -> str:
     # FR2 (06-project-settings-deployment.md): compute_target maps to a Ray
     # resource request — the one place this touches the job payload shape,
@@ -24,6 +24,8 @@ async def submit_raw_job(
         payload["entrypoint_num_cpus"] = num_cpus
     if memory:
         payload["entrypoint_memory"] = memory
+    if resources:
+        payload["entrypoint_resources"] = resources
     if submission_id:
         payload["submission_id"] = submission_id
     if env_vars:
