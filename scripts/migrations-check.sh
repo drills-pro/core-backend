@@ -133,6 +133,7 @@ INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, d
   VALUES ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'k', 'r', 'x',
           'dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
 SET LOCAL ROLE core_app;
+SET LOCAL app.tenant_id = '11111111-1111-1111-1111-111111111111';
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM expired_import_tenant_ids(now()) t WHERE t = '11111111-1111-1111-1111-111111111111') THEN
