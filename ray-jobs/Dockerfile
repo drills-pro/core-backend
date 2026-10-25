@@ -5,7 +5,7 @@
 # so a job-code change needs no image rebuild. Dependency source of truth: pyproject.toml.
 FROM rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe985437f083bfb72f63d6c54987ecad98f9505a380ceb
 
-COPY pyproject.toml /tmp/ray-jobs/pyproject.toml
+COPY --chown=ray:users pyproject.toml /tmp/ray-jobs/pyproject.toml
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-jobs/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-jobs/requirements.txt \
     && pip install --no-cache-dir -r /tmp/ray-jobs/requirements.txt \
