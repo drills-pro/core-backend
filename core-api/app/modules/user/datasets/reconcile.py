@@ -25,7 +25,8 @@ from app.modules.user.datasets.constants import (
     EntityType,
     ImportStatus,
 )
-from app.modules.user.datasets.import_service import cas, purge_staging_quietly
+from app.modules.user.datasets.import_service import cas
+from app.modules.user.datasets.lifecycle import wind_down
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def _failure(code: IssueCode, message: str) -> ImportReport:
 async def _fail(conn, row: dict, report: ImportReport) -> None:
     await cas(conn, row, ImportStatus.FAILED)
     await conn.execute(_STORE_REPORT, row["id"], report.model_dump(mode="json"))
-    await purge_staging_quietly(str(row["tenant_id"]), str(row["dataset_id"]), str(row["id"]))
+    await wind_down(row, stop_job=False)
 
 
 async def _ray_status(row: dict) -> JobStatus | None:
@@ -130,7 +131,7 @@ async def expire_stale_imports(now: datetime | None = None) -> None:
                 async with TenantConn(str(tenant_id)) as conn:
                     expired = await _expire(conn, row, now)
                 if expired:
-                    await purge_staging_quietly(str(row["tenant_id"]), str(row["dataset_id"]), str(row["id"]))  # after the commit
+                    await wind_down(row, stop_job=False)  # after the commit
             except Exception:  # noqa: BLE001 - a import moved by someone else (409) or a store hiccup retries next tick
                 logger.exception("failed to expire import %s", row["id"])
 

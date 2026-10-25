@@ -6,7 +6,7 @@ lifted into its own service when core-worker becomes a second caller. Staging la
 report schema: report.py.
 """
 from app.integrations.data_plane import mlflow
-from app.integrations.data_plane.ingest import start_ingest
+from app.integrations.data_plane.ingest import submit_ingest
 from app.integrations.data_plane.lakefs import (
     commit_staged,
     create_dataset_repo,
@@ -29,7 +29,7 @@ OPERATIONS = (
     commit_staged,
     purge_staging,
     delete_dataset_repo,
-    start_ingest,
+    submit_ingest,
     mlflow.start_run,
     mlflow.finish_run,
     mlflow.register_model_version,

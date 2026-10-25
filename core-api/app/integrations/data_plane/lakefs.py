@@ -50,6 +50,11 @@ def _s3(secret: str, endpoint: str | None = None):
     )
 
 
+def s3_client(secret: str):
+    """A client for the named credential, for the other data_plane modules."""
+    return _s3(secret)
+
+
 async def health() -> str:
     """Proves the lakeFS and staging credentials and endpoints work right now, with fresh clients."""
     try:

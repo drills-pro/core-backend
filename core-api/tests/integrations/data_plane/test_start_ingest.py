@@ -1,21 +1,21 @@
-"""start_ingest builds the job from Postgres and hands Ray the staging credential only."""
+"""submit_ingest hands Ray the spec the datasets module built and the staging credential only."""
 import asyncio
 import json
 import shlex
 import uuid
 
+from app.core.enums import TaskType
 from app.core.settings import settings
 from app.integrations.data_plane import access, ingest, layout
+from app.modules.user.datasets import ingest_spec
 from tests.support import FakeConn, TenantCtx
 
 TENANT, DATASET, IMPORT = (str(uuid.uuid4()) for _ in range(3))
 
 
 def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs_one(monkeypatch):
-    row = {"source": "upload", "params": {"target": "y"}, "base_version_id": None, "task_type": "tabular-regression"}
-    conn = FakeConn(row=row, val=1)
-    monkeypatch.setattr(access, "TenantConn", lambda t: TenantCtx(conn))
-    monkeypatch.setattr(ingest, "TenantConn", lambda t: TenantCtx(conn))
+    row = {"tenant_id": TENANT, "dataset_id": DATASET, "id": IMPORT, "source": "upload", "params": {"target": "y"}, "base_version_id": None}
+    monkeypatch.setattr(access, "TenantConn", lambda t: TenantCtx(FakeConn(val=1)))
     asked = []
     monkeypatch.setattr(ingest.secret_files, "get", lambda name: asked.append(name) or {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
     sent = {}
@@ -29,7 +29,8 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
 
     monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
     monkeypatch.setattr(ingest.compute, "submit", submit)
-    assert asyncio.run(ingest.start_ingest(TENANT, DATASET, IMPORT, "ingest-1")) == "job-1"
+    spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, "ingest-1"))
+    assert asyncio.run(ingest.submit_ingest(TENANT, DATASET, IMPORT, spec, kind)) == "job-1"
     argv = shlex.split(sent["entrypoint"])
     assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]
     spec = json.loads(argv[5])

@@ -21,7 +21,7 @@ COMMIT = "c0ffee"
 ARGS = {
     "tenant_id": TENANT, "dataset_id": DATASET, "import_id": IMPORT, "dataset_version_id": VERSION,
     "version_id": VERSION, "project_id": PROJECT, "run_id": RUN, "path": "objects/a.jpg", "message": "m",
-    "submission_id": "ingest-1", "key": layout.INDEX_KEY, "limit": 5, "model_name": "clf", "version": "1", "stage": "Staging", "status": RunStatus.FINISHED,
+    "spec": None, "kind": None, "key": layout.INDEX_KEY, "limit": 5, "model_name": "clf", "version": "1", "stage": "Staging", "status": RunStatus.FINISHED,
 }
 
 
