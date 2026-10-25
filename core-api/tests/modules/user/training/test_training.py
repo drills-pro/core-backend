@@ -4,7 +4,7 @@ import uuid
 import pytest
 
 from app.core.authz import TenantRole
-from app.modules.user.training import routes
+from app.modules.user.training import routes, run_service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 BASE = f"/v1/projects/{PROJECT}/training-runs"
@@ -16,7 +16,7 @@ def call(monkeypatch, dev_headers):
     client = make_client(routes.router)
 
     def go(method, path, row, **kw):
-        patch_tenant_conn(monkeypatch, FakeConn(row, row=row), routes)
+        patch_tenant_conn(monkeypatch, FakeConn(row, row=row), run_service)
         return client.request(method, path, **kw)
 
     return go

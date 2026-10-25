@@ -25,3 +25,6 @@ TRANSITIONS: dict[TrainingStatus, frozenset[TrainingStatus]] = {
     S.CANCELLED: frozenset(),
 }
 INFLIGHT_STATUSES = (S.SUBMITTED, S.RUNNING)  # mirrors training_runs_inflight_idx
+CANCELLABLE = INFLIGHT_STATUSES
+
+LOG_TAIL_CHARS = 8000

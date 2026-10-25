@@ -4,9 +4,12 @@ through, and the sweep that applies it to runs nobody is watching.
 Kept out of routes.py because both an HTTP GET and the background poller
 drive the same transition — see app/background.py.
 """
+import logging
 from datetime import datetime, timezone
 
 from http import HTTPStatus
+
+import httpx
 
 from app.core.metrics import usage as usage_metrics
 from app.core.problem import Problem
@@ -16,6 +19,8 @@ from app.integrations.data_plane import mlflow
 from app.modules.user.training import log_parsing
 from app.modules.user.training.constants import INFLIGHT_STATUSES, TRANSITIONS, ProblemCode, TrainingStatus
 from app.modules.user.usage import record_usage
+
+logger = logging.getLogger(__name__)
 
 RAY_TO_STATUS = {
     JobStatus.PENDING: TrainingStatus.SUBMITTED,
@@ -49,7 +54,10 @@ async def transition(conn, row: dict, new_status: TrainingStatus, tenant_id: str
     metrics = None
     mlflow_run_id = row["mlflow_run_id"]
     if new_status == TrainingStatus.CANCELLED and mlflow_run_id:
-        await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
+        try:  # best effort: a tracking hiccup must not block a cancel
+            await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
+        except httpx.HTTPError:
+            logger.warning("could not close MLflow run %s as killed", mlflow_run_id, exc_info=True)
     if new_status in _FINISHED:
         logs = await compute.logs(row["ray_job_id"])
         scalar_metrics = log_parsing.parse_metrics(logs)
