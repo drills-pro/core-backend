@@ -1,4 +1,4 @@
-"""The one door to compute (planning 07): submit a job, read its status, stop it.
+"""The one door to compute (planning 07): submit a job, read its status and logs, stop it.
 
 Two backends behind `settings.compute.backend`, chosen per call so a config flip needs no deploy of code:
 
@@ -6,12 +6,13 @@ Two backends behind `settings.compute.backend`, chosen per call so a config flip
   rayjob         a KubeRay `RayJob` custom resource created through the Kubernetes API; status is read from
                  the CR, so nothing polls a Ray head, and the control plane holds no credential to one
 
-Callers pass a JobSpec and keep the returned job id; status values are Ray's job states either way.
+Callers pass a JobSpec and keep the returned job id (also the handle for `logs`); status values are Ray's job states either way.
 """
 import json
 import uuid
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, Field
@@ -23,6 +24,8 @@ KUBE_API = "https://kubernetes.default.svc"
 KUBE_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 KUBE_CA = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 RAYJOB_PATH = "/apis/ray.io/v1/namespaces/{namespace}/rayjobs"
+PODS_PATH = "/api/v1/namespaces/{namespace}/pods"
+JOB_NAME_LABEL = "job-name"  # set by the Job controller on the submitter pod
 CLUSTER_SELECTOR_LABEL = "ray.io/cluster"
 KUBE_TIMEOUT_SECONDS = 10
 DEFAULT_JOB_PREFIX = "job-"
@@ -109,35 +112,89 @@ def _rayjobs() -> str:
     return RAYJOB_PATH.format(namespace=settings.compute.rayjob.namespace)
 
 
-async def submit(spec: JobSpec) -> str:
-    """Start the job and return its id (the submission id when the caller gave one)."""
-    if settings.compute.backend == Backend.RAY_DASHBOARD:
+class _DashboardBackend:
+    async def submit(self, spec: JobSpec) -> str:
+        # ponytail: Ray's job API has no deadline, so spec.timeout_seconds is not enforced here (the RayJob backend
+        # does); a reconcile sweep that calls stop() on overdue jobs is the upgrade if the dashboard stays.
         return await ray_client.submit_raw_job(
             entrypoint=spec.entrypoint, metadata=spec.metadata, num_gpus=spec.num_gpus, num_cpus=spec.num_cpus,
             memory=spec.memory, env_vars=spec.env_vars or None, submission_id=spec.submission_id,
         )
-    name = spec.submission_id or f"{DEFAULT_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
-    async with _kube() as client:
-        resp = await client.post(_rayjobs(), json=rayjob_manifest(spec, name))
-        resp.raise_for_status()
-    return name
+
+    async def status(self, job_id: str) -> JobStatus:
+        return JobStatus(await ray_client.get_status(job_id))
+
+    async def stop(self, job_id: str) -> None:
+        await ray_client.stop_job(job_id)
+
+    async def logs(self, job_id: str) -> str:
+        return await ray_client.get_logs(job_id)
+
+
+class _RayJobBackend:
+    async def submit(self, spec: JobSpec) -> str:
+        name = spec.submission_id or f"{DEFAULT_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
+        async with _kube() as client:
+            resp = await client.post(_rayjobs(), json=rayjob_manifest(spec, name))
+            resp.raise_for_status()
+        return name
+
+    async def status(self, job_id: str) -> JobStatus:
+        async with _kube() as client:
+            resp = await client.get(f"{_rayjobs()}/{job_id}")
+            resp.raise_for_status()
+            return rayjob_status(resp.json())
+
+    async def stop(self, job_id: str) -> None:
+        """Idempotent: a job that is already gone is stopped."""
+        async with _kube() as client:  # deleting the CR stops the Ray job and tears down its cluster (planning 07)
+            resp = await client.delete(f"{_rayjobs()}/{job_id}")
+            if resp.status_code != httpx.codes.NOT_FOUND:
+                resp.raise_for_status()
+
+    async def logs(self, job_id: str) -> str:
+        """The submitter pod's log (K8sJobMode runs `ray job submit` in a Job named like the RayJob, whose output
+        is the entrypoint's). Empty once the Job is gone (ttl_after_finished_seconds) or before its pod runs."""
+        pods = PODS_PATH.format(namespace=settings.compute.rayjob.namespace)
+        async with _kube() as client:
+            resp = await client.get(pods, params={"labelSelector": f"{JOB_NAME_LABEL}={job_id}"})
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+            if not items:
+                return ""
+            pod = max(items, key=lambda p: p["metadata"]["creationTimestamp"])["metadata"]["name"]
+            resp = await client.get(f"{pods}/{pod}/log")
+            if resp.status_code == httpx.codes.BAD_REQUEST:  # container not started yet
+                return ""
+            resp.raise_for_status()
+            return resp.text
+
+
+class _Backend(Protocol):
+    async def submit(self, spec: JobSpec) -> str: ...
+    async def status(self, job_id: str) -> JobStatus: ...
+    async def stop(self, job_id: str) -> None: ...
+    async def logs(self, job_id: str) -> str: ...
+
+
+def _backend() -> _Backend:
+    """Chosen per call so a config flip needs no code change (and tests can flip it)."""
+    return _RayJobBackend() if settings.compute.backend == Backend.RAYJOB else _DashboardBackend()
+
+
+async def submit(spec: JobSpec) -> str:
+    """Start the job and return its id (the submission id when the caller gave one)."""
+    return await _backend().submit(spec)
 
 
 async def status(job_id: str) -> JobStatus:
-    if settings.compute.backend == Backend.RAY_DASHBOARD:
-        return JobStatus(await ray_client.get_status(job_id))
-    async with _kube() as client:
-        resp = await client.get(f"{_rayjobs()}/{job_id}")
-        resp.raise_for_status()
-        return rayjob_status(resp.json())
+    return await _backend().status(job_id)
 
 
 async def stop(job_id: str) -> None:
-    """Idempotent: a job that is already gone is stopped."""
-    if settings.compute.backend == Backend.RAY_DASHBOARD:
-        await ray_client.stop_job(job_id)
-        return
-    async with _kube() as client:  # deleting the CR stops the Ray job and tears down its cluster (planning 07)
-        resp = await client.delete(f"{_rayjobs()}/{job_id}")
-        if resp.status_code != httpx.codes.NOT_FOUND:
-            resp.raise_for_status()
+    await _backend().stop(job_id)
+
+
+async def logs(job_id: str) -> str:
+    """Whatever the job has printed so far (a running job's partial output too)."""
+    return await _backend().logs(job_id)

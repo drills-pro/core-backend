@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 from app.core.metrics import usage as usage_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, ray_client
+from app.integrations import compute
 from app.integrations.data_plane import mlflow
+from app.modules.user.training import log_parsing
 from app.modules.user.usage import record_usage
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,13 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
     if new_status == "cancelled" and mlflow_run_id:
         await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
     if new_status in ("succeeded", "failed"):
-        logs = await ray_client.get_logs(row["ray_job_id"])
-        scalar_metrics = ray_client.parse_metrics(logs)
+        logs = await compute.logs(row["ray_job_id"])
+        scalar_metrics = log_parsing.parse_metrics(logs)
         # epoch_history/confusion_matrix are structured, not floats — MLflow's
         # log-metric API only accepts scalars, so they're stored on our own
         # row (below) but never sent to MLflow.
-        metrics = {**scalar_metrics, **ray_client.parse_extra_metrics(logs)}
-        model_artifact = ray_client.parse_model_artifact(logs)
+        metrics = {**scalar_metrics, **log_parsing.parse_extra_metrics(logs)}
+        model_artifact = log_parsing.parse_model_artifact(logs)
         if mlflow_run_id is not None:
             await mlflow.finish_run(
                 tenant_id,

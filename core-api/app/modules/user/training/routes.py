@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.authz import Action, AuthzContext, require
 from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, ray_client
+from app.integrations import compute
 from app.integrations.data_plane import mlflow
+from app.modules.user.training import log_parsing
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +90,12 @@ async def get_training_run_logs(
     if row is None:
         raise HTTPException(status_code=404, detail="training run not found")
 
-    logs = await ray_client.get_logs(row["ray_job_id"])
+    logs = await compute.logs(row["ray_job_id"])
     return {
         "status": row["status"],
         "logs": logs[-8000:],
-        "metrics": ray_client.parse_metrics(logs),
-        "extra_metrics": ray_client.parse_extra_metrics(logs),
+        "metrics": log_parsing.parse_metrics(logs),
+        "extra_metrics": log_parsing.parse_extra_metrics(logs),
     }
 
 

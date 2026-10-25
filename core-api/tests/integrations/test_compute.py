@@ -116,3 +116,36 @@ def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
     assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.RUNNING
     asyncio.run(compute.stop("ray-1"))
     assert stopped == ["ray-1"]
+
+
+def test_rayjob_logs_read_the_newest_submitter_pod(kube, monkeypatch):
+    pods = "/api/v1/namespaces/ray/pods"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == pods:
+            assert request.url.params["labelSelector"] == "job-name=ingest-1"
+            return httpx.Response(200, json={"items": [
+                {"metadata": {"name": "old", "creationTimestamp": "2026-01-01T00:00:00Z"}},
+                {"metadata": {"name": "new", "creationTimestamp": "2026-01-02T00:00:00Z"}},
+            ]})
+        assert request.url.path == f"{pods}/new/log"
+        return httpx.Response(200, text="metric:acc=0.9\n")
+
+    monkeypatch.setattr(compute, "_kube", lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://kube"))
+    assert asyncio.run(compute.logs("ingest-1")) == "metric:acc=0.9\n"
+
+
+def test_rayjob_logs_are_empty_without_a_pod(kube, monkeypatch):
+    monkeypatch.setattr(compute, "_kube", lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"items": []})), base_url="http://kube"))
+    assert asyncio.run(compute.logs("ingest-1")) == ""
+
+
+def test_dashboard_backend_logs_go_through_the_ray_client(monkeypatch):
+    async def get_logs(job_id):
+        return f"log of {job_id}"
+
+    monkeypatch.setattr(settings.compute, "backend", "ray_dashboard")
+    monkeypatch.setattr(ray_client, "get_logs", get_logs)
+    assert asyncio.run(compute.logs("ray-1")) == "log of ray-1"

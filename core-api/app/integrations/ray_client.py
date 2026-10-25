@@ -3,18 +3,11 @@
 Talks to Ray's HTTP job API directly rather than the Python SDK — core-api
 doesn't need a Ray runtime, just to submit/poll/stop jobs on the cluster.
 """
-import json
-
 import httpx
 
 from app.core.settings import settings
 
 RAY_DASHBOARD = settings.ray.dashboard
-
-DEFAULT_CONFIG = {
-    "model_type": "classification",
-    "trainer": {"epochs": 25, "learning_rate": 0.1},
-}
 
 
 async def submit_raw_job(
@@ -65,41 +58,3 @@ async def stop_job(job_id: str) -> None:
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(f"{RAY_DASHBOARD}/api/jobs/{job_id}/stop")
         resp.raise_for_status()
-
-
-def parse_metrics(logs: str) -> dict[str, float]:
-    metrics = {}
-    for line in logs.splitlines():
-        if line.startswith("metric:"):
-            key, _, value = line.removeprefix("metric:").partition("=")
-            try:
-                metrics[key] = float(value)
-            except ValueError:
-                continue
-    return metrics
-
-
-def parse_extra_metrics(logs: str) -> dict:
-    """Extracts the `metrics_json:{...}` line every backend prints —
-    per-epoch loss/accuracy history and a test-set confusion matrix, as
-    opposed to parse_metrics' single scalar values."""
-    for line in reversed(logs.splitlines()):
-        if line.startswith("metrics_json:"):
-            try:
-                return json.loads(line.removeprefix("metrics_json:"))
-            except ValueError:
-                continue
-    return {}
-
-
-def parse_model_artifact(logs: str) -> dict | None:
-    """Extracts the `model:{...json...}` line the numpy backend prints
-    (weights it actually fit) — the servable artifact for deployments
-    (req/04 Deployments group, req/07 FR3)."""
-    for line in logs.splitlines():
-        if line.startswith("model:"):
-            try:
-                return json.loads(line.removeprefix("model:"))
-            except ValueError:
-                continue
-    return None
