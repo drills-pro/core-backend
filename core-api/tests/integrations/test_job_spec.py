@@ -1,4 +1,4 @@
-"""The job spec: one envelope, a payload per kind, and the committed JSON Schema matches the models."""
+"""The job spec: one envelope, a payload, and the committed JSON Schema matches the models."""
 import json
 import uuid
 from pathlib import Path
@@ -8,17 +8,10 @@ from pydantic import ValidationError
 
 from app.core.enums import ImportSource, TaskType
 from app.core.settings import settings
-from app.integrations.job_spec import JOB_SPEC, SPEC_VERSION, IngestPayload, JobKind, Resources
+from app.integrations.job_spec import SPEC_VERSION, IngestSpec, IngestPayload, JobKind, Resources
 
 SCHEMA = Path(__file__).parents[3] / "contracts" / "job-spec.v1.json"
 RESOURCES = {"cpu": 2, "memory_bytes": 1024}
-TRAIN_PAYLOAD = {
-    "task": {"type": "object-detection", "preset": "small"},
-    "base_model": {"catalog_id": str(uuid.uuid4()), "source": "hf", "repo_id": "o/r", "revision": "abc", "license": "mit", "uri": "s3://m/"},
-    "data": {"repo": "ds", "commit": "c0ffee", "path": "datasets/x/", "format": "webdataset", "manifest_url": "http://m", "shuffle_seed": 1},
-    "tracking": {"mlflow_experiment": "t/x"},
-    "output": {"artifact_prefix": "tenants/t/jobs/j/"},
-}
 
 
 def envelope(kind, payload, **over):
@@ -32,22 +25,19 @@ def ingest_payload():
 
 
 def test_the_committed_schema_matches_the_models():
-    current = json.dumps(JOB_SPEC.json_schema(), indent=2, sort_keys=True) + "\n"
+    current = json.dumps(IngestSpec.model_json_schema(), indent=2, sort_keys=True) + "\n"
     assert SCHEMA.read_text() == current, "regenerate: cd core-api && APP_ENV=test PYTHONPATH=. .venv/bin/python ../scripts/gen-job-spec-schema.py"
 
 
-def test_the_payload_is_chosen_by_kind():
-    assert JOB_SPEC.validate_python(envelope(JobKind.INGEST, ingest_payload())).kind == JobKind.INGEST
-    assert JOB_SPEC.validate_python(envelope(JobKind.TRAIN, TRAIN_PAYLOAD)).kind == JobKind.TRAIN
-    with pytest.raises(ValidationError):
-        JOB_SPEC.validate_python(envelope(JobKind.TRAIN, ingest_payload()))  # an ingest payload is not a train one
+def test_the_payload_is_ingest():
+    assert IngestSpec.model_validate(envelope(JobKind.INGEST, ingest_payload())).kind == JobKind.INGEST
 
 
 def test_an_unknown_version_or_kind_is_rejected():
     with pytest.raises(ValidationError):
-        JOB_SPEC.validate_python(envelope(JobKind.INGEST, ingest_payload(), spec_version=2))
+        IngestSpec.model_validate(envelope(JobKind.INGEST, ingest_payload(), spec_version=2))
     with pytest.raises(ValidationError):
-        JOB_SPEC.validate_python(envelope("prepare", {}))
+        IngestSpec.model_validate(envelope("prepare", {}))
 
 
 def test_resources_must_be_declared_and_positive():

@@ -5,7 +5,7 @@ Run from core-api/ with its venv: APP_ENV=test PYTHONPATH=. .venv/bin/python ../
 import json
 from pathlib import Path
 
-from app.integrations.job_spec import JOB_SPEC
+from app.integrations.job_spec import IngestSpec
 
 OUT = Path(__file__).parents[1] / "contracts" / "job-spec.v1.json"
-OUT.write_text(json.dumps(JOB_SPEC.json_schema(), indent=2, sort_keys=True) + "\n")
+OUT.write_text(json.dumps(IngestSpec.model_json_schema(), indent=2, sort_keys=True) + "\n")

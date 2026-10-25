@@ -76,9 +76,8 @@ def test_the_job_reads_the_spec_core_api_writes():
 
 
 def test_every_job_type_has_an_entrypoint_module_that_runs_as_main():
-    assert set(job_catalog.CATALOG) == set(job_catalog.JobType)
-    for kind, spec in job_catalog.CATALOG.items():
-        assert callable(import_module(spec.entrypoint).extract), kind
+    for kind in job_catalog.JobType:
+        assert callable(import_module(f"{job_catalog.ENTRYPOINTS}.{kind.value}").extract), kind
 
 
 def test_every_source_and_task_picks_a_job_type():

@@ -89,7 +89,6 @@ class JobKind(StrEnum):
     """Mirrors job_spec.JobKind (drift-tested); only INGEST is run by this package."""
 
     INGEST = "ingest"
-    TRAIN = "train"
 
 
 class Source(StrEnum):

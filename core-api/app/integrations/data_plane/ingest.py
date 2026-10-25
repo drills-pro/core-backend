@@ -12,7 +12,7 @@ from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.integrations.data_plane import access, job_package, layout, lakefs
-from app.integrations.data_plane.job_catalog import CATALOG, JobType, ingest_job_type
+from app.integrations.data_plane.job_catalog import ENTRYPOINTS, JobType, ingest_job_type
 from app.integrations.job_spec import IngestBase, IngestHf, IngestPayload, IngestSpec, Resources
 
 
@@ -34,7 +34,7 @@ _IMPORT = (
 
 def entrypoint(package_url: str, kind: JobType, spec_json: str) -> str:
     """Shell command Ray runs: the bootstrap, then the package url, the module and the job spec JSON as plain argv."""
-    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, CATALOG[kind].entrypoint, spec_json])
+    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, f"{ENTRYPOINTS}.{kind.value}", spec_json])
 
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: str) -> dict:
