@@ -26,7 +26,7 @@ from app.modules.user.datasets.constants import (
     ImportStatus,
 )
 from app.modules.user.datasets.import_service import cas
-from app.modules.user.datasets.lifecycle import wind_down
+from app.modules.user.datasets.lifecycle import stop_job_quietly, wind_down
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,6 @@ _STORE_REPORT = "UPDATE dataset_imports SET report = $2 WHERE id = $1"
 _LOCK_PURGEABLE = "SELECT 1 FROM datasets WHERE id = $1 AND deleted_at < $2 FOR UPDATE"
 _DATASET_IMPORTS = "SELECT id FROM dataset_imports WHERE dataset_id = $1"
 _PURGE_ROWS = "SELECT purge_dataset_rows($1, $2)"
-
-
-async def _fetch(sql: str, *args) -> list:
-    """A cross-tenant listing (SECURITY DEFINER function), before any tenant is set."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetch(sql, *args)
 
 
 def _failure(code: IssueCode, message: str) -> ImportReport:
@@ -76,10 +69,7 @@ async def _settle(conn, row: dict, now: datetime) -> None:
     done = ray is not None and job_follower.phase(ray) is not job_follower.Phase.IN_FLIGHT
     if not done and row["expires_at"] is not None and row["expires_at"] <= now:  # the job deadline
         if row["ray_job_id"]:
-            try:
-                await compute.stop(row["ray_job_id"])
-            except Exception:  # noqa: BLE001 - the job may already be gone; the import fails either way
-                logger.warning("could not stop timed-out ingest job %s", row["ray_job_id"])
+            await stop_job_quietly(row["ray_job_id"])  # the job may already be gone; the import fails either way
         await _fail(conn, row, _failure(IssueCode.JOB_TIMEOUT, "the ingest job did not finish in time"))
         return
     if ray is None or ray is JobStatus.PENDING:
@@ -123,7 +113,7 @@ async def _expire(conn, row: dict, now: datetime) -> bool:
 
 async def expire_stale_imports(now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
-    for tenant_id in [r[0] for r in await _fetch(_EXPIRED_TENANTS, now)]:
+    for tenant_id in [r[0] for r in await job_follower.fetch(_EXPIRED_TENANTS, now)]:
         async with TenantConn(str(tenant_id)) as conn:
             rows = [dict(r) for r in await conn.fetch(_EXPIRED, tenant_id, [str(s) for s in _EXPIRABLE_STATUSES], now)]
         for row in rows:
@@ -140,7 +130,7 @@ async def purge_deleted_datasets(now: datetime | None = None) -> None:
     """Delete datasets soft-deleted more than DATASET_RETENTION_DAYS ago. The dataset row stays locked from the
     check until the rows are gone, so a restore cannot slip in between the repo delete and the row delete."""
     cutoff = (now or datetime.now(UTC)) - timedelta(days=DATASET_RETENTION_DAYS)
-    for tenant_id, dataset_id in [(r[0], r[1]) for r in await _fetch(_PURGEABLE, cutoff)]:
+    for tenant_id, dataset_id in [(r[0], r[1]) for r in await job_follower.fetch(_PURGEABLE, cutoff)]:
         try:
             async with TenantConn(str(tenant_id)) as conn:
                 if await conn.fetchval(_LOCK_PURGEABLE, dataset_id, cutoff) is None:

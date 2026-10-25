@@ -9,6 +9,7 @@ Two backends behind `settings.compute.backend`, chosen per call so a config flip
 Callers pass a JobSpec and keep the returned job id (also the handle for `logs`); status values are Ray's job states either way.
 """
 import json
+import shlex
 import uuid
 from enum import StrEnum
 from pathlib import Path
@@ -114,10 +115,10 @@ def _rayjobs() -> str:
 
 class _DashboardBackend:
     async def submit(self, spec: JobSpec) -> str:
-        # ponytail: Ray's job API has no deadline, so spec.timeout_seconds is not enforced here (the RayJob backend
-        # does); a reconcile sweep that calls stop() on overdue jobs is the upgrade if the dashboard stays.
+        # Ray's job API has no deadline, so the entrypoint carries it (GNU timeout, present in the Ray images).
+        entrypoint = f"timeout {spec.timeout_seconds} sh -c {shlex.quote(spec.entrypoint)}" if spec.timeout_seconds else spec.entrypoint
         return await ray_client.submit_raw_job(
-            entrypoint=spec.entrypoint, metadata=spec.metadata, num_gpus=spec.num_gpus, num_cpus=spec.num_cpus,
+            entrypoint=entrypoint, metadata=spec.metadata, num_gpus=spec.num_gpus, num_cpus=spec.num_cpus,
             memory=spec.memory, env_vars=spec.env_vars or None, submission_id=spec.submission_id,
         )
 

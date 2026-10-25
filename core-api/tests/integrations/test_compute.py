@@ -111,7 +111,7 @@ def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
     monkeypatch.setattr(ray_client, "get_status", get_status)
     monkeypatch.setattr(ray_client, "stop_job", stop_job)
     assert asyncio.run(compute.submit(SPEC)) == "ray-1"
-    assert sent == dict(entrypoint="python job.py", metadata=SPEC.metadata, num_gpus=0, num_cpus=2, memory=1024,
+    assert sent == dict(entrypoint="timeout 60 sh -c 'python job.py'", metadata=SPEC.metadata, num_gpus=0, num_cpus=2, memory=1024,
                         env_vars={"K": "v"}, submission_id="ingest-1")
     assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.RUNNING
     asyncio.run(compute.stop("ray-1"))

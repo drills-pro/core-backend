@@ -5,8 +5,9 @@ and a `settle` step that moves one row given Ray's state. This module owns the t
 and the isolation of a failing row, so one bad job never blocks the sweep.
 """
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from enum import StrEnum
+from typing import Any
 
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
@@ -36,11 +37,11 @@ def phase(status: JobStatus) -> Phase:
     return _PHASE[status]
 
 
-async def _fetch(sql: str) -> list:
+async def fetch(sql: str, *args) -> list:
     """A cross-tenant listing (SECURITY DEFINER function), before any tenant is set."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        return await conn.fetch(sql)
+        return await conn.fetch(sql, *args)
 
 
 async def poll(job_id: str) -> JobStatus | None:
@@ -55,12 +56,12 @@ async def poll(job_id: str) -> JobStatus | None:
 
 async def follow(
     tenants_sql: str,
-    select: Callable[..., Awaitable[list]],
-    settle: Callable[..., Awaitable[None]],
+    select: Callable[[Any, Any], Awaitable[Sequence]],  # (conn, tenant_id) -> rows; every row carries an `id`
+    settle: Callable[[Any, dict], Awaitable[None]],  # (conn, row)
 ) -> None:
     """For each tenant `tenants_sql` lists: `select(conn, tenant_id)` its rows, then `settle(conn, row)` each in its
     own tenant transaction."""
-    for tenant_id in [r[0] for r in await _fetch(tenants_sql)]:
+    for tenant_id in [r[0] for r in await fetch(tenants_sql)]:
         async with TenantConn(str(tenant_id)) as conn:
             rows = [dict(r) for r in await select(conn, tenant_id)]
         for row in rows:
@@ -68,4 +69,4 @@ async def follow(
                 async with TenantConn(str(tenant_id)) as conn:
                     await settle(conn, row)
             except Exception:  # noqa: BLE001 - one bad row shouldn't block the sweep
-                logger.exception("failed to follow ray job of row %s", row["id"])
+                logger.exception("failed to follow ray job of row %s", row.get("id"))

@@ -149,9 +149,8 @@ def env(monkeypatch):
     monkeypatch.setattr(rec, "TenantConn", db)
     monkeypatch.setattr(rec, "data_plane", gw)
     monkeypatch.setattr(lifecycle, "data_plane", gw)  # purge_staging_quietly
-    monkeypatch.setattr(rec, "_fetch", fetch)
     monkeypatch.setattr(job_follower, "TenantConn", db)
-    monkeypatch.setattr(job_follower, "_fetch", fetch)
+    monkeypatch.setattr(job_follower, "fetch", fetch)
     monkeypatch.setattr(rec.compute, "status", get_status)
     monkeypatch.setattr(rec.compute, "stop", stop_job)
     return SimpleNamespace(db=db, gw=gw, ray=ray)
@@ -336,7 +335,7 @@ def test_purge_skips_a_dataset_restored_after_the_listing(env, monkeypatch):
         env.db.datasets[ds] = None  # restore lands between the listing and the lock
         return rows
 
-    monkeypatch.setattr(rec, "_fetch", list_then_restore)
+    monkeypatch.setattr(job_follower, "fetch", list_then_restore)
     run(rec.purge_deleted_datasets(T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)))
     assert env.gw.deleted_repos == [] and ds in env.db.datasets
 

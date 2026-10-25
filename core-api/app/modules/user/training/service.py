@@ -18,7 +18,7 @@ from app.integrations.compute import JobStatus
 from app.integrations.data_plane import mlflow
 from app.modules.user.training import log_parsing
 from app.modules.user.training.constants import INFLIGHT_STATUSES, TRANSITIONS, ProblemCode, TrainingStatus
-from app.modules.user.usage import record_usage
+from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ async def transition(conn, row: dict, new_status: TrainingStatus, tenant_id: str
     frm = TrainingStatus(row["status"])
     if new_status not in TRANSITIONS[frm]:
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is {frm}, it cannot become {new_status}")
-    completed_at = datetime.now(timezone.utc) if new_status in _FINISHED else None
+    completed_at = datetime.now(timezone.utc) if not TRANSITIONS[new_status] else None  # any end state
 
     model_artifact = None  # only set below when freshly parsed; COALESCE in the UPDATE preserves any existing value
     metrics = None
@@ -80,9 +80,9 @@ async def transition(conn, row: dict, new_status: TrainingStatus, tenant_id: str
                 conn,
                 tenant_id=tenant_id,
                 project_id=row["project_id"],
-                resource_type="training",
+                resource_type=UsageResource.TRAINING,
                 quantity=elapsed,
-                unit="gpu_seconds",
+                unit=UsageUnit.GPU_SECONDS,
                 occurred_at=completed_at,
                 source_ref=row["ray_job_id"],
             )
@@ -118,7 +118,12 @@ async def _settle(conn, row: dict) -> None:
         return
     new_status = RAY_TO_STATUS[ray_status]
     if new_status in TRANSITIONS[TrainingStatus(row["status"])]:  # not e.g. running -> submitted
-        await transition(conn, row, new_status, str(row["tenant_id"]))
+        try:
+            await transition(conn, row, new_status, str(row["tenant_id"]))
+        except Problem as exc:
+            if exc.code != ProblemCode.INVALID_STATE:
+                raise
+            logger.info("run %s was moved by someone else; nothing to settle", row["id"])  # a cancel or another replica won
 
 
 async def reconcile_inflight_runs() -> None:

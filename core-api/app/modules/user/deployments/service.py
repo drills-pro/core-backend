@@ -26,8 +26,6 @@ from app.modules.user.deployments.constants import (
     SETTING_DEPLOY_STRATEGY,
     DeployStrategy,
     PlanTier,
-    UsageResource,
-    UsageUnit,
 )
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
@@ -38,7 +36,7 @@ from app.modules.user.deployments.schemas import (
 )
 from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.training import TrainingStatus
-from app.modules.user.usage import record_usage
+from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 _NOT_FOUND = "deployment not found"
 
@@ -52,6 +50,7 @@ def rate_limit_for(plan_tier: str | None) -> int:
 
 
 async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
+    # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
         run = await conn.fetchrow(
             "SELECT status, model_artifact FROM training_runs WHERE id = $1 AND project_id = $2",
@@ -79,19 +78,19 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
                 project_id,
                 f"/predict/{project_id}/{MAIN_ROUTE_SUFFIX}",
             )
-
-        deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
-        ray_job_id, route_prefix = await serve_client.deploy(
-            deployment_id=str(deployment_id),
-            weights=run["model_artifact"],
-            tenant_id=ctx.tenant_id,
-            project_id=str(project_id),
-            compute_target=settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET),
-            deploy_strategy=deploy_strategy,
-        )
-
         plan_tier = await conn.fetchval("SELECT plan_tier FROM tenants WHERE id = $1", ctx.tenant_id)
 
+    deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
+    ray_job_id, route_prefix = await serve_client.deploy(
+        deployment_id=str(deployment_id),
+        weights=run["model_artifact"],
+        tenant_id=ctx.tenant_id,
+        project_id=str(project_id),
+        compute_target=settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET),
+        deploy_strategy=deploy_strategy,
+    )
+
+    async with TenantConn(ctx.tenant_id) as conn:
         if existing_main:
             row = await conn.fetchrow(
                 "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4 "

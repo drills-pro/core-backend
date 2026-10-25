@@ -17,16 +17,6 @@ class DeployStrategy(StrEnum):
     MAIN = "main"
 
 
-class UsageResource(StrEnum):
-    """Mirrors the usage_events.resource_type CHECK (inference only here)."""
-
-    INFERENCE = "inference"
-
-
-class UsageUnit(StrEnum):
-    REQUESTS = "requests"
-
-
 # req/04 FR4: rate limit "configurable per tenant plan tier."
 PLAN_TIER_RATE_LIMITS = {PlanTier.FREE: 10, PlanTier.PRO: 120, PlanTier.ENTERPRISE: 1000}
 
