@@ -16,6 +16,7 @@ from app import background
 from app.core.settings import settings
 from app.integrations.data_plane.report import ImportReport, IssueCode, Outcome, Stats
 from app.modules.user.datasets import import_service as svc
+from app.modules.user.datasets import lifecycle
 from app.modules.user.datasets import reconcile as rec
 from app.modules.user.datasets.constants import (
     DATASET_RETENTION_DAYS,
@@ -146,7 +147,7 @@ def env(monkeypatch):
 
     monkeypatch.setattr(rec, "TenantConn", db)
     monkeypatch.setattr(rec, "data_plane", gw)
-    monkeypatch.setattr(svc, "data_plane", gw)  # purge_staging_quietly
+    monkeypatch.setattr(lifecycle, "data_plane", gw)  # purge_staging_quietly
     monkeypatch.setattr(rec, "_fetch", fetch)
     monkeypatch.setattr(rec.compute, "status", get_status)
     monkeypatch.setattr(rec.compute, "stop", stop_job)

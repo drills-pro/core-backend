@@ -20,6 +20,7 @@ from app.core.enums import TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.datasets import import_service as svc
+from app.modules.user.datasets import lifecycle
 from app.modules.user.datasets import router as datasets
 from app.modules.user.datasets.constants import (
     ACTIVE_STATUSES,
@@ -205,7 +206,7 @@ class Gateway:
             if name == "commit_staged":
                 self.n += 1
                 return f"commit-{self.n}"
-            return {"start_ingest": "ray-job", "presign_staging_put": "http://staging/put"}.get(name)
+            return {"submit_ingest": "ray-job", "presign_staging_put": "http://staging/put"}.get(name)
 
         return op
 
@@ -219,7 +220,8 @@ def env(monkeypatch):
 
     monkeypatch.setattr(svc, "TenantConn", db)
     monkeypatch.setattr(svc, "data_plane", gw)
-    monkeypatch.setattr(svc.compute, "stop", stop_job)
+    monkeypatch.setattr(lifecycle, "data_plane", gw)
+    monkeypatch.setattr(lifecycle.compute, "stop", stop_job)
     for counter in ("dataset_imports", "dataset_import_bytes"):
         monkeypatch.setattr(getattr(svc.usage, counter), "add", lambda n, attrs=None, c=counter: added.append((c, n)))
     db.usage = added
@@ -368,7 +370,7 @@ def test_start_queues_the_import_and_submits_the_job(env):
     imp = run(create())
     started = run(svc.start_import(CTX, PROJECT, DS, imp.id))
     assert started.status == S.QUEUED
-    assert env.db.imports[imp.id]["ray_job_id"] == "ray-job" and env.gw.calls[-2:] == ["create_dataset_repo", "start_ingest"]
+    assert env.db.imports[imp.id]["ray_job_id"] == "ray-job" and env.gw.calls[-2:] == ["create_dataset_repo", "submit_ingest"]
     problem(svc.start_import(CTX, PROJECT, DS, imp.id), 409, ProblemCode.INVALID_STATE)
 
 
@@ -377,12 +379,12 @@ def test_start_refuses_a_stale_base(env):
     imp = run(create(ImportCreate(source=ImportSource.UPLOAD, base_version_id=v1["id"])))
     env.db.seed_version()  # another import committed in between
     problem(svc.start_import(CTX, PROJECT, DS, imp.id), 409, ProblemCode.STALE_BASE)
-    assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD and "start_ingest" not in env.gw.calls
+    assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD and "submit_ingest" not in env.gw.calls
 
 
 def test_a_failed_job_submit_leaves_the_import_startable(env):
     imp = run(create())
-    env.gw.fail = "start_ingest"
+    env.gw.fail = "submit_ingest"
     with pytest.raises(RuntimeError):
         run(svc.start_import(CTX, PROJECT, DS, imp.id))
     assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD
@@ -401,19 +403,19 @@ def test_a_job_whose_id_cannot_be_saved_is_stopped_and_the_import_stays_startabl
 def test_a_job_that_may_have_been_submitted_is_stopped_before_the_retry(env):
     """Ray can accept the POST and the client still see an error: the retry must not leave two jobs on one prefix."""
     imp = run(create())
-    env.gw.fail = "start_ingest"
+    env.gw.fail = "submit_ingest"
     with pytest.raises(RuntimeError):
         run(svc.start_import(CTX, PROJECT, DS, imp.id))
-    submission_id = env.gw.args["start_ingest"][1]
+    submission_id = env.gw.args["submit_ingest"][1].job_id
     assert str(imp.id) in submission_id and env.gw.stopped == [submission_id]
     env.gw.fail = None
     run(svc.start_import(CTX, PROJECT, DS, imp.id))
-    assert env.gw.args["start_ingest"][1] != submission_id  # a fresh id, so Ray does not refuse it as a duplicate
+    assert env.gw.args["submit_ingest"][1].job_id != submission_id  # a fresh id, so Ray does not refuse it as a duplicate
 
 
 def test_a_cancel_during_start_stops_the_job_instead_of_orphaning_it(env):
     imp = run(create())
-    env.gw.hooks["start_ingest"] = lambda: env.db.imports[imp.id].update(status=S.CANCELLED)
+    env.gw.hooks["submit_ingest"] = lambda: env.db.imports[imp.id].update(status=S.CANCELLED)
     problem(svc.start_import(CTX, PROJECT, DS, imp.id), 409, ProblemCode.INVALID_STATE)
     assert env.gw.stopped == ["ray-job"]
     assert env.db.imports[imp.id]["status"] == S.CANCELLED and env.db.imports[imp.id]["ray_job_id"] is None

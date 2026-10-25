@@ -23,7 +23,7 @@ from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_cl
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, data_plane
+from app.integrations import data_plane
 from app.integrations.data_plane import layout
 from app.integrations.data_plane.report import ImportReport
 from app.modules.user.datasets.constants import (
@@ -41,6 +41,8 @@ from app.modules.user.datasets.constants import (
     ImportStatus,
     ProblemCode,
 )
+from app.modules.user.datasets import ingest_spec
+from app.modules.user.datasets.lifecycle import purge_staging_quietly, stop_job_quietly, wind_down
 from app.modules.user.datasets.schemas import DatasetImport, DatasetVersion, ImportCreate
 
 logger = logging.getLogger(__name__)
@@ -115,22 +117,6 @@ async def _check_base(conn, row: dict) -> None:
     would rewrite the index and data files whole, and there is no overwrite mode."""
     if await conn.fetchval(_LATEST_VERSION, row["dataset_id"]) != row["base_version_id"]:
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.STALE_BASE, STALE_BASE_DETAIL)
-
-
-async def purge_staging_quietly(tenant_id: str, dataset_id: str, import_id: str) -> None:
-    """Staging cleanup after the import's row has moved on. A failure only leaves files behind (the dataset's final
-    purge removes them); doing it before the row change could leave a reviewable import with no data."""
-    try:
-        await data_plane.purge_staging(tenant_id, dataset_id, import_id)
-    except Exception:  # noqa: BLE001 - see above
-        logger.exception("could not purge staging of import %s", import_id)
-
-
-async def stop_job_quietly(job_id: str) -> None:
-    try:
-        await compute.stop(job_id)
-    except Exception:  # noqa: BLE001 - the job may already be gone
-        logger.warning("could not stop ingest job %s", job_id)
 
 
 def _validate(task_type: TaskType, body: ImportCreate) -> None:
@@ -232,6 +218,7 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
     tenant, ds, imp = ctx.tenant_id, str(dataset_id), str(import_id)
     async with TenantConn(ctx.tenant_id) as conn:
         row = await _load(conn, project_id, dataset_id, import_id)
+        task_type = (await conn.fetchrow(_DATASET_TASK, project_id, dataset_id))["task_type"]
         await _check_base(conn, row)
         # expires_at is the job deadline while queued/running, so the timeout runs from the start, not from creation
         deadline = datetime.now(UTC) + timedelta(seconds=settings.dataset_limits.job_timeout_seconds)
@@ -239,7 +226,8 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
     submission_id = f"ingest-{imp}-{uuid.uuid4().hex[:8]}"  # Ray refuses a reused id, and a retry is a new submission; known before the POST, so a lost answer can still be stopped
     try:
         await data_plane.create_dataset_repo(tenant, ds)
-        job_id = await data_plane.start_ingest(tenant, ds, imp, submission_id)
+        spec, kind = await ingest_spec.build(row, TaskType(task_type), submission_id)
+        job_id = await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
     except Exception:
         await stop_job_quietly(submission_id)  # Ray may have accepted it: a retry must not run a second job on this prefix
         await _unqueue(ctx, row)
@@ -262,9 +250,7 @@ async def cancel_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uu
     async with TenantConn(ctx.tenant_id) as conn:
         row = await _load(conn, project_id, dataset_id, import_id)
         moved = await cas(conn, row, ImportStatus.CANCELLED)
-    if row["ray_job_id"]:
-        await stop_job_quietly(row["ray_job_id"])  # after the commit: the job may already be gone
-    await purge_staging_quietly(ctx.tenant_id, str(dataset_id), str(import_id))
+    await wind_down(row)
     return await _to_model(ctx, moved)
 
 
@@ -277,9 +263,7 @@ async def cancel_running_imports(conn, dataset_id: uuid.UUID) -> list[dict]:
 
 async def finish_cancelled(cancelled: list[dict]) -> None:
     for row in cancelled:
-        if row["ray_job_id"]:
-            await stop_job_quietly(row["ray_job_id"])
-        await purge_staging_quietly(str(row["tenant_id"]), str(row["dataset_id"]), str(row["id"]))
+        await wind_down(row)
 
 
 async def discard_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID, import_id: uuid.UUID) -> DatasetImport:
