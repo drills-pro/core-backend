@@ -39,7 +39,7 @@ def build() -> tuple[bytes, str]:
 def _upload_once(data: bytes, key: str) -> None:
     if key in _uploaded:
         return
-    client, bucket = lakefs._s3(secret_files.STAGING), settings.data_plane.staging_bucket
+    client, bucket = lakefs.s3_client(secret_files.STAGING), settings.data_plane.staging_bucket
     try:
         client.head_object(Bucket=bucket, Key=key)
     except ClientError as e:
@@ -54,6 +54,6 @@ async def presigned_url() -> str:
     endpoint of the `ingest` credential, which is the address Ray uses)."""
     data, key = build()
     await asyncio.to_thread(_upload_once, data, key)
-    return lakefs._s3(secret_files.INGEST).generate_presigned_url(
+    return lakefs.s3_client(secret_files.INGEST).generate_presigned_url(
         "get_object", Params={"Bucket": settings.data_plane.staging_bucket, "Key": key},
         ExpiresIn=settings.data_plane.presign_ttl_seconds)
