@@ -14,6 +14,8 @@ import pytest
 
 from app import background
 from app.core.settings import settings
+from app.integrations import job_follower
+from app.integrations.compute import JobStatus
 from app.integrations.data_plane.report import ImportReport, IssueCode, Outcome, Stats
 from app.modules.user.datasets import import_service as svc
 from app.modules.user.datasets import reconcile as rec
@@ -23,11 +25,10 @@ from app.modules.user.datasets.constants import (
     SYSTEM_ACTOR,
     AuditAction,
     ImportStatus,
-    RayJobStatus,
 )
 from tests.support import PROJECT, TENANT
 
-S, R = ImportStatus, RayJobStatus
+S, R = ImportStatus, JobStatus
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 OK = ImportReport(outcome=Outcome.OK, stats=Stats(file_count=1, total_bytes=7, row_count=1))
 BAD = ImportReport.model_validate({"outcome": "failed", "issues": [{"code": "corrupt_image", "severity": "error", "message": "x"}]})
@@ -148,6 +149,8 @@ def env(monkeypatch):
     monkeypatch.setattr(rec, "data_plane", gw)
     monkeypatch.setattr(svc, "data_plane", gw)  # purge_staging_quietly
     monkeypatch.setattr(rec, "_fetch", fetch)
+    monkeypatch.setattr(job_follower, "TenantConn", db)
+    monkeypatch.setattr(job_follower, "_fetch", fetch)
     monkeypatch.setattr(rec.compute, "status", get_status)
     monkeypatch.setattr(rec.compute, "stop", stop_job)
     return SimpleNamespace(db=db, gw=gw, ray=ray)

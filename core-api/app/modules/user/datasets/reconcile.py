@@ -14,7 +14,8 @@ from datetime import UTC, datetime, timedelta
 from app.core import audit
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, data_plane
+from app.integrations import compute, data_plane, job_follower
+from app.integrations.compute import JobStatus
 from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity
 from app.modules.user.datasets.constants import (
     DATASET_RETENTION_DAYS,
@@ -23,7 +24,6 @@ from app.modules.user.datasets.constants import (
     AuditAction,
     EntityType,
     ImportStatus,
-    RayJobStatus,
 )
 from app.modules.user.datasets.import_service import cas, purge_staging_quietly
 
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 _RUNNING_STATUSES = (ImportStatus.QUEUED, ImportStatus.RUNNING)
 # committing is here for its lease: one whose lease ran out (the process died) goes back to review
 _EXPIRABLE_STATUSES = (ImportStatus.AWAITING_UPLOAD, ImportStatus.AWAITING_REVIEW, ImportStatus.COMMITTING)
-_RAY_DONE = frozenset({RayJobStatus.SUCCEEDED, RayJobStatus.FAILED, RayJobStatus.STOPPED})
 
 _RUNNING_TENANTS = "SELECT inflight_import_tenant_ids()"
 _EXPIRED_TENANTS = "SELECT expired_import_tenant_ids($1)"
@@ -62,22 +61,19 @@ async def _fail(conn, row: dict, report: ImportReport) -> None:
     await purge_staging_quietly(str(row["tenant_id"]), str(row["dataset_id"]), str(row["id"]))
 
 
-async def _ray_status(row: dict) -> RayJobStatus | None:
+async def _ray_status(row: dict) -> JobStatus | None:
     """Ray's state of the import's job; None when Ray does not answer or answers something unknown (the job was
     garbage-collected, the head restarted): the deadline below must still be able to end such an import."""
     if not row["ray_job_id"]:
-        return RayJobStatus.PENDING
-    try:
-        return RayJobStatus(await compute.status(row["ray_job_id"]))
-    except Exception:  # noqa: BLE001 - see above
-        logger.warning("no usable status for ingest job %s", row["ray_job_id"], exc_info=True)
-        return None
+        return JobStatus.PENDING
+    return await job_follower.poll(row["ray_job_id"])
 
 
 async def _settle(conn, row: dict, now: datetime) -> None:
     ids = (str(row["tenant_id"]), str(row["dataset_id"]), str(row["id"]))
     ray = await _ray_status(row)
-    if ray not in _RAY_DONE and row["expires_at"] is not None and row["expires_at"] <= now:  # the job deadline
+    done = ray is not None and job_follower.phase(ray) is not job_follower.Phase.IN_FLIGHT
+    if not done and row["expires_at"] is not None and row["expires_at"] <= now:  # the job deadline
         if row["ray_job_id"]:
             try:
                 await compute.stop(row["ray_job_id"])
@@ -85,14 +81,14 @@ async def _settle(conn, row: dict, now: datetime) -> None:
                 logger.warning("could not stop timed-out ingest job %s", row["ray_job_id"])
         await _fail(conn, row, _failure(IssueCode.JOB_TIMEOUT, "the ingest job did not finish in time"))
         return
-    if ray is None or ray is RayJobStatus.PENDING:
+    if ray is None or ray is JobStatus.PENDING:
         return
     if row["status"] == ImportStatus.QUEUED:
         row = await cas(conn, row, ImportStatus.RUNNING, row["expires_at"])  # keep the deadline
-    if ray not in _RAY_DONE:
+    if not done:
         return
     report = await data_plane.read_report(*ids)
-    if ray is RayJobStatus.SUCCEEDED and report is not None and report.outcome is Outcome.OK:
+    if ray is JobStatus.SUCCEEDED and report is not None and report.outcome is Outcome.OK:
         await cas(conn, row, ImportStatus.AWAITING_REVIEW, now + IMPORT_REVIEW_TTL)
         await conn.execute(_STORE_REPORT, row["id"], report.model_dump(mode="json"))
         return
@@ -103,15 +99,14 @@ async def _settle(conn, row: dict, now: datetime) -> None:
 
 async def reconcile_inflight_imports(now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
-    for tenant_id in [r[0] for r in await _fetch(_RUNNING_TENANTS)]:
-        async with TenantConn(str(tenant_id)) as conn:
-            rows = [dict(r) for r in await conn.fetch(_RUNNING, tenant_id, [str(s) for s in _RUNNING_STATUSES])]
-        for row in rows:
-            try:
-                async with TenantConn(str(tenant_id)) as conn:
-                    await _settle(conn, row, now)
-            except Exception:  # noqa: BLE001 - one bad import shouldn't block the sweep
-                logger.exception("failed to reconcile import %s", row["id"])
+
+    async def select(conn, tenant_id):
+        return await conn.fetch(_RUNNING, tenant_id, [str(s) for s in _RUNNING_STATUSES])
+
+    async def settle(conn, row):
+        await _settle(conn, row, now)
+
+    await job_follower.follow(_RUNNING_TENANTS, select, settle)
 
 
 async def _expire(conn, row: dict, now: datetime) -> bool:

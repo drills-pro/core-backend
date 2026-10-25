@@ -1,8 +1,22 @@
 """Background reconciliation for deployments — see app/background.py."""
-from app.core.db import get_pool
-from app.core.tenant_conn import TenantConn
-from app.integrations import compute
+from app.integrations import job_follower
 from app.modules.user.deployments.status import DeploymentStatus
+
+_INFLIGHT_TENANTS = "SELECT inflight_deploy_tenant_ids()"
+_INFLIGHT = "SELECT id, ray_job_id FROM deployments WHERE tenant_id = $1 AND status = $2"
+_SET_STATUS = "UPDATE deployments SET status = $2 WHERE id = $1"
+_PHASE_TO_STATUS = {job_follower.Phase.SUCCEEDED: DeploymentStatus.ACTIVE, job_follower.Phase.FAILED: DeploymentStatus.FAILED}
+
+
+async def _select(conn, tenant_id):
+    return await conn.fetch(_INFLIGHT, tenant_id, DeploymentStatus.DEPLOYING)
+
+
+async def _settle(conn, row: dict) -> None:
+    ray_status = await job_follower.poll(row["ray_job_id"])
+    new_status = _PHASE_TO_STATUS.get(job_follower.phase(ray_status)) if ray_status else None
+    if new_status is not None:
+        await conn.execute(_SET_STATUS, row["id"], new_status)
 
 
 async def reconcile_inflight_deployments() -> None:
@@ -11,24 +25,4 @@ async def reconcile_inflight_deployments() -> None:
     exact deployment, so a deployment nobody individually re-fetched sat
     at 'deploying' forever even after Ray Serve finished starting it —
     not a GPU-contention issue, just a missing poller."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        tenant_ids = [r["inflight_deploy_tenant_ids"] for r in await conn.fetch("SELECT inflight_deploy_tenant_ids()")]
-
-    for tenant_id in tenant_ids:
-        async with TenantConn(str(tenant_id)) as conn:
-            rows = await conn.fetch(
-                "SELECT id, ray_job_id FROM deployments WHERE tenant_id = $1 AND status = $2", tenant_id, DeploymentStatus.DEPLOYING
-            )
-            for row in rows:
-                try:
-                    ray_status = await compute.status(row["ray_job_id"])
-                except Exception:  # noqa: BLE001 - one bad job shouldn't block the sweep
-                    continue
-                if ray_status == "SUCCEEDED":
-                    new_status = DeploymentStatus.ACTIVE
-                elif ray_status == "FAILED":
-                    new_status = DeploymentStatus.FAILED
-                else:
-                    continue
-                await conn.execute("UPDATE deployments SET status = $2 WHERE id = $1", row["id"], new_status)
+    await job_follower.follow(_INFLIGHT_TENANTS, _select, _settle)

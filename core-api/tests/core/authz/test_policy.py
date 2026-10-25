@@ -7,6 +7,7 @@ import pytest
 from app.core.authz import ROLE_ACTIONS, Action, DefaultAccess, InviteRole, Role, Scope, TenantRole, TenantStatus, Visibility, allowed_actions
 from app.core.enums import TaskType
 from app.modules.user.datasets.constants import ImportSource, ImportStatus
+from app.modules.user.training.constants import TrainingStatus
 
 VIEWER = {"project.read", "dataset.read", "job.read", "model.read", "deployment.read", "usage.read"}
 TABLE = {
@@ -96,6 +97,7 @@ def _check_values(constraint: str) -> set[str]:
         (TaskType, "CONSTRAINT projects_task_type_check"),
         (ImportStatus, "CONSTRAINT dataset_imports_status_check"),
         (ImportSource, "CONSTRAINT dataset_imports_source_check"),
+        (TrainingStatus, r"status\s+text NOT NULL DEFAULT 'submitted'(?=\s+CHECK \(status IN \([^)]*'cancelled')"),  # training_runs.status, inline in init (the only one with 'cancelled')
         (TenantRole, r"role\s+text NOT NULL"),  # tenant_members.role, inline in the shared-pool migration
     ],
 )

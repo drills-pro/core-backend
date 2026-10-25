@@ -49,3 +49,11 @@ def test_cross_tenant_project_is_404(call):
 def test_create_is_a_501_stub_until_the_trainer_slice(call):
     r = call("POST", f"{BASE}?dataset_ref=x", access(role=TenantRole.ADMIN), headers={"Idempotency-Key": "k"})
     assert (r.status_code, r.json()["code"]) == (501, "not_implemented")
+
+
+def test_a_finished_run_cannot_move_again():
+    from app.modules.user.training.constants import TRANSITIONS, TrainingStatus
+
+    assert TrainingStatus.RUNNING not in TRANSITIONS[TrainingStatus.SUCCEEDED]
+    assert TrainingStatus.SUBMITTED not in TRANSITIONS[TrainingStatus.RUNNING]
+    assert all(not TRANSITIONS[s] for s in (TrainingStatus.SUCCEEDED, TrainingStatus.FAILED, TrainingStatus.CANCELLED))
