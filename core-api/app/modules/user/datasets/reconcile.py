@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from app.core import audit
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, data_plane, job_follower
+from app.integrations import data_plane, job_follower
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity
 from app.modules.user.datasets.constants import (
