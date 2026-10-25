@@ -148,8 +148,8 @@ def env(monkeypatch):
     monkeypatch.setattr(rec, "data_plane", gw)
     monkeypatch.setattr(svc, "data_plane", gw)  # purge_staging_quietly
     monkeypatch.setattr(rec, "_fetch", fetch)
-    monkeypatch.setattr(rec.ray_client, "get_status", get_status)
-    monkeypatch.setattr(rec.ray_client, "stop_job", stop_job)
+    monkeypatch.setattr(rec.compute, "status", get_status)
+    monkeypatch.setattr(rec.compute, "stop", stop_job)
     return SimpleNamespace(db=db, gw=gw, ray=ray)
 
 
@@ -235,7 +235,7 @@ def test_one_broken_import_does_not_block_the_rest(env, monkeypatch):
             raise RuntimeError("ray down")
         return env.ray.status
 
-    monkeypatch.setattr(rec.ray_client, "get_status", get_status)
+    monkeypatch.setattr(rec.compute, "status", get_status)
     run(rec.reconcile_inflight_imports(T0))
     assert (bad["status"], good["status"]) == (S.RUNNING, S.AWAITING_REVIEW)
 
@@ -249,7 +249,7 @@ def test_the_deadline_still_ends_an_import_when_ray_gives_no_usable_status(env, 
             raise answer
         return answer
 
-    monkeypatch.setattr(rec.ray_client, "get_status", get_status)
+    monkeypatch.setattr(rec.compute, "status", get_status)
     run(rec.reconcile_inflight_imports(T0 + TIMEOUT - timedelta(seconds=1)))
     assert row["status"] == S.RUNNING  # not yet due: nothing is decided on a missing answer
     run(rec.reconcile_inflight_imports(T0 + TIMEOUT))

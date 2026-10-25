@@ -9,7 +9,7 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 
-from app.integrations import ray_client
+from app.integrations import compute
 from app.integrations.data_plane import mlflow
 
 RAY_SERVE_HTTP = "http://ray-head:8000"
@@ -116,9 +116,9 @@ async def deploy(
 
     encoded = base64.b64encode(script.encode()).decode()
     entrypoint = f'python -c "import base64; exec(base64.b64decode(\'{encoded}\'))"'
-    job_id = await ray_client.submit_raw_job(
+    job_id = await compute.submit(compute.JobSpec(
         entrypoint=entrypoint,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "job_type": "serve-deploy"},
         num_gpus=1 if compute_target == "gpu" else 0,
-    )
+    ))
     return job_id, route_prefix

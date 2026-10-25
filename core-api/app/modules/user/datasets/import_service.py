@@ -23,7 +23,7 @@ from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_cl
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
-from app.integrations import data_plane, ray_client
+from app.integrations import compute, data_plane
 from app.integrations.data_plane import layout
 from app.integrations.data_plane.report import ImportReport
 from app.modules.user.datasets.constants import (
@@ -128,7 +128,7 @@ async def purge_staging_quietly(tenant_id: str, dataset_id: str, import_id: str)
 
 async def stop_job_quietly(job_id: str) -> None:
     try:
-        await ray_client.stop_job(job_id)
+        await compute.stop(job_id)
     except Exception:  # noqa: BLE001 - the job may already be gone
         logger.warning("could not stop ingest job %s", job_id)
 

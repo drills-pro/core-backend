@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from app.core import audit
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import data_plane, ray_client
+from app.integrations import compute, data_plane
 from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity
 from app.modules.user.datasets.constants import (
     DATASET_RETENTION_DAYS,
@@ -68,7 +68,7 @@ async def _ray_status(row: dict) -> RayJobStatus | None:
     if not row["ray_job_id"]:
         return RayJobStatus.PENDING
     try:
-        return RayJobStatus(await ray_client.get_status(row["ray_job_id"]))
+        return RayJobStatus(await compute.status(row["ray_job_id"]))
     except Exception:  # noqa: BLE001 - see above
         logger.warning("no usable status for ingest job %s", row["ray_job_id"], exc_info=True)
         return None
@@ -80,7 +80,7 @@ async def _settle(conn, row: dict, now: datetime) -> None:
     if ray not in _RAY_DONE and row["expires_at"] is not None and row["expires_at"] <= now:  # the job deadline
         if row["ray_job_id"]:
             try:
-                await ray_client.stop_job(row["ray_job_id"])
+                await compute.stop(row["ray_job_id"])
             except Exception:  # noqa: BLE001 - the job may already be gone; the import fails either way
                 logger.warning("could not stop timed-out ingest job %s", row["ray_job_id"])
         await _fail(conn, row, _failure(IssueCode.JOB_TIMEOUT, "the ingest job did not finish in time"))

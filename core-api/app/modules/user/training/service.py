@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from app.core.metrics import usage as usage_metrics
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
-from app.integrations import ray_client
+from app.integrations import compute, ray_client
 from app.integrations.data_plane import mlflow
 from app.modules.user.usage import record_usage
 
@@ -108,7 +108,7 @@ async def reconcile_inflight_runs() -> None:
             for row in rows:
                 row = dict(row)
                 try:
-                    ray_status = await ray_client.get_status(row["ray_job_id"])
+                    ray_status = await compute.status(row["ray_job_id"])
                 except Exception:  # noqa: BLE001 - one bad job shouldn't block the sweep
                     logger.exception("failed to poll ray status for run %s", row["id"])
                     continue

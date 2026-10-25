@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import background
 from app.core import problem, tracing
+from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import models as admin_models
 from app.modules.admin import tenants as admin_tenants
@@ -73,7 +74,7 @@ ROUTERS = (
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    tasks = background.start()
+    tasks = background.start() if settings.background.pollers_in_api else []
     try:
         yield
     finally:

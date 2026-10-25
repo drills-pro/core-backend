@@ -22,6 +22,17 @@ auth:
 ray:
   max_concurrent_training_runs: 3
 
+compute:                     # app/integrations/compute.py
+  backend: ray_dashboard     # ray_dashboard | rayjob
+  rayjob:
+    namespace: ray
+    cluster_name: ""         # empty: one ephemeral cluster per job, from cluster_spec
+    cluster_spec: {}
+    shutdown_after_finish: true
+    ttl_after_finished_seconds: 86400
+
+background:
+  pollers_in_api: true       # false when the worker Deployment runs them (docs/runtime-contract.md)
 
 data_plane:
   staging_bucket: drills-staging

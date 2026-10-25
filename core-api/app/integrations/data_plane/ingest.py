@@ -10,7 +10,7 @@ from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
 from app.core.problem import not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
-from app.integrations import ray_client
+from app.integrations import compute
 from app.integrations.data_plane import access, job_package, layout, lakefs
 from app.integrations.data_plane.job_catalog import CATALOG, JobType, ingest_job_type
 from app.integrations.job_spec import IngestBase, IngestHf, IngestPayload, IngestSpec, Resources
@@ -76,15 +76,16 @@ async def start_ingest(tenant_id: str, dataset_id: str, import_id: str, submissi
     creds = secret_files.get(secret_files.INGEST)
     package_url = await job_package.presigned_url()
     command = entrypoint(package_url, ingest_job_type(row["source"], task_type), spec.model_dump_json())
-    return await ray_client.submit_raw_job(
+    return await compute.submit(compute.JobSpec(
         entrypoint=command,
         submission_id=submission_id,
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
         num_cpus=spec.resources.cpu,
         memory=spec.resources.memory_bytes,
+        timeout_seconds=spec.resources.max_runtime_s,
         env_vars={
             "STAGING_ENDPOINT": creds["endpoint"],
             "STAGING_ACCESS_KEY": creds["access_key"],
             "STAGING_SECRET_KEY": creds["secret_key"],
         },
-    )
+    ))

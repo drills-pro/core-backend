@@ -20,15 +20,15 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     monkeypatch.setattr(ingest.secret_files, "get", lambda name: asked.append(name) or {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
     sent = {}
 
-    async def submit(**kw):
-        sent.update(kw)
+    async def submit(spec):
+        sent.update(spec.model_dump())
         return "job-1"
 
     async def package_url():
         return "http://ray-side/jobs/ray-jobs-x.zip"
 
     monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
-    monkeypatch.setattr(ingest.ray_client, "submit_raw_job", submit)
+    monkeypatch.setattr(ingest.compute, "submit", submit)
     assert asyncio.run(ingest.start_ingest(TENANT, DATASET, IMPORT, "ingest-1")) == "job-1"
     argv = shlex.split(sent["entrypoint"])
     assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]

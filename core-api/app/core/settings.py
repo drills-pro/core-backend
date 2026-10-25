@@ -10,6 +10,7 @@ reads them.
 """
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_settings import (
@@ -54,6 +55,23 @@ class Auth(_Section):
 class Ray(_Section):
     dashboard: str
     max_concurrent_training_runs: int
+
+
+class RayJobCfg(_Section):
+    namespace: str
+    cluster_name: str  # RayCluster to run jobs on (warm, shared); "" = an ephemeral cluster per job from cluster_spec
+    cluster_spec: dict  # KubeRay rayClusterSpec, used when cluster_name is empty
+    shutdown_after_finish: bool
+    ttl_after_finished_seconds: int  # how long the CR (and so the job's status) outlives the job; reconcilers must fit inside
+
+
+class Compute(_Section):
+    backend: Literal["ray_dashboard", "rayjob"]  # app.integrations.compute.Backend
+    rayjob: RayJobCfg
+
+
+class Background(_Section):
+    pollers_in_api: bool  # false once the worker Deployment (python -m app.worker) runs them
 
 
 class Mlflow(_Section):
@@ -113,6 +131,8 @@ class Settings(BaseSettings):
     zitadel: Zitadel
     auth: Auth
     ray: Ray
+    compute: Compute
+    background: Background
     mlflow: Mlflow
     data_plane: DataPlane
     dataset_limits: DatasetLimits

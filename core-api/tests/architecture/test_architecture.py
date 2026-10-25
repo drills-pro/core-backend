@@ -9,7 +9,7 @@ the rules the package structure encodes:
                       package, and another context only through that
                       context's public API (`from app.modules.user.other
                       import thing`) — never `...other.routes`
-    app/main.py, app/background.py  are the composition root: no limits
+    app/main.py, app/background.py, app/worker.py  are the composition root: no limits
 
 Contexts live at the leaves of app/modules. The directories above them
 (app/modules/user/) are groupings that own no routes, so the depth of the
@@ -25,7 +25,7 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[2] / "app"
 MODULES = APP / "modules"
-ROOT_FILES = {"main.py", "background.py", "__init__.py"}
+ROOT_FILES = {"main.py", "background.py", "worker.py", "__init__.py"}
 
 
 def _iter_python_files():
