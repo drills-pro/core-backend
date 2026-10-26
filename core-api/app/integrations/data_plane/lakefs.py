@@ -48,7 +48,10 @@ def _s3(secret: str, endpoint: str | None = None):
         endpoint_url=endpoint or creds["endpoint"],
         aws_access_key_id=creds["access_key"],
         aws_secret_access_key=creds["secret_key"],
-        config=Config(signature_version="s3v4"),
+        # botocore >= 1.36 adds CRC32 trailer checksums to every PutObject; GCS's S3 interop API rejects them
+        # (SignatureDoesNotMatch). Only send them where an operation requires one.
+        config=Config(signature_version="s3v4", request_checksum_calculation="when_required",
+                      response_checksum_validation="when_required"),
     )
 
 

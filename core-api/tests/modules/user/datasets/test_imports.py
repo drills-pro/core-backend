@@ -385,16 +385,14 @@ def test_start_refuses_a_stale_base(env):
 def test_a_failed_job_submit_leaves_the_import_startable(env):
     imp = run(create())
     env.gw.fail = "submit_ingest"
-    with pytest.raises(RuntimeError):
-        run(svc.start_import(CTX, PROJECT, DS, imp.id))
+    problem(svc.start_import(CTX, PROJECT, DS, imp.id), 503, ProblemCode.START_FAILED)
     assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD
 
 
 def test_a_job_whose_id_cannot_be_saved_is_stopped_and_the_import_stays_startable(env):
     imp = run(create())
     env.db.fail_set_job = True
-    with pytest.raises(RuntimeError):
-        run(svc.start_import(CTX, PROJECT, DS, imp.id))
+    problem(svc.start_import(CTX, PROJECT, DS, imp.id), 503, ProblemCode.START_FAILED)
     assert env.gw.stopped == ["ray-job"] and env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD
     env.db.fail_set_job = False
     assert run(svc.start_import(CTX, PROJECT, DS, imp.id)).status == S.QUEUED
@@ -404,8 +402,7 @@ def test_a_job_that_may_have_been_submitted_is_stopped_before_the_retry(env):
     """Ray can accept the POST and the client still see an error: the retry must not leave two jobs on one prefix."""
     imp = run(create())
     env.gw.fail = "submit_ingest"
-    with pytest.raises(RuntimeError):
-        run(svc.start_import(CTX, PROJECT, DS, imp.id))
+    problem(svc.start_import(CTX, PROJECT, DS, imp.id), 503, ProblemCode.START_FAILED)
     submission_id = env.gw.args["submit_ingest"][1].job_id
     assert str(imp.id) in submission_id and env.gw.stopped == [submission_id]
     env.gw.fail = None
