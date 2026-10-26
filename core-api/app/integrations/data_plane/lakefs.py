@@ -5,6 +5,7 @@ MLflow client (tests/architecture enforces it). Every public operation takes the
 resource ids, never names, and checks ownership first (access.py).
 """
 import asyncio
+import logging
 import posixpath
 from urllib.parse import urlparse
 
@@ -18,6 +19,8 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations.data_plane import access, layout
 from app.integrations.data_plane.report import ImportReport
+
+logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 10
 _HTTP_NOT_FOUND, _HTTP_CONFLICT = 404, 409
@@ -86,6 +89,8 @@ async def create_dataset_repo(tenant_id: str, dataset_id: str) -> None:
     async with _lakefs_api() as client:
         resp = await client.post("/repositories", json=body)
     if resp.status_code != _HTTP_CONFLICT:
+        if resp.is_error:  # raise_for_status drops lakeFS's reason, which says what it rejected
+            logger.error("lakeFS refused repository %s (%s): %s", body["name"], resp.status_code, resp.text)
         resp.raise_for_status()
 
 
