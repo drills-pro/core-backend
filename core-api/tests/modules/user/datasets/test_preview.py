@@ -1,5 +1,6 @@
 """Preview and files: sample rows plus presigned URLs from the parquet index, no lakeFS listing, foreign ids are 404."""
 import asyncio
+import io
 import uuid
 
 import pytest
@@ -139,22 +140,26 @@ def test_caller_without_project_access_gets_404_and_no_backend_call(call, path):
     assert (r.status_code, r.json()["code"]) == (404, "not_found") and not r.gw.calls
 
 
-def test_parquet_head_reads_only_the_first_rows_from_bucket_commit_key_location(monkeypatch, tmp_path):
+def test_parquet_head_reads_only_the_first_rows_from_bucket_key_location(monkeypatch, tmp_path):
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from pyarrow import fs
 
-    location = "repo/c0ffee/index.parquet"
-    (tmp_path / "repo/c0ffee").mkdir(parents=True)
-    pq.write_table(pa.table({"path": [f"p{i}" for i in range(50)]}), tmp_path / location, row_group_size=10)
-    s3_kwargs = {}
+    (tmp_path / "bucket/c0ffee").mkdir(parents=True)
+    path = tmp_path / "bucket/c0ffee/index.parquet"
+    pq.write_table(pa.table({"path": [f"p{i}" for i in range(50)]}), path, row_group_size=10)
+    data, ranges = path.read_bytes(), []
 
-    def fake_s3(**kw):
-        s3_kwargs.update(kw)
-        return fs.SubTreeFileSystem(str(tmp_path), fs.LocalFileSystem())
+    class FakeS3:
+        def head_object(self, Bucket, Key):
+            return {"ContentLength": len(data)}
 
-    monkeypatch.setattr(fs, "S3FileSystem", fake_s3)
-    monkeypatch.setattr(secret_files, "get", lambda name: {"endpoint": "http://minio:9000", "access_key": "a", "secret_key": "s"})
-    rows = lakefs._parquet_head(secret_files.LAKEFS, location, 3)
+        def get_object(self, Bucket, Key, Range):
+            assert (Bucket, Key) == ("bucket", "c0ffee/index.parquet")
+            lo, hi = map(int, Range.removeprefix("bytes=").split("-"))
+            ranges.append((lo, hi))
+            return {"Body": io.BytesIO(data[lo : hi + 1])}
+
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: FakeS3())
+    rows = lakefs._parquet_head(secret_files.LAKEFS, "bucket/c0ffee/index.parquet", 3)
     assert rows == [{"path": "p0"}, {"path": "p1"}, {"path": "p2"}]
-    assert (s3_kwargs["endpoint_override"], s3_kwargs["scheme"]) == ("minio:9000", "http")
+    assert ranges and all(hi < len(data) for _, hi in ranges)

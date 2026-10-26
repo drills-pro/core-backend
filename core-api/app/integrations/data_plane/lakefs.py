@@ -5,6 +5,7 @@ MLflow client (tests/architecture enforces it). Every public operation takes the
 resource ids, never names, and checks ownership first (access.py).
 """
 import asyncio
+import io
 import logging
 import posixpath
 from urllib.parse import urlparse
@@ -15,6 +16,7 @@ from botocore.client import Config
 from botocore.exceptions import ClientError
 
 from app.core import secret_files
+from app.core.enums import BlockstoreScheme
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations.data_plane import access, layout
@@ -23,6 +25,7 @@ from app.integrations.data_plane.report import ImportReport
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 10
+_PARQUET_READ_BUFFER = 1 << 20  # bytes fetched per ranged GET while reading a preview
 _HTTP_NOT_FOUND, _HTTP_CONFLICT = 404, 409
 _S3_NO_SUCH_KEY = "NoSuchKey"
 _HTTP_UNPROCESSABLE = 422
@@ -108,27 +111,70 @@ async def presign_staging_put(tenant_id: str, dataset_id: str, import_id: str) -
     )
 
 
+async def _physical_object(repo: str, commit: str, path: str) -> tuple[str, str]:
+    """Bucket and key lakeFS keeps `path` under at `commit`."""
+    async with _lakefs_api() as client:
+        resp = await client.get(f"/repositories/{repo}/refs/{commit}/objects/stat", params={"path": path})
+    resp.raise_for_status()
+    address = urlparse(resp.json()["physical_address"])
+    return address.netloc, address.path.lstrip("/")
+
+
 async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: str) -> str:
-    """URL for one object of a committed version, read through the lakeFS S3 gateway at the version's commit."""
+    """URL for one object of a committed version: through the lakeFS S3 gateway at the version's commit, or, when
+    lakeFS keeps its data on GCS and has no public gateway, straight from the bucket it stores the object in."""
     commit = await access.version_commit(tenant_id, dataset_id, version_id)
-    return _s3(secret_files.LAKEFS, settings.public.lakefs_endpoint).generate_presigned_url(
-        "get_object",
-        Params={"Bucket": layout.repo_name(dataset_id), "Key": f"{commit}/{_checked_path(path)}"},
-        ExpiresIn=settings.data_plane.presign_ttl_seconds,
+    repo, path = layout.repo_name(dataset_id), _checked_path(path)
+    if settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS:
+        # ponytail: one stat call per URL; add a batch presign op if previews grow past a page
+        bucket, key = await _physical_object(repo, commit, path)
+        client = _s3(secret_files.STAGING, settings.public.staging_endpoint)  # its credentials must cover this bucket (docs/runtime-contract.md)
+    else:
+        bucket, key = repo, f"{commit}/{path}"
+        client = _s3(secret_files.LAKEFS, settings.public.lakefs_endpoint)
+    return client.generate_presigned_url(
+        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=settings.data_plane.presign_ttl_seconds
     )
+
+
+class _S3Object(io.RawIOBase):
+    """Seekable read-only view of one object over ranged GETs, so pyarrow fetches only the footer and the first row group."""
+
+    def __init__(self, client, bucket: str, key: str):
+        self._client, self._bucket, self._key = client, bucket, key
+        self._size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
+        self._pos = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        self._pos = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: self._size}[whence] + offset
+        return self._pos
+
+    def readinto(self, buf) -> int:
+        if self._pos >= self._size or not len(buf):
+            return 0
+        end = min(self._pos + len(buf), self._size) - 1
+        data = self._client.get_object(Bucket=self._bucket, Key=self._key, Range=f"bytes={self._pos}-{end}")["Body"].read()
+        buf[: len(data)] = data
+        self._pos += len(data)
+        return len(data)
 
 
 def _parquet_head(secret: str, location: str, limit: int) -> list[dict]:
-    """The first `limit` rows of a parquet object; only the footer and the first row group are fetched."""
-    from pyarrow import fs  # noqa: PLC0415 - imported lazily: only the preview routes need it
-    from pyarrow.parquet import ParquetFile  # noqa: PLC0415
+    """The first `limit` rows of the parquet object at `bucket/key`; only the footer and the first row group are fetched."""
+    from pyarrow.parquet import ParquetFile  # noqa: PLC0415 - imported lazily: only the preview routes need it
 
-    creds = secret_files.get(secret)
-    endpoint = urlparse(creds["endpoint"])
-    s3 = fs.S3FileSystem(
-        access_key=creds["access_key"], secret_key=creds["secret_key"], endpoint_override=endpoint.netloc, scheme=endpoint.scheme
-    )
-    with s3.open_input_file(location) as f:
+    bucket, _, key = location.partition("/")
+    # boto3 rather than pyarrow's own S3 client: _s3 carries the GCS-compatible settings and path rules every other read uses
+    with io.BufferedReader(_S3Object(_s3(secret), bucket, key), _PARQUET_READ_BUFFER) as f:
         batch = next(ParquetFile(f).iter_batches(batch_size=limit), None)
     return batch.to_pylist() if batch is not None else []
 

@@ -8,6 +8,7 @@ import uuid
 import httpx
 import pytest
 
+from app.core.enums import BlockstoreScheme
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations import data_plane
@@ -84,6 +85,18 @@ def test_presign_get_reads_at_the_version_commit(owned):
     url = asyncio.run(lakefs.presign_get(TENANT, DATASET, VERSION, "objects/a.jpg"))
     assert url.startswith(settings.public.lakefs_endpoint)
     assert f"/{layout.repo_name(DATASET)}/{COMMIT}/objects/a.jpg" in url
+
+
+def test_presign_get_on_gcs_signs_the_bucket_lakefs_stores_the_object_in(owned, monkeypatch):
+    monkeypatch.setattr(settings.data_plane, "lakefs_blockstore_scheme", BlockstoreScheme.GS)
+
+    def handler(request):
+        assert request.url.path.endswith(f"/refs/{COMMIT}/objects/stat") and request.url.params["path"] == "objects/a.jpg"
+        return httpx.Response(200, json={"physical_address": "gs://drills-pro/ns/data/gabc/xyz"})
+
+    _lakefs_stub(monkeypatch, handler)
+    url = asyncio.run(lakefs.presign_get(TENANT, DATASET, VERSION, "objects/a.jpg"))
+    assert url.startswith(settings.public.staging_endpoint) and "/drills-pro/ns/data/gabc/xyz" in url
 
 
 @pytest.mark.parametrize("path", ["../x", "/abs", "a/../b", "a//b", "./a", ""])

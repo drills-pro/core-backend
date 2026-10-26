@@ -20,4 +20,4 @@ data_plane:
   lakefs_blockstore_scheme: gs   # lakeFS uses its native GCS adapter: its S3 client is refused by the GCS interop API (SignatureDoesNotMatch)
 public:
   staging_endpoint: https://storage.googleapis.com   # browsers PUT uploads here (presigned, needs bucket CORS)
-  # lakefs_endpoint: unset until lakeFS's S3 gateway has a host without the oauth2-proxy in front (version URLs are presigned against it)
+  # lakefs_endpoint stays at base.yaml's localhost: with the gs scheme, version URLs are presigned against the GCS bucket, not the gateway
