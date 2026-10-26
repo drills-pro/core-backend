@@ -23,4 +23,4 @@ class Extracted:
     target: str | None
     table: Table | None
     revision: str | None = None
-    license: str | None = None
+    license: list[str] | None = None

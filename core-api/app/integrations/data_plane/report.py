@@ -6,12 +6,17 @@ An import with any ERROR issue has outcome `failed` and creates no version. WARN
 skipped exact duplicates) do not block a commit and are shown in review.
 """
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 REPORT_SCHEMA_VERSION = 1
 MAX_REPORT_ISSUES = 200  # the job keeps the first ones and counts the rest in `issues_omitted`
+
+
+def _as_list(v: Any) -> Any:
+    """A Hugging Face card's license is a list; reports written before the job normalised it carry a bare string."""
+    return [v] if isinstance(v, str) else v
 
 
 class _Model(BaseModel):
@@ -92,7 +97,7 @@ class ImportReport(_Model):
     issues: list[Issue] = Field(default=[], max_length=MAX_REPORT_ISSUES)
     issues_omitted: int = Field(default=0, ge=0)
     revision: str | None = None  # Hugging Face commit sha the data was read at
-    license: str | None = None  # Hugging Face licence, recorded not enforced
+    license: Annotated[list[str] | None, BeforeValidator(_as_list)] = None  # Hugging Face licence, recorded not enforced
 
 
 if __name__ == "__main__":  # regenerate the checked-in schema: python -m app.integrations.data_plane.report
