@@ -114,7 +114,10 @@ services:
     ports: ["8080:8080"]
 
   ray-head:
-    build: ./ray-jobs
+    build:
+      context: ./ray-jobs
+      args:
+        BASE: rayproject/ray:2.60.0.8f2cbc-py311-cpu-aarch64  # local only; the amd64 digest crashes Ray's agents under emulation on arm64
     command: >
       ray start --head --dashboard-host=0.0.0.0 --block --resources='{"cpu_pool": 1000}'
     ports: ["8265:8265", "6379:6379", "10001:10001", "8100:8000"]

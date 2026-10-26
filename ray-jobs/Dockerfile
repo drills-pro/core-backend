@@ -3,7 +3,9 @@
 # Ray version); keep the two in step.
 # Only dependencies are baked in: the job code itself still arrives as the zip core-api stages (it wins on sys.path),
 # so a job-code change needs no image rebuild. Dependency source of truth: pyproject.toml.
-FROM rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe985437f083bfb72f63d6c54987ecad98f9505a380ceb
+# BASE is the amd64 image of the cluster; docker-compose.yml overrides it with the arm64 build for Apple Silicon.
+ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe985437f083bfb72f63d6c54987ecad98f9505a380ceb
+FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/ray-jobs/pyproject.toml
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-jobs/pyproject.toml', 'rb'))['project']['dependencies']))" \
