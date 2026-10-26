@@ -141,6 +141,7 @@ def test_commit_staged_imports_only_the_out_prefix_and_returns_the_commit(owned,
     posted = []
     _lakefs_stub(monkeypatch, _commit_handler(polls, posted))
     assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import")) == "abc"
+    assert posted[0]["paths"][0]["type"] == "common_prefix"  # a type lakeFS does not know is a 400 only the real server gives
     source = posted[0]["paths"][0]["path"]
     assert source == f"s3://{settings.data_plane.staging_bucket}/{layout.staging_prefix(TENANT, DATASET, IMPORT)}out/"
     assert posted[0]["commit"]["metadata"] == {lakefs.IMPORT_ID_METADATA: IMPORT}

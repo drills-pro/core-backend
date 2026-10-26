@@ -25,6 +25,7 @@ _POLL_SECONDS = 1.0
 _HTTP_NOT_FOUND, _HTTP_CONFLICT = 404, 409
 _S3_NO_SUCH_KEY = "NoSuchKey"
 _HTTP_UNPROCESSABLE = 422
+_IMPORT_PATH_TYPE = "common_prefix"  # lakeFS ImportLocation.type for a directory-like source; "object" is a single key
 INVALID_STAGED_OUTPUT = "invalid_staged_output"
 INVALID_PATH = "invalid_path"
 IMPORT_ID_METADATA = "import_id"  # commit metadata key: lets a retried commit find the commit an earlier try made
@@ -205,7 +206,7 @@ async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message
             raise Problem(_HTTP_UNPROCESSABLE, INVALID_STAGED_OUTPUT, violation)
         source = f"s3://{settings.data_plane.staging_bucket}/{prefix}{layout.OUT_PREFIX}"
         body = {
-            "paths": [{"type": "prefix", "path": source, "destination": ""}],
+            "paths": [{"type": _IMPORT_PATH_TYPE, "path": source, "destination": ""}],
             "commit": {"message": message, "metadata": {IMPORT_ID_METADATA: import_id}},
         }
         started = await client.post(url, json=body)
