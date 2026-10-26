@@ -15,11 +15,12 @@ staging bucket (settings.data_plane.staging_bucket), and nothing else:
 The job code itself is staged next to the imports, content-addressed: `jobs/ray-jobs-<sha256>.zip` (job_package.py).
 It is not under `imports/`, so discarding or expiring an import never touches it.
 
-`commit_staged` imports `out/` onto the dataset's lakeFS main branch as one commit. A lakeFS import only adds or
-overwrites the paths it carries and never deletes the others, so the base version's `objects/*` stay in the repo
-untouched, and the job rewrites only the index/data/schema files whole. For a merge import the job reads the
-base index or data through a presigned GET (core-api passes the URLs) and writes the merged result. `upload/`
-and `report.json` never reach lakeFS.
+`commit_staged` copies `out/` into the dataset repo's own storage (S3 CopyObject inside the object store, no bytes
+through core-api), links each object on main and commits once. The version therefore does not depend on staging: the
+whole `imports/<...>` prefix may be purged after the commit, or expire if the import is never committed. A commit
+only adds or overwrites the paths it carries, so the base version's `objects/*` stay in the repo untouched, and the job
+rewrites only the index/data/schema files whole. For a merge import the job reads the base index or data through a
+presigned GET (core-api passes the URLs) and writes the merged result. `upload/` and `report.json` never reach lakeFS.
 """
 from enum import StrEnum
 

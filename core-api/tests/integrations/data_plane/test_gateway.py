@@ -119,61 +119,88 @@ def _staged(monkeypatch, entries):
     monkeypatch.setattr(lakefs, "_list_staged", lambda prefix: entries)
 
 
-def _commit_handler(polls, posted=None, history=()):
-    """lakeFS stub: the commit history, import start (POST), import status (GET .../import) and cancel (DELETE)."""
+def _commit_handler(posted=None, history=(), links=None):
+    """lakeFS stub: the commit history, a physical address per staged object, the link of that address, and the commit."""
     def handler(request):
-        if request.url.path.endswith("/commits"):
+        path = request.url.path
+        if path.endswith("/staging/backing"):
+            rel = request.url.params["path"]
+            if request.method == "GET":
+                return httpx.Response(200, json={"physical_address": f"s3://{BLOCKSTORE}/{TENANT}/{DATASET}/data/{rel},tok"})
+            if links is not None:
+                links.append((rel, json.loads(request.content)))
+            return httpx.Response(200, json={})
+        if path.endswith("/commits"):
+            if request.method == "POST":
+                if posted is not None:
+                    posted.append(json.loads(request.content))
+                return httpx.Response(201, json={"id": "abc"})
             return httpx.Response(200, json={"results": list(history)})
-        if request.method == "POST":
-            if posted is not None:
-                posted.append(json.loads(request.content))
-            return httpx.Response(202, json={"id": "job"})
-        if request.method == "DELETE":
-            return httpx.Response(204)
-        return httpx.Response(200, json=next(polls))
+        return httpx.Response(404)
     return handler
 
 
-def test_commit_staged_imports_only_the_out_prefix_and_returns_the_commit(owned, monkeypatch):
-    monkeypatch.setattr(lakefs, "_POLL_SECONDS", 0)
+class _CopyingS3:
+    def __init__(self, copied):
+        self.copied = copied
+
+    def copy_object(self, **kw):
+        self.copied.append(kw)
+        return {"CopyObjectResult": {"ETag": '"etag"'}}
+
+
+BLOCKSTORE = settings.data_plane.lakefs_blockstore_bucket
+
+
+def test_commit_staged_copies_each_object_into_the_repo_and_commits_once(owned, monkeypatch):
     _staged(monkeypatch, GOOD_OUT)
-    polls = iter([{"completed": False}, {"completed": True, "commit": {"id": "abc"}}])
-    posted = []
-    _lakefs_stub(monkeypatch, _commit_handler(polls, posted))
+    copied, links, posted = [], [], []
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: _CopyingS3(copied))
+    _lakefs_stub(monkeypatch, _commit_handler(posted, links=links))
     assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import")) == "abc"
-    assert posted[0]["paths"][0]["type"] == "common_prefix"  # a type lakeFS does not know is a 400 only the real server gives
-    source = posted[0]["paths"][0]["path"]
-    assert source == f"s3://{settings.data_plane.staging_bucket}/{layout.staging_prefix(TENANT, DATASET, IMPORT)}out/"
-    assert posted[0]["commit"]["metadata"] == {lakefs.IMPORT_ID_METADATA: IMPORT}
-
-
-def test_commit_staged_surfaces_a_failed_import(owned, monkeypatch):
-    monkeypatch.setattr(lakefs, "_POLL_SECONDS", 0)
-    _staged(monkeypatch, GOOD_OUT)
-    _lakefs_stub(monkeypatch, _commit_handler(iter([{"error": {"message": "no access"}}])))
-    with pytest.raises(RuntimeError, match="no access"):
-        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
+    staged = layout.staging_prefix(TENANT, DATASET, IMPORT) + layout.OUT_PREFIX
+    assert sorted(c["CopySource"]["Key"] for c in copied) == sorted(staged + rel for rel, _ in GOOD_OUT)
+    assert {c["CopySource"]["Bucket"] for c in copied} == {settings.data_plane.staging_bucket}
+    assert {c["Bucket"] for c in copied} == {BLOCKSTORE}  # into the repo's storage, not left in staging
+    assert all(c["Key"].endswith(",tok") for c in copied)  # lakeFS's key, token included
+    assert sorted((rel, body["size_bytes"]) for rel, body in links) == sorted(GOOD_OUT)
+    assert all(body["checksum"] == "etag" for _, body in links)
+    assert posted == [{"message": "import", "metadata": {lakefs.IMPORT_ID_METADATA: IMPORT}}]
 
 
 def test_a_retried_commit_returns_the_commit_an_earlier_try_made(owned, monkeypatch):
     posted = []
     history = [{"id": "other", "metadata": {}}, {"id": "orphan", "metadata": {lakefs.IMPORT_ID_METADATA: IMPORT}}]
-    _lakefs_stub(monkeypatch, _commit_handler(iter(()), posted, history))
+    _lakefs_stub(monkeypatch, _commit_handler(posted, history))
     assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import")) == "orphan"
-    assert posted == []  # no second lakeFS import
+    assert posted == []  # no second commit
 
 
-def test_a_commit_that_outlives_the_timeout_cancels_the_lakefs_import(owned, monkeypatch):
-    monkeypatch.setattr(lakefs, "_POLL_SECONDS", 0)
+def test_a_failed_link_makes_no_commit(owned, monkeypatch):
+    _staged(monkeypatch, GOOD_OUT)
+    posted = []
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: _CopyingS3([]))
+    handler = _commit_handler(posted)
+    _lakefs_stub(monkeypatch, lambda request: httpx.Response(500) if request.method == "PUT" else handler(request))
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
+    assert posted == []
+
+
+def test_a_commit_that_outlives_the_timeout_fails(owned, monkeypatch):
     monkeypatch.setattr(settings.data_plane, "commit_timeout_seconds", 0.05)
     _staged(monkeypatch, GOOD_OUT)
-    polls = iter([{"completed": False}] * 10_000)
-    seen = []
-    handler = _commit_handler(polls)
-    _lakefs_stub(monkeypatch, lambda request: seen.append(request.method) or handler(request))
+
+    class Slow(_CopyingS3):
+        def copy_object(self, **kw):
+            import time  # noqa: PLC0415
+            time.sleep(0.3)
+            return super().copy_object(**kw)
+
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: Slow([]))
+    _lakefs_stub(monkeypatch, _commit_handler([]))
     with pytest.raises(TimeoutError):
         asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
-    assert seen[-1] == "DELETE"
 
 
 LIMITS = settings.dataset_limits
@@ -190,7 +217,7 @@ HOSTILE_OUT = {
 def test_commit_staged_refuses_output_outside_the_rules_before_touching_lakefs_data(owned, monkeypatch, entries):
     posted = []
     _staged(monkeypatch, entries)
-    _lakefs_stub(monkeypatch, _commit_handler(iter(()), posted))
+    _lakefs_stub(monkeypatch, _commit_handler(posted))
     with pytest.raises(Problem) as err:
         asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
     assert (err.value.status_code, err.value.code) == (422, lakefs.INVALID_STAGED_OUTPUT) and posted == []

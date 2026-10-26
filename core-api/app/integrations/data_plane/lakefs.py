@@ -5,7 +5,6 @@ MLflow client (tests/architecture enforces it). Every public operation takes the
 resource ids, never names, and checks ownership first (access.py).
 """
 import asyncio
-import contextlib
 import posixpath
 from urllib.parse import urlparse
 
@@ -21,11 +20,10 @@ from app.integrations.data_plane import access, layout
 from app.integrations.data_plane.report import ImportReport
 
 _HTTP_TIMEOUT = 10
-_POLL_SECONDS = 1.0
 _HTTP_NOT_FOUND, _HTTP_CONFLICT = 404, 409
 _S3_NO_SUCH_KEY = "NoSuchKey"
 _HTTP_UNPROCESSABLE = 422
-_IMPORT_PATH_TYPE = "common_prefix"  # lakeFS ImportLocation.type for a directory-like source; "object" is a single key
+LINK_CONCURRENCY = 16  # staged objects copied and linked at a time
 INVALID_STAGED_OUTPUT = "invalid_staged_output"
 INVALID_PATH = "invalid_path"
 IMPORT_ID_METADATA = "import_id"  # commit metadata key: lets a retried commit find the commit an earlier try made
@@ -188,45 +186,58 @@ async def _existing_commit(client: httpx.AsyncClient, repo: str, import_id: str)
     return next((c["id"] for c in resp.json()["results"] if (c.get("metadata") or {}).get(IMPORT_ID_METADATA) == import_id), None)
 
 
-async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str) -> str:
-    """Import the staged `out/` tree into the repo's main branch as one commit; returns the commit id.
+async def _link_staged(client: httpx.AsyncClient, s3, repo: str, staged_prefix: str, entries: list[tuple[str, int]]) -> None:
+    """Copy each staged object into the repo's storage namespace and link it on main, uncommitted.
 
-    lakeFS reads the objects from the staging bucket itself, so no bytes pass through core-api. What is staged is
-    checked first (limits, allowed file names). The commit carries the import id, so calling this again for the same
-    import after a failure returns the commit already made instead of making a second one.
+    The copy runs inside the object store (S3 CopyObject), so no bytes pass through core-api, and the version no
+    longer depends on staging: a lakeFS import would only point at the staged objects.
+    """
+    backing = f"/repositories/{repo}/branches/{layout.MAIN_BRANCH}/staging/backing"
+    gate = asyncio.Semaphore(LINK_CONCURRENCY)
+
+    async def link(rel: str, size: int) -> None:
+        async with gate:
+            placed = await client.get(backing, params={"path": rel})
+            placed.raise_for_status()
+            address = placed.json()["physical_address"]  # carries lakeFS's token after a comma, and is the object's key as is
+            target = urlparse(address)
+            copied = await asyncio.to_thread(
+                s3.copy_object, Bucket=target.netloc, Key=target.path.lstrip("/"),
+                CopySource={"Bucket": settings.data_plane.staging_bucket, "Key": staged_prefix + rel},
+            )
+            linked = await client.put(
+                backing, params={"path": rel},
+                json={"staging": {"physical_address": address}, "checksum": copied["CopyObjectResult"]["ETag"].strip('"'), "size_bytes": size},
+            )
+            linked.raise_for_status()
+
+    await asyncio.gather(*(link(rel, size) for rel, size in entries))
+
+
+async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str) -> str:
+    """Put the staged `out/` tree on the repo's main branch as one commit; returns the commit id.
+
+    What is staged is checked first (limits, allowed file names), then copied inside the object store into the
+    repo's own storage and linked, so the version outlives staging. The commit carries the import id, so calling
+    this again for the same import after a failure returns the commit already made instead of making a second one.
     """
     await access.dataset_import(tenant_id, dataset_id, import_id)
     prefix = layout.staging_prefix(tenant_id, dataset_id, import_id)
     repo = layout.repo_name(dataset_id)
-    url = f"/repositories/{repo}/branches/{layout.MAIN_BRANCH}/import"
     async with _lakefs_api() as client:
         if (done := await _existing_commit(client, repo, import_id)) is not None:
             return done
-        if violation := _staged_violation(await asyncio.to_thread(_list_staged, prefix + layout.OUT_PREFIX)):
+        entries = await asyncio.to_thread(_list_staged, prefix + layout.OUT_PREFIX)
+        if violation := _staged_violation(entries):
             raise Problem(_HTTP_UNPROCESSABLE, INVALID_STAGED_OUTPUT, violation)
-        source = f"s3://{settings.data_plane.staging_bucket}/{prefix}{layout.OUT_PREFIX}"
-        body = {
-            "paths": [{"type": _IMPORT_PATH_TYPE, "path": source, "destination": ""}],
-            "commit": {"message": message, "metadata": {IMPORT_ID_METADATA: import_id}},
-        }
-        started = await client.post(url, json=body)
-        started.raise_for_status()
-        job_id = started.json()["id"]
-        try:
-            async with asyncio.timeout(settings.data_plane.commit_timeout_seconds):
-                while True:
-                    status = await client.get(url, params={"id": job_id})
-                    status.raise_for_status()
-                    state = status.json()
-                    if error := state.get("error"):
-                        raise RuntimeError(f"lakeFS import failed: {error.get('message')}")
-                    if state.get("completed"):
-                        return state["commit"]["id"]
-                    await asyncio.sleep(_POLL_SECONDS)
-        except TimeoutError:
-            with contextlib.suppress(httpx.HTTPError):  # best effort: a still-running import would block the retry
-                await client.delete(url, params={"id": job_id})
-            raise
+        async with asyncio.timeout(settings.data_plane.commit_timeout_seconds):
+            await _link_staged(client, _s3(secret_files.STAGING), repo, prefix + layout.OUT_PREFIX, entries)
+            committed = await client.post(
+                f"/repositories/{repo}/branches/{layout.MAIN_BRANCH}/commits",
+                json={"message": message, "metadata": {IMPORT_ID_METADATA: import_id}},
+            )
+        committed.raise_for_status()
+        return committed.json()["id"]
 
 
 def _delete_prefix(bucket: str, prefix: str, client) -> None:

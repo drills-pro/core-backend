@@ -35,4 +35,9 @@ for _ in $(seq 1 $POLLS); do
 done
 c "$IMPORT" | j "['report']"
 [ "$S" = awaiting_review ] || exit 1
-echo "committed version $(c -X POST "$IMPORT/commit" | j "['number']")"
+V=$(c -X POST "$IMPORT/commit")
+echo "committed version $(echo "$V" | j "['number']")"
+# The committed data must outlive staging: read it back through lakeFS, not from the staged copy.
+rows=$(c "$API/v1/projects/$P/datasets/$DS/versions/$(echo "$V" | j "['id']")/preview" | j "['rows'].__len__()")
+echo "preview rows: $rows"
+[ "$rows" -gt 0 ]
