@@ -7,21 +7,31 @@
 #
 # One-time setup in the Zitadel console (project `platform`): a Native app with grant type Device
 # Code and Auth Token Type JWT. Put its client id in ZITADEL_CLIENT_ID (or in .local/dev-client-id).
-# The token is cached in .local/dev-token (gitignored) until it expires; FORCE=1 skips the cache.
+# LOCAL=1 targets the compose stack's Zitadel (config/local.yaml issuer, project id from local.override.yaml); it needs its own
+# Native device-code app, whose client id goes in ZITADEL_CLIENT_ID or .local/dev-client-id-local.
+# The token is cached in .local/dev-token (-local for LOCAL=1, gitignored) until it expires; FORCE=1 skips the cache.
 set -eu
 
-ISSUER="${ZITADEL_ISSUER:-https://auth.drills.pro}"
-PROJECT_ID="${ZITADEL_PROJECT_ID:-395337035725930916}"
 cd "$(dirname "$0")/.."
 mkdir -p .local
-CLIENT_ID="${ZITADEL_CLIENT_ID:-$(cat .local/dev-client-id 2>/dev/null || true)}"
+if [ -n "${LOCAL:-}" ]; then  # the compose stack's Zitadel: issuer from config/local.yaml, project id from local.override.yaml
+  SUFFIX=-local
+  ISSUER="${ZITADEL_ISSUER:-$(sed -n 's/^  issuer: *//p' core-api/config/local.yaml)}"
+  PROJECT_ID="${ZITADEL_PROJECT_ID:-$(sed -n 's/^  project_id: *"\{0,1\}\([0-9]*\).*/\1/p' core-api/config/local.override.yaml)}"
+else
+  SUFFIX=
+  ISSUER="${ZITADEL_ISSUER:-https://auth.drills.pro}"
+  PROJECT_ID="${ZITADEL_PROJECT_ID:-395337035725930916}"
+fi
+TOKEN_FILE=.local/dev-token$SUFFIX CLIENT_FILE=.local/dev-client-id$SUFFIX
+CLIENT_ID="${ZITADEL_CLIENT_ID:-$(cat "$CLIENT_FILE" 2>/dev/null || true)}"
 [ -n "$CLIENT_ID" ] || { echo "set ZITADEL_CLIENT_ID (the Native device-code app's client id)" >&2; exit 1; }
-printf '%s\n' "$CLIENT_ID" > .local/dev-client-id
+printf '%s\n' "$CLIENT_ID" > "$CLIENT_FILE"
 
 # Cached and still valid for another minute? Reuse it.
-if [ -z "${FORCE:-}" ] && [ -s .local/dev-token ]; then
-  exp=$(jq -R 'split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .exp' .local/dev-token 2>/dev/null || echo 0)
-  if [ "$exp" -gt "$(( $(date +%s) + 60 ))" ] 2>/dev/null; then cat .local/dev-token; exit 0; fi
+if [ -z "${FORCE:-}" ] && [ -s "$TOKEN_FILE" ]; then
+  exp=$(jq -R 'split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .exp' "$TOKEN_FILE" 2>/dev/null || echo 0)
+  if [ "$exp" -gt "$(( $(date +%s) + 60 ))" ] 2>/dev/null; then cat "$TOKEN_FILE"; exit 0; fi
 fi
 
 dev=$(curl -sf "$ISSUER/oauth/v2/device_authorization" -d "client_id=$CLIENT_ID" \
@@ -51,6 +61,6 @@ token=$(echo "$res" | jq -r .access_token)
 # A JWT has two dots; Zitadel's default encrypted token has four.
 [ "$(printf %s "$token" | tr -cd . | wc -c)" -eq 2 ] \
   || { echo "got an opaque token: set the app's Auth Token Type to JWT in the Zitadel console" >&2; exit 1; }
-printf '%s\n' "$token" > .local/dev-token
-chmod 600 .local/dev-token
+printf '%s\n' "$token" > "$TOKEN_FILE"
+chmod 600 "$TOKEN_FILE"
 printf '%s\n' "$token"
