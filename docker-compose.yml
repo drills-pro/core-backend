@@ -114,9 +114,9 @@ services:
     ports: ["8080:8080"]
 
   ray-head:
-    build: ./ray-training
+    build: ./ray-jobs
     command: >
-      ray start --head --dashboard-host=0.0.0.0 --block
+      ray start --head --dashboard-host=0.0.0.0 --block --resources='{"cpu_pool": 1000}'
     ports: ["8265:8265", "6379:6379", "10001:10001", "8100:8000"]
     shm_size: 1g
 
