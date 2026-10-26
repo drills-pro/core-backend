@@ -83,7 +83,7 @@ async def create_dataset_repo(tenant_id: str, dataset_id: str) -> None:
     await access.dataset(tenant_id, dataset_id)
     body = {
         "name": layout.repo_name(dataset_id),
-        "storage_namespace": f"s3://{settings.data_plane.lakefs_blockstore_bucket}/{_namespace(tenant_id, dataset_id)}",
+        "storage_namespace": f"{settings.data_plane.lakefs_blockstore_scheme}://{settings.data_plane.lakefs_blockstore_bucket}/{_namespace(tenant_id, dataset_id)}",
         "default_branch": layout.MAIN_BRANCH,
     }
     async with _lakefs_api() as client:

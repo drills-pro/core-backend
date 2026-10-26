@@ -109,7 +109,7 @@ def test_create_repo_is_idempotent_and_namespaced_by_tenant(owned, monkeypatch):
     _lakefs_stub(monkeypatch, handler)
     asyncio.run(lakefs.create_dataset_repo(TENANT, DATASET))
     assert seen[0]["name"] == layout.repo_name(DATASET)
-    assert seen[0]["storage_namespace"].endswith(f"/{TENANT}/{DATASET}/")
+    assert seen[0]["storage_namespace"] == f"{settings.data_plane.lakefs_blockstore_scheme}://{BLOCKSTORE}/{TENANT}/{DATASET}/"
 
 
 GOOD_OUT = [(layout.INDEX_KEY, 10), (f"{layout.OBJECTS_PREFIX}a/1.jpg", 5)]
