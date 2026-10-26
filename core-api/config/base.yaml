@@ -2,7 +2,7 @@
 # file that holds them (secrets: below), never by value. Per-environment files override this one;
 # CORE_<SECTION>__<KEY> environment variables override both (e.g. CORE_PG__HOST=...).
 # Service hostnames are deliberately absent here: each environment must set pg.host,
-# ray.dashboard, mlflow.url and observability.otlp_endpoint / metrics_otlp_endpoint (prod via the deploy ConfigMap), so a
+# ray.dashboard, mlflow.url and observability.otlp_endpoint (prod via the deploy ConfigMap), so a
 # missing one fails at startup instead of silently pointing at a compose name.
 pg:
   port: 5432

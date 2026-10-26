@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import background
-from app.core import problem, tracing
+from app.core import auth_log, problem, tracing
 from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import models as admin_models
@@ -97,6 +97,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     tracing.setup(app)
+    auth_log.setup()
     problem.install(app)
     for router in ROUTERS:
         app.include_router(router)

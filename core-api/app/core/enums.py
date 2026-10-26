@@ -66,3 +66,19 @@ class AuthResult(StrEnum):
     MALFORMED = "malformed"
 
 
+class UserinfoResult(StrEnum):
+    """Outcome of a Zitadel userinfo lookup: the `result` label on auth_zitadel_userinfo_total."""
+
+    CACHED = "cached"
+    FETCHED = "fetched"
+    FAILED = "failed"
+
+
+class AuthEvent(StrEnum):
+    """The `auth.event` attribute on the sign-in log records core/auth_log.py ships to Loki."""
+
+    SIGN_IN = "sign_in"  # a known user's session reached /v1/me
+    SIGN_UP = "sign_up"  # the same, for an identity seen for the first time
+    TOKEN_REJECTED = "token_rejected"
+
+
