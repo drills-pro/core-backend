@@ -15,8 +15,8 @@ mlflow:
 observability:
   otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317
 data_plane:
-  staging_bucket: drills-staging         # its own GCS bucket, same project and S3-interop store as lakeFS (k8s bootstrap/19)
-  lakefs_blockstore_bucket: drills_storage   # lakeFS keeps repositories under this existing bucket
+  staging_bucket: drills-pro-staging     # its own GCS bucket, same project and S3-interop store as lakeFS (k8s bootstrap/19)
+  lakefs_blockstore_bucket: drills-pro   # lakeFS keeps repositories here; drills_storage is internal (backups, datalake) and its underscore is not a valid S3 bucket name
 public:
   staging_endpoint: https://storage.googleapis.com   # browsers PUT uploads here (presigned, needs bucket CORS)
   # lakefs_endpoint: unset until lakeFS's S3 gateway has a host without the oauth2-proxy in front (version URLs are presigned against it)
