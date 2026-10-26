@@ -12,13 +12,13 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from app.core.settings import settings
+from app.core.settings import SERVICE_NAME, settings
 
 OTLP_ENDPOINT = settings.observability.otlp_endpoint
 
 
 def setup(app) -> None:
-    provider = TracerProvider(resource=Resource.create({"service.name": "core-api"}))
+    provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True)))
     trace.set_tracer_provider(provider)
 

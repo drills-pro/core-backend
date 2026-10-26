@@ -9,7 +9,8 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 
-from app.integrations import mlflow_client, ray_client
+from app.integrations import compute
+from app.integrations.data_plane import mlflow
 
 RAY_SERVE_HTTP = "http://ray-head:8000"
 
@@ -103,7 +104,7 @@ async def deploy(
 
     if "onnx_key" in weights:
         script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
-            model_url=f"{mlflow_client.ARTIFACTS_API}/{weights['onnx_key']}",
+            model_url=mlflow.artifact_url(weights['onnx_key']),
             class_names=weights["class_names"],
             name=name,
             route_prefix=route_prefix,
@@ -115,9 +116,9 @@ async def deploy(
 
     encoded = base64.b64encode(script.encode()).decode()
     entrypoint = f'python -c "import base64; exec(base64.b64decode(\'{encoded}\'))"'
-    job_id = await ray_client.submit_raw_job(
+    job_id = await compute.submit(compute.JobSpec(
         entrypoint=entrypoint,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "job_type": "serve-deploy"},
         num_gpus=1 if compute_target == "gpu" else 0,
-    )
+    ))
     return job_id, route_prefix

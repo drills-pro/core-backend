@@ -105,3 +105,18 @@ def test_secret_errors_name_the_file(lakefs_file):
 
 def test_prod_has_the_zitadel_project_id():
     assert load("prod").zitadel.project_id.isdigit()
+
+
+def test_dataset_limits_and_data_plane_knobs_are_all_positive_and_in_base_yaml():
+    base = yaml.safe_load((CONFIG_DIR / "base.yaml").read_text())
+    for section in ("dataset_limits", "data_plane"):
+        loaded = getattr(settings, section)
+        assert set(base[section]) == set(type(loaded).model_fields), f"{section}: base.yaml and settings.py disagree"
+    values = {**settings.dataset_limits.model_dump(), **{k: v for k, v in settings.data_plane.model_dump().items() if isinstance(v, int)}}
+    assert values and all(v > 0 for v in values.values())
+
+
+@pytest.mark.parametrize("env", ENVIRONMENTS)
+def test_every_environment_names_the_staging_secret(env):
+    assert load(env).secrets.staging.name.startswith("staging")
+    assert load(env).secrets.ingest.name.startswith("ingest")  # a separate file: the job must not get the staging one

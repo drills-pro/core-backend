@@ -15,8 +15,8 @@ from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
 
-from app.core import metrics
-from app.core.enums import AuthResult, UserinfoResult
+from app.core.metrics import auth as auth_metrics
+from app.core.enums import AuthResult
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ _FAILURE_RESULTS = (
 
 
 def _count_verification(result: AuthResult) -> None:
-    metrics.auth_token_verifications_total.add(1, {"result": result})
+    auth_metrics.token_verifications.add(1, {"result": result})
 
 
 def verify_token(token: str) -> Claims:

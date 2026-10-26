@@ -205,15 +205,15 @@ def test_profile_claims_come_from_userinfo_when_the_token_has_none(monkeypatch):
 @pytest.fixture
 def counted(monkeypatch):
     """Results recorded on the auth counters, in order."""
-    from app.core import metrics
+    from app.core.metrics import auth as auth_metrics
 
     seen = []
 
     def recorder(name):
         return SimpleNamespace(add=lambda n, attrs=None: seen.append((name, (attrs or {}).get("result"))))
 
-    for name in ("auth_token_verifications_total", "zitadel_userinfo_total", "auth_principals_created_total"):
-        monkeypatch.setattr(metrics, name, recorder(name))
+    for name in ("token_verifications", "principals_created"):
+        monkeypatch.setattr(auth_metrics, name, recorder(name))
     return seen
 
 
@@ -268,7 +268,7 @@ def test_non_bearer_header_is_counted(counted):
 
     with pytest.raises(HTTPException):
         asyncio.run(auth.get_claims(authorization="Basic abc"))
-    assert counted == [("auth_token_verifications_total", AuthResult.NOT_BEARER)]
+    assert counted == [("token_verifications", AuthResult.NOT_BEARER)]
 
 
 def test_principal_created_counted_only_on_first_sight(counted):
@@ -280,4 +280,4 @@ def test_principal_created_counted_only_on_first_sight(counted):
     claims = auth.Claims({"sub": "u"})
     asyncio.run(_upsert_principal(FakeConn(val=True), claims))
     asyncio.run(_upsert_principal(FakeConn(val=False), claims))
-    assert counted == [("auth_principals_created_total", None)]
+    assert counted == [("principals_created", None)]

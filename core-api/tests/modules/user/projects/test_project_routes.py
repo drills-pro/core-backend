@@ -7,7 +7,7 @@ from app.core.authz import DefaultAccess, Visibility
 from app.modules.user.projects import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
-PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "legacy_untyped", "created_at": datetime.now(),
+PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "image-classification", "created_at": datetime.now(),
                "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False}
 
 
@@ -43,6 +43,16 @@ def test_project_admin_changes_default_access(call):
 
 def test_unknown_task_type_is_422(call):
     assert call(access(), "POST", "?name=x&task_type=bogus", on_project=False).status_code == 422
+
+
+def test_reserved_task_type_is_422_not_supported_yet(call):
+    r = call(access(), "POST", "?name=x&task_type=text-classification", on_project=False)
+    assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")
+    assert "not supported yet" in r.json()["detail"]
+
+
+def test_supported_task_type_creates(call):
+    assert call(access(), "POST", "?name=x&task_type=tabular-regression", on_project=False).status_code == 201
 
 
 def test_project_admin_changes_visibility_and_deletes(call):

@@ -21,10 +21,10 @@ import contextlib
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import make_asgi_app
 
 from app import background
 from app.core import problem, tracing
+from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import models as admin_models
 from app.modules.admin import tenants as admin_tenants
@@ -34,9 +34,7 @@ from app.modules.user import (
     datasets,
     deployments,
     health,
-    labeling,
     model_registry,
-    preprocessing,
     projects,
     public,
     teams,
@@ -61,11 +59,9 @@ ROUTERS = (
     datasets.router,
     deployments.router,
     auth.router,
-    labeling.router,
     model_registry.router,
     projects.members_router,
     api_keys.router,
-    preprocessing.router,
     public.router,
     teams.router,
     tenant_members.router,
@@ -78,7 +74,7 @@ ROUTERS = (
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    tasks = background.start()
+    tasks = background.start() if settings.background.pollers_in_api else []
     try:
         yield
     finally:
@@ -104,7 +100,6 @@ def create_app() -> FastAPI:
     problem.install(app)
     for router in ROUTERS:
         app.include_router(router)
-    app.mount("/metrics", make_asgi_app())
     return app
 
 

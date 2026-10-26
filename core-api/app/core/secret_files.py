@@ -12,10 +12,17 @@ from app.core.settings import settings
 
 # name -> keys every consumer relies on; a file missing one fails here, with the path, not as a
 # KeyError deep in a request.
+LAKEFS = "lakefs"
+STAGING = "staging"
+INGEST = "ingest"  # the Ray ingest job's own credential: the staging bucket only, never the lakeFS blockstore
+# Read only by app/integrations/data_plane, which also reports their health (tests/architecture).
+DATA_PLANE = (LAKEFS, STAGING, INGEST)
+
 REQUIRED: dict[str, tuple[str, ...]] = {
     "db": ("username", "password"),
-    "lakefs": ("endpoint", "access_key", "secret_key"),
-    "labelstudio": ("url", "refresh_token"),
+    LAKEFS: ("endpoint", "access_key", "secret_key"),
+    STAGING: ("endpoint", "access_key", "secret_key"),
+    INGEST: ("endpoint", "access_key", "secret_key"),
     "zitadel": ("USER_ID", "KEY_ID", "PRIVATE_KEY"),
 }
 
@@ -45,3 +52,16 @@ def get(name: str) -> dict:
         raise SecretError(f"secret {name!r}: {path} is missing {missing}")
     _cache[name] = (path, mtime, data)
     return data
+
+
+def problems(skip: tuple[str, ...] = ()) -> list[str]:
+    """Why each required secret file (except `skip`) does not load; empty when all are fine."""
+    bad = []
+    for name in REQUIRED:
+        if name in skip:
+            continue
+        try:
+            get(name)
+        except SecretError as e:
+            bad.append(str(e))
+    return bad

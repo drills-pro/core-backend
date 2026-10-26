@@ -7,24 +7,34 @@ drive the same transition — see app/background.py.
 import logging
 from datetime import datetime, timezone
 
-from app.core import metrics as app_metrics
-from app.core.db import get_pool
-from app.core.tenant_conn import TenantConn
-from app.integrations import mlflow_client, ray_client
-from app.modules.user.usage import record_usage
+from http import HTTPStatus
+
+import httpx
+
+from app.core.metrics import usage as usage_metrics
+from app.core.problem import Problem
+from app.integrations import compute, job_follower
+from app.integrations.compute import JobStatus
+from app.integrations.data_plane import mlflow
+from app.modules.user.training import log_parsing
+from app.modules.user.training.constants import INFLIGHT_STATUSES, TRANSITIONS, ProblemCode, TrainingStatus
+from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 logger = logging.getLogger(__name__)
 
 RAY_TO_STATUS = {
-    "PENDING": "submitted",
-    "RUNNING": "running",
-    "SUCCEEDED": "succeeded",
-    "FAILED": "failed",
-    "STOPPED": "cancelled",
+    JobStatus.PENDING: TrainingStatus.SUBMITTED,
+    JobStatus.RUNNING: TrainingStatus.RUNNING,
+    JobStatus.SUCCEEDED: TrainingStatus.SUCCEEDED,
+    JobStatus.FAILED: TrainingStatus.FAILED,
+    JobStatus.STOPPED: TrainingStatus.CANCELLED,
 }
+_INFLIGHT_TENANTS = "SELECT inflight_training_tenant_ids()"
+_INFLIGHT = "SELECT * FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
+_FINISHED = (TrainingStatus.SUCCEEDED, TrainingStatus.FAILED)
 
 
-async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
+async def transition(conn, row: dict, new_status: TrainingStatus, tenant_id: str) -> dict:
     """Handle a training run reaching (or moving toward) a terminal state:
     FR1 (06-ml-training): log to MLflow. FR1 (09-usage-metering): bill it,
     idempotently — this can run more than once for the same job across
@@ -35,59 +45,85 @@ async def transition(conn, row: dict, new_status: str, tenant_id: str) -> dict:
     locked = dict(await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 FOR UPDATE", row["id"]))
     if locked["status"] != row["status"]:
         return locked
-    completed_at = datetime.now(timezone.utc) if new_status in ("succeeded", "failed") else None
+    frm = TrainingStatus(row["status"])
+    if new_status not in TRANSITIONS[frm]:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is {frm}, it cannot become {new_status}")
+    completed_at = datetime.now(timezone.utc) if not TRANSITIONS[new_status] else None  # any end state
 
     model_artifact = None  # only set below when freshly parsed; COALESCE in the UPDATE preserves any existing value
     metrics = None
     mlflow_run_id = row["mlflow_run_id"]
-    if new_status == "cancelled" and mlflow_run_id:
-        await mlflow_client.finish_run(run_id=mlflow_run_id, status="KILLED")
-    if new_status in ("succeeded", "failed"):
-        logs = await ray_client.get_logs(row["ray_job_id"])
-        scalar_metrics = ray_client.parse_metrics(logs)
+    if new_status == TrainingStatus.CANCELLED and mlflow_run_id:
+        try:  # best effort: a tracking hiccup must not block a cancel
+            await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
+        except httpx.HTTPError:
+            logger.warning("could not close MLflow run %s as killed", mlflow_run_id, exc_info=True)
+    if new_status in _FINISHED:
+        logs = await compute.logs(row["ray_job_id"])
+        scalar_metrics = log_parsing.parse_metrics(logs)
         # epoch_history/confusion_matrix are structured, not floats — MLflow's
         # log-metric API only accepts scalars, so they're stored on our own
         # row (below) but never sent to MLflow.
-        metrics = {**scalar_metrics, **ray_client.parse_extra_metrics(logs)}
-        model_artifact = ray_client.parse_model_artifact(logs)
-        if mlflow_run_id is None:  # submitted before runs were created at submit time
-            mlflow_run_id, _ = await mlflow_client.start_run(
-                tenant_id=tenant_id, project_id=str(row["project_id"]), dataset_ref=row["dataset_ref"]
+        metrics = {**scalar_metrics, **log_parsing.parse_extra_metrics(logs)}
+        model_artifact = log_parsing.parse_model_artifact(logs)
+        if mlflow_run_id is not None:
+            await mlflow.finish_run(
+                tenant_id,
+                str(row["project_id"]),
+                mlflow_run_id,
+                mlflow.RunStatus.FINISHED if new_status == TrainingStatus.SUCCEEDED else mlflow.RunStatus.FAILED,
+                scalar_metrics,
             )
-        await mlflow_client.finish_run(
-            run_id=mlflow_run_id,
-            status="FINISHED" if new_status == "succeeded" else "FAILED",
-            metrics=scalar_metrics,
-        )
-        if new_status == "succeeded":
+        if new_status == TrainingStatus.SUCCEEDED:
             elapsed = (completed_at - row["created_at"]).total_seconds()
             await record_usage(
                 conn,
                 tenant_id=tenant_id,
                 project_id=row["project_id"],
-                resource_type="training",
+                resource_type=UsageResource.TRAINING,
                 quantity=elapsed,
-                unit="gpu_seconds",
+                unit=UsageUnit.GPU_SECONDS,
                 occurred_at=completed_at,
                 source_ref=row["ray_job_id"],
             )
 
-    if new_status in ("succeeded", "failed", "cancelled"):
-        app_metrics.training_runs_total.add(1, {"status": new_status})
+    if not TRANSITIONS[new_status]:
+        usage_metrics.training_runs.add(1, {"status": new_status})
 
     updated = await conn.fetchrow(
         "UPDATE training_runs SET status = $2, mlflow_run_id = $3, "
         "completed_at = COALESCE(completed_at, $4), model_artifact = COALESCE(model_artifact, $5), "
         "metrics = COALESCE(metrics, $6) "
-        "WHERE id = $1 RETURNING *",
+        "WHERE id = $1 AND status = $7 RETURNING *",
         row["id"],
         new_status,
         mlflow_run_id,
         completed_at,
         model_artifact,
         metrics,
+        frm,
     )
+    if updated is None:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is no longer {frm}")
     return dict(updated)
+
+
+async def _select(conn, tenant_id):
+    return await conn.fetch(_INFLIGHT, tenant_id, [str(s) for s in INFLIGHT_STATUSES])
+
+
+async def _settle(conn, row: dict) -> None:
+    ray_status = await job_follower.poll(row["ray_job_id"])
+    if ray_status is None:
+        return
+    new_status = RAY_TO_STATUS[ray_status]
+    if new_status in TRANSITIONS[TrainingStatus(row["status"])]:  # not e.g. running -> submitted
+        try:
+            await transition(conn, row, new_status, str(row["tenant_id"]))
+        except Problem as exc:
+            if exc.code != ProblemCode.INVALID_STATE:
+                raise
+            logger.info("run %s was moved by someone else; nothing to settle", row["id"])  # a cancel or another replica won
 
 
 async def reconcile_inflight_runs() -> None:
@@ -95,23 +131,4 @@ async def reconcile_inflight_runs() -> None:
     nobody ever GETs individually still transitions out of 'submitted' —
     otherwise it sits there forever and keeps counting against the tenant's
     MAX_CONCURRENT_TRAINING_RUNS quota (see create_training_run)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        tenant_ids = [r["inflight_training_tenant_ids"] for r in await conn.fetch("SELECT inflight_training_tenant_ids()")]
-
-    for tenant_id in tenant_ids:
-        async with TenantConn(str(tenant_id)) as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM training_runs WHERE tenant_id = $1 AND status IN ('submitted', 'running')",
-                tenant_id,
-            )
-            for row in rows:
-                row = dict(row)
-                try:
-                    ray_status = await ray_client.get_status(row["ray_job_id"])
-                except Exception:  # noqa: BLE001 - one bad job shouldn't block the sweep
-                    logger.exception("failed to poll ray status for run %s", row["id"])
-                    continue
-                new_status = RAY_TO_STATUS.get(ray_status, row["status"])
-                if new_status != row["status"]:
-                    await transition(conn, row, new_status, str(tenant_id))
+    await job_follower.follow(_INFLIGHT_TENANTS, _select, _settle)

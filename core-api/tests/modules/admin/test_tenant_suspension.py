@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.core import problem
 from app.core.authz import Action, AuthzContext, TenantRole, TenantStatus, require
+from app.core.enums import TaskType
 from app.modules.admin.tenants import detail
 from tests.support import FakeConn, TenantCtx, access, patch_tenant_conn
 
@@ -82,3 +83,12 @@ def test_tenant_without_zitadel_org_can_be_suspended(world):
     assert _set(client, "suspended").status_code == 200
     assert client.get("/tenant-admin").status_code == 403
     assert calls == []
+
+
+def test_admin_create_project_rejects_reserved_task_type(world):
+    client, _ = world("org-1")
+    r = client.post(
+        f"/v1/admin/tenants/{TENANT}/projects",
+        json={"name": "x", "task_type": TaskType.TEXT_CLASSIFICATION},
+    )
+    assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")

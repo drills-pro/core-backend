@@ -20,5 +20,6 @@ observability:
 secrets:
   db: ../.local/secrets-host/db.json
   lakefs: ../.local/secrets-host/lakefs.json
-  labelstudio: ../.local/secrets-host/labelstudio.json
+  staging: ../.local/secrets-host/staging.json
+  ingest: ../.local/secrets-host/ingest.json
   zitadel: ../.local/secrets-host/zitadel.json

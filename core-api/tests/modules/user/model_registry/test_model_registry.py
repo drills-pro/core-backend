@@ -22,10 +22,10 @@ HIDDEN = access(visibility=Visibility.PRIVATE)  # private and unbound
 def call(monkeypatch, dev_headers):
     client = make_client(routes.router)
 
-    async def transition(**_):
+    async def transition(*_):
         return None
 
-    monkeypatch.setattr(routes.mlflow_client, "transition_stage", transition)
+    monkeypatch.setattr(routes.mlflow, "transition_stage", transition)
 
     def do(method, path, row, found=True, **kw):
         # found=False: RLS hides every child row, so the lookups come back empty.

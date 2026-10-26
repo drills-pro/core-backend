@@ -1,0 +1,10 @@
+.git
+.claude
+.codegraph
+.local
+**/.venv
+**/__pycache__
+**/.pytest_cache
+core-api/tests
+ray-jobs/tests
+docs

@@ -22,16 +22,51 @@ auth:
 ray:
   max_concurrent_training_runs: 3
 
+compute:                     # app/integrations/compute.py
+  backend: ray_dashboard     # ray_dashboard | rayjob
+  rayjob:
+    namespace: ray
+    cluster_name: ""         # empty: one ephemeral cluster per job, from cluster_spec
+    cluster_spec: {}
+    shutdown_after_finish: true
+    ttl_after_finished_seconds: 86400
+
+background:
+  pollers_in_api: true       # false when the worker Deployment runs them (docs/runtime-contract.md)
+
+data_plane:
+  staging_bucket: drills-staging
+  lakefs_blockstore_bucket: lakefs-data
+  presign_ttl_seconds: 3600
+  commit_timeout_seconds: 600
+
+dataset_limits:
+  upload_max_bytes: 2147483648          # 2 GiB
+  extracted_max_bytes: 10737418240      # 10 GiB
+  extracted_max_ratio: 100
+  max_files: 100000
+  max_archive_depth: 8
+  max_path_length: 255
+  image_max_dimension: 8192
+  image_max_bytes: 26214400             # 25 MiB
+  csv_min_rows: 10
+  csv_max_rows: 5000000
+  csv_max_columns: 1000
+  hf_max_repo_bytes: 10737418240        # 10 GiB
+  job_timeout_seconds: 3600
+  ray_job_cpus: 2
+  ray_job_memory_bytes: 8589934592      # 8 GiB
+  max_active_imports_per_tenant: 3
 
 observability:
-  ksm_endpoint: ""           # kube-state-metrics, for the GPU-quota poller; empty disables it
 
 public:                      # browser-facing, not the in-network names
   lakefs_endpoint: http://localhost:8000
-  labelstudio_endpoint: http://labelstudio.monorepo.orb.local:8080
+  staging_endpoint: http://localhost:9000
 
 secrets:                     # paths of JSON files, mounted into the pod (Vault Agent Injector in prod)
   db: /vault/secrets/db      # Postgres creds from Vault's database engine (k8s apps/_components/vault-db-creds)
   lakefs: /var/app-secret/app-backend/lakefs
-  labelstudio: /var/app-secret/app-backend/labelstudio
+  staging: /var/app-secret/app-backend/staging
+  ingest: /var/app-secret/app-backend/ingest
   zitadel: /var/app-secret/app-backend/zitadel

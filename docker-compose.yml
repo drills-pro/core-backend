@@ -114,9 +114,12 @@ services:
     ports: ["8080:8080"]
 
   ray-head:
-    build: ./ray-training
+    build:
+      context: ./ray-jobs
+      args:
+        BASE: rayproject/ray:2.60.0.8f2cbc-py311-cpu-aarch64  # local only; the amd64 digest crashes Ray's agents under emulation on arm64
     command: >
-      ray start --head --dashboard-host=0.0.0.0 --block
+      ray start --head --dashboard-host=0.0.0.0 --block --resources='{"cpu_pool": 1000}'
     ports: ["8265:8265", "6379:6379", "10001:10001", "8100:8000"]
     shm_size: 1g
 
@@ -143,17 +146,6 @@ services:
       --serve-artifacts"
     ports: ["5001:5000"]
 
-  labelstudio:
-    image: heartexlabs/label-studio:latest
-    labels:
-      dev.orbstack.domains: labelstudio.monorepo.orb.local  # public.labelstudio_endpoint (base.yaml)
-    environment:
-      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
-      LABEL_STUDIO_USERNAME: admin@platform.local
-      LABEL_STUDIO_PASSWORD: LabelStudioAdminPw1!
-      LABEL_STUDIO_USER_TOKEN: dev-label-studio-token-0123456789
-    ports: ["8110:8080"]
-
   vault:
     image: hashicorp/vault:latest
     cap_add: ["IPC_LOCK"]
@@ -169,7 +161,9 @@ services:
     ports: ["8200:8200"]
 
   core-api:
-    build: ./core-api
+    build:
+      context: .  # the image also carries ray-jobs/, which sits next to core-api/
+      dockerfile: core-api/Dockerfile
     depends_on:
       dbmate: { condition: service_completed_successfully }
       lakefs: { condition: service_started }
@@ -178,7 +172,6 @@ services:
       lgtm: { condition: service_started }
       vault: { condition: service_started }
       mlflow: { condition: service_started }
-      labelstudio: { condition: service_started }
     environment:
       # Everything else is core-api/config/{base,compose}.yaml; secrets are the files mounted below.
       APP_ENV: compose

@@ -8,7 +8,8 @@ pg:
 secrets:
   db: /var/app-secret/app-backend/db.json
   lakefs: /var/app-secret/app-backend/lakefs.json
-  labelstudio: /var/app-secret/app-backend/labelstudio.json
+  staging: /var/app-secret/app-backend/staging.json
+  ingest: /var/app-secret/app-backend/ingest.json
   zitadel: /var/app-secret/app-backend/zitadel.json
 ray:
   dashboard: http://ray-head:8265

@@ -1,23 +1,17 @@
 import re
 import uuid
-from enum import StrEnum
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.core.authz import Action, AuthzContext, require
 from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
-from app.integrations import mlflow_client
+from app.integrations.data_plane import mlflow
+from app.integrations.data_plane.mlflow import ModelStage as Stage
 
 router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
 # req/06 FR2: registry stages map to customer-facing states.
-class Stage(StrEnum):
-    NONE = "None"
-    STAGING = "Staging"
-    PRODUCTION = "Production"
-
-
 CUSTOMER_STAGE_LABELS = {Stage.NONE: "internal only", Stage.STAGING: "candidate", Stage.PRODUCTION: "live/deployed"}
 MODEL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 
@@ -25,7 +19,7 @@ MODEL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 def _present(row, tenant_id: str, project_id: uuid.UUID) -> dict:
     """Customers see the name they chose, not the tenant/project-namespaced MLflow name."""
     out = dict(row)
-    out["mlflow_model_name"] = mlflow_client.display_name(out["mlflow_model_name"], tenant_id, str(project_id))
+    out["mlflow_model_name"] = mlflow.display_name(out["mlflow_model_name"], tenant_id, str(project_id))
     return out
 
 
@@ -49,8 +43,8 @@ async def register_model(
             raise HTTPException(status_code=409, detail="training run has no completed MLflow run to register")
 
         # Registered model names are global in MLflow, so the tenant and project are part of the name.
-        mlflow_name = mlflow_client.registered_model_name(tenant_id, str(project_id), name)
-        mlflow_version = await mlflow_client.register_model_version(name=mlflow_name, run_id=run["mlflow_run_id"])
+        mlflow_name = mlflow.registered_model_name(tenant_id, str(project_id), name)
+        mlflow_version = await mlflow.register_model_version(tenant_id, str(project_id), name, run["mlflow_run_id"])
         row = await conn.fetchrow(
             "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version) "
             "VALUES ($1, $2, $3, $4, $5) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at",
@@ -101,8 +95,12 @@ async def promote_model(
         if row is None:
             raise not_found()
 
-        await mlflow_client.transition_stage(
-            name=row["mlflow_model_name"], version=row["mlflow_version"], stage=stage
+        await mlflow.transition_stage(
+            tenant_id,
+            str(project_id),
+            mlflow.display_name(row["mlflow_model_name"], tenant_id, str(project_id)),
+            row["mlflow_version"],
+            Stage(stage),
         )
         updated = await conn.fetchrow(
             "UPDATE model_versions SET stage = $2 WHERE id = $1 "

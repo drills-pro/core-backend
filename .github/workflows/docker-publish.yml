@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "core-api/**"
+      - "ray-jobs/**"
       - "compose/postgres/**"
       - "docker-compose.yml"
       - "scripts/lint-migrations.py"
@@ -27,6 +28,7 @@ jobs:
           filters: |
             core-api:
               - 'core-api/**'
+              - 'ray-jobs/**'
       - id: sha
         run: |
           if [ "${GITHUB_REF#refs/heads/}" = "main" ]; then
@@ -66,7 +68,8 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          context: ./core-api
+          context: .
+          file: ./core-api/Dockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/core-api:${{ needs.changes.outputs.tag }}
           cache-from: type=gha,scope=core-api

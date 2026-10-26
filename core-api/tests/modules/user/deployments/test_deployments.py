@@ -1,10 +1,11 @@
 """Deployments routes: role -> action, 403 names the action, hidden/foreign projects 404, predict stays public."""
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
 from app.core.authz import Action, Role, Visibility
-from app.modules.user.deployments import routes
+from app.modules.user.deployments import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 DEPLOYMENT = uuid.uuid4()
@@ -16,7 +17,7 @@ def call(monkeypatch, dev_headers):
     client = make_client(routes.router, raise_server_exceptions=False)
 
     def run(method, path, row, **kw):
-        patch_tenant_conn(monkeypatch, FakeConn(row, row=row), routes)
+        patch_tenant_conn(monkeypatch, FakeConn(row, row=row), service)
         return getattr(client, method)(path, **kw)
 
     return run
@@ -58,8 +59,12 @@ def test_predict_is_public_not_session_authenticated(call):
 
 
 def test_get_is_read_only_and_hides_internals(call, monkeypatch):
-    conn = FakeConn(access(), row=access())
-    patch_tenant_conn(monkeypatch, conn, routes)
+    detail = {
+        "id": DEPLOYMENT, "project_id": PROJECT, "training_run_id": uuid.uuid4(), "status": "active",
+        "route_prefix": "/p", "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc),
+    }
+    conn = FakeConn(access(), row=detail)
+    patch_tenant_conn(monkeypatch, conn, service)
     c = make_client(routes.router, raise_server_exceptions=False)
     assert c.get(f"{BASE}/{DEPLOYMENT}").status_code == 200
     sql = " ".join(q for q, _ in conn.calls).upper()

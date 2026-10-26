@@ -1,7 +1,7 @@
 #!/bin/sh
 # Static local dev secrets -> .local/secrets/ (gitignored). Idempotent; safe to re-run.
 #
-# The generated one (labelstudio.json) comes from steps/labelstudio.sh. Compose mounts this directory at /var/app-secret/app-backend, the path
+# Compose mounts this directory at /var/app-secret/app-backend, the path
 # the cluster's Vault Agent Injector writes to, so core-api reads the same files in both places.
 set -eu
 . "$(dirname "$0")/lib/secrets.sh"
@@ -11,5 +11,8 @@ KEY="AKIAIOSFODNN7EXAMPLE"
 SECRET="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
 write_secret lakefs.json endpoint "http://lakefs:8000" access_key "$KEY" secret_key "$SECRET"
+write_secret staging.json endpoint "http://minio:9000" access_key "$KEY" secret_key "$SECRET"
+# Bucket-only MinIO user created by steps/lakefs.sh: the ingest job runs hostile input and gets nothing else.
+write_secret ingest.json endpoint "http://minio:9000" access_key "ingest" secret_key "ingest-local-secret"
 
-echo "secrets: $SECRETS_DIR (lakefs)"
+echo "secrets: $SECRETS_DIR (lakefs, staging, ingest)"
