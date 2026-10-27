@@ -109,6 +109,15 @@ class DatasetLimits(_Section):
     max_active_imports_per_tenant: int
 
 
+class Training(_Section):
+    """The train job's declared resources (docs/trainer-plan.md). The GPU task asks Ray for one whole card plus these."""
+
+    task_cpus: int  # CPUs of the Ray task on the GPU worker
+    task_memory_bytes: int
+    driver_cpus: float  # the CPU-pool driver that starts that task
+    max_runtime_seconds: int  # the job deadline; presigned data reads outlive it
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
@@ -139,6 +148,7 @@ class Settings(BaseSettings):
     mlflow: Mlflow
     data_plane: DataPlane
     dataset_limits: DatasetLimits
+    training: Training
     observability: Observability
     public: Public
     secrets: SecretPaths

@@ -46,6 +46,25 @@ SUPPORTED_TASK_TYPES = frozenset(
 
 TABULAR_TASKS = frozenset({TaskType.TABULAR_CLASSIFICATION, TaskType.TABULAR_REGRESSION})
 
+# What the trainer can do today (docs/trainer-plan.md); a subset of SUPPORTED_TASK_TYPES.
+TRAINABLE_TASK_TYPES = frozenset({TaskType.IMAGE_CLASSIFICATION, TaskType.OBJECT_DETECTION})
+
+
+class TrainPreset(StrEnum):
+    """Model size of a training run (docs/trainer-plan.md T5). Mirrors the training_runs.preset CHECK constraint."""
+
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+
+
+class Split(StrEnum):
+    """Values of the nullable `split` column. Datasets never invent one (plan decision 9)."""
+
+    TRAIN = "train"
+    VALIDATION = "validation"
+    TEST = "test"
+
 
 class ImportSource(StrEnum):
     """Where a dataset import's data comes from. Mirrors the dataset_imports_source_check constraint."""

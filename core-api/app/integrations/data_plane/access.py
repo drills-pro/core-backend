@@ -13,6 +13,7 @@ _DATASET = "SELECT 1 FROM datasets WHERE id = $1 AND tenant_id = $2"
 _IMPORT = "SELECT 1 FROM dataset_imports WHERE id = $1 AND dataset_id = $2 AND tenant_id = $3"
 _VERSION = "SELECT lakefs_commit FROM dataset_versions WHERE id = $1 AND dataset_id = $2 AND tenant_id = $3"
 _PROJECT = "SELECT 1 FROM projects WHERE id = $1 AND tenant_id = $2"
+_TRAINING_RUN = "SELECT 1 FROM training_runs WHERE id = $1 AND project_id = $2 AND tenant_id = $3"
 
 
 async def _check(tenant_id: str, sql: str, *ids: str):
@@ -42,3 +43,7 @@ async def version_commit(tenant_id: str, dataset_id: str, version_id: str) -> st
 
 async def project(tenant_id: str, project_id: str) -> None:
     await _check(tenant_id, _PROJECT, project_id)
+
+
+async def training_run(tenant_id: str, project_id: str, run_id: str) -> None:
+    await _check(tenant_id, _TRAINING_RUN, run_id, project_id)

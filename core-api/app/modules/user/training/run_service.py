@@ -24,7 +24,7 @@ _NOT_FOUND = "training run not found"
 async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[TrainingRunSummary]:
     async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(
-            "SELECT id, status, dataset_ref, ray_job_id, mlflow_run_id, config, metrics, created_at, completed_at "
+            "SELECT id, status, dataset_ref, dataset_version_id, preset, ray_job_id, mlflow_run_id, config, metrics, created_at, completed_at "
             "FROM training_runs WHERE project_id = $1 "
             "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             project_id,

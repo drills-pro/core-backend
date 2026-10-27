@@ -137,6 +137,24 @@ async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: st
     )
 
 
+async def presign_version_objects(tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int) -> dict[str, str]:
+    """Presigned reads of many objects of one version, as {path: url}, for a job that reaches the stores at their
+    in-network addresses (the credentials' own endpoints, not the browser-facing ones of presign_get)."""
+    commit = await access.version_commit(tenant_id, dataset_id, version_id)
+    repo = layout.repo_name(dataset_id)
+    on_gcs = settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS
+    client = _s3(secret_files.STAGING if on_gcs else secret_files.LAKEFS)
+    gate = asyncio.Semaphore(LINK_CONCURRENCY)
+
+    async def one(path: str) -> tuple[str, str]:
+        async with gate:
+            bucket, key = await _physical_object(repo, commit, path) if on_gcs else (repo, f"{commit}/{path}")
+        url = client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=ttl_seconds)
+        return path, url
+
+    return dict(await asyncio.gather(*(one(_checked_path(p)) for p in paths)))
+
+
 class _S3Object(io.RawIOBase):
     """Seekable read-only view of one object over ranged GETs, so pyarrow fetches only the footer and the first row group."""
 
@@ -184,6 +202,21 @@ async def read_version_sample(tenant_id: str, dataset_id: str, version_id: str, 
     commit = await access.version_commit(tenant_id, dataset_id, version_id)
     location = f"{layout.repo_name(dataset_id)}/{commit}/{_checked_path(key)}"
     return await asyncio.to_thread(_parquet_head, secret_files.LAKEFS, location, limit)
+
+
+def _parquet_column(secret: str, location: str, column: str) -> list:
+    from pyarrow.parquet import ParquetFile  # noqa: PLC0415 - imported lazily, like _parquet_head
+
+    bucket, _, key = location.partition("/")
+    with io.BufferedReader(_S3Object(_s3(secret), bucket, key), _PARQUET_READ_BUFFER) as f:
+        return ParquetFile(f).read(columns=[column]).column(column).to_pylist()
+
+
+async def read_version_column(tenant_id: str, dataset_id: str, version_id: str, key: str, column: str) -> list:
+    """Every value of one column of `key` (index.parquet or data.parquet) in a committed version."""
+    commit = await access.version_commit(tenant_id, dataset_id, version_id)
+    location = f"{layout.repo_name(dataset_id)}/{commit}/{_checked_path(key)}"
+    return await asyncio.to_thread(_parquet_column, secret_files.LAKEFS, location, column)
 
 
 async def read_staged_sample(tenant_id: str, dataset_id: str, import_id: str, key: str, limit: int) -> list[dict]:

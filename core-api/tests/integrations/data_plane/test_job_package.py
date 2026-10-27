@@ -53,3 +53,12 @@ def test_presigned_url_uploads_a_new_version_once(monkeypatch):
     assert asyncio.run(job_package.presigned_url()) == f"http://ray-side/{key}"
     asyncio.run(job_package.presigned_url())
     assert calls == ["head", ("put", key)]  # the second start finds it in this process's memory
+
+
+def test_another_package_is_zipped_the_same_way_under_its_own_name(tmp_path):
+    package = tmp_path / "ray-training" / "ray_training"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    data, key = job_package.build(package)
+    assert key == f"{layout.JOB_PACKAGE_ROOT}/ray-training-{hashlib.sha256(data).hexdigest()}.zip"
+    assert zipfile.ZipFile(io.BytesIO(data)).namelist() == ["ray_training/__init__.py"]

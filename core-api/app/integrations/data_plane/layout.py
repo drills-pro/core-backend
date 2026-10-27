@@ -24,7 +24,10 @@ presigned GET (core-api passes the URLs) and writes the merged result. `upload/`
 """
 from enum import StrEnum
 
+from app.core.enums import Split  # noqa: F401 - lives in core so job_spec need not import this package; re-exported here
+
 STAGING_ROOT = "imports"
+TRAIN_ROOT = "trainings"
 JOB_PACKAGE_ROOT = "jobs"
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
@@ -33,6 +36,13 @@ OBJECTS_PREFIX = "objects/"
 INDEX_KEY = "index.parquet"
 DATA_KEY = "data.parquet"
 SCHEMA_KEY = "schema.json"
+# A training run's prefix (train_prefix) holds, next to the imports tree:
+#   manifest.json      written by core-api before the job starts: {index path: presigned GET}
+#   report.json        TrainReport (train_report.py); always written by the job, also when training fails
+#   model.onnx, model.json   the model and its description (success only)
+MANIFEST_KEY = "manifest.json"
+MODEL_KEY = "model.onnx"
+MODEL_META_KEY = "model.json"
 
 # /health/deps values.
 HEALTH_OK = "ok"
@@ -41,14 +51,6 @@ HEALTH_ERROR = "error: "
 # Name of the lakeFS branch every version is committed on.
 MAIN_BRANCH = "main"
 REPO_PREFIX = "ds-"
-
-
-class Split(StrEnum):
-    """Values of the nullable `split` column. Datasets never invent one (plan decision 9)."""
-
-    TRAIN = "train"
-    VALIDATION = "validation"
-    TEST = "test"
 
 
 class ColumnType(StrEnum):
@@ -69,6 +71,10 @@ BOX_FIELDS = ("category", "x", "y", "width", "height")
 
 def staging_prefix(tenant_id: str, dataset_id: str, import_id: str) -> str:
     return f"{STAGING_ROOT}/{tenant_id}/{dataset_id}/{import_id}/"
+
+
+def train_prefix(tenant_id: str, project_id: str, run_id: str) -> str:
+    return f"{TRAIN_ROOT}/{tenant_id}/{project_id}/{run_id}/"
 
 
 def repo_name(dataset_id: str) -> str:

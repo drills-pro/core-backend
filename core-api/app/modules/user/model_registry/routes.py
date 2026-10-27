@@ -8,6 +8,7 @@ from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations.data_plane import mlflow
 from app.integrations.data_plane.mlflow import ModelStage as Stage
+from app.modules.user.model_registry import service
 
 router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
@@ -42,18 +43,7 @@ async def register_model(
         if run["status"] != "succeeded" or run["mlflow_run_id"] is None:
             raise HTTPException(status_code=409, detail="training run has no completed MLflow run to register")
 
-        # Registered model names are global in MLflow, so the tenant and project are part of the name.
-        mlflow_name = mlflow.registered_model_name(tenant_id, str(project_id), name)
-        mlflow_version = await mlflow.register_model_version(tenant_id, str(project_id), name, run["mlflow_run_id"])
-        row = await conn.fetchrow(
-            "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version) "
-            "VALUES ($1, $2, $3, $4, $5) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at",
-            tenant_id,
-            project_id,
-            training_run_id,
-            mlflow_name,
-            mlflow_version,
-        )
+        row = await service.register_version(conn, tenant_id, project_id, training_run_id, run["mlflow_run_id"], name)
     return _present(row, tenant_id, project_id)
 
 

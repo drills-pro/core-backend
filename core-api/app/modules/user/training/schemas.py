@@ -3,13 +3,31 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.enums import TaskType, TrainPreset
+from app.integrations.job_spec import DEFAULT_SEED, Hyperparameters
+from app.modules.user.training.constants import SEED_MAX
+
+
+class TrainingRunCreate(BaseModel):
+    """Start a run on one version of one of the project's datasets. The task comes from the project; naming it is optional."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_version_id: uuid.UUID
+    preset: TrainPreset
+    task_type: TaskType | None = None
+    hyperparameters: Hyperparameters = Field(default_factory=Hyperparameters)  # a field left out keeps the platform default
+    seed: int = Field(default=DEFAULT_SEED, ge=0, le=SEED_MAX)
 
 
 class TrainingRunSummary(BaseModel):
     id: uuid.UUID
     status: str
     dataset_ref: str
+    dataset_version_id: uuid.UUID | None
+    preset: str | None
     ray_job_id: str
     mlflow_run_id: str | None
     config: Any
@@ -23,6 +41,8 @@ class TrainingRun(TrainingRunSummary):
 
     tenant_id: uuid.UUID
     project_id: uuid.UUID
+    task: str | None
+    report: Any  # the job's report.json (data_plane.train_report.TrainReport); `spec` carries presigned URLs and is never returned
     idempotency_key: str
     model_artifact: Any
     dataset_version: str | None
@@ -40,8 +60,6 @@ class RunLogRef(BaseModel):
 class TrainingRunLogs(BaseModel):
     status: str
     logs: str
-    metrics: Any
-    extra_metrics: Any
 
 
 class LineageRun(BaseModel):

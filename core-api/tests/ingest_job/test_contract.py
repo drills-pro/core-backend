@@ -71,7 +71,7 @@ def test_the_job_reads_the_spec_core_api_writes():
         bucket="b", prefix="p/", source=ImportSource.UPLOAD, task=TaskType.IMAGE_CLASSIFICATION, limits=settings.dataset_limits))
     params = parse_spec(spec.model_dump_json())
     assert params["prefix"] == "p/" and Limits.from_dict(params["limits"])
-    assert (SPEC_VERSION, set(JobKind)) == (job_spec.SPEC_VERSION, set(job_spec.JobKind))
+    assert (SPEC_VERSION, {k.value for k in JobKind}) == (job_spec.SPEC_VERSION, {job_spec.JobKind.INGEST.value})  # ray_jobs runs ingest only; `train` is ray_training's
     assert JobKind.INGEST == job_spec.JobKind.INGEST
 
 

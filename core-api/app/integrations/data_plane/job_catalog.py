@@ -16,6 +16,7 @@ class JobType(StrEnum):
 
 
 ENTRYPOINTS = "ray_jobs.entrypoints"  # one module per JobType, run as `python -m`
+TRAIN_ENTRYPOINT = "ray_training.entrypoints.train"  # the train driver (top-level ray-training/); not an ingest JobType
 
 
 def ingest_job_type(source: str, task_type: str) -> JobType:

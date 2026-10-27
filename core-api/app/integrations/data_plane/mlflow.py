@@ -7,18 +7,23 @@ registered models are namespaced by tenant and project here, and every operation
 Runs are created at job submit. The trainer uploads the model straight to MLflow's artifact API; core-api
 logs metrics and closes the run when the job ends.
 """
+import asyncio
 import time
 from enum import StrEnum
 
 import httpx
 from pydantic import BaseModel
 
+from app.core import secret_files
 from app.core.problem import not_found
 from app.core.settings import settings
-from app.integrations.data_plane import access, layout
+from app.integrations.data_plane import access, lakefs, layout
 
 _TIMEOUT = 10
 _HEALTH_TIMEOUT = 3
+_UPLOAD_TIMEOUT = httpx.Timeout(_TIMEOUT, write=600, read=600)  # a model file is hundreds of MB
+_UPLOAD_CHUNK = 1 << 20
+MODEL_DIR = "model"  # artifact directory a registered version's source `runs:/<run>/model` points at
 _SCHEME = "mlflow-artifacts:/"
 _HTTP_BAD_REQUEST = 400
 TAG_TENANT, TAG_PROJECT, TAG_DATASET_VERSION = "tenant_id", "project_id", "dataset_version_id"
@@ -95,14 +100,15 @@ async def _get_or_create_experiment(client: httpx.AsyncClient, name: str) -> str
     return resp.json()["experiment_id"]
 
 
-async def _require_run(client: httpx.AsyncClient, tenant_id: str, project_id: str, run_id: str) -> None:
-    """The run must carry this tenant's and project's tags; anything else is a 404."""
+async def _require_run(client: httpx.AsyncClient, tenant_id: str, project_id: str, run_id: str) -> dict:
+    """The run (MLflow's `run` object) if it carries this tenant's and project's tags; anything else is a 404."""
     resp = await client.get(_api("runs/get"), params={"run_id": run_id})
     if resp.status_code != httpx.codes.OK:
         raise not_found()
     tags = {t["key"]: t["value"] for t in resp.json()["run"]["data"].get("tags", [])}
     if tags.get(TAG_TENANT) != tenant_id or tags.get(TAG_PROJECT) != project_id:
         raise not_found()
+    return resp.json()["run"]
 
 
 async def start_run(tenant_id: str, project_id: str, dataset_id: str, dataset_version_id: str) -> StartedRun:
@@ -143,6 +149,29 @@ async def finish_run(
             resp.raise_for_status()
         resp = await client.post(_api("runs/update"), json={"run_id": run_id, "status": status, "end_time": now_ms})
         resp.raise_for_status()
+
+
+async def _chunks(body):
+    while chunk := await asyncio.to_thread(body.read, _UPLOAD_CHUNK):
+        yield chunk
+
+
+async def publish_run_model(tenant_id: str, project_id: str, run_id: str, mlflow_run_id: str) -> None:
+    """Copy the trainer's model.onnx and model.json from the run's staging prefix into the MLflow run's `model/`
+    artifacts, so a registered version has something to point at. The trainer holds no MLflow credential (plan T7)."""
+    await access.training_run(tenant_id, project_id, run_id)
+    prefix = layout.train_prefix(tenant_id, project_id, run_id)
+    async with httpx.AsyncClient(timeout=_UPLOAD_TIMEOUT) as client:
+        run = await _require_run(client, tenant_id, project_id, mlflow_run_id)
+        s3 = lakefs.s3_client(secret_files.STAGING)
+        root = run["info"]["artifact_uri"].removeprefix(_SCHEME).strip("/")
+        for name in (layout.MODEL_KEY, layout.MODEL_META_KEY):
+            obj = await asyncio.to_thread(s3.get_object, Bucket=settings.data_plane.staging_bucket, Key=prefix + name)
+            resp = await client.put(
+                artifact_url(f"{root}/{MODEL_DIR}/{name}"), content=_chunks(obj["Body"]),
+                headers={"Content-Length": str(obj["ContentLength"])},
+            )
+            resp.raise_for_status()
 
 
 async def register_model_version(tenant_id: str, project_id: str, model_name: str, run_id: str) -> str:

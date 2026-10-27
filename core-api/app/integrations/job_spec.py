@@ -1,27 +1,27 @@
 """The job spec: the one document core-api hands every Ray job (planning 06 "Job spec v1", generalised).
 
-An envelope every job shares (who, what it may use) plus a `payload` that depends on `kind`: today only `ingest`. The job reads this document and nothing
-else; secrets are never in it. It is stored verbatim for audit and replay, and its JSON Schema is committed as
+An envelope every job shares (who, what it may use) plus a `payload` that depends on `kind`: `ingest` or `train`. The job reads this document and nothing
+else; secrets are never in it (a train spec carries presigned reads, which expire). It is stored verbatim for audit and replay, and its JSON Schema is committed as
 `contracts/job-spec.v1.json` (tests/integrations/test_job_spec.py keeps the two equal).
 
-Adding a kind = a payload model, a spec class, and a union with `IngestSpec` (discriminator `kind`). Changing a field
+Adding a kind = a payload model, a spec class, and a member of `AnyJobSpec` (discriminator `kind`). Changing a field
 that a running job reads = a new `spec_version`; the job refuses versions it does not know.
 """
 import uuid
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
-from app.core.enums import ImportSource, TaskType
+from app.core.enums import ImportSource, Split, TaskType, TrainPreset
 from app.core.settings import DatasetLimits
-from app.integrations.data_plane.layout import Split
 
 SPEC_VERSION = 1
 
 
 class JobKind(StrEnum):
     INGEST = "ingest"
+    TRAIN = "train"
 
 
 class Resources(BaseModel):
@@ -63,6 +63,52 @@ class IngestPayload(BaseModel):
     hf: IngestHf | None = None
 
 
+# ---- train ----
+
+TrainTask = Literal[TaskType.IMAGE_CLASSIFICATION, TaskType.OBJECT_DETECTION]  # tests keep it equal to TRAINABLE_TASK_TYPES
+DEFAULT_EPOCHS, MAX_EPOCHS = 30, 500
+DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE = 16, 512
+DEFAULT_IMAGE_SIZE, MIN_IMAGE_SIZE, MAX_IMAGE_SIZE = 224, 32, 1536
+DEFAULT_SEED = 42
+
+
+class Hyperparameters(BaseModel):
+    """What a caller may tune; every field has the platform default, so a request names only what it changes."""
+
+    epochs: int = Field(default=DEFAULT_EPOCHS, ge=1, le=MAX_EPOCHS)
+    batch_size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=MAX_BATCH_SIZE)
+    image_size: int = Field(default=DEFAULT_IMAGE_SIZE, ge=MIN_IMAGE_SIZE, le=MAX_IMAGE_SIZE)
+
+
+class TrainBaseModel(BaseModel):
+    """A pretrained checkpoint on the Hugging Face Hub, pinned to a commit."""
+
+    repo_id: str
+    revision: str
+
+
+class TrainData(BaseModel):
+    """Presigned reads of one dataset version, valid past `resources.max_runtime_s`. The trainer holds no lakeFS credential."""
+
+    index_url: str  # index.parquet (columns layout.INDEX_COLUMNS)
+    manifest_url: str  # JSON object {index path: presigned GET of that image}, staged under `prefix`
+    version_id: uuid.UUID
+    lakefs_commit: str
+
+
+class TrainPayload(BaseModel):
+    """What the train driver reads. It writes `model.onnx`, `model.json` and `report.json` under `prefix` in `bucket`."""
+
+    bucket: str  # staging bucket; the job writes only under `prefix`
+    prefix: str
+    task: TrainTask
+    preset: TrainPreset
+    base_model: TrainBaseModel
+    data: TrainData
+    hyperparameters: Hyperparameters
+    seed: int = DEFAULT_SEED
+
+
 # ---- the document ----
 
 class _Envelope(BaseModel):
@@ -75,3 +121,12 @@ class _Envelope(BaseModel):
 class IngestSpec(_Envelope):
     kind: Literal[JobKind.INGEST] = JobKind.INGEST
     payload: IngestPayload
+
+
+class TrainSpec(_Envelope):
+    kind: Literal[JobKind.TRAIN] = JobKind.TRAIN
+    payload: TrainPayload  # resources.gpu = 1: the GPU belongs to the Ray task the driver starts, not to the driver
+
+
+AnyJobSpec = Annotated[IngestSpec | TrainSpec, Field(discriminator="kind")]
+SPEC_ADAPTER: TypeAdapter[IngestSpec | TrainSpec] = TypeAdapter(AnyJobSpec)  # its JSON Schema is contracts/job-spec.v1.json

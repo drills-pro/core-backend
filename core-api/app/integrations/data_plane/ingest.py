@@ -21,9 +21,13 @@ _BOOTSTRAP = (
 )
 
 
-def entrypoint(package_url: str, kind: JobType, spec_json: str) -> str:
+def command(package_url: str, module: str, spec_json: str) -> str:
     """Shell command Ray runs: the bootstrap, then the package url, the module and the job spec JSON as plain argv."""
-    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, f"{ENTRYPOINTS}.{kind.value}", spec_json])
+    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, module, spec_json])
+
+
+def entrypoint(package_url: str, kind: JobType, spec_json: str) -> str:
+    return command(package_url, f"{ENTRYPOINTS}.{kind.value}", spec_json)
 
 
 async def submit_ingest(tenant_id: str, dataset_id: str, import_id: str, spec: IngestSpec, kind: JobType) -> str:
