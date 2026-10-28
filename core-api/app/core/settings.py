@@ -20,6 +20,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from app.core.enums import BlockstoreScheme
+
 CORE_API_DIR = Path(__file__).resolve().parents[2]
 CONFIG_DIR = CORE_API_DIR / "config"
 SERVICE_NAME = "core-backend"  # OTel service.name of traces and metrics; metric names use it snake_cased
@@ -81,6 +83,7 @@ class Mlflow(_Section):
 class DataPlane(_Section):
     staging_bucket: str  # S3 bucket the ingest job writes to; core-api validates, then lakeFS imports from it
     lakefs_blockstore_bucket: str  # bucket lakeFS keeps repository storage namespaces in
+    lakefs_blockstore_scheme: BlockstoreScheme  # must match the blockstore type lakeFS runs with
     presign_ttl_seconds: int
     commit_timeout_seconds: int  # how long commit_staged waits for the lakeFS import to finish
 

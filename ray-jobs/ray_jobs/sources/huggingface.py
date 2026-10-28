@@ -183,6 +183,11 @@ def _stringify(v: Any) -> str:
     return "" if v is None else str(v)
 
 
+def license_list(value: str | list[str] | None) -> list[str] | None:
+    """The card's license is a string or a list of them; the report always carries a list."""
+    return [value] if isinstance(value, str) else value
+
+
 def extract(job: Job) -> Extracted:
     """The Hugging Face import: rows (image tasks) or a table (tabular tasks), the commit sha and the card's license."""
     params, limits, task, report, decode, sink = job.params, job.limits, job.task, job.report, job.decode, job.sink
@@ -192,7 +197,7 @@ def extract(job: Job) -> Extracted:
     features = ((card.get(Hf.DATASET_INFO) or {}).get(Hf.FEATURES)) or []
     column = verify_hf(task, card.get(Hf.TASK_CATEGORIES) or [], features, hf.get(Param.COLUMN), report)
     files = select_hf_files(info.get(Hf.SIBLINGS, []), limits, report)
-    revision, license_ = info.get(Hf.SHA, hf[Param.REVISION]), card.get(Hf.LICENSE)
+    revision, license_ = info.get(Hf.SHA, hf[Param.REVISION]), license_list(card.get(Hf.LICENSE))
     if report.failed:
         return Extracted(None, column, None, revision, license_)
     names = class_names(features, column)

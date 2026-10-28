@@ -38,3 +38,8 @@ def test_issue_list_is_capped():
 
 def test_staging_prefix_is_tenant_dataset_import():
     assert layout.staging_prefix("t", "d", "i") == "imports/t/d/i/"
+
+
+def test_a_string_license_becomes_a_list():
+    assert ImportReport.model_validate({"outcome": "failed", "license": "mit"}).license == ["mit"]
+    assert ImportReport.model_validate({"outcome": "failed", "license": ["cc-by-4.0", "mit"]}).license == ["cc-by-4.0", "mit"]

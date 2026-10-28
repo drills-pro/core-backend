@@ -157,7 +157,7 @@ def test_hf_tabular_success_pins_revision_and_keeps_split(fake_parquet, monkeypa
     assert not rep.failed and fetched == ["https://huggingface.co/datasets/o/r/resolve/c0ffee/train.jsonl"]
     assert [r["split"] for r in json.loads(store.puts["out/data.parquet"])] == ["train", "train"]
     final = final_report(store)
-    assert (final["revision"], final["license"], final["stats"]["classes"]) == ("c0ffee", "mit", {"True": 1, "False": 1})
+    assert (final["revision"], final["license"], final["stats"]["classes"]) == ("c0ffee", ["mit"], {"True": 1, "False": 1})
 
 
 def test_hf_image_success_and_card_mismatch(fake_parquet, monkeypatch):
@@ -179,6 +179,11 @@ def test_hf_image_success_and_card_mismatch(fake_parquet, monkeypatch):
 
 
 # ---- the shared runner ----
+
+def test_a_card_license_is_always_a_list():
+    from ray_jobs.sources.huggingface import license_list
+    assert license_list(["cc-by-4.0", "mit"]) == ["cc-by-4.0", "mit"] and license_list("mit") == ["mit"] and license_list(None) is None
+
 
 def test_the_alarm_is_cancelled_before_the_report_is_written(monkeypatch):
     calls = []

@@ -3,6 +3,13 @@ from enum import StrEnum
 from app.core.problem import Problem
 
 
+class BlockstoreScheme(StrEnum):
+    """URI scheme of lakeFS's storage namespaces; matches the blockstore type lakeFS runs with (`s3` also covers MinIO)."""
+
+    S3 = "s3"
+    GS = "gs"
+
+
 class TaskType(StrEnum):
     """Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole
     taxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today."""

@@ -37,6 +37,7 @@ background:
 data_plane:
   staging_bucket: drills-staging
   lakefs_blockstore_bucket: lakefs-data
+  lakefs_blockstore_scheme: s3
   presign_ttl_seconds: 3600
   commit_timeout_seconds: 600
 

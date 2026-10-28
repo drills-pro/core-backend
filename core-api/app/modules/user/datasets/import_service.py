@@ -15,6 +15,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
+from fastapi import HTTPException
+
 from app.core import audit
 from app.core.authz import Action, AuthzContext
 from app.core.enums import TaskType, require_supported_task_type
@@ -32,6 +34,7 @@ from app.modules.user.datasets.constants import (
     COMMIT_LEASE_GRACE,
     IMPORT_REVIEW_TTL,
     IMPORT_UPLOAD_TTL,
+    START_FAILED_DETAIL,
     STALE_BASE_DETAIL,
     TABULAR_TASKS,
     TRANSITIONS,
@@ -214,6 +217,17 @@ async def _unqueue(ctx: AuthzContext, row: dict) -> None:
         logger.exception("could not return import %s to awaiting_upload", row["id"])
 
 
+def _start_failed(e: Exception, imp: str) -> Exception:
+    """What the caller sees when starting failed: a Problem stays as it is, anything else (storage, Ray, the
+    database) becomes a 503 the frontend can show, with the cause in the log."""
+    if isinstance(e, HTTPException):
+        return e
+    logger.error("could not start import %s", imp, exc_info=e)
+    problem = Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.START_FAILED, START_FAILED_DETAIL)
+    problem.__cause__ = e
+    return problem
+
+
 async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID, import_id: uuid.UUID) -> DatasetImport:
     tenant, ds, imp = ctx.tenant_id, str(dataset_id), str(import_id)
     async with TenantConn(ctx.tenant_id) as conn:
@@ -228,17 +242,17 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
         await data_plane.create_dataset_repo(tenant, ds)
         spec, kind = await ingest_spec.build(row, TaskType(task_type), submission_id)
         job_id = await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
-    except Exception:
+    except Exception as e:
         await stop_job_quietly(submission_id)  # Ray may have accepted it: a retry must not run a second job on this prefix
         await _unqueue(ctx, row)
-        raise
+        raise _start_failed(e, imp)
     try:
         async with TenantConn(ctx.tenant_id) as conn:
             tracked = await conn.fetchval(_SET_JOB, import_id, job_id, ImportStatus.QUEUED)
-    except Exception:
+    except Exception as e:
         await stop_job_quietly(job_id)  # nothing would track it
         await _unqueue(ctx, row)
-        raise
+        raise _start_failed(e, imp)
     if tracked is None:  # cancelled or deleted meanwhile, when there was no job id yet to stop
         await stop_job_quietly(job_id)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, "the import was cancelled while it was starting")

@@ -27,7 +27,7 @@ class Report:
     def failed(self) -> bool:
         return self.errors > 0
 
-    def to_dict(self, stats: dict | None = None, revision: str | None = None, license: str | None = None) -> dict:
+    def to_dict(self, stats: dict | None = None, revision: str | None = None, license: list[str] | None = None) -> dict:
         return {
             "schema_version": REPORT_SCHEMA_VERSION,
             "outcome": Outcome.FAILED if self.failed else Outcome.OK,

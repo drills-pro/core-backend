@@ -75,10 +75,12 @@ class ProblemCode(StrEnum):
     BASE_REQUIRED = "base_version_required"
     TASK_TYPE_MISSING = "project_task_type_missing"
     IDEMPOTENCY_MISMATCH = "idempotency_key_reused"
+    START_FAILED = "import_start_failed"
 
 
 BASE_REQUIRED_DETAIL = "this dataset already has versions; set base_version_id to the latest one (there is no overwrite mode)"
 NOT_DELETED_DETAIL = "this dataset is not pending deletion, or its retention window has passed"
+START_FAILED_DETAIL = "the import could not be started; it is unchanged, try again shortly"
 STALE_BASE_DETAIL = "the base version is no longer the latest; start a new import on the latest version"
 
 PARAM_MAX_LENGTH = 255  # longest repo id, revision, column or target name an import accepts
