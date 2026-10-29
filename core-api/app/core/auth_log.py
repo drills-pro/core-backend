@@ -17,15 +17,11 @@ from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 
-from app.core.enums import AuthEvent, AuthResult
+from app.core.enums import AuthAttribute, AuthEvent, AuthResult
 from app.core.settings import SERVICE_NAME, settings
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # the root logger stays at WARNING; sign-ins are INFO
-
-EVENT_ATTRIBUTE = "auth.event"
-RESULT_ATTRIBUTE = "auth.result"
-USER_ATTRIBUTE = "user.id"  # Zitadel's sub, an opaque id; never the email
 
 
 def setup() -> None:
@@ -39,12 +35,11 @@ def setup() -> None:
     logger.propagate = False
 
 
-def signed_in(subject: str, *, first_time: bool) -> None:
+def signed_in(subject: str, event: AuthEvent) -> None:
     """A session reached /v1/me, which the SPA calls right after login (and again on each reload)."""
-    event = AuthEvent.SIGN_UP if first_time else AuthEvent.SIGN_IN
-    logger.info(event.value, extra={EVENT_ATTRIBUTE: event.value, USER_ATTRIBUTE: subject})
+    logger.info(event.value, extra={AuthAttribute.EVENT: event.value, AuthAttribute.USER: subject})
 
 
 def token_rejected(result: AuthResult) -> None:
     event = AuthEvent.TOKEN_REJECTED
-    logger.warning("%s: %s", event.value, result.value, extra={EVENT_ATTRIBUTE: event.value, RESULT_ATTRIBUTE: result.value})
+    logger.warning("%s: %s", event.value, result.value, extra={AuthAttribute.EVENT: event.value, AuthAttribute.RESULT: result.value})

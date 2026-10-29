@@ -16,10 +16,14 @@ from app.core.settings import SERVICE_NAME, settings
 
 OTLP_ENDPOINT = settings.observability.otlp_endpoint
 
+# A proxy until setup() installs the provider, so modules may take it at import time.
+tracer = trace.get_tracer(SERVICE_NAME)
+
 
 def setup(app) -> None:
     provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True)))
+    if settings.env != "test":  # spans still exist in tests; there is just no collector to send them to
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True)))
     trace.set_tracer_provider(provider)
 
     FastAPIInstrumentor.instrument_app(app)

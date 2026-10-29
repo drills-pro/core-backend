@@ -13,12 +13,15 @@ import httpx
 import jwt
 from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from starlette.concurrency import run_in_threadpool
 
 from app.core import auth_log
 from app.core.metrics import auth as auth_metrics
-from app.core.enums import AuthResult, UserinfoResult
+from app.core.enums import AuthAttribute, AuthResult, AuthSpan, UserinfoResult
 from app.core.settings import settings
+from app.core.tracing import tag_current_span, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +44,19 @@ def _zitadel_endpoint(path: str) -> tuple[str, dict[str, str]]:
     return f"{base or ZITADEL_ISSUER}{path}", headers
 
 
+class _TracedJWKClient(PyJWKClient):
+    """PyJWKClient fetches with urllib, which no instrumentor sees; this gives each fetch (a cache miss) a span."""
+
+    def fetch_data(self):
+        with tracer.start_as_current_span(AuthSpan.JWKS_FETCH):
+            return super().fetch_data()
+
+
 def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
         url, headers = _zitadel_endpoint("/oauth/v2/keys")
-        _jwks_client = PyJWKClient(url, cache_keys=True, headers=headers)
+        _jwks_client = _TracedJWKClient(url, cache_keys=True, headers=headers)
     return _jwks_client
 
 
@@ -82,33 +93,49 @@ _FAILURE_RESULTS = (
 )
 
 
+def _verify_span():
+    # Status is set from the AuthResult, not from the exception, whose text could quote the token.
+    return tracer.start_as_current_span(AuthSpan.VERIFY_TOKEN, record_exception=False, set_status_on_exception=False)
+
+
 def _count_verification(result: AuthResult) -> None:
+    """Record a result on the metric, the verify span and, for a rejection, the auth log."""
+    span = trace.get_current_span()
+    span.set_attribute(AuthAttribute.RESULT, result)
     auth_metrics.token_verifications.add(1, {"result": result})
     if result is not AuthResult.OK:
+        span.set_status(Status(StatusCode.ERROR, result))
         auth_log.token_rejected(result)
 
 
 def verify_token(token: str) -> Claims:
-    try:
-        signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
-        raw = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            issuer=ZITADEL_ISSUER,
-            audience=project_id(),
-            options={"require": ["exp", "iat", "sub", "aud"]},
-        )
-    except jwt.PyJWTError as e:
-        _count_verification(next((r for cls, r in _FAILURE_RESULTS if isinstance(e, cls)), AuthResult.MALFORMED))
-        raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
-    _count_verification(AuthResult.OK)
-    return Claims(raw, token)
+    with _verify_span() as span:
+        try:
+            signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
+            raw = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                issuer=ZITADEL_ISSUER,
+                audience=project_id(),
+                options={"require": ["exp", "iat", "sub", "aud"]},
+            )
+        except jwt.PyJWTError as e:
+            _count_verification(next((r for cls, r in _FAILURE_RESULTS if isinstance(e, cls)), AuthResult.MALFORMED))
+            raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
+        _count_verification(AuthResult.OK)
+        claims = Claims(raw, token)
+        span.set_attribute(AuthAttribute.USER, claims.subject)
+    # Every authenticated path comes through here, so the request span gets the user too: Tempo can
+    # then find all of one user's requests, not only their verify spans.
+    tag_current_span(**{AuthAttribute.USER: claims.subject})
+    return claims
 
 
 async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
-        _count_verification(AuthResult.NOT_BEARER)
+        with _verify_span():
+            _count_verification(AuthResult.NOT_BEARER)
         raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
@@ -117,31 +144,40 @@ _USERINFO_TTL = 300
 _userinfo_cache: dict[str, tuple[float, dict]] = {}  # token -> (expires at, userinfo)
 
 
+async def _userinfo(claims: Claims) -> tuple[UserinfoResult, dict | None]:
+    now = time.monotonic()
+    hit = _userinfo_cache.get(claims.token)
+    if hit is not None and hit[0] >= now:
+        return UserinfoResult.CACHED, hit[1]
+    url, headers = _zitadel_endpoint("/oidc/v1/userinfo")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(url, headers={**headers, "Authorization": f"Bearer {claims.token}"})
+        resp.raise_for_status()
+    except (httpx.HTTPError, OSError):
+        logger.warning("zitadel userinfo failed for sub %s", claims.subject, exc_info=True)
+        return UserinfoResult.FAILED, None
+    if len(_userinfo_cache) > 1000:
+        _userinfo_cache.clear()  # ponytail: crude bound; an LRU if this ever matters
+    info = resp.json()
+    _userinfo_cache[claims.token] = (now + _USERINFO_TTL, info)
+    return UserinfoResult.FETCHED, info
+
+
 async def get_profile_claims(claims: Claims = Depends(get_claims)) -> Claims:
     """Claims with email and name filled in from Zitadel's userinfo when the access token has none
     (it does not, unless an Action adds them). Only the routes that need a profile use this, so
     ordinary requests make no extra call. If userinfo is unreachable the claims stay as they are."""
     if claims.email is not None:
         return claims
-    now = time.monotonic()
-    hit = _userinfo_cache.get(claims.token)
-    if hit is None or hit[0] < now:
-        url, headers = _zitadel_endpoint("/oidc/v1/userinfo")
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(url, headers={**headers, "Authorization": f"Bearer {claims.token}"})
-            resp.raise_for_status()
-        except (httpx.HTTPError, OSError):
-            logger.warning("zitadel userinfo failed for sub %s", claims.subject, exc_info=True)
-            auth_metrics.zitadel_userinfo.add(1, {"result": UserinfoResult.FAILED})
-            return claims
-        if len(_userinfo_cache) > 1000:
-            _userinfo_cache.clear()  # ponytail: crude bound; an LRU if this ever matters
-        hit = _userinfo_cache[claims.token] = (now + _USERINFO_TTL, resp.json())
-        auth_metrics.zitadel_userinfo.add(1, {"result": UserinfoResult.FETCHED})
-    else:
-        auth_metrics.zitadel_userinfo.add(1, {"result": UserinfoResult.CACHED})
-    info = hit[1]
+    with tracer.start_as_current_span(AuthSpan.USERINFO) as span:
+        result, info = await _userinfo(claims)
+        span.set_attribute(AuthAttribute.USERINFO_RESULT, result)
+        if result is UserinfoResult.FAILED:
+            span.set_status(Status(StatusCode.ERROR, result))
+    auth_metrics.zitadel_userinfo.add(1, {"result": result})
+    if info is None:
+        return claims
     claims.email = info.get("email")
     claims.email_verified = info.get("email_verified") is True
     claims.display_name = info.get("name")
