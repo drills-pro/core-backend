@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Ray training jobs of the drills.pro trainer: image classification and object detection (python -m ray_training.entrypoints.train)"
 requires-python = ">=3.11"  # the Ray image runs 3.11
 dependencies = [
-    "torch>=2.7",
+    "torch>=2.7,<2.12",  # the cu128 wheel index ends at 2.11; a newer PyPI wheel targets another CUDA
     "torchvision",
     "transformers>=4.50",
     "timm>=1.0",
