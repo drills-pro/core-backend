@@ -281,3 +281,41 @@ def test_principal_created_counted_only_on_first_sight(counted):
     asyncio.run(_upsert_principal(FakeConn(val=True), claims))
     asyncio.run(_upsert_principal(FakeConn(val=False), claims))
     assert counted == [("principals_created", None)]
+
+
+def _auth_events(caplog):
+    from app.core import auth_log
+
+    return [
+        (r.levelname, getattr(r, auth_log.EVENT_ATTRIBUTE), getattr(r, auth_log.USER_ATTRIBUTE, None),
+         getattr(r, auth_log.RESULT_ATTRIBUTE, None))
+        for r in caplog.records if r.name == auth_log.logger.name
+    ]
+
+
+def test_sign_in_is_logged_and_first_sight_is_a_sign_up(caplog):
+    import asyncio
+
+    from app.core.enums import AuthEvent
+    from app.modules.user.auth.routes import _upsert_principal
+    from tests.support import FakeConn
+
+    claims = auth.Claims({"sub": "u"})
+    asyncio.run(_upsert_principal(FakeConn(val=True), claims))
+    asyncio.run(_upsert_principal(FakeConn(val=False), claims))
+    assert _auth_events(caplog) == [
+        ("INFO", AuthEvent.SIGN_UP, "u", None),
+        ("INFO", AuthEvent.SIGN_IN, "u", None),
+    ]
+
+
+def test_rejected_tokens_are_logged_and_accepted_ones_are_not(monkeypatch, keypair, caplog):
+    from app.core.enums import AuthEvent, AuthResult
+
+    private_key, public_key = keypair
+    _patch_jwks(monkeypatch, public_key)
+    base = {"sub": "u", "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800}
+    auth.verify_token(_sign(private_key, base))
+    with pytest.raises(Exception):
+        auth.verify_token(_sign(private_key, {**base, "exp": 2}))
+    assert _auth_events(caplog) == [("WARNING", AuthEvent.TOKEN_REJECTED, None, AuthResult.EXPIRED)]

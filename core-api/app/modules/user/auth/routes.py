@@ -4,7 +4,7 @@ import uuid
 
 import asyncpg
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from app.core import rate_limit
+from app.core import auth_log, rate_limit
 from app.core.metrics import auth as auth_metrics
 from app.core.auth import ZITADEL_ISSUER, Claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
@@ -46,6 +46,7 @@ async def _upsert_principal(conn, claims: Claims) -> None:
     )
     if inserted:
         auth_metrics.principals_created.add(1)
+    auth_log.signed_in(claims.subject, first_time=bool(inserted))
 
 
 def _capabilities(role: str) -> list[str]:

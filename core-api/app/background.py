@@ -22,6 +22,18 @@ SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
 
 
+async def _poll_active_principals() -> None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        counts = {
+            window: await conn.fetchval(
+                "SELECT count(*) FROM principals WHERE last_seen_at > now() - make_interval(days => $1)", days
+            )
+            for window, days in metrics.ACTIVE_PRINCIPAL_WINDOW_DAYS.items()
+        }
+    metrics.set_active_principals(counts)
+
+
 # (name, coroutine function, seconds between runs)
 POLLERS = (
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
