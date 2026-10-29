@@ -89,3 +89,22 @@ class AuthEvent(StrEnum):
     TOKEN_REJECTED = "token_rejected"
 
 
+class AuthAttribute(StrEnum):
+    """Attribute keys shared by the auth log records (Loki) and spans (Tempo), so one name finds both.
+    Loki turns the dots into underscores."""
+
+    EVENT = "auth.event"  # AuthEvent
+    RESULT = "auth.result"  # AuthResult
+    USERINFO_RESULT = "auth.userinfo.result"  # UserinfoResult
+    USER = "user.id"  # Zitadel's sub, an opaque id; never the email
+
+
+class AuthSpan(StrEnum):
+    """Span names for the steps of authenticating a request, under the FastAPI request span."""
+
+    VERIFY_TOKEN = "auth.verify_token"
+    JWKS_FETCH = "auth.jwks.fetch"  # only on a JWKS cache miss
+    USERINFO = "auth.userinfo"
+    UPSERT_PRINCIPAL = "auth.upsert_principal"
+
+

@@ -10,8 +10,10 @@ from app.core.auth import ZITADEL_ISSUER, Claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
 from app.core.db import get_pool
+from app.core.enums import AuthAttribute, AuthEvent, AuthSpan
 from app.core.schemas import slugify
 from app.core.tenant_conn import TenantConn
+from app.core.tracing import tracer
 from app.modules.user.auth.constants import (
     DEFAULT_TEAM_NAME,
     IDEMPOTENCY_HEADER,
@@ -37,16 +39,19 @@ def _client_ip(request: Request) -> str:
 async def _upsert_principal(conn, claims: Claims) -> None:
     # Claims may be absent from the access token; never overwrite a known value with nothing.
     # xmax is 0 only on a freshly inserted row, so it tells a first sign-in from a returning one.
-    inserted = await conn.fetchval(
-        "INSERT INTO principals (issuer, sub, email, display_name) VALUES ($1, $2, $3, $4) "
-        "ON CONFLICT (issuer, sub) DO UPDATE SET email = COALESCE(EXCLUDED.email, principals.email), "
-        "display_name = COALESCE(EXCLUDED.display_name, principals.display_name), last_seen_at = now() "
-        "RETURNING (xmax = 0) AS inserted",
-        ZITADEL_ISSUER, claims.subject, claims.email, claims.display_name,
-    )
+    with tracer.start_as_current_span(AuthSpan.UPSERT_PRINCIPAL) as span:
+        inserted = await conn.fetchval(
+            "INSERT INTO principals (issuer, sub, email, display_name) VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (issuer, sub) DO UPDATE SET email = COALESCE(EXCLUDED.email, principals.email), "
+            "display_name = COALESCE(EXCLUDED.display_name, principals.display_name), last_seen_at = now() "
+            "RETURNING (xmax = 0) AS inserted",
+            ZITADEL_ISSUER, claims.subject, claims.email, claims.display_name,
+        )
+        event = AuthEvent.SIGN_UP if inserted else AuthEvent.SIGN_IN
+        span.set_attribute(AuthAttribute.EVENT, event)
     if inserted:
         auth_metrics.principals_created.add(1)
-    auth_log.signed_in(claims.subject, first_time=bool(inserted))
+    auth_log.signed_in(claims.subject, event)
 
 
 def _capabilities(role: str) -> list[str]:

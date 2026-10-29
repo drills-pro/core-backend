@@ -285,10 +285,11 @@ def test_principal_created_counted_only_on_first_sight(counted):
 
 def _auth_events(caplog):
     from app.core import auth_log
+    from app.core.enums import AuthAttribute
 
     return [
-        (r.levelname, getattr(r, auth_log.EVENT_ATTRIBUTE), getattr(r, auth_log.USER_ATTRIBUTE, None),
-         getattr(r, auth_log.RESULT_ATTRIBUTE, None))
+        (r.levelname, getattr(r, AuthAttribute.EVENT), getattr(r, AuthAttribute.USER, None),
+         getattr(r, AuthAttribute.RESULT, None))
         for r in caplog.records if r.name == auth_log.logger.name
     ]
 
@@ -319,3 +320,111 @@ def test_rejected_tokens_are_logged_and_accepted_ones_are_not(monkeypatch, keypa
     with pytest.raises(Exception):
         auth.verify_token(_sign(private_key, {**base, "exp": 2}))
     assert _auth_events(caplog) == [("WARNING", AuthEvent.TOKEN_REJECTED, None, AuthResult.EXPIRED)]
+
+
+@pytest.fixture
+def spans(monkeypatch):
+    """Finished spans, from a provider of the test's own: the global one, which app.main may have set, exports
+    to a collector. The span context is global either way, so parents and tag_current_span still work."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from app.modules.user.auth import routes
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    for module in (auth, routes):
+        monkeypatch.setattr(module, "tracer", provider.get_tracer(__name__))
+    yield exporter
+    provider.shutdown()
+
+
+def test_token_checks_are_child_spans_carrying_the_result_and_user(monkeypatch, keypair, spans):
+    import asyncio
+
+    from fastapi import HTTPException
+    from opentelemetry.trace import StatusCode
+
+    from app.core.enums import AuthAttribute, AuthResult, AuthSpan
+
+    private_key, public_key = keypair
+    _patch_jwks(monkeypatch, public_key)
+    base = {"sub": "u", "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800}
+
+    async def request(authorization):
+        # get_claims verifies in a worker thread; the span there must still hang under the request.
+        with auth.tracer.start_as_current_span("request"):
+            try:
+                await auth.get_claims(authorization=authorization)
+            except HTTPException:
+                pass
+
+    asyncio.run(request(f"Bearer {_sign(private_key, base)}"))
+    asyncio.run(request(f"Bearer {_sign(private_key, {**base, 'exp': 2})}"))
+    asyncio.run(request("Basic abc"))
+
+    ok, ok_request, expired, expired_request, not_bearer, _ = spans.get_finished_spans()
+    assert {ok.name, expired.name, not_bearer.name} == {AuthSpan.VERIFY_TOKEN}
+    assert ok.parent.span_id == ok_request.context.span_id
+    assert expired.parent.span_id == expired_request.context.span_id
+    assert ok.attributes[AuthAttribute.RESULT] == AuthResult.OK
+    assert ok.status.status_code is StatusCode.UNSET
+    assert ok.attributes[AuthAttribute.USER] == ok_request.attributes[AuthAttribute.USER] == "u"
+    assert expired.attributes[AuthAttribute.RESULT] == AuthResult.EXPIRED
+    assert not_bearer.attributes[AuthAttribute.RESULT] == AuthResult.NOT_BEARER
+    for rejected in (expired, not_bearer):
+        assert rejected.status.status_code is StatusCode.ERROR
+        assert AuthAttribute.USER not in rejected.attributes
+        assert not rejected.events  # no recorded exception: its text could quote the token
+
+
+def test_jwks_fetch_is_a_span_only_on_a_cache_miss(monkeypatch, keypair, spans):
+    import io
+    import json
+
+    from jwt.algorithms import RSAAlgorithm
+
+    from app.core.enums import AuthSpan
+
+    private_key, public_key = keypair
+    jwks = {"keys": [{**RSAAlgorithm.to_jwk(public_key, as_dict=True), "kid": "k1", "use": "sig"}]}
+    monkeypatch.setattr(jwt.jwks_client.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(json.dumps(jwks).encode()))
+    client = auth._TracedJWKClient("http://zitadel/oauth/v2/keys")
+    token = jwt.encode({"sub": "u"}, private_key, algorithm="RS256", headers={"kid": "k1"})
+
+    client.get_signing_key_from_jwt(token)
+    client.get_signing_key_from_jwt(token)
+
+    assert [s.name for s in spans.get_finished_spans()] == [AuthSpan.JWKS_FETCH]
+
+
+def test_userinfo_and_sign_in_are_spans(monkeypatch, spans):
+    import asyncio
+
+    from opentelemetry.trace import StatusCode
+
+    from app.core.enums import AuthAttribute, AuthEvent, AuthSpan, UserinfoResult
+    from app.modules.user.auth.routes import _upsert_principal
+    from tests.support import FakeConn
+
+    class DownClient:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): raise auth.httpx.ConnectError("down")
+        async def __aexit__(self, *exc): return False
+
+    monkeypatch.setattr(auth.httpx, "AsyncClient", DownClient)
+    monkeypatch.setattr(auth, "_userinfo_cache", {"cached": (float("inf"), {"email": "a@b.co"})})
+
+    asyncio.run(auth.get_profile_claims(auth.Claims({"sub": "u"}, "cached")))
+    asyncio.run(auth.get_profile_claims(auth.Claims({"sub": "u"}, "fresh")))
+    asyncio.run(_upsert_principal(FakeConn(val=True), auth.Claims({"sub": "u"})))
+
+    cached, failed, upsert = spans.get_finished_spans()
+    assert cached.name == failed.name == AuthSpan.USERINFO
+    assert cached.attributes[AuthAttribute.USERINFO_RESULT] == UserinfoResult.CACHED
+    assert failed.attributes[AuthAttribute.USERINFO_RESULT] == UserinfoResult.FAILED
+    assert failed.status.status_code is StatusCode.ERROR
+    assert upsert.name == AuthSpan.UPSERT_PRINCIPAL
+    assert upsert.attributes[AuthAttribute.EVENT] == AuthEvent.SIGN_UP
