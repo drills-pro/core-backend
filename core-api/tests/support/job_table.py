@@ -22,13 +22,13 @@ def apply_advance(job: JobTable, rows: dict, sql: str, args) -> dict | None:
     match = _UPDATE.match(sql)
     assert match and match.group(1) == job.table, sql
     assigned = [a.split(" = ") for a in match.group(2).split(", ")]
-    extra = [name for name, _ in assigned if name not in ("status", "claimed_until", job.completed_col)]
+    extra = [name for name, _ in assigned if name not in ("status", "claimed_until", "settle_attempts", job.completed_col)]
     stamped = any(name == job.completed_col for name, _ in assigned)
     assert sql == job_lifecycle.advance_sql(job, extra, stamped), sql  # the generator is the only author of this SQL
     row = rows[args[0]]
     if row["status"] != args[1]:  # the compare-and-set
         return None
-    row.update({name: None if v == "NULL" else args[int(v[1:]) - 1] for name, v in assigned})
+    row.update({name: {"NULL": None, "0": 0}[v] if v in ("NULL", "0") else args[int(v[1:]) - 1] for name, v in assigned})
     return dict(row)
 
 
@@ -44,7 +44,7 @@ class FakeJobTable:
     def seed(self, status, **cols) -> dict:
         """A live row: advance mutates it, so a test reads the outcome from it."""
         self.seq += 1
-        row = {"id": uuid.uuid4(), "tenant_id": self.tenant_id, "status": status, "ray_job_id": "job", "claimed_until": None,
+        row = {"id": uuid.uuid4(), "tenant_id": self.tenant_id, "status": status, "ray_job_id": "job", "claimed_until": None, "settle_attempts": 0,
                "created_at": self.now + timedelta(microseconds=self.seq), "completed_at": None, **cols}
         self.rows[row["id"]] = row
         return row
@@ -94,10 +94,14 @@ class FakeJobConn:
 
     async def execute(self, sql, *args):
         t = self.table
-        assert sql == job_lifecycle.release_sql(t.job), sql
+        assert sql in (job_lifecycle.release_sql(t.job), job_lifecycle.defer_sql(t.job)), sql
         row = t.rows.get(args[0])
-        if row is not None and row["claimed_until"] == args[1]:  # only the lease this claim took
-            row["claimed_until"] = None
+        if row is None or row["claimed_until"] != args[1]:  # only the lease this claim took
+            return
+        if sql == job_lifecycle.release_sql(t.job):
+            row.update(claimed_until=None, settle_attempts=0)
+        else:
+            row.update(claimed_until=t.now + timedelta(seconds=args[2]), settle_attempts=row["settle_attempts"] + 1)
 
 
 def patch(monkeypatch, table: FakeJobTable, *modules):

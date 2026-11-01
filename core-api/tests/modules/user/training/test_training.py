@@ -15,7 +15,7 @@ from app.core.enums import TaskType, TrainPreset
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.core import task_catalog
-from app.integrations import compute
+from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 from app.integrations.job_spec import TrainData
@@ -455,8 +455,11 @@ def test_a_gateway_failure_leaves_the_run_in_flight_and_the_next_sweep_settles_i
 
     monkeypatch.setattr(effects.mlflow, "publish_run_model", broken)
     fx.sweep()
-    assert row["status"] == TrainingStatus.RUNNING and row["claimed_until"] is None and not fx.usage  # retried at once, not after the lease
+    backoff = timedelta(seconds=job_lifecycle.SETTLE_BACKOFF_BASE_SECONDS)
+    assert row["status"] == TrainingStatus.RUNNING and not fx.usage
+    assert row["settle_attempts"] == 1 and row["claimed_until"] == fx.table.now + backoff  # retried after its backoff, not after the lease
     monkeypatch.setattr(effects.mlflow, "publish_run_model", working)
+    fx.table.now += backoff + timedelta(seconds=1)
     fx.sweep()
     assert row["status"] == TrainingStatus.SUCCEEDED and len(fx.usage) == 1
 

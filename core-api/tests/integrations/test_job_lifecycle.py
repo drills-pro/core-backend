@@ -1,14 +1,26 @@
 """job_lifecycle: the deadline policy, the guarded transition, the claim and the sweep, against an in-memory table
 that enforces the compare-and-set and the lease (tests/support/job_table.py)."""
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 import pytest
 
+from app.core.settings import load
 from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
-from app.integrations.job_lifecycle import CLAIM_BATCH_MAX, CLAIM_LEASE_SECONDS, SWEEP_CONCURRENCY, JobTable, Phase, Verdict
+from app.integrations.job_lifecycle import (
+    CLAIM_BATCH_MAX,
+    CLAIM_LEASE_SECONDS,
+    SETTLE_BACKOFF_BASE_SECONDS,
+    SETTLE_BACKOFF_MAX_SECONDS,
+    SETTLE_ERROR_AFTER,
+    SWEEP_CONCURRENCY,
+    JobTable,
+    Phase,
+    Verdict,
+)
 from tests.support.job_table import FakeJobConn, FakeJobTable, patch
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -258,11 +270,97 @@ def test_a_release_does_not_wipe_a_later_claimers_lease(table, ray):
     assert row["claimed_until"] is not None and row["claimed_until"] > table.now  # the second claim survives the first release
 
 
-def test_one_failing_row_neither_blocks_the_sweep_nor_keeps_its_claim(table, ray):
+def test_one_failing_row_neither_blocks_the_sweep_nor_is_retried_before_its_backoff(table, ray):
     bad, good = table.seed(S.RUNNING), table.seed(S.RUNNING)
     settle = Settled(table, move_to=S.DONE, fail_on={bad["id"]})
     run(job_lifecycle.sweep(JOB, settle, T0))
-    assert (bad["status"], good["status"]) == (S.RUNNING, S.DONE) and bad["claimed_until"] is None
+    assert (bad["status"], good["status"]) == (S.RUNNING, S.DONE)
+    assert bad["settle_attempts"] == 1 and bad["claimed_until"] == table.now + timedelta(seconds=SETTLE_BACKOFF_BASE_SECONDS)
+    run(job_lifecycle.sweep(JOB, settle, T0))
+    assert bad["settle_attempts"] == 1  # still backing off: not claimed, not settled again
+
+
+@pytest.mark.parametrize("attempts,seconds", [(1, 10), (2, 20), (3, 40), (5, 160), (6, 300), (50, 300)])
+def test_settle_backoff_doubles_up_to_the_cap(attempts, seconds):
+    assert job_lifecycle.settle_backoff(attempts) == seconds == min(seconds, SETTLE_BACKOFF_MAX_SECONDS)
+
+
+def test_a_row_that_keeps_failing_backs_off_longer_each_time_and_a_cured_row_settles_after_its_backoff(table, ray):
+    row = table.seed(S.RUNNING)
+    settle = Settled(table, move_to=S.DONE, fail_on={row["id"]})
+    waited = []
+    for n in range(1, 8):
+        run(job_lifecycle.sweep(JOB, settle, T0))
+        assert row["settle_attempts"] == n
+        waited.append((row["claimed_until"] - table.now).total_seconds())
+        table.now = row["claimed_until"] + timedelta(seconds=1)
+    assert waited == [10, 20, 40, 80, 160, 300, 300]
+    settle.fail_on = ()
+    run(job_lifecycle.sweep(JOB, settle, T0))
+    assert row["status"] == S.DONE and row["settle_attempts"] == 0 and row["claimed_until"] is None
+    assert [i for i, _ in settle.seen] == [row["id"]]  # settled once, by the cured attempt
+
+
+def test_a_settle_that_works_without_moving_the_row_resets_its_failures(table, ray):
+    row = table.seed(S.RUNNING, settle_attempts=3)
+    run(job_lifecycle.sweep(JOB, Settled(table), T0))  # moves nothing, raises nothing
+    assert row["settle_attempts"] == 0 and row["claimed_until"] is None
+
+
+def test_a_move_resets_the_failures(table):
+    row = table.seed(S.RUNNING, settle_attempts=4)
+
+    async def go():
+        async with table(None) as conn:
+            await job_lifecycle.advance(conn, JOB, row, S.DONE)
+
+    run(go())
+    assert row["settle_attempts"] == 0
+
+
+def test_the_failure_is_logged_at_error_once_after_the_threshold(table, ray, caplog):
+    row = table.seed(S.RUNNING)
+    settle = Settled(table, fail_on={row["id"]})
+    with caplog.at_level(logging.WARNING, logger=job_lifecycle.logger.name):
+        for _ in range(SETTLE_ERROR_AFTER + 3):
+            run(job_lifecycle.sweep(JOB, settle, T0))
+            table.now = row["claimed_until"] + timedelta(seconds=1)
+    levels = [r.levelno for r in caplog.records if "failed to follow" in r.message]
+    assert levels.count(logging.ERROR) == 1 and levels.index(logging.ERROR) == SETTLE_ERROR_AFTER - 1
+    assert set(levels) == {logging.WARNING, logging.ERROR}
+
+
+def test_a_lost_connection_on_the_release_is_retried_once(table, ray, monkeypatch):
+    row = table.seed(S.RUNNING)
+    real, calls = table.conn_cls.execute, []
+
+    async def flaky(self, sql, *args):
+        calls.append(sql)
+        if len(calls) == 1:
+            raise ConnectionError("connection lost")
+        return await real(self, sql, *args)
+
+    monkeypatch.setattr(table.conn_cls, "execute", flaky)
+    run(job_lifecycle.sweep(JOB, Settled(table), T0))
+    assert len(calls) == 2 and row["claimed_until"] is None  # not left leased for CLAIM_LEASE_SECONDS
+
+
+def test_a_release_that_fails_twice_leaves_the_lease_to_run_out(table, ray, monkeypatch):
+    row = table.seed(S.RUNNING)
+
+    async def broken(self, sql, *args):
+        raise ConnectionError("connection lost")
+
+    monkeypatch.setattr(table.conn_cls, "execute", broken)
+    run(job_lifecycle.sweep(JOB, Settled(table), T0))  # does not raise
+    assert row["claimed_until"] == table.now + timedelta(seconds=CLAIM_LEASE_SECONDS)
+
+
+def test_every_pod_at_pool_max_fits_in_postgres_max_connections():
+    # core-api 1 + core-worker 2 (k8s apps/backend); Postgres' default max_connections, 3 of them reserved for superusers.
+    pods, max_connections, reserved = 3, 100, 3
+    pool_max = load("prod").pg.pool_max
+    assert pods * pool_max <= max_connections - reserved and SWEEP_CONCURRENCY <= pool_max
 
 
 def test_a_row_without_a_job_id_is_pending_and_never_polled(table, ray, monkeypatch):
@@ -290,7 +388,7 @@ def test_a_job_ray_gives_no_answer_for_reaches_settle_as_timed_out_once_due(tabl
 
 
 def test_two_replicas_sweeping_at_once_settle_each_row_once(table, ray):
-    for _ in range(12):
+    for _ in range(SWEEP_CONCURRENCY + 4):
         table.seed(S.RUNNING)
     a, b = Settled(table, move_to=S.DONE), Settled(table, move_to=S.DONE)
 
@@ -299,7 +397,7 @@ def test_two_replicas_sweeping_at_once_settle_each_row_once(table, ray):
 
     run(both())
     ids = [i for i, _ in a.seen] + [i for i, _ in b.seen]
-    assert len(ids) == 12 == len(set(ids)) and a.seen and b.seen  # shared, not one replica doing it all
+    assert len(ids) == SWEEP_CONCURRENCY + 4 == len(set(ids)) and a.seen and b.seen  # shared, not one replica doing it all
 
 
 def test_a_replica_that_died_mid_settle_is_taken_over_after_the_lease(table, ray):

@@ -12,6 +12,10 @@ def test_every_followed_table_gets_a_lease_column():
         assert re.search(rf"ALTER TABLE {table}\b.*?claimed_until timestamptz", UP, re.S), table
 
 
+def test_every_followed_table_counts_failed_settles():
+    assert UP.count("settle_attempts int NOT NULL DEFAULT 0") == 3 and DOWN.count("DROP COLUMN settle_attempts") == 3
+
+
 def test_the_deploy_clock_restarts_when_the_job_id_changes_and_is_not_security_definer():
     assert "deploying_since timestamptz NOT NULL DEFAULT now()" in UP
     assert "BEFORE UPDATE OF ray_job_id ON deployments" in UP and "OLD.ray_job_id IS DISTINCT FROM NEW.ray_job_id" in UP
