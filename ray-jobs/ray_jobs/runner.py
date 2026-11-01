@@ -18,7 +18,7 @@ from ray_jobs.common.limits import LimitExceeded, Limits
 from ray_jobs.common.parquet import index_parquet, table_parquet
 from ray_jobs.common.report import Report
 from ray_jobs.common.stats import compute_stats
-from ray_jobs.common.store import S3Store, Sink
+from ray_jobs.common.store import S3Store
 from ray_jobs.common.table import Extracted
 from ray_jobs.spec import parse_spec
 from ray_jobs.merge import load_base, merge_index, merge_tables
@@ -36,7 +36,9 @@ def run(params: dict, store, extract: Extract, decode=pil_decode) -> Report:
         limits, task = Limits.from_dict(params[Param.LIMITS]), params[Param.TASK]  # inside the try: bad params still get a report
         base_rows, base_schema = load_base(params, report)
         skipped = 0
-        sink: Sink = lambda path, data: store.put(OUT_PREFIX + OBJECTS_PREFIX + path, data)
+        def sink(path, data):
+            return store.put(OUT_PREFIX + OBJECTS_PREFIX + path, data)
+
         with tempfile.TemporaryDirectory() as tmp:
             got = extract(Job(params, store, limits, task, report, decode, sink, Path(tmp)))
         out_rows, target, table, revision, license_ = got.rows, got.target, got.table, got.revision, got.license

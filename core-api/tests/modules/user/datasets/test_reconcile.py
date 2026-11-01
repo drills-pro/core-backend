@@ -277,7 +277,7 @@ def test_two_replicas_reconciling_at_once_settle_a_finished_import_once(env):
 
 
 def test_expiry_purges_staging_only_after_the_row_change_succeeded(env, monkeypatch):
-    row = env.db.seed(S.AWAITING_REVIEW, expires_at=T0)
+    env.db.seed(S.AWAITING_REVIEW, expires_at=T0)
 
     async def broken_audit(*a, **kw):
         raise RuntimeError("audit failed")

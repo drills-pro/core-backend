@@ -1,9 +1,9 @@
 import pytest
 
-from ray_jobs.common.constants import TABULAR_CLASSIFICATION, TABULAR_REGRESSION
+from ray_jobs.common.constants import TABULAR_REGRESSION
 from ray_jobs.common.enums import Code
 from ray_jobs.sources.csv_table import infer_type
-from tests.support import LIMITS, codes, table
+from tests.support import codes, table
 
 
 def test_csv_schema_inference_and_split_tag():

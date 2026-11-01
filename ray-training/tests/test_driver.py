@@ -5,7 +5,6 @@ Starts and stops a local Ray head (`ray stop --force` at the end: do not run it 
 import http.server
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys

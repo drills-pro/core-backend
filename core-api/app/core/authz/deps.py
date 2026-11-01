@@ -19,7 +19,6 @@ from app.core import audit
 from app.core.authz.policy import (
     MANAGER_ROLES,
     PROJECT_ACTIONS,
-    TENANT_ACTIONS,
     Action,
     DefaultAccess,
     Role,

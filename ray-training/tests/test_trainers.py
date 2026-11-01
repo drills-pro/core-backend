@@ -4,7 +4,6 @@ import json
 import jsonschema
 import numpy as np
 import onnxruntime as ort
-import pytest
 
 from ray_training.constants import MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY
 from ray_training.runner import run

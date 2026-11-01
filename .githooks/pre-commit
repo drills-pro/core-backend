@@ -1,0 +1,7 @@
+#!/bin/sh
+# Lints the staged Python files with ruff (config: ruff.toml). Enable once per clone: ./scripts/install-hooks.sh
+files=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+[ -z "$files" ] && exit 0
+command -v ruff >/dev/null 2>&1 || { echo "pre-commit: ruff not found, run 'mise install'" >&2; exit 1; }
+# shellcheck disable=SC2086
+ruff check $files

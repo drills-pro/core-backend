@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 
 from app.modules.user.training import RunModel, TrainingStatus, get_run_lineage, get_run_model
-from tests.support import PROJECT, FakeConn, patch_tenant_conn
+from tests.support import PROJECT, FakeConn
 
 RUN = uuid.uuid4()
 S = TrainingStatus

@@ -86,7 +86,7 @@ def test_member_cannot_invite(monkeypatch, dev_headers, role):
     assert c.post(f"/v1/tenants/{TENANT}/invitations", json={"email": "a@b.co", "role": "member"}).status_code == 403
 
 
-O = f"/v1/tenants/{TENANT}/ownership-offer"
+OFFER_URL = f"/v1/tenants/{TENANT}/ownership-offer"
 OFFER = {"from_sub": "u1", "to_sub": "u2", "step_down": True, "created_at": datetime.now(timezone.utc), "expires_at": datetime.now(timezone.utc)}
 
 
@@ -99,20 +99,20 @@ def test_direct_promotion_to_owner_needs_the_offer_flow(monkeypatch, dev_headers
 @pytest.mark.parametrize("role,status", [(OWNER, 201), (ADMIN, 403), (MEMBER, 403)])
 def test_only_an_owner_offers_ownership(monkeypatch, dev_headers, role, status):
     c, conn = client(monkeypatch, dev_headers, role, row=OFFER)
-    assert c.post(O, json={"to_sub": "u2", "step_down": True}).status_code == status
+    assert c.post(OFFER_URL, json={"to_sub": "u2", "step_down": True}).status_code == status
     assert any("INSERT INTO ownership_offers" in s for s, _ in conn.calls) == (status == 201)
 
 
 def test_cannot_offer_to_a_non_member_or_an_existing_owner(monkeypatch, dev_headers):
     c, _ = client(monkeypatch, dev_headers, OWNER, current=OWNER, row=OFFER)
-    assert c.post(O, json={"to_sub": "u2"}).json()["code"] == ProblemCode.ALREADY_OWNER
+    assert c.post(OFFER_URL, json={"to_sub": "u2"}).json()["code"] == ProblemCode.ALREADY_OWNER
     c, _ = client(monkeypatch, dev_headers, OWNER, current=None, row=OFFER)
-    assert c.post(O, json={"to_sub": "ghost"}).status_code == 404
+    assert c.post(OFFER_URL, json={"to_sub": "ghost"}).status_code == 404
 
 
 def test_recipient_accepts_becomes_owner_and_the_offerer_steps_down(monkeypatch, dev_headers):
     c, conn = client(monkeypatch, dev_headers, MEMBER, owners=("u1",), row={"from_sub": "u1", "step_down": True})
-    r = c.post(f"{O}:accept")
+    r = c.post(f"{OFFER_URL}:accept")
     assert (r.status_code, r.json()["role"]) == (200, "owner")
     updates = [a for s, a in conn.calls if "UPDATE tenant_members" in s]
     assert [(u[1], u[2]) for u in updates] == [("u1", OWNER), ("u1", ADMIN)]  # actor first, then the offerer
@@ -120,26 +120,26 @@ def test_recipient_accepts_becomes_owner_and_the_offerer_steps_down(monkeypatch,
 
 def test_accept_without_step_down_keeps_both_owners(monkeypatch, dev_headers):
     c, conn = client(monkeypatch, dev_headers, MEMBER, owners=("u1",), row={"from_sub": "u1", "step_down": False})
-    assert c.post(f"{O}:accept").status_code == 200
+    assert c.post(f"{OFFER_URL}:accept").status_code == 200
     assert len([1 for s, _ in conn.calls if "UPDATE tenant_members" in s]) == 1
 
 
 def test_accept_refusals(monkeypatch, dev_headers):
     c, _ = client(monkeypatch, dev_headers, MEMBER, row=None)  # no open offer for this caller
-    assert c.post(f"{O}:accept").status_code == 404
+    assert c.post(f"{OFFER_URL}:accept").status_code == 404
     c, _ = client(monkeypatch, dev_headers, MEMBER, owners=("someone-else",), row={"from_sub": "u1", "step_down": True})
-    r = c.post(f"{O}:accept")
+    r = c.post(f"{OFFER_URL}:accept")
     assert (r.status_code, r.json()["code"]) == (409, ProblemCode.OFFER_STALE)
 
 
 def test_only_the_parties_and_owners_see_or_cancel_the_offer(monkeypatch, dev_headers):
     other = {**OFFER, "from_sub": "x", "to_sub": "y"}
     c, _ = client(monkeypatch, dev_headers, MEMBER, row=other)
-    assert c.get(O).status_code == 404 and c.delete(O).status_code == 404
+    assert c.get(OFFER_URL).status_code == 404 and c.delete(OFFER_URL).status_code == 404
     c, _ = client(monkeypatch, dev_headers, MEMBER, row=OFFER)  # u1 is the offerer here
-    assert c.get(O).json()["to_sub"] == "u2" and c.delete(O).status_code == 204
+    assert c.get(OFFER_URL).json()["to_sub"] == "u2" and c.delete(OFFER_URL).status_code == 204
     c, _ = client(monkeypatch, dev_headers, OWNER, row=other)
-    assert c.get(O).status_code == 200
+    assert c.get(OFFER_URL).status_code == 200
 
 
 def test_sole_owner_cannot_leave_but_anyone_else_can(monkeypatch, dev_headers):

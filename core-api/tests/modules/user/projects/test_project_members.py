@@ -2,7 +2,7 @@
 import pytest
 
 from app.modules.user.projects import routes, service
-from tests.support import HEADERS, PROJECT, FakeConn, access, make_client, patch_tenant_conn
+from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 BASE = f"/v1/projects/{PROJECT}"
 

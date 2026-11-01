@@ -79,7 +79,7 @@ def test_tenant_owner_and_admin_may_remove_the_last_project_admin(monkeypatch, a
 
 
 def test_keeping_project_admin_in_the_new_roles_skips_the_guard(monkeypatch):
-    _patch(monkeypatch, c := _conn(last_admin=True))
+    _patch(monkeypatch, _conn(last_admin=True))
     asyncio.run(service.set_member_roles(PA_CTX, PA_CTX.project_id, "u", [Role.PROJECT_ADMIN]))
 
 

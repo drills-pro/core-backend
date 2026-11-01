@@ -376,7 +376,7 @@ def test_a_row_without_a_job_id_is_pending_and_never_polled(table, ray, monkeypa
 
 
 def test_a_job_ray_gives_no_answer_for_reaches_settle_as_timed_out_once_due(table, ray):
-    row = table.seed(S.RUNNING, deadline=T0 + timedelta(seconds=10))
+    table.seed(S.RUNNING, deadline=T0 + timedelta(seconds=10))
     ray["job"] = RuntimeError("404 from the dashboard")
     settle = Settled(table)
     run(job_lifecycle.sweep(JOB, settle, T0))
