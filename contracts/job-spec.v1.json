@@ -443,6 +443,22 @@
       "title": "TaskType",
       "type": "string"
     },
+    "TextPreprocessing": {
+      "additionalProperties": false,
+      "description": "How text becomes the model's input: the base model's tokenizer, truncated and padded to `max_length` tokens.\nTrained with, recorded in model.json (with tokenizer.json), applied again when serving.",
+      "properties": {
+        "max_length": {
+          "exclusiveMinimum": 0,
+          "title": "Max Length",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_length"
+      ],
+      "title": "TextPreprocessing",
+      "type": "object"
+    },
     "TrainBaseModel": {
       "description": "A pretrained checkpoint on the Hugging Face Hub, pinned to a commit.",
       "properties": {
@@ -465,17 +481,45 @@
     "TrainData": {
       "description": "Presigned reads of one dataset version, valid past `resources.max_runtime_s`. The trainer holds no lakeFS credential.",
       "properties": {
+        "data_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Url"
+        },
         "index_url": {
-          "title": "Index Url",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Url"
         },
         "lakefs_commit": {
           "title": "Lakefs Commit",
           "type": "string"
         },
         "manifest_url": {
-          "title": "Manifest Url",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Url"
         },
         "version_id": {
           "format": "uuid",
@@ -484,8 +528,6 @@
         }
       },
       "required": [
-        "index_url",
-        "manifest_url",
         "version_id",
         "lakefs_commit"
       ],
@@ -518,7 +560,15 @@
           "type": "string"
         },
         "preprocessing": {
-          "$ref": "#/$defs/Preprocessing"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Preprocessing"
+            },
+            {
+              "$ref": "#/$defs/TextPreprocessing"
+            }
+          ],
+          "title": "Preprocessing"
         },
         "preset": {
           "$ref": "#/$defs/TrainPreset"
@@ -531,7 +581,8 @@
         "task": {
           "enum": [
             "image-classification",
-            "object-detection"
+            "object-detection",
+            "text-classification"
           ],
           "title": "Task",
           "type": "string"

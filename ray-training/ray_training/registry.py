@@ -20,6 +20,7 @@ Trainer = Callable[[TrainSpec, object, Path], "Result"]
 TRAINERS: Mapping[Task, str] = {
     Task.IMAGE_CLASSIFICATION: "ray_training.classification:train",
     Task.OBJECT_DETECTION: "ray_training.detection:train",
+    Task.TEXT_CLASSIFICATION: "ray_training.text_classification:train",
 }
 
 

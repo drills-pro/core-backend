@@ -19,6 +19,13 @@ class Preprocessing:
 
 
 @dataclass(frozen=True)
+class TextPreprocessing:
+    """How text becomes model input: the base model's tokenizer, padded and truncated to `max_length` tokens."""
+
+    max_length: int
+
+
+@dataclass(frozen=True)
 class TrainSpec:
     job_id: str
     tenant_id: str
@@ -31,16 +38,23 @@ class TrainSpec:
     preset: Preset
     base_model: str
     base_revision: str | None
-    index_url: str
-    manifest_url: str  # presigned GET of a JSON object {index path: presigned GET of that image}
+    index_url: str | None  # images: presigned GET of index.parquet
+    manifest_url: str | None  # images: presigned GET of a JSON object {index path: presigned GET of that image}
+    data_url: str | None  # text: presigned GET of data.parquet
     version_id: str | None
     lakefs_commit: str | None
     epochs: int
     batch_size: int
     image_size: int
     learning_rate: float
-    preprocessing: Preprocessing
+    preprocessing: Preprocessing | TextPreprocessing
     seed: int
+
+
+def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
+    if "max_length" in pre:
+        return TextPreprocessing(pre["max_length"])
+    return Preprocessing(tuple(pre["mean"]), tuple(pre["std"]), pre["rescale"], Resample(pre["resample"]))
 
 
 def parse_spec(text: str) -> TrainSpec:
@@ -59,10 +73,10 @@ def parse_spec(text: str) -> TrainSpec:
         max_runtime_s=doc["resources"].get("max_runtime_s", 0),
         bucket=p["bucket"], prefix=p["prefix"], task=task, preset=preset,
         base_model=base["repo_id"], base_revision=base.get("revision"),
-        index_url=data["index_url"], manifest_url=data["manifest_url"],
+        index_url=data.get("index_url"), manifest_url=data.get("manifest_url"), data_url=data.get("data_url"),
         version_id=data.get("version_id"), lakefs_commit=data.get("lakefs_commit"),
         epochs=hp.get("epochs", DEFAULT_EPOCHS), batch_size=hp.get("batch_size", DEFAULT_BATCH_SIZE),
         image_size=hp.get("image_size", DEFAULT_IMAGE_SIZE), learning_rate=p["learning_rate"],
-        preprocessing=Preprocessing(tuple(pre["mean"]), tuple(pre["std"]), pre["rescale"], Resample(pre["resample"])),
+        preprocessing=parse_preprocessing(pre),
         seed=p.get("seed", DEFAULT_SEED),
     )

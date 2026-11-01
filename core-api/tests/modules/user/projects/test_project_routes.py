@@ -46,7 +46,7 @@ def test_unknown_task_type_is_422(call):
 
 
 def test_reserved_task_type_is_422_not_supported_yet(call):
-    r = call(access(), "POST", "?name=x&task_type=text-classification", on_project=False)
+    r = call(access(), "POST", "?name=x&task_type=text-generation", on_project=False)
     assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")
     assert "not supported yet" in r.json()["detail"]
 

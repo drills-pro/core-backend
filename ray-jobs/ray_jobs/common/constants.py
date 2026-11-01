@@ -18,6 +18,8 @@ IMAGE_CLASSIFICATION = "image-classification"
 OBJECT_DETECTION = "object-detection"
 TABULAR_CLASSIFICATION = "tabular-classification"
 TABULAR_REGRESSION = "tabular-regression"
+TEXT_CLASSIFICATION = "text-classification"
+TEXT_COLUMN = "text"  # a text dataset is a table with these two columns (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)
 IMAGE_TASKS = (IMAGE_CLASSIFICATION, OBJECT_DETECTION)
 TABULAR_TASKS = (TABULAR_CLASSIFICATION, TABULAR_REGRESSION)
 

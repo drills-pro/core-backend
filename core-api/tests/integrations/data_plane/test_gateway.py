@@ -23,7 +23,7 @@ ARGS = {
     "tenant_id": TENANT, "dataset_id": DATASET, "import_id": IMPORT, "dataset_version_id": VERSION,
     "version_id": VERSION, "project_id": PROJECT, "run_id": RUN, "path": "objects/a.jpg", "message": "m",
     "spec": None, "kind": None, "column": "path", "paths": ["objects/a.jpg"], "ttl_seconds": 60, "mlflow_run_id": "mlflow-run",
-    "key": layout.INDEX_KEY, "limit": 5, "model_name": "clf", "version": "1", "stage": "Staging", "status": RunStatus.FINISHED,
+    "key": layout.INDEX_KEY, "limit": 5, "table": False, "model_name": "clf", "version": "1", "stage": "Staging", "status": RunStatus.FINISHED,
 }
 
 

@@ -133,7 +133,7 @@ class Gateway:
             self.started.append(ids)
             return SimpleNamespace(run_id="mlflow-1")
 
-        async def prepare(tenant_id, project_id, dataset_id, version_id, run_id, ttl):
+        async def prepare(tenant_id, project_id, dataset_id, version_id, run_id, ttl, *, table=False):
             self.ttl = ttl
             return TrainData(index_url="http://i", manifest_url="http://m", version_id=version_id, lakefs_commit="c0ffee")
 

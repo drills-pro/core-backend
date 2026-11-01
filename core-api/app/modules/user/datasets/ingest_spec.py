@@ -13,7 +13,7 @@ HF_DEFAULT_REVISION = "main"  # the job records the commit sha it resolved in th
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: TaskType) -> IngestBase:
     """Presigned reads of the base version's index (images) or data and schema (tabular)."""
-    if task_catalog.is_tabular(task_type):
+    if task_catalog.is_table(task_type):
         return IngestBase(
             data_url=await data_plane.presign_get(tenant_id, dataset_id, version_id, layout.DATA_KEY),
             schema_url=await data_plane.presign_get(tenant_id, dataset_id, version_id, layout.SCHEMA_KEY),
@@ -30,7 +30,7 @@ async def build(row: dict, task_type: TaskType, submission_id: str) -> tuple[Ing
         prefix=layout.staging_prefix(tenant_id, dataset_id, import_id),
         source=row["source"],
         task=task_type,
-        target=params.get("target"),
+        target=task_catalog.LABEL_COLUMN if task_type == TaskType.TEXT_CLASSIFICATION else params.get("target"),
         split=params.get("split"),
         limits=limits,
     )

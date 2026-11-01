@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from ray_training.constants import (
-    HASH_HEX_CHARS, SPLIT_BUCKETS, SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW, Box, Col, Split, Task)
+    HASH_HEX_CHARS, LABEL_COLUMN, SPLIT_BUCKETS, SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW, TEXT_COLUMN, Box, Col, Split, Task)
 from ray_training.errors import BadData
 from ray_training.spec import TrainSpec
 from ray_training.store import http_get
@@ -19,9 +19,10 @@ Get = Callable[[str], bytes]
 
 @dataclass
 class Sample:
-    file: Path
+    file: Path | None  # images; None for a text sample
     split: Split
     label: int | None = None  # classification: index into Dataset.classes
+    text: str | None = None  # text classification
     boxes: list[tuple[int, float, float, float, float]] = field(default_factory=list)  # (class, x, y, w, h) in pixels
 
 
@@ -46,7 +47,25 @@ def read_index(data: bytes) -> list[dict]:
     return pq.read_table(io.BytesIO(data)).to_pylist()
 
 
+def load_text_dataset(spec: TrainSpec, get: Get) -> Dataset:
+    """data.parquet: one row per text, the text in TEXT_COLUMN and its class in LABEL_COLUMN. A row with no split is
+    assigned one from the hash of its text, like images."""
+    rows = read_index(get(spec.data_url))
+    rows = [r for r in rows if r.get(TEXT_COLUMN) is not None and r.get(LABEL_COLUMN) is not None]
+    if not rows:
+        raise BadData("data.parquet has no labelled text")
+    classes = sorted({str(r[LABEL_COLUMN]) for r in rows})
+    ids = {c: i for i, c in enumerate(classes)}
+    samples = [
+        Sample(None, Split(r[Col.SPLIT]) if r.get(Col.SPLIT) else hash_split(hashlib.sha256(r[TEXT_COLUMN].encode()).hexdigest()),
+               ids[str(r[LABEL_COLUMN])], r[TEXT_COLUMN])
+        for r in rows]
+    return Dataset(classes, samples)
+
+
 def load_dataset(spec: TrainSpec, work: Path, get: Get = http_get) -> Dataset:
+    if spec.task == Task.TEXT_CLASSIFICATION:
+        return load_text_dataset(spec, get)
     rows = read_index(get(spec.index_url))
     if not rows:
         raise BadData("index.parquet has no rows")

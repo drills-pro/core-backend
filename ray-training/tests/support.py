@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 
-from ray_training.constants import Box, Col
+from ray_training.constants import LABEL_COLUMN, TEXT_COLUMN, Box, Col
 
 REPO = Path(__file__).resolve().parents[2]
 REPORT_SCHEMA_FILE = REPO / "core-api/app/integrations/data_plane/train_report.schema.json"
@@ -56,6 +56,32 @@ def detection_rows() -> tuple[list[dict], dict[str, bytes]]:
         rows.append({Col.PATH: path, Col.SIZE: len(files[path]), Col.SHA256: sha(i), Col.LABEL: None, Col.BOXES: boxes,
                      Col.SPLIT: "validation" if i == 3 else "train"})
     return rows, files
+
+
+TEXT_VOCAB = ["great", "good", "love", "awful", "bad", "hate", "movie", "film"]
+TEXT_DATA_URL = "mem://data.parquet"
+MAX_LENGTH = 8
+
+
+def text_rows() -> list[dict]:
+    """8 short texts, 2 classes; split column set: 6 train, 2 validation."""
+    rows = []
+    for i in range(8):
+        good = i % 2 == 0
+        rows.append({TEXT_COLUMN: f"{'great love' if good else 'awful hate'} {'movie' if i % 4 < 2 else 'film'}",
+                     LABEL_COLUMN: "pos" if good else "neg", Col.SPLIT: "validation" if i >= 6 else "train"})
+    return rows
+
+
+def text_get(rows):
+    sink = io.BytesIO()
+    pq.write_table(pa.Table.from_pylist([{str(k.value if hasattr(k, "value") else k): v for k, v in r.items()} for r in rows]), sink)
+    return lambda url: {TEXT_DATA_URL: sink.getvalue()}[url]
+
+
+def text_spec_text(base_model, **payload) -> str:
+    return spec_text("text-classification", base_model, [], preprocessing={"max_length": MAX_LENGTH},
+                     data={"data_url": TEXT_DATA_URL, "version_id": VERSION_ID, "lakefs_commit": "c0ffee"}, **payload)
 
 
 def parquet(rows: list[dict]) -> bytes:

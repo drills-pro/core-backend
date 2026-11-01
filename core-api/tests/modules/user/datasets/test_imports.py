@@ -321,7 +321,7 @@ def test_wrong_task_type_for_the_project_is_422(env):
 
 
 def test_unsupported_task_type_is_422(env):
-    env.db.task_type = TaskType.TEXT_CLASSIFICATION
+    env.db.task_type = TaskType.TEXT_GENERATION
     problem(create(), 422, "task_type_not_supported")
 
 

@@ -1,6 +1,6 @@
 """What a trainer hands back to the runner, and the pieces both trainers share."""
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +22,7 @@ class Result:
     onnx: Path
     signature: dict  # model.json: inputs, outputs, preprocessing
     confusion: dict | None = None  # classification: {"labels": [...], "matrix": [[...]]}
+    extra_files: dict[str, Path] = field(default_factory=dict)  # uploaded beside the model under this name (a tokenizer)
 
 
 def device() -> torch.device:
@@ -53,9 +54,14 @@ def preprocessing(spec: TrainSpec) -> dict:
 
 
 def export_onnx(wrapper: torch.nn.Module, size: int, outputs: list[str], path: Path) -> None:
+    """Export an image model with a dynamic batch axis."""
+    dummy = torch.zeros(1, 3, size, size, device=next(wrapper.parameters()).device)
+    export_onnx_inputs(wrapper, (dummy,), [INPUT_NAME], outputs, path)
+
+
+def export_onnx_inputs(wrapper: torch.nn.Module, dummies: tuple, inputs: list[str], outputs: list[str], path: Path) -> None:
     """Export with a dynamic batch axis. The legacy TorchScript exporter: the dynamo one rejects some HF modules."""
     wrapper.eval()
-    dummy = torch.zeros(1, 3, size, size, device=next(wrapper.parameters()).device)
     torch.onnx.export(
-        wrapper, (dummy,), str(path), input_names=[INPUT_NAME], output_names=outputs, opset_version=ONNX_OPSET,
-        dynamic_axes={n: {0: "batch"} for n in [INPUT_NAME, *outputs]}, dynamo=False)
+        wrapper, dummies, str(path), input_names=inputs, output_names=outputs, opset_version=ONNX_OPSET,
+        dynamic_axes={n: {0: "batch"} for n in [*inputs, *outputs]}, dynamo=False)

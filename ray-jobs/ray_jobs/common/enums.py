@@ -155,6 +155,7 @@ class Code(StrEnum):
     CSV_ROW_TOO_LONG = "csv_row_too_long"
     TARGET_MISSING = "target_missing"
     TARGET_TYPE_MISMATCH = "target_type_mismatch"
+    TEXT_COLUMN_MISSING = "text_column_missing"
     SCHEMA_MISMATCH = "schema_mismatch"
     MERGE_CONFLICT = "merge_conflict"
     DUPLICATE_SKIPPED = "duplicate_skipped"

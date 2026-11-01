@@ -24,4 +24,4 @@ def ingest_job_type(source: str, task_type: str) -> JobType:
     """Which catalog entry imports this source for this task."""
     if source == ImportSource.HUGGINGFACE:
         return JobType.HUGGINGFACE
-    return JobType.UPLOAD_CSV if task_catalog.is_tabular(TaskType(task_type)) else JobType.UPLOAD_IMAGES
+    return JobType.UPLOAD_CSV if task_catalog.is_table(TaskType(task_type)) else JobType.UPLOAD_IMAGES

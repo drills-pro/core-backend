@@ -9,7 +9,7 @@ carries these values. Everything that asks "is it supported / tabular / trainabl
 not branch on the task.
 
 A new Hugging Face model for an existing task is one `PresetSpec` here; a model that normalises differently (CLIP,
-0.5/0.5 ViTs) sets its own `Preprocessing`.
+0.5/0.5 ViTs) sets its own `Preprocessing`. A text task's preprocessing is `TextPreprocessing`.
 """
 from collections.abc import Mapping
 from enum import StrEnum
@@ -23,6 +23,11 @@ from app.core.problem import Problem
 class DataKind(StrEnum):
     IMAGES = "images"
     TABULAR = "tabular"
+    TEXT = "text"  # a table (data.parquet) with TEXT_COLUMN and LABEL_COLUMN
+
+
+TEXT_COLUMN = "text"  # the columns a text dataset must have (ray_jobs.common.constants mirrors these)
+LABEL_COLUMN = "label"
 
 
 class TrainBaseModel(BaseModel):
@@ -59,6 +64,21 @@ class Preprocessing(BaseModel):
 IMAGENET_PREPROCESSING = Preprocessing(mean=IMAGENET_MEAN, std=IMAGENET_STD, rescale=DEFAULT_RESCALE, resample=Resample.BICUBIC)
 
 
+DEFAULT_MAX_LENGTH = 256
+
+
+class TextPreprocessing(BaseModel):
+    """How text becomes the model's input: the base model's tokenizer, truncated and padded to `max_length` tokens.
+    Trained with, recorded in model.json (with tokenizer.json), applied again when serving."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_length: int = Field(gt=0)
+
+
+DEFAULT_TEXT_PREPROCESSING = TextPreprocessing(max_length=DEFAULT_MAX_LENGTH)
+
+
 class PresetSpec(BaseModel):
     """What a preset of a trainable task trains with."""
 
@@ -66,7 +86,7 @@ class PresetSpec(BaseModel):
 
     base_model: TrainBaseModel
     learning_rate: float = Field(gt=0)
-    preprocessing: Preprocessing = IMAGENET_PREPROCESSING
+    preprocessing: Preprocessing | TextPreprocessing = IMAGENET_PREPROCESSING
 
 
 class TaskInfo(BaseModel):
@@ -96,6 +116,14 @@ TASKS: Mapping[TaskType, TaskInfo] = {
             TrainPreset.LARGE: PresetSpec(base_model=TrainBaseModel(repo_id="PekingU/rtdetr_v2_r50vd", revision="282494075698cab9faa1096ae26856890030c817"), learning_rate=5e-5),
         },
     ),
+    TaskType.TEXT_CLASSIFICATION: TaskInfo(
+        data_kind=DataKind.TEXT,
+        presets={
+            TrainPreset.SMALL: PresetSpec(base_model=TrainBaseModel(repo_id="distilbert/distilbert-base-uncased", revision="12040accade4e8a0f71eabdb258fecc2e7e948be"), learning_rate=2e-5, preprocessing=DEFAULT_TEXT_PREPROCESSING),
+            TrainPreset.MEDIUM: PresetSpec(base_model=TrainBaseModel(repo_id="google-bert/bert-base-uncased", revision="86b5e0934494bd15c9632b12f734a8a67f723594"), learning_rate=2e-5, preprocessing=DEFAULT_TEXT_PREPROCESSING),
+            TrainPreset.LARGE: PresetSpec(base_model=TrainBaseModel(repo_id="FacebookAI/roberta-base", revision="e2da8e2f811d1448a5b465c236feacd80ffbac7b"), learning_rate=1e-5, preprocessing=DEFAULT_TEXT_PREPROCESSING),
+        },
+    ),
     TaskType.TABULAR_CLASSIFICATION: TaskInfo(data_kind=DataKind.TABULAR),
     TaskType.TABULAR_REGRESSION: TaskInfo(data_kind=DataKind.TABULAR),
 }
@@ -115,6 +143,11 @@ def supported(task: TaskType) -> bool:
 
 def is_tabular(task: TaskType) -> bool:
     return task in TASKS and TASKS[task].data_kind is DataKind.TABULAR
+
+
+def is_table(task: TaskType) -> bool:
+    """The dataset is a table (data.parquet + schema.json) rather than an image index."""
+    return task in TASKS and TASKS[task].data_kind in (DataKind.TABULAR, DataKind.TEXT)
 
 
 def trainable(task: TaskType) -> bool:

@@ -53,6 +53,8 @@ def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None
                 raise ArithmeticError("a metric is not finite (training diverged)")
             store.put(MODEL_KEY, result.onnx.read_bytes())
             store.put(MODEL_MANIFEST_KEY, json.dumps(manifest).encode())
+            for name, path in result.extra_files.items():
+                store.put(name, path.read_bytes())
         return {**_base(spec), "metrics": result.metrics, "history": result.history, "confusion_matrix": result.confusion}
     except Exception as e:  # noqa: BLE001 - the report must always be written
         return failed_report(spec, failure_code(e), f"{type(e).__name__}: {e}")

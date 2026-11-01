@@ -111,6 +111,8 @@ def _validate(task_type: TaskType, body: ImportCreate) -> None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISMATCH, f"this project's task type is '{task_type}'")
     if body.source is ImportSource.HUGGINGFACE and body.params.repo is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a Hugging Face import needs params.repo")
+    if body.source is ImportSource.HUGGINGFACE and task_type == TaskType.TEXT_CLASSIFICATION:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a text dataset is imported from a CSV upload for now")
     if body.source is ImportSource.UPLOAD and task_catalog.is_tabular(task_type) and body.params.target is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a CSV import needs params.target")
 

@@ -33,7 +33,8 @@ async def build(
 ) -> TrainSpec:
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
-        *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS)
+        *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS),
+        table=task_catalog.is_table(task),
     )
     cfg = settings.training
     preset = task_catalog.preset_spec(task, body.preset)

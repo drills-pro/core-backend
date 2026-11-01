@@ -11,11 +11,11 @@ import uuid
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
 from app.core.enums import ImportSource, Split, TaskType, TrainPreset
 from app.core.settings import DatasetLimits
-from app.core.task_catalog import TRAINABLE, Preprocessing, TrainBaseModel
+from app.core.task_catalog import TRAINABLE, Preprocessing, TextPreprocessing, TrainBaseModel, is_table
 
 SPEC_VERSION = 1
 
@@ -84,8 +84,9 @@ class Hyperparameters(BaseModel):
 class TrainData(BaseModel):
     """Presigned reads of one dataset version, valid past `resources.max_runtime_s`. The trainer holds no lakeFS credential."""
 
-    index_url: str  # index.parquet (columns layout.INDEX_COLUMNS)
-    manifest_url: str  # JSON object {index path: presigned GET of that image}, staged under `prefix`
+    index_url: str | None = None  # images: index.parquet (columns layout.INDEX_COLUMNS)
+    manifest_url: str | None = None  # images: JSON object {index path: presigned GET of that image}, staged under `prefix`
+    data_url: str | None = None  # text: data.parquet, a table with the catalog's TEXT_COLUMN and LABEL_COLUMN
     version_id: uuid.UUID
     lakefs_commit: str
 
@@ -99,10 +100,18 @@ class TrainPayload(BaseModel):
     preset: TrainPreset
     base_model: TrainBaseModel
     learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
-    preprocessing: Preprocessing  # likewise; the trainer applies it and records it in model.json
+    preprocessing: Preprocessing | TextPreprocessing  # likewise; the trainer applies it and records it in model.json
     data: TrainData
     hyperparameters: Hyperparameters
     seed: int = DEFAULT_SEED
+
+    @model_validator(mode="after")
+    def _data_fits_the_task(self):
+        """Image tasks read an index and a manifest, table tasks a data file; the trainer reads only what its task needs."""
+        have = (self.data.data_url,) if is_table(self.task) else (self.data.index_url, self.data.manifest_url)
+        if not all(have):
+            raise ValueError(f"the data of a {self.task} run is missing a url")
+        return self
 
 
 # ---- the document ----

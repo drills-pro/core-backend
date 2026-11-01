@@ -21,13 +21,18 @@ HASH_HEX_CHARS = 8
 REPORT_KEY = "report.json"
 MODEL_KEY = "model.onnx"
 MODEL_MANIFEST_KEY = "model.json"
+TOKENIZER_KEY = "tokenizer.json"  # a text model is served with the tokenizer it was trained with
+
+TEXT_COLUMN = "text"  # the columns of a text dataset's data.parquet (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)
+LABEL_COLUMN = "label"
 
 
 class Task(StrEnum):
-    """Mirrors app.core.enums.TaskType (the two this trainer runs)."""
+    """Mirrors app.core.enums.TaskType (the ones this trainer runs)."""
 
     IMAGE_CLASSIFICATION = "image-classification"
     OBJECT_DETECTION = "object-detection"
+    TEXT_CLASSIFICATION = "text-classification"
 
 
 class Preset(StrEnum):

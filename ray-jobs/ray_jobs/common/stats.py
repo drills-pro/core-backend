@@ -1,7 +1,7 @@
 """Stats block of report.json."""
 from collections import Counter
 
-from ray_jobs.common.constants import IMAGE_TASKS, TABULAR_CLASSIFICATION
+from ray_jobs.common.constants import IMAGE_TASKS, TABULAR_CLASSIFICATION, TEXT_CLASSIFICATION
 from ray_jobs.common.enums import Col
 from ray_jobs.common.rows import row_labels
 
@@ -12,7 +12,7 @@ def compute_stats(rows: list[dict], task: str, target: str | None, skipped: int)
     for r in rows:
         if images:
             classes.update(set(row_labels(r)))
-        elif task == TABULAR_CLASSIFICATION:
+        elif task in (TABULAR_CLASSIFICATION, TEXT_CLASSIFICATION):
             classes[str(r[target])] += 1
     return {
         "file_count": len(rows) if images else 0,

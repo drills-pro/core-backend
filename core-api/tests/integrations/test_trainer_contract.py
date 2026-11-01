@@ -6,7 +6,7 @@ import uuid
 import pytest
 
 from app.core.enums import TrainPreset
-from app.core.task_catalog import TASKS, TRAINABLE, Resample
+from app.core.task_catalog import TASKS, TRAINABLE, Resample, TextPreprocessing, is_table
 from app.integrations.job_spec import Resources, TrainData, TrainPayload, TrainSpec
 from ray_training import constants as trainer
 from ray_training.registry import TRAINERS
@@ -30,7 +30,8 @@ def test_the_trainer_mirrors_the_preset_and_resample_enums():
 
 def spec_of(task, preset) -> TrainSpec:
     info = TASKS[task].presets[preset]
-    data = TrainData(index_url="http://i", manifest_url="http://m", version_id=uuid.uuid4(), lakefs_commit="c0ffee")
+    data = TrainData(version_id=uuid.uuid4(), lakefs_commit="c0ffee", **(
+        {"data_url": "http://d"} if is_table(task) else {"index_url": "http://i", "manifest_url": "http://m"}))
     payload = TrainPayload(
         bucket="b", prefix="p/", task=task, preset=preset, base_model=info.base_model, learning_rate=info.learning_rate,
         preprocessing=info.preprocessing, data=data, hyperparameters={})
@@ -44,5 +45,8 @@ def test_the_trainer_reads_what_the_catalog_says_for_every_preset(task, preset):
     assert (spec.task.value, spec.preset.value) == (task.value, preset.value)
     assert (spec.base_model, spec.base_revision, spec.learning_rate) == (info.base_model.repo_id, info.base_model.revision, info.learning_rate)
     pre = spec.preprocessing
+    if isinstance(info.preprocessing, TextPreprocessing):
+        assert pre.max_length == info.preprocessing.max_length and spec.data_url == "http://d"
+        return
     assert (pre.mean, pre.std, pre.rescale, pre.resample.value) == (
         info.preprocessing.mean, info.preprocessing.std, info.preprocessing.rescale, info.preprocessing.resample.value)

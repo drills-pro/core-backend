@@ -89,6 +89,6 @@ def test_admin_create_project_rejects_reserved_task_type(world):
     client, _ = world("org-1")
     r = client.post(
         f"/v1/admin/tenants/{TENANT}/projects",
-        json={"name": "x", "task_type": TaskType.TEXT_CLASSIFICATION},
+        json={"name": "x", "task_type": TaskType.TEXT_GENERATION},
     )
     assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")

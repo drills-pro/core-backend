@@ -1,6 +1,6 @@
 import pytest
 
-from ray_jobs.common.constants import TABULAR_REGRESSION
+from ray_jobs.common.constants import TABULAR_REGRESSION, TEXT_CLASSIFICATION
 from ray_jobs.common.enums import Code
 from ray_jobs.sources.csv_table import infer_type
 from tests.support import codes, table
@@ -42,3 +42,11 @@ def test_regression_target_must_be_numeric():
     assert t is None and codes(rep) == [Code.TARGET_TYPE_MISMATCH]
     t, rep = table("a,y\n1,1.5\n2,2\n", task=TABULAR_REGRESSION)
     assert t is not None and not rep.failed
+
+
+def test_a_text_dataset_needs_a_string_text_column():
+    t, rep = table("text,label\ngreat film,pos\nawful film,neg\n", task=TEXT_CLASSIFICATION, target="label")
+    assert t is not None and not rep.failed
+    for csv in ("body,label\ngreat,pos\nawful,neg\n", "text,label\n1,pos\n2,neg\n"):  # no text column; a numeric one
+        t, rep = table(csv, task=TEXT_CLASSIFICATION, target="label")
+        assert t is None and codes(rep) == [Code.TEXT_COLUMN_MISSING]

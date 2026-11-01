@@ -5,10 +5,14 @@ import jsonschema
 import numpy as np
 import onnxruntime as ort
 
-from ray_training.constants import MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY
+from tokenizers import Tokenizer
+
+from ray_training.constants import MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, TOKENIZER_KEY
 from ray_training.runner import run
 from ray_training.spec import parse_spec
-from tests.support import PREPROCESSING, REPORT_SCHEMA, SIZE, MemStore, classification_rows, detection_rows, fake_get, spec_text
+from tests.support import (
+    MAX_LENGTH, PREPROCESSING, REPORT_SCHEMA, SIZE, MemStore, classification_rows, detection_rows, fake_get, spec_text, text_get, text_rows,
+    text_spec_text)
 
 
 def session(store: MemStore, batch: int) -> list[np.ndarray]:
@@ -65,3 +69,19 @@ def test_load_image_applies_the_specs_normalisation(tmp_path):
     tensor, w, h = load_image(file, 8, pre)
     assert (w, h, tuple(tensor.shape)) == (SIZE, SIZE, (3, 8, 8))
     assert np.allclose(tensor.numpy(), (0.2 - 0.5) / 0.25, atol=1e-5)  # PREPROCESSING: mean 0.5, std 0.25
+
+
+def test_text_classification_trains_exports_and_reports(tiny_bert):
+    store = MemStore()
+    report = run(parse_spec(text_spec_text(tiny_bert)), store, text_get(text_rows()))
+    assert report["status"] == "succeeded", report["message"]
+    jsonschema.validate(report, REPORT_SCHEMA)
+    assert set(report["metrics"]) == {"top1", "top5"} and report["confusion_matrix"]["labels"] == ["neg", "pos"]
+    onnx = ort.InferenceSession(store.puts[MODEL_KEY])
+    ids = np.zeros((3, MAX_LENGTH), dtype=np.int64)  # dynamic batch axis
+    (logits,) = onnx.run(None, {"input_ids": ids, "attention_mask": np.ones_like(ids)})
+    assert logits.shape == (3, 2)
+    manifest = json.loads(store.puts[MODEL_MANIFEST_KEY])
+    assert manifest["classes"] == ["neg", "pos"] and manifest["preprocessing"] == {"max_length": MAX_LENGTH, "tokenizer": TOKENIZER_KEY}
+    tokenizer = Tokenizer.from_str(store.puts[TOKENIZER_KEY].decode())  # what serving tokenizes with
+    assert tokenizer.encode("great movie").ids == [tokenizer.token_to_id("great"), tokenizer.token_to_id("movie")]

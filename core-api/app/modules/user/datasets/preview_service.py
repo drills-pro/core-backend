@@ -35,7 +35,7 @@ async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, vers
 
 
 def _key(task: TaskType) -> str:
-    return layout.DATA_KEY if task_catalog.is_tabular(task) else layout.INDEX_KEY
+    return layout.DATA_KEY if task_catalog.is_table(task) else layout.INDEX_KEY
 
 
 async def version_preview(
@@ -45,7 +45,7 @@ async def version_preview(
         task = await _version_task(conn, project_id, dataset_id, version_id)
     tenant, ds, ver = ctx.tenant_id, str(dataset_id), str(version_id)
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
-    if task_catalog.is_tabular(task):
+    if task_catalog.is_table(task):
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
     # ponytail: one ownership query per URL, PRESIGN_CONCURRENCY at a time; add a batch presign op if previews grow past a page
     gate = asyncio.Semaphore(PRESIGN_CONCURRENCY)
