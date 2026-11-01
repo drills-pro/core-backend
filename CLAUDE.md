@@ -12,7 +12,7 @@ Run from `core-api/` (tools via `mise`; ask before installing anything):
 ```bash
 uv sync --group dev                  # first time
 .venv/bin/python -m pytest tests -q  # tests need no services and no network
-ruff check .                         # from the repo root (mise installs ruff; config in ruff.toml, lint only)
+core-api/.venv/bin/ruff check .      # from the repo root (ruff is a core-api dev dep; config in ruff.toml, lint only)
 ./scripts/install-hooks.sh           # once per clone: pre-commit runs ruff on staged .py files
 APP_ENV=local uv run uvicorn app.main:app --reload --port 8090   # services in compose, see below
 ```
