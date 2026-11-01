@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.settings import settings
-from app.integrations import compute, ray_client
+from app.integrations import compute
 
 SPEC = compute.JobSpec(
     entrypoint="python job.py", metadata={"tenant_id": "t1", "import_id": "i1"}, env_vars={"K": "v"},
@@ -94,29 +94,32 @@ def test_rayjob_stop_deletes_the_cr_and_is_idempotent(kube):
     assert "ingest-1" not in kube.crs and kube.seen.count(("DELETE", f"{RAYJOBS}/ingest-1")) == 2
 
 
-def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
-    sent, stopped = {}, []
-
-    async def submit_raw_job(**kw):
-        sent.update(kw)
-        return "ray-1"
-
-    async def get_status(job_id):
-        return "RUNNING"
-
-    async def stop_job(job_id):
-        stopped.append(job_id)
-
+def _dashboard(monkeypatch, handler):
     monkeypatch.setattr(settings.compute, "backend", "ray_dashboard")
-    monkeypatch.setattr(ray_client, "submit_raw_job", submit_raw_job)
-    monkeypatch.setattr(ray_client, "get_status", get_status)
-    monkeypatch.setattr(ray_client, "stop_job", stop_job)
+    monkeypatch.setattr(compute, "_dashboard", lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ray"))
+
+
+def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.content and json.loads(request.content)))
+        if request.url.path.endswith("/stop"):
+            return httpx.Response(200, json={"stopped": True})
+        if request.method == "POST":
+            return httpx.Response(200, json={"submission_id": "ray-1"})
+        return httpx.Response(200, json={"status": "RUNNING"})
+
+    _dashboard(monkeypatch, handler)
     assert asyncio.run(compute.submit(SPEC)) == "ray-1"
-    assert sent == dict(entrypoint="timeout 60 sh -c 'python job.py'", metadata=SPEC.metadata, num_gpus=0, num_cpus=2, memory=1024,
-                        resources={"cpu_pool": 1}, env_vars={"K": "v"}, submission_id="ingest-1")
+    assert seen[0] == ("POST", "/api/jobs/", {
+        "entrypoint": "timeout 60 sh -c 'python job.py'", "metadata": SPEC.metadata, "entrypoint_num_cpus": 2,
+        "entrypoint_memory": 1024, "entrypoint_resources": {"cpu_pool": 1}, "runtime_env": {"env_vars": {"K": "v"}},
+        "submission_id": "ingest-1"})
     assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.RUNNING
     asyncio.run(compute.stop("ray-1"))
-    assert stopped == ["ray-1"]
+    assert seen[-1][:2] == ("POST", "/api/jobs/ray-1/stop")
 
 
 def test_rayjob_logs_read_the_newest_submitter_pod(kube, monkeypatch):
@@ -143,10 +146,11 @@ def test_rayjob_logs_are_empty_without_a_pod(kube, monkeypatch):
     assert asyncio.run(compute.logs("ingest-1")) == ""
 
 
-def test_dashboard_backend_logs_go_through_the_ray_client(monkeypatch):
-    async def get_logs(job_id):
-        return f"log of {job_id}"
+def test_dashboard_backend_logs_come_from_the_job_api(monkeypatch):
+    _dashboard(monkeypatch, lambda r: httpx.Response(200, json={"logs": f"log of {r.url.path}"}))
+    assert asyncio.run(compute.logs("ray-1")) == "log of /api/jobs/ray-1/logs"
 
-    monkeypatch.setattr(settings.compute, "backend", "ray_dashboard")
-    monkeypatch.setattr(ray_client, "get_logs", get_logs)
-    assert asyncio.run(compute.logs("ray-1")) == "log of ray-1"
+
+def test_dashboard_url_is_read_per_call(monkeypatch):
+    monkeypatch.setattr(settings.ray, "dashboard", "http://elsewhere:1")
+    assert str(compute._dashboard().base_url) == "http://elsewhere:1"

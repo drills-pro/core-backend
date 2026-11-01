@@ -6,37 +6,31 @@ can still be stopped; the row is written before the submit, so the gateway can c
 """
 import logging
 import uuid
-from datetime import UTC, datetime
 from http import HTTPStatus
 
 from fastapi import HTTPException
 
+from app.core import task_catalog
 from app.core.authz import AuthzContext
-from app.core.enums import TRAINABLE_TASK_TYPES, TaskType, require_supported_task_type
-from app.core.metrics import usage as usage_metrics
+from app.core.enums import TaskType
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute, data_plane
 from app.integrations.data_plane import mlflow
-from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
-from app.modules.user.training import train_spec
+from app.modules.user.datasets import get_version_source
+from app.modules.user.projects import get_task_type
+from app.modules.user.training import service, train_spec
 from app.modules.user.training.constants import (
     INFLIGHT_STATUSES,
     START_FAILED_DETAIL,
     TRAINING_LOCK_PREFIX,
     ProblemCode,
-    TrainingStatus,
 )
 from app.modules.user.training.schemas import TrainingRun, TrainingRunCreate
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_TASK = "SELECT task_type FROM projects WHERE id = $1"
-_VERSION = (
-    "SELECT v.dataset_id, v.lakefs_commit FROM dataset_versions v JOIN datasets d ON d.id = v.dataset_id "
-    "WHERE v.id = $1 AND d.project_id = $2 AND d.deleted_at IS NULL"
-)
 _BY_KEY = "SELECT * FROM training_runs WHERE project_id = $1 AND idempotency_key = $2"
 _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
@@ -45,9 +39,6 @@ _INSERT = (
     "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec) "
     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
-)
-_FAIL_UNSTARTED = (
-    "UPDATE training_runs SET status = $2, completed_at = $3, report = $4 WHERE id = $1 AND status = $5 RETURNING id"
 )
 
 
@@ -60,8 +51,8 @@ def _task_of(project_task: str | None, body: TrainingRunCreate) -> TaskType:
     if project_task is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISSING, "this project has no task type, so it cannot train")
     task = TaskType(project_task)
-    require_supported_task_type(task)
-    if task not in TRAINABLE_TASK_TYPES:
+    task_catalog.require_supported_task_type(task)
+    if not task_catalog.trainable(task):
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_NOT_TRAINABLE, f"task type '{task}' cannot be trained yet")
     if body.task_type is not None and body.task_type != task:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISMATCH, f"this project's task type is '{task}'")
@@ -86,14 +77,8 @@ def _replay(row, body: TrainingRunCreate) -> TrainingRun:
 async def _fail_unstarted(ctx: AuthzContext, run_id: uuid.UUID, mlflow_run_id: str, project_id: uuid.UUID) -> None:
     """The job never started: end the run as failed so it stops counting against the quota. If this fails too,
     the reconciler fails the run when Ray still has no job for it at its deadline."""
-    report = TrainReport(status=TrainOutcome.FAILED, code=FailureCode.INTERNAL, message="the training job could not be started")
     try:
-        async with TenantConn(ctx.tenant_id) as conn:
-            await conn.fetchval(
-                _FAIL_UNSTARTED, run_id, TrainingStatus.FAILED, datetime.now(UTC), report.model_dump(mode="json"), TrainingStatus.SUBMITTED
-            )
-        usage_metrics.training_runs.add(1, {"status": TrainingStatus.FAILED})
-        await mlflow.finish_run(ctx.tenant_id, str(project_id), mlflow_run_id, mlflow.RunStatus.FAILED)
+        await service.fail_unstarted(ctx.tenant_id, run_id, mlflow_run_id, project_id)
     except Exception:  # noqa: BLE001 - best effort, see above
         logger.exception("could not close training run %s after a failed start", run_id)
 
@@ -104,16 +89,16 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
         if existing is not None:
             return _replay(existing, body)
-        task = _task_of(await conn.fetchval(_PROJECT_TASK, project_id), body)
-        version = await conn.fetchrow(_VERSION, body.dataset_version_id, project_id)
+        task = _task_of(await get_task_type(conn, project_id), body)
+        version = await get_version_source(conn, project_id, body.dataset_version_id)
         if version is None:  # another project's or tenant's version is indistinguishable from a missing one
             raise not_found()
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
     try:
-        started = await mlflow.start_run(tenant_id, str(project_id), str(version["dataset_id"]), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version["dataset_id"], task, body)
+        started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, task, body)
     except Exception as e:
         raise _start_failed(e, run_id) from e
 
@@ -122,7 +107,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         await _check_quota(conn, tenant_id)
         row = await conn.fetchrow(
             _INSERT, run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
-            body.hyperparameters.model_dump(mode="json"), version["dataset_id"], version["lakefs_commit"], body.dataset_version_id,
+            body.hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
             task, body.preset, spec.model_dump(mode="json"),
         )
         if row is None:  # lost a race with the same key: that one is the run

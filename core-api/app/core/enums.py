@@ -1,7 +1,5 @@
 from enum import StrEnum
 
-from app.core.problem import Problem
-
 
 class BlockstoreScheme(StrEnum):
     """URI scheme of lakeFS's storage namespaces; matches the blockstore type lakeFS runs with (`s3` also covers MinIO)."""
@@ -12,7 +10,7 @@ class BlockstoreScheme(StrEnum):
 
 class TaskType(StrEnum):
     """Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole
-    taxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today."""
+    taxonomy is accepted by the schema; core/task_catalog.py is what the platform can do today."""
 
     # image
     IMAGE_CLASSIFICATION = "image-classification"
@@ -32,22 +30,6 @@ class TaskType(StrEnum):
     AUDIO_CLASSIFICATION = "audio-classification"
     AUTOMATIC_SPEECH_RECOGNITION = "automatic-speech-recognition"
     TEXT_TO_SPEECH = "text-to-speech"
-
-
-SUPPORTED_TASK_TYPES = frozenset(
-    {
-        TaskType.IMAGE_CLASSIFICATION,
-        TaskType.OBJECT_DETECTION,
-        TaskType.TABULAR_CLASSIFICATION,
-        TaskType.TABULAR_REGRESSION,
-    }
-)
-
-
-TABULAR_TASKS = frozenset({TaskType.TABULAR_CLASSIFICATION, TaskType.TABULAR_REGRESSION})
-
-# What the trainer can do today (docs/trainer-plan.md); a subset of SUPPORTED_TASK_TYPES.
-TRAINABLE_TASK_TYPES = frozenset({TaskType.IMAGE_CLASSIFICATION, TaskType.OBJECT_DETECTION})
 
 
 class TrainPreset(StrEnum):
@@ -71,11 +53,6 @@ class ImportSource(StrEnum):
 
     UPLOAD = "upload"
     HUGGINGFACE = "huggingface"
-
-
-def require_supported_task_type(task_type: TaskType) -> None:
-    if task_type not in SUPPORTED_TASK_TYPES:
-        raise Problem(422, "task_type_not_supported", f"task type '{task_type}' is not supported yet")
 
 
 class AuthResult(StrEnum):

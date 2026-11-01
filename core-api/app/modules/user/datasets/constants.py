@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import StrEnum
 
-from app.core.enums import TABULAR_TASKS, ImportSource  # noqa: F401 - re-exported for the module and its tests
+from app.core.enums import ImportSource  # noqa: F401 - re-exported for the module and its tests
 
 
 class ImportStatus(StrEnum):

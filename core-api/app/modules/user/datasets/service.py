@@ -1,6 +1,7 @@
 """Dataset rules and queries: create, list, get, soft delete / restore, versions."""
 import uuid
 
+from app.core import audit
 from app.core.authz import AuthzContext
 from app.core.metrics import usage
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
@@ -15,12 +16,14 @@ from app.modules.user.datasets.constants import (
     ProblemCode,
 )
 from app.modules.user.datasets.schemas import DatasetSummary, DatasetVersion
+from app.modules.user.projects import get_task_type
 
-# The task type is read from the dataset's project; $1 must be the project id in every query using _COLUMNS.
-_COLUMNS = (
-    "id, name, created_at, deleted_at, published_version_id, "
-    "(SELECT task_type FROM projects WHERE id = $1) AS task_type"
-)
+_COLUMNS = "id, name, created_at, deleted_at, published_version_id"
+
+
+async def _summary(conn, project_id: uuid.UUID, row) -> DatasetSummary:
+    """The dataset with its project's task type (one task type per project, never stored on the dataset)."""
+    return DatasetSummary.model_validate({**dict(row), "task_type": await get_task_type(conn, project_id)})
 
 
 async def create_dataset(ctx: AuthzContext, project_id: uuid.UUID, name: str) -> DatasetSummary:
@@ -32,7 +35,7 @@ async def create_dataset(ctx: AuthzContext, project_id: uuid.UUID, name: str) ->
             ctx.tenant_id,
             name,
         )
-    return DatasetSummary.model_validate(dict(row))
+        return await _summary(conn, project_id, row)
 
 
 async def list_datasets(ctx: AuthzContext, project_id: uuid.UUID, page: PageParams) -> Page[DatasetSummary]:
@@ -44,7 +47,8 @@ async def list_datasets(ctx: AuthzContext, project_id: uuid.UUID, page: PagePara
             project_id,
             *args,
         )
-    return build_page(rows, page.page_size, DatasetSummary)
+        task_type = await get_task_type(conn, project_id)
+    return build_page([{**dict(r), "task_type": task_type} for r in rows], page.page_size, DatasetSummary)
 
 
 async def get_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:
@@ -54,9 +58,9 @@ async def get_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid
             project_id,
             dataset_id,
         )
-    if row is None:  # RLS hides other tenants' rows: indistinguishable from a missing one
-        raise not_found()
-    return DatasetSummary.model_validate(dict(row))
+        if row is None:  # RLS hides other tenants' rows: indistinguishable from a missing one
+            raise not_found()
+        return await _summary(conn, project_id, row)
 
 
 async def delete_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:
@@ -71,10 +75,11 @@ async def delete_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: u
         )
         if row is None:
             raise not_found()
-        await import_service.record(conn, ctx, project_id, AuditAction.DELETE, EntityType.DATASET, dataset_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.DELETE, EntityType.DATASET, dataset_id)
         cancelled = await import_service.cancel_running_imports(conn, dataset_id)
+        summary = await _summary(conn, project_id, row)
     await import_service.finish_cancelled(cancelled)
-    return DatasetSummary.model_validate(dict(row))
+    return summary
 
 
 async def restore_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:
@@ -91,8 +96,8 @@ async def restore_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: 
             if await conn.fetchval("SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2", project_id, dataset_id) is None:
                 raise not_found()
             raise Problem(409, ProblemCode.NOT_DELETED, NOT_DELETED_DETAIL)
-        await import_service.record(conn, ctx, project_id, AuditAction.RESTORE, EntityType.DATASET, dataset_id)
-    return DatasetSummary.model_validate(dict(row))
+        await audit.record_for(conn, ctx, project_id, AuditAction.RESTORE, EntityType.DATASET, dataset_id)
+        return await _summary(conn, project_id, row)
 
 
 async def list_versions(
@@ -126,9 +131,10 @@ async def publish_version(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: 
         )
         if row is None:
             raise not_found()
-        await import_service.record(conn, ctx, project_id, AuditAction.PUBLISH, EntityType.DATASET, dataset_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.PUBLISH, EntityType.DATASET, dataset_id)
+        summary = await _summary(conn, project_id, row)
     usage.datasets_published.add(1)
-    return DatasetSummary.model_validate(dict(row))
+    return summary
 
 
 async def unpublish_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:
@@ -141,5 +147,5 @@ async def unpublish_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id
         )
         if row is None:
             raise not_found()
-        await import_service.record(conn, ctx, project_id, AuditAction.UNPUBLISH, EntityType.DATASET, dataset_id)
-    return DatasetSummary.model_validate(dict(row))
+        await audit.record_for(conn, ctx, project_id, AuditAction.UNPUBLISH, EntityType.DATASET, dataset_id)
+        return await _summary(conn, project_id, row)

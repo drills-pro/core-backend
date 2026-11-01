@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from app.core.enums import ImportSource, Split, TaskType, TrainPreset
 from app.core.settings import DatasetLimits
+from app.core.task_catalog import TRAINABLE, TrainBaseModel
 
 SPEC_VERSION = 1
 
@@ -65,7 +66,7 @@ class IngestPayload(BaseModel):
 
 # ---- train ----
 
-TrainTask = Literal[TaskType.IMAGE_CLASSIFICATION, TaskType.OBJECT_DETECTION]  # tests keep it equal to TRAINABLE_TASK_TYPES
+TrainTask = Literal[*TRAINABLE]  # the catalog's trainable tasks: a new one is a TASKS entry, and the contract schema follows
 DEFAULT_EPOCHS, MAX_EPOCHS = 30, 500
 DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE = 16, 512
 DEFAULT_IMAGE_SIZE, MIN_IMAGE_SIZE, MAX_IMAGE_SIZE = 224, 32, 1536
@@ -78,13 +79,6 @@ class Hyperparameters(BaseModel):
     epochs: int = Field(default=DEFAULT_EPOCHS, ge=1, le=MAX_EPOCHS)
     batch_size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=MAX_BATCH_SIZE)
     image_size: int = Field(default=DEFAULT_IMAGE_SIZE, ge=MIN_IMAGE_SIZE, le=MAX_IMAGE_SIZE)
-
-
-class TrainBaseModel(BaseModel):
-    """A pretrained checkpoint on the Hugging Face Hub, pinned to a commit."""
-
-    repo_id: str
-    revision: str
 
 
 class TrainData(BaseModel):

@@ -4,12 +4,13 @@ import uuid
 from fastapi import APIRouter, Body, Depends, Header
 
 from app.core.authz import Action, AuthzContext, public, require
-from app.modules.user.deployments import service
+from app.modules.user.deployments import lineage, service
 from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
+    TrainingRunLineage,
     TestCall,
     TestCallResult,
 )
@@ -40,6 +41,14 @@ async def get_deployment(
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
 ):
     return await service.get_deployment(ctx, project_id, deployment_id)
+
+
+@router.get("/v1/projects/{project_id}/training-runs/{run_id}/lineage", response_model=TrainingRunLineage)
+async def get_training_run_lineage(
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
+):
+    """One endpoint joining dataset commit -> training run -> model registry entry -> active deployment."""
+    return await lineage.get_lineage(ctx, project_id, run_id)
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/test", response_model=TestCallResult)

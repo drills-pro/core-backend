@@ -132,6 +132,22 @@ def test_layer_boundaries_hold():
     assert not problems, "architecture boundary violations:\n  " + "\n  ".join(problems)
 
 
+def test_no_two_contexts_import_each_other():
+    """Imports between contexts go one way: if A imports B, B (even lazily) must not import A."""
+    contexts = _contexts()
+    edges = set()
+    for path in _iter_python_files():
+        own = _context_of(_dotted(path.parent), contexts)
+        if own is None:
+            continue
+        for target, _ in _imported_modules(path):
+            other = _context_of(target, contexts)
+            if other is not None and other != own:
+                edges.add((own, other))
+    cycles = sorted(f"{a} <-> {b}" for a, b in edges if a < b and (b, a) in edges)
+    assert not cycles, "contexts import each other:\n  " + "\n  ".join(cycles)
+
+
 def test_every_package_is_a_real_package():
     missing = [
         str(pkg.relative_to(APP.parent))
@@ -220,7 +236,7 @@ def test_the_backend_rule_catches_what_it_claims_to():
 
 if __name__ == "__main__":
     failures = 0
-    for check in (test_layer_boundaries_hold, test_every_package_is_a_real_package,
+    for check in (test_layer_boundaries_hold, test_no_two_contexts_import_each_other, test_every_package_is_a_real_package,
                   test_every_module_exports_a_router,
                   test_composition_root_registers_every_module,
                   test_removed_legacy_code_is_gone_and_unreferenced,

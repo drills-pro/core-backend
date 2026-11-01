@@ -73,23 +73,3 @@ class LineageRun(BaseModel):
     reproduction_group_id: uuid.UUID | None
     config: Any
     created_at: datetime
-
-
-class LineageModel(BaseModel):
-    id: uuid.UUID
-    mlflow_model_name: str
-    mlflow_version: str
-    stage: str
-
-
-class LineageDeployment(BaseModel):
-    id: uuid.UUID
-    status: str
-    route_prefix: str
-
-
-class TrainingRunLineage(BaseModel):
-    training_run: LineageRun
-    dataset_commit_message: str | None
-    model_version: LineageModel | None
-    deployment: LineageDeployment | None

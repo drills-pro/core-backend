@@ -2,7 +2,7 @@
 
 Two backends behind `settings.compute.backend`, chosen per call so a config flip needs no deploy of code:
 
-  ray_dashboard  Ray's HTTP job API (app/integrations/ray_client.py), the shared cluster of today
+  ray_dashboard  Ray's HTTP job API (`settings.ray.dashboard`, read per call), the shared cluster of today
   rayjob         a KubeRay `RayJob` custom resource created through the Kubernetes API; status is read from
                  the CR, so nothing polls a Ray head, and the control plane holds no credential to one
 
@@ -19,7 +19,6 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.core.settings import settings
-from app.integrations import ray_client
 
 KUBE_API = "https://kubernetes.default.svc"
 KUBE_TOKEN = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
@@ -29,6 +28,8 @@ PODS_PATH = "/api/v1/namespaces/{namespace}/pods"
 JOB_NAME_LABEL = "job-name"  # set by the Job controller on the submitter pod
 CLUSTER_SELECTOR_LABEL = "ray.io/cluster"
 KUBE_TIMEOUT_SECONDS = 10
+DASHBOARD_TIMEOUT_SECONDS = 10
+DASHBOARD_JOBS_PATH = "/api/jobs/"
 DEFAULT_JOB_PREFIX = "job-"
 CPU_POOL_RESOURCE = "cpu_pool"  # custom Ray resource only the CPU worker group advertises (k8s apps/ray raycluster.yaml)
 
@@ -117,24 +118,53 @@ def _rayjobs() -> str:
     return RAYJOB_PATH.format(namespace=settings.compute.rayjob.namespace)
 
 
+def _dashboard() -> httpx.AsyncClient:
+    """Ray's HTTP job API at the configured dashboard (read per call, not frozen at import); tests replace it."""
+    return httpx.AsyncClient(base_url=settings.ray.dashboard, timeout=DASHBOARD_TIMEOUT_SECONDS)
+
+
+def _dashboard_payload(spec: JobSpec) -> dict:
+    # Ray's job API has no deadline, so the entrypoint carries it (GNU timeout, present in the Ray images).
+    entrypoint = f"timeout {spec.timeout_seconds} sh -c {shlex.quote(spec.entrypoint)}" if spec.timeout_seconds else spec.entrypoint
+    payload: dict = {"entrypoint": entrypoint, "metadata": spec.metadata}
+    if spec.num_gpus:
+        payload["entrypoint_num_gpus"] = spec.num_gpus
+    if spec.num_cpus:
+        payload["entrypoint_num_cpus"] = spec.num_cpus
+    if spec.memory:
+        payload["entrypoint_memory"] = spec.memory
+    if spec.resources:
+        payload["entrypoint_resources"] = spec.resources
+    if spec.submission_id:
+        payload["submission_id"] = spec.submission_id
+    if spec.env_vars:
+        payload["runtime_env"] = {"env_vars": spec.env_vars}
+    return payload
+
+
 class _DashboardBackend:
     async def submit(self, spec: JobSpec) -> str:
-        # Ray's job API has no deadline, so the entrypoint carries it (GNU timeout, present in the Ray images).
-        entrypoint = f"timeout {spec.timeout_seconds} sh -c {shlex.quote(spec.entrypoint)}" if spec.timeout_seconds else spec.entrypoint
-        return await ray_client.submit_raw_job(
-            entrypoint=entrypoint, metadata=spec.metadata, num_gpus=spec.num_gpus, num_cpus=spec.num_cpus,
-            memory=spec.memory, resources=spec.resources or None, env_vars=spec.env_vars or None,
-            submission_id=spec.submission_id,
-        )
+        async with _dashboard() as client:
+            resp = await client.post(DASHBOARD_JOBS_PATH, json=_dashboard_payload(spec))
+            resp.raise_for_status()
+            return resp.json()["submission_id"]
 
     async def status(self, job_id: str) -> JobStatus:
-        return JobStatus(await ray_client.get_status(job_id))
+        async with _dashboard() as client:
+            resp = await client.get(f"{DASHBOARD_JOBS_PATH}{job_id}")
+            resp.raise_for_status()
+            return JobStatus(resp.json()["status"])
 
     async def stop(self, job_id: str) -> None:
-        await ray_client.stop_job(job_id)
+        async with _dashboard() as client:
+            resp = await client.post(f"{DASHBOARD_JOBS_PATH}{job_id}/stop")
+            resp.raise_for_status()
 
     async def logs(self, job_id: str) -> str:
-        return await ray_client.get_logs(job_id)
+        async with _dashboard() as client:
+            resp = await client.get(f"{DASHBOARD_JOBS_PATH}{job_id}/logs")
+            resp.raise_for_status()
+            return resp.json()["logs"]
 
 
 class _RayJobBackend:

@@ -8,42 +8,33 @@ core-api then calls the deployed HTTP route directly for /predict.
 """
 import base64
 import textwrap
+from enum import StrEnum
+from urllib.parse import urlsplit
 
+from app.core.settings import settings
 from app.integrations import compute
 from app.integrations.data_plane import mlflow
 
-RAY_SERVE_HTTP = "http://ray-head:8000"
+SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
-# Serves the exact logistic-regression weights a numpy-backend training run
-# actually fit (see app/integrations/ray_client.py's model: log line) — real inference
-# on a real (if simple) fitted model, not a stub response.
-_SERVE_TEMPLATE = """
-import numpy as np
-from ray import serve
-from starlette.requests import Request
 
-w = np.array({w})
-b = {b}
+class ComputeTarget(StrEnum):
+    """Where a deployment runs; also the project setting `compute_target`."""
 
-@serve.deployment
-class Predictor:
-    async def __call__(self, request: Request):
-        body = await request.json()
-        x = np.array(body["features"])
-        z = float(x @ w + b)
-        p = 1 / (1 + np.exp(-z))
-        return {{"probability": p, "prediction": int(p > 0.5)}}
+    CPU = "cpu"
+    GPU = "gpu"
 
-serve.start(http_options={{"host": "0.0.0.0", "port": 8000}})
-serve.run(Predictor.bind(), name="{name}", route_prefix="{route_prefix}")
-print("metric:deployed=1")
-"""
+
+def serve_url() -> str:
+    """Where deployed routes are served: the configured Ray head (settings.ray.dashboard) at Serve's port, read per call."""
+    head = urlsplit(settings.ray.dashboard)
+    return f"{head.scheme}://{head.hostname}:{SERVE_HTTP_PORT}"
 
 
 # req/06 Ultralytics FR3: serves the actual exported ONNX model — real
 # onnxruntime inference on real weights, not a stub. Accepts a base64
 # image, applies the same 32x32 preprocessing the training job used.
-_ONNX_SERVE_TEMPLATE = """
+_SERVE_TEMPLATE = """
 import base64, io, json
 import numpy as np
 import urllib.request
@@ -76,7 +67,7 @@ class Predictor:
         ranked = sorted(zip(class_names, probs.tolist()), key=lambda x: -x[1])
         return {{"predictions": [{{"class": c, "probability": p}} for c, p in ranked]}}
 
-serve.start(http_options={{"host": "0.0.0.0", "port": 8000}})
+serve.start(http_options={{"host": "0.0.0.0", "port": {port}}})
 serve.run(Predictor.bind(), name="{name}", route_prefix="{route_prefix}")
 print("metric:deployed=1")
 """
@@ -85,10 +76,11 @@ print("metric:deployed=1")
 async def deploy(
     *,
     deployment_id: str,
-    weights: dict,
+    mlflow_run_id: str,
+    class_names: list[str],
     tenant_id: str,
     project_id: str,
-    compute_target: str = "cpu",
+    compute_target: ComputeTarget = ComputeTarget.CPU,
     deploy_strategy: str = "latest",
 ) -> tuple[str, str]:
     # FR4/FR5 (06-project-settings-deployment.md): 'main' reuses one stable
@@ -102,23 +94,19 @@ async def deploy(
         route_prefix = f"/predict/{deployment_id}"
         name = f"deploy-{deployment_id}"
 
-    if "onnx_key" in weights:
-        script = textwrap.dedent(_ONNX_SERVE_TEMPLATE).format(
-            model_url=mlflow.artifact_url(weights['onnx_key']),
-            class_names=weights["class_names"],
-            name=name,
-            route_prefix=route_prefix,
-        )
-    else:
-        script = textwrap.dedent(_SERVE_TEMPLATE).format(
-            w=weights["w"], b=weights["b"], name=name, route_prefix=route_prefix
-        )
+    script = textwrap.dedent(_SERVE_TEMPLATE).format(
+        model_url=await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id),
+        class_names=class_names,
+        name=name,
+        route_prefix=route_prefix,
+        port=SERVE_HTTP_PORT,
+    )
 
     encoded = base64.b64encode(script.encode()).decode()
     entrypoint = f'python -c "import base64; exec(base64.b64decode(\'{encoded}\'))"'
     job_id = await compute.submit(compute.JobSpec(
         entrypoint=entrypoint,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "job_type": "serve-deploy"},
-        num_gpus=1 if compute_target == "gpu" else 0,
+        num_gpus=1 if compute_target == ComputeTarget.GPU else 0,
     ))
     return job_id, route_prefix

@@ -359,7 +359,7 @@
       "type": "string"
     },
     "TaskType": {
-      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today.",
+      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; core/task_catalog.py is what the platform can do today.",
       "enum": [
         "image-classification",
         "object-detection",

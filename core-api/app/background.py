@@ -22,18 +22,6 @@ SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
 
 
-async def _poll_active_principals() -> None:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        counts = {
-            window: await conn.fetchval(
-                "SELECT count(*) FROM principals WHERE last_seen_at > now() - make_interval(days => $1)", days
-            )
-            for window, days in metrics.ACTIVE_PRINCIPAL_WINDOW_DAYS.items()
-        }
-    metrics.set_active_principals(counts)
-
-
 # (name, coroutine function, seconds between runs)
 POLLERS = (
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
@@ -63,14 +51,15 @@ async def _run_as_leader(name: str, poll) -> None:
             await conn.execute("SELECT pg_advisory_unlock($1)", lock_id)
 
 
-# Gauges every replica must export itself; electing a leader would leave the others at 0.
-PER_REPLICA = {"pg-size", "gpu-quota"}
+# Pollers every replica runs: each claims rows of its own (app/integrations/job_lifecycle.py), so replicas share the work.
+# The rest sweep cheaply and elect one leader.
+CLAIMING = {"training-reconcile", "deployment-reconcile", "import-reconcile"}
 
 
 async def _run_forever(name: str, poll, interval: int) -> None:
     while True:
         try:
-            if name in PER_REPLICA:
+            if name in CLAIMING:
                 await poll()
             else:
                 await _run_as_leader(name, poll)

@@ -1,6 +1,8 @@
 """Named values for deployments and inference."""
 from enum import StrEnum
 
+from app.core import task_catalog
+
 
 class PlanTier(StrEnum):
     """Mirrors the tenants.plan_tier CHECK."""
@@ -31,6 +33,6 @@ SERVE_TIMEOUT_SECONDS = 10
 TEST_CALLS_DEFAULT_LIMIT = 20
 
 NOT_DEPLOYABLE_DETAIL = (
-    "training run has no deployable model artifact "
-    "(only the default numpy backend currently produces one — see README)"
+    "training run has no deployable model "
+    f"(only a succeeded {' or '.join(task_catalog.SERVABLE)} run can be served so far)"
 )

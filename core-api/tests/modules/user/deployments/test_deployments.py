@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.authz import Action, Role, Visibility
-from app.modules.user.deployments import routes, service
+from app.modules.user.deployments import lineage as lineage_module, routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 DEPLOYMENT = uuid.uuid4()
@@ -69,3 +69,37 @@ def test_get_is_read_only_and_hides_internals(call, monkeypatch):
     assert c.get(f"{BASE}/{DEPLOYMENT}").status_code == 200
     sql = " ".join(q for q, _ in conn.calls).upper()
     assert "UPDATE" not in sql and "PREDICT_KEY_HASH" not in sql
+
+RUN, VERSION = uuid.uuid4(), uuid.uuid4()
+LINEAGE = f"/v1/projects/{PROJECT}/training-runs/{RUN}/lineage"
+RUN_ROW = {
+    "id": RUN, "status": "succeeded", "dataset_id": None, "dataset_version": "c0ffee", "test_dataset_id": None,
+    "test_dataset_version": None, "mlflow_run_id": "m1", "reproduction_group_id": None, "config": {},
+    "created_at": datetime.now(timezone.utc),
+}
+MODEL_ROW = {"id": VERSION, "mlflow_model_name": "t.p.model", "mlflow_version": "2", "stage": "Staging"}
+DEPLOYMENT_ROW = {"id": DEPLOYMENT, "status": "active", "route_prefix": "/predict/x"}
+
+
+def lineage(monkeypatch, dev_headers, rows):
+    conn = FakeConn(access(), rows=rows)
+    patch_tenant_conn(monkeypatch, conn, lineage_module)
+    return make_client(routes.router, raise_server_exceptions=False).get(LINEAGE), conn
+
+
+def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_headers):
+    r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": RUN_ROW, "FROM model_versions": MODEL_ROW, "FROM deployments": DEPLOYMENT_ROW})
+    body = r.json()
+    assert r.status_code == 200
+    assert (body["training_run"]["id"], body["model_version"]["stage"], body["deployment"]["route_prefix"]) == (str(RUN), "Staging", "/predict/x")
+
+
+def test_lineage_of_a_run_without_a_model_has_no_deployment_lookup(monkeypatch, dev_headers):
+    r, conn = lineage(monkeypatch, dev_headers, {"FROM training_runs": RUN_ROW, "FROM model_versions": None})
+    assert (r.json()["model_version"], r.json()["deployment"]) == (None, None)
+    assert not any("FROM deployments" in sql for sql, _ in conn.calls)
+
+
+def test_lineage_of_an_unknown_run_is_404(monkeypatch, dev_headers):
+    r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": None})
+    assert r.status_code == 404

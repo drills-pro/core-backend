@@ -30,13 +30,34 @@ def scripts(monkeypatch):
     return seen
 
 
-def test_serving_downloads_from_the_mlflow_artifact_api(scripts):
-    weights = {"onnx_key": f"{ARTIFACT_PATH}/model/model.onnx", "class_names": ["a", "b"]}
-    asyncio.run(serve_client.deploy(deployment_id="d", weights=weights, tenant_id=T, project_id=P))
+MODEL_URL = f"{mlflow.artifact_url('')}{ARTIFACT_PATH}/model/model.onnx"
+
+
+@pytest.fixture
+def model_url(monkeypatch):
+    async def run_model_url(*_):
+        return MODEL_URL
+
+    monkeypatch.setattr(mlflow, "run_model_url", run_model_url)
+
+
+def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
+    asyncio.run(serve_client.deploy(deployment_id="d", mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     script = scripts[0]
     compile(script, "serve", "exec")
-    assert f"{mlflow.artifact_url('')}{ARTIFACT_PATH}/model/model.onnx" in script
+    assert MODEL_URL in script and "['a', 'b']" in script
     assert "boto3" not in script
+
+
+def test_the_model_url_is_under_the_runs_artifact_root(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        tags = [{"key": mlflow.TAG_TENANT, "value": T}, {"key": mlflow.TAG_PROJECT, "value": P}]
+        run = {"info": {"artifact_uri": f"mlflow-artifacts:/{ARTIFACT_PATH}"}, "data": {"tags": tags}}
+        return httpx.Response(200, json={"run": run})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    assert asyncio.run(mlflow.run_model_url(T, P, "abc123")) == MODEL_URL
 
 
 def test_names_are_namespaced_per_tenant_and_project():
@@ -89,3 +110,57 @@ def test_start_run_refuses_an_mlflow_that_does_not_serve_artifacts(monkeypatch):
     _mlflow(monkeypatch, "s3://bucket/7/abc123/artifacts")
     with pytest.raises(RuntimeError, match="not serving artifacts"):
         asyncio.run(mlflow.start_run(T, P, D, V))
+
+
+def test_serve_url_follows_the_configured_ray_head(monkeypatch):
+    from app.core.settings import settings
+    monkeypatch.setattr(settings.ray, "dashboard", "http://ray-head-svc.ray.svc:8265")
+    assert serve_client.serve_url() == f"http://ray-head-svc.ray.svc:{serve_client.SERVE_HTTP_PORT}"
+
+
+def test_only_a_gpu_target_asks_for_a_gpu(monkeypatch, model_url):
+    seen = []
+
+    async def submit(spec):
+        seen.append(spec.num_gpus)
+        return "job-1"
+
+    monkeypatch.setattr(compute, "submit", submit)
+    for target in serve_client.ComputeTarget:
+        asyncio.run(serve_client.deploy(
+            deployment_id="d", mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
+        ))
+    assert seen == [0, 1]
+
+
+def _registry(monkeypatch, existing):
+    created = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("model-versions/search"):
+            assert "run_id='abc123'" in request.url.params["filter"]
+            return httpx.Response(200, json={"model_versions": existing})
+        if path.endswith("model-versions/create"):
+            created.append(request)
+            return httpx.Response(200, json={"model_version": {"version": "9"}})
+        if path.endswith("registered-models/create"):
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"run": {"info": {"artifact_uri": "mlflow-artifacts:/x"}, "data": {"tags": [
+            {"key": mlflow.TAG_TENANT, "value": T}, {"key": mlflow.TAG_PROJECT, "value": P}]}}})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    return created
+
+
+def test_registering_a_run_twice_reuses_its_mlflow_version(monkeypatch):
+    created = _registry(monkeypatch, [{"version": "4"}])
+    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123")) == "4"
+    assert created == []
+
+
+def test_registering_a_new_run_creates_a_version(monkeypatch):
+    created = _registry(monkeypatch, [])
+    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123")) == "9"
+    assert len(created) == 1

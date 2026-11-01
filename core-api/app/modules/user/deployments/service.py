@@ -9,6 +9,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core import rate_limit
+from app.core import task_catalog
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
@@ -35,7 +36,8 @@ from app.modules.user.deployments.schemas import (
     TestCallResult,
 )
 from app.modules.user.deployments.status import DeploymentStatus
-from app.modules.user.training import TrainingStatus
+from app.modules.user.projects import get_settings, get_task_type
+from app.modules.user.training import get_run_model
 from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 _NOT_FOUND = "deployment not found"
@@ -52,17 +54,14 @@ def rate_limit_for(plan_tier: str | None) -> int:
 async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
-        run = await conn.fetchrow(
-            "SELECT status, model_artifact FROM training_runs WHERE id = $1 AND project_id = $2",
-            training_run_id,
-            project_id,
-        )
+        run = await get_run_model(conn, project_id, training_run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="training run not found")
-        if run["status"] != TrainingStatus.SUCCEEDED or run["model_artifact"] is None:
+        task = await get_task_type(conn, project_id)
+        if task is None or not task_catalog.servable(task) or not run.servable:
             raise HTTPException(status_code=409, detail=NOT_DEPLOYABLE_DETAIL)
 
-        settings = await conn.fetchval("SELECT settings FROM projects WHERE id = $1", project_id) or {}
+        settings = await get_settings(conn, project_id)
         deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
 
         # FR4/FR5 (06-project-settings-deployment.md): 'main' strategy has
@@ -83,10 +82,11 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
     ray_job_id, route_prefix = await serve_client.deploy(
         deployment_id=str(deployment_id),
-        weights=run["model_artifact"],
+        mlflow_run_id=run.mlflow_run_id,
+        class_names=run.class_names,
         tenant_id=ctx.tenant_id,
         project_id=str(project_id),
-        compute_target=settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET),
+        compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
         deploy_strategy=deploy_strategy,
     )
 
@@ -150,7 +150,7 @@ async def get_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id
 async def _post_to_serve(route_prefix: str, body: dict) -> tuple[httpx.Response, float]:
     start = time.perf_counter()
     async with httpx.AsyncClient(timeout=SERVE_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{serve_client.RAY_SERVE_HTTP}{route_prefix}", json=body)
+        resp = await client.post(f"{serve_client.serve_url()}{route_prefix}", json=body)
     return resp, (time.perf_counter() - start) * 1000
 
 

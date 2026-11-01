@@ -274,7 +274,7 @@ def test_non_bearer_header_is_counted(counted):
 def test_principal_created_counted_only_on_first_sight(counted):
     import asyncio
 
-    from app.modules.user.auth.routes import _upsert_principal
+    from app.modules.user.tenant_members import upsert_principal as _upsert_principal
     from tests.support import FakeConn
 
     claims = auth.Claims({"sub": "u"})
@@ -298,7 +298,7 @@ def test_sign_in_is_logged_and_first_sight_is_a_sign_up(caplog):
     import asyncio
 
     from app.core.enums import AuthEvent
-    from app.modules.user.auth.routes import _upsert_principal
+    from app.modules.user.tenant_members import upsert_principal as _upsert_principal
     from tests.support import FakeConn
 
     claims = auth.Claims({"sub": "u"})
@@ -330,7 +330,7 @@ def spans(monkeypatch):
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    from app.modules.user.auth import routes
+    from app.modules.user.tenant_members import identity as routes
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -406,7 +406,7 @@ def test_userinfo_and_sign_in_are_spans(monkeypatch, spans):
     from opentelemetry.trace import StatusCode
 
     from app.core.enums import AuthAttribute, AuthEvent, AuthSpan, UserinfoResult
-    from app.modules.user.auth.routes import _upsert_principal
+    from app.modules.user.tenant_members import upsert_principal as _upsert_principal
     from tests.support import FakeConn
 
     class DownClient:

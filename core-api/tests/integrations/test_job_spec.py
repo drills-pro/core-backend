@@ -3,12 +3,11 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import TRAINABLE_TASK_TYPES, ImportSource, TaskType, TrainPreset
+from app.core.enums import ImportSource, TaskType, TrainPreset
 from app.core.settings import settings
 from app.integrations.job_spec import (
     SPEC_ADAPTER,
@@ -19,7 +18,6 @@ from app.integrations.job_spec import (
     JobKind,
     Resources,
     TrainSpec,
-    TrainTask,
 )
 
 ROOT = Path(__file__).parents[3]
@@ -101,5 +99,3 @@ def _check_values(sql: str, column: str) -> set[str]:
 def test_the_db_checks_mirror_the_enums():
     sql = next(MIGRATIONS.glob("*_training_runs_trainer.sql")).read_text().split("-- migrate:down")[0]
     assert _check_values(sql, "preset") == {p.value for p in TrainPreset}
-    assert _check_values(sql, "task") == {t.value for t in TRAINABLE_TASK_TYPES}
-    assert set(get_args(TrainTask)) == TRAINABLE_TASK_TYPES

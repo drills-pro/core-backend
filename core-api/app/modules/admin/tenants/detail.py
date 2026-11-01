@@ -19,14 +19,15 @@ import uuid
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from app.core import audit
+from app.core import audit, task_catalog
 from app.core.auth import get_platform_admin
 from app.core.authz import TenantStatus
 from app.core.db import get_pool
-from app.core.enums import TaskType, require_supported_task_type
+from app.core.enums import TaskType
 from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
+from app.modules.user import projects
 from app.modules.admin.tenants.routes import ZITADEL_TIMEOUT, zitadel_refused
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
@@ -130,7 +131,7 @@ async def create_tenant_project(
     the audit row — so a project the operator creates is indistinguishable
     from one the tenant created itself.
     """
-    require_supported_task_type(task_type)
+    task_catalog.require_supported_task_type(task_type)
     async with (await get_pool()).acquire() as conn:
         if not await conn.fetchval("SELECT true FROM tenants WHERE id = $1", tenant_id):
             raise HTTPException(status_code=404, detail="no such tenant")
@@ -139,24 +140,17 @@ async def create_tenant_project(
         team_id = await conn.fetchval("SELECT id FROM teams ORDER BY created_at LIMIT 1")
         if team_id is None:
             raise HTTPException(status_code=409, detail="tenant has no team; create one first")
-        row = await conn.fetchrow(
-            "INSERT INTO projects (tenant_id, name, team_id, task_type) VALUES ($1, $2, $3, $4) "
-            "RETURNING id, name, status, task_type, visibility, default_access, gallery_published, created_at",
-            tenant_id,
-            name,
-            team_id,
-            task_type,
-        )
+        created = await projects.create_project(conn, tenant_id, name, team_id, task_type)
         await audit.record(
             conn,
             tenant_id=str(tenant_id),
-            project_id=row["id"],
+            project_id=created.id,
             actor=actor,
             action="create",
             entity_type="project",
-            entity_id=row["id"],
+            entity_id=created.id,
         )
-    return dict(row)
+    return created.model_dump(exclude={"team_id"})
 
 
 @router.patch("/{tenant_id}/settings", dependencies=[Depends(get_platform_admin)])

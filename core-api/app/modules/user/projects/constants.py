@@ -23,11 +23,6 @@ class EntityType(StrEnum):
     PROJECT_MEMBER = "project_member"
 
 
-class ComputeTarget(StrEnum):
-    CPU = "cpu"
-    GPU = "gpu"
-
-
 class DeployStrategy(StrEnum):
     MAIN = "main"
     LATEST = "latest"

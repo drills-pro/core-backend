@@ -41,6 +41,7 @@ OPERATIONS = (
     mlflow.start_run,
     mlflow.finish_run,
     mlflow.publish_run_model,
+    mlflow.run_model_url,
     mlflow.register_model_version,
     mlflow.transition_stage,
 )

@@ -174,6 +174,15 @@ async def publish_run_model(tenant_id: str, project_id: str, run_id: str, mlflow
             resp.raise_for_status()
 
 
+async def run_model_url(tenant_id: str, project_id: str, mlflow_run_id: str) -> str:
+    """Where serving downloads a run's published `model.onnx`: under the run's artifact root, through MLflow's artifact API."""
+    await access.project(tenant_id, project_id)
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        run = await _require_run(client, tenant_id, project_id, mlflow_run_id)
+    root = run["info"]["artifact_uri"].removeprefix(_SCHEME).strip("/")
+    return artifact_url(f"{root}/{MODEL_DIR}/{layout.MODEL_KEY}")
+
+
 async def register_model_version(tenant_id: str, project_id: str, model_name: str, run_id: str) -> str:
     """Model Registry stages map to customer-facing states (None -> Staging -> Production)."""
     await access.project(tenant_id, project_id)
@@ -183,11 +192,22 @@ async def register_model_version(tenant_id: str, project_id: str, model_name: st
         resp = await client.post(_api("registered-models/create"), json={"name": name})
         if resp.status_code not in (httpx.codes.OK, _HTTP_BAD_REQUEST):  # 400 = already exists, fine
             resp.raise_for_status()
+        existing = await _version_of_run(client, name, run_id)  # a retry after a rolled-back settle finds its own version
+        if existing is not None:
+            return existing
         resp = await client.post(
             _api("model-versions/create"), json={"name": name, "source": f"runs:/{run_id}/model", "run_id": run_id}
         )
         resp.raise_for_status()
         return resp.json()["model_version"]["version"]
+
+
+async def _version_of_run(client: httpx.AsyncClient, name: str, run_id: str) -> str | None:
+    """The version already created from this MLflow run, if any; makes registering a run idempotent."""
+    resp = await client.get(_api("model-versions/search"), params={"filter": f"name='{name}' and run_id='{run_id}'"})
+    resp.raise_for_status()
+    versions = resp.json().get("model_versions", [])
+    return versions[0]["version"] if versions else None
 
 
 async def transition_stage(tenant_id: str, project_id: str, model_name: str, version: str, stage: ModelStage) -> ModelVersion:

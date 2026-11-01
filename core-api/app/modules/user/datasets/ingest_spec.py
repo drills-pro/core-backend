@@ -1,6 +1,7 @@
 """The ingest job's spec, built from the import row start_import already holds. The job gets presigned reads of the
 base version and the staging prefix, nothing else (no lakeFS credential, plan decision 4)."""
-from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
+from app.core import task_catalog
+from app.core.enums import ImportSource, TaskType
 from app.core.settings import settings
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
@@ -12,7 +13,7 @@ HF_DEFAULT_REVISION = "main"  # the job records the commit sha it resolved in th
 
 async def _base(tenant_id: str, dataset_id: str, version_id: str, task_type: TaskType) -> IngestBase:
     """Presigned reads of the base version's index (images) or data and schema (tabular)."""
-    if task_type in TABULAR_TASKS:
+    if task_catalog.is_tabular(task_type):
         return IngestBase(
             data_url=await data_plane.presign_get(tenant_id, dataset_id, version_id, layout.DATA_KEY),
             schema_url=await data_plane.presign_get(tenant_id, dataset_id, version_id, layout.SCHEMA_KEY),

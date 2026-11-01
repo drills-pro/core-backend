@@ -12,8 +12,7 @@ from botocore.exceptions import ClientError
 
 from app.core import secret_files
 from app.core.settings import settings
-from app.integrations import compute
-from app.integrations.data_plane import access, ingest, job_catalog, job_package, lakefs, layout
+from app.integrations.data_plane import access, job_catalog, job_package, job_submit, lakefs, layout
 from app.integrations.data_plane.train_report import TrainReport
 from app.integrations.job_spec import TrainData, TrainSpec
 
@@ -41,22 +40,13 @@ async def prepare_train_data(tenant_id: str, project_id: str, dataset_id: str, v
 async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: TrainSpec) -> str:
     """Submit the driver under the spec's job_id (the caller's submission id); returns the Ray job id."""
     await access.training_run(tenant_id, project_id, run_id)
-    creds = secret_files.get(secret_files.INGEST)
     package_url = await job_package.presigned_url(job_package.TRAINING_PACKAGE_DIR)
-    return await compute.submit(compute.JobSpec(
-        entrypoint=ingest.command(package_url, job_catalog.TRAIN_ENTRYPOINT, spec.model_dump_json()),
-        submission_id=spec.job_id,
+    # num_gpus stays 0: the driver must not hold the only GPU, its Ray task asks for it (spec.resources.gpu)
+    return await job_submit.submit(
+        package_url=package_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "training_run_id": run_id},
-        num_cpus=settings.training.driver_cpus,
-        num_gpus=0,  # the driver must not hold the only GPU: its Ray task asks for it (spec.resources.gpu)
-        resources={compute.CPU_POOL_RESOURCE: 1},
-        timeout_seconds=spec.resources.max_runtime_s,
-        env_vars={
-            "STAGING_ENDPOINT": creds["endpoint"],
-            "STAGING_ACCESS_KEY": creds["access_key"],
-            "STAGING_SECRET_KEY": creds["secret_key"],
-        },
-    ))
+        num_cpus=settings.training.driver_cpus, timeout_seconds=spec.resources.max_runtime_s,
+    )
 
 
 async def read_train_report(tenant_id: str, project_id: str, run_id: str) -> TrainReport | None:

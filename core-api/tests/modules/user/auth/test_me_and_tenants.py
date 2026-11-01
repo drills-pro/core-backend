@@ -8,7 +8,7 @@ from starlette.exceptions import HTTPException
 from app.core.auth import Claims
 from app.core.authz import Action, TenantRole, allowed_actions
 from app.core.authz.policy import TENANT_ACTIONS
-from app.modules.user.auth import routes
+from app.modules.user.auth import routes, service
 from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT
 from app.modules.user.tenant_members import routes as member_routes
 from app.modules.user.tenant_members import service as member_service
@@ -39,9 +39,9 @@ def _patch(monkeypatch, conn):
     async def allowed(*a):
         return True
 
-    monkeypatch.setattr(routes, "get_pool", pool)
+    monkeypatch.setattr(service, "get_pool", pool)
     monkeypatch.setattr(routes.rate_limit, "check", allowed)
-    monkeypatch.setattr(routes, "TenantConn", lambda t: TenantCtx(conn))
+    monkeypatch.setattr(service, "TenantConn", lambda t: TenantCtx(conn))
 
 
 def test_me_lists_every_tenant_with_capabilities(monkeypatch):

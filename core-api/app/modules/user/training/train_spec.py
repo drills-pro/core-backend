@@ -2,13 +2,13 @@
 version and the run's staging prefix, nothing else (no lakeFS or MLflow credential, docs/trainer-plan.md T7)."""
 import uuid
 
+from app.core import task_catalog
 from app.core.enums import TaskType
 from app.core.settings import settings
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
 from app.integrations.job_spec import Resources, TrainPayload, TrainSpec
 from app.modules.user.training.constants import (
-    BASE_MODELS,
     JOB_ID_PREFIX,
     LOST_JOB_GRACE_SECONDS,
     MAX_PRESIGN_SECONDS,
@@ -44,7 +44,7 @@ async def build(
             prefix=layout.train_prefix(*ids, str(run_id)),
             task=task,
             preset=body.preset,
-            base_model=BASE_MODELS[(task, body.preset)],
+            base_model=task_catalog.base_model(task, body.preset),
             data=data,
             hyperparameters=body.hyperparameters,
             seed=body.seed,

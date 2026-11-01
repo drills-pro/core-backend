@@ -4,7 +4,8 @@ Adding one = the module and a JobType member.
 """
 from enum import StrEnum
 
-from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
+from app.core import task_catalog
+from app.core.enums import ImportSource, TaskType
 
 
 class JobType(StrEnum):
@@ -23,4 +24,4 @@ def ingest_job_type(source: str, task_type: str) -> JobType:
     """Which catalog entry imports this source for this task."""
     if source == ImportSource.HUGGINGFACE:
         return JobType.HUGGINGFACE
-    return JobType.UPLOAD_CSV if TaskType(task_type) in TABULAR_TASKS else JobType.UPLOAD_IMAGES
+    return JobType.UPLOAD_CSV if task_catalog.is_tabular(TaskType(task_type)) else JobType.UPLOAD_IMAGES

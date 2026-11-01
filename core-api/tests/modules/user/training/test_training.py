@@ -11,15 +11,19 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.authz import Role, TenantRole
-from app.core.enums import TRAINABLE_TASK_TYPES, TaskType, TrainPreset
+from app.core.enums import TaskType, TrainPreset
 from app.core.problem import Problem
 from app.core.settings import settings
+from app.core import task_catalog
+from app.integrations import compute
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 from app.integrations.job_spec import TrainData
-from app.modules.user.training import create_service, routes, run_service, service, train_spec
-from app.modules.user.training.constants import BASE_MODELS, DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
+from app.modules.user.model_registry import RegisteredVersion
+from app.modules.user.training import create_service, effects, persist, routes, run_service, service, train_spec
+from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
+from tests.support.job_table import FakeJobTable, patch
 
 BASE = f"/v1/projects/{PROJECT}/training-runs"
 RUN = uuid.uuid4()
@@ -111,7 +115,7 @@ def test_logs_are_the_raw_tail_only(call, monkeypatch):
     async def logs(job_id):
         return "x" * 10_000
 
-    monkeypatch.setattr(routes.compute, "logs", logs)
+    monkeypatch.setattr(run_service.compute, "logs", logs)
     r = call("GET", f"{BASE}/{RUN}/logs", {**access(), "ray_job_id": "j", "status": "running"})
     assert r.status_code == 200 and set(r.json()) == {"status", "logs"} and len(r.json()["logs"]) == 8000
 
@@ -158,7 +162,7 @@ def make_conn(monkeypatch, *, task=TaskType.IMAGE_CLASSIFICATION, inflight=0, ex
               "INSERT INTO training_runs": run_row()},
         vals={"task_type": task, "count(*)": inflight},
     )
-    patch_tenant_conn(monkeypatch, conn, create_service)
+    patch_tenant_conn(monkeypatch, conn, create_service, service)  # service: fail_unstarted
     return conn
 
 
@@ -179,7 +183,7 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     spec = gw.spec
     assert (spec.kind, spec.job_id.startswith("train-"), spec.resources.gpu) == ("train", True, 1)
     p = spec.payload
-    assert (p.task, p.preset, p.base_model) == (TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL, BASE_MODELS[(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL)])
+    assert (p.task, p.preset, p.base_model) == (TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL, task_catalog.base_model(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL))
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
     assert (spec.resources.cpu, spec.resources.max_runtime_s) == (settings.training.task_cpus, settings.training.max_runtime_seconds)
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
@@ -266,10 +270,10 @@ def test_a_submit_that_fails_stops_the_job_and_fails_the_run_with_a_503(monkeypa
     assert (err.value.status_code, err.value.code) == (503, ProblemCode.START_FAILED)
     assert gw.stopped == gw.spec.job_id and gw.finished is not None
     failed = next(args for sql, args in conn.calls if sql.startswith("UPDATE training_runs SET status"))
-    assert failed[1] == TrainingStatus.FAILED and failed[3]["code"] == FailureCode.INTERNAL
+    assert failed[2] == TrainingStatus.FAILED and failed[4]["code"] == FailureCode.INTERNAL
 
 
-# ---- lifecycle ----
+# ---- lifecycle: the sweep drives decide -> effects -> persist, against a table that enforces the compare-and-set ----
 
 def test_a_finished_run_cannot_move_again():
     assert TrainingStatus.RUNNING not in TRANSITIONS[TrainingStatus.SUCCEEDED]
@@ -277,86 +281,83 @@ def test_a_finished_run_cannot_move_again():
     assert all(not TRANSITIONS[s] for s in (TrainingStatus.SUCCEEDED, TrainingStatus.FAILED, TrainingStatus.CANCELLED))
 
 
-class _Conn:
-    """Answers the row lock with the run, `fetchval` with the model-already-registered check, and records the UPDATE's arguments."""
+class Fx:
+    """Everything a settling run touches outside the table, recorded; `table.open` is sampled at each call so a test
+    can assert that no connection was held across it."""
 
-    def __init__(self, row, lose_the_race=False, has_model=None):
-        self.row, self.update_args, self.lose, self.has_model = row, None, lose_the_race, has_model
+    def __init__(self, monkeypatch, report=None):
+        self.table = FakeJobTable(persist.TRAINING)
+        self.report, self.ray = report, JobStatus.RUNNING
+        self.mlflow, self.published, self.registered, self.usage, self.metrics, self.stopped = [], [], [], [], [], []
+        self.open_during = []
+        patch(monkeypatch, self.table, service)
 
-    async def fetchrow(self, sql, *args):
-        if "FOR UPDATE" in sql:
-            return self.row
-        self.update_args = args
-        if self.lose:
-            return None  # another writer moved the row between the lock and the UPDATE
-        return {**self.row, "status": args[1]}
-
-    async def fetchval(self, sql, *args):
-        return self.has_model
-
-
-def _row(status):
-    return {"id": RUN, "status": status, "project_id": PROJECT, "tenant_id": uuid.uuid4(), "mlflow_run_id": "mlflow-1",
-            "ray_job_id": f"train-{RUN}", "created_at": datetime.now(UTC)}
-
-
-class Settle:
-    """The calls transition makes outside Postgres, recorded."""
-
-    def __init__(self, monkeypatch, report):
-        self.mlflow, self.published, self.registered, self.usage = [], [], [], []
+        async def status(job_id):
+            if isinstance(self.ray, Exception):
+                raise self.ray
+            return self.ray
 
         async def read_train_report(*ids):
-            if isinstance(report, Exception):
-                raise report
-            return report
+            self.open_during.append(self.table.open)
+            if isinstance(self.report, Exception):
+                raise self.report
+            return self.report
 
         async def finish_run(tenant_id, project_id, run_id, status, metrics=None):
+            self.open_during.append(self.table.open)
             self.mlflow.append((status, metrics))
 
         async def publish_run_model(*ids):
+            self.open_during.append(self.table.open)
             self.published.append(ids)
 
-        async def register_version(conn, tenant_id, project_id, run_id, mlflow_run_id, name):
-            self.registered.append((run_id, mlflow_run_id, name))
+        async def register_in_mlflow(tenant_id, project_id, name, mlflow_run_id):
+            self.open_during.append(self.table.open)
+            return RegisteredVersion(mlflow_model_name=f"{name}-{mlflow_run_id}", mlflow_version="1")
+
+        async def record_version(conn, tenant_id, project_id, run_id, registered):
+            self.registered.append((run_id, registered.mlflow_model_name, registered.mlflow_version))
 
         async def record_usage(conn, **kw):
             self.usage.append(kw)
 
-        monkeypatch.setattr(service.data_plane, "read_train_report", read_train_report)
-        monkeypatch.setattr(service.mlflow, "finish_run", finish_run)
-        monkeypatch.setattr(service.mlflow, "publish_run_model", publish_run_model)
-        monkeypatch.setattr(service, "register_version", register_version)
-        monkeypatch.setattr(service, "record_usage", record_usage)
+        async def stop(job_id):
+            self.stopped.append(job_id)
+
+        monkeypatch.setattr(compute, "status", status)
+        monkeypatch.setattr(compute, "stop", stop)
+        monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
+        monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
+        monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
+        monkeypatch.setattr(effects, "register_in_mlflow", register_in_mlflow)
+        monkeypatch.setattr(persist, "record_version", record_version)
+        monkeypatch.setattr(persist, "record_usage", record_usage)
+        monkeypatch.setattr(service, "usage_metrics", SimpleNamespace(training_runs=SimpleNamespace(add=lambda n, attrs: self.metrics.append(attrs["status"]))))
+
+    def seed(self, status="running", **kw):
+        base = {"project_id": PROJECT, "mlflow_run_id": "mlflow-1", "ray_job_id": f"train-{RUN}", "created_at": datetime.now(UTC),
+                "metrics": None, "report": None}
+        return self.table.seed(status, **{**base, **kw})
+
+    def sweep(self):
+        asyncio.run(service.reconcile_inflight_runs())
 
 
-def transition(conn, to=TrainingStatus.SUCCEEDED):
-    return asyncio.run(service.transition(conn, dict(conn.row), to, "t1"))
-
-
-def test_a_cancelled_run_gets_a_completed_at(monkeypatch):
-    Settle(monkeypatch, None)
-
-    async def finish_run(*a, **k):
-        return None
-
-    monkeypatch.setattr(service.mlflow, "finish_run", finish_run)
-    conn = _Conn(_row("running"))
-    transition(conn, TrainingStatus.CANCELLED)
-    assert conn.update_args[3] is not None  # completed_at
-    assert conn.update_args[5] is None  # no report: the job did not end on its own
+GOOD = TrainReport(status=TrainOutcome.SUCCEEDED, metrics={"top1": 0.9}, history=[{"epoch": 1, "loss": 0.5}])
 
 
 def test_a_succeeded_job_with_a_good_report_logs_metrics_registers_the_model_and_bills(monkeypatch):
-    report = TrainReport(status=TrainOutcome.SUCCEEDED, metrics={"top1": 0.9}, history=[{"epoch": 1, "loss": 0.5}])
-    fx = Settle(monkeypatch, report)
-    conn = _Conn(_row("running"))
-    transition(conn)
-    assert fx.mlflow == [("FINISHED", {"top1": 0.9})]
-    assert len(fx.published) == 1 and fx.registered == [(RUN, "mlflow-1", DEFAULT_MODEL_NAME)]
-    assert fx.usage[0]["source_ref"] == f"train-{RUN}" and fx.usage[0]["unit"] == "gpu_seconds"  # keyed on the job: a second settle bills nothing
-    assert conn.update_args[1] == TrainingStatus.SUCCEEDED and conn.update_args[4] == {"top1": 0.9}
-    assert conn.update_args[5]["history"] == [{"epoch": 1, "loss": 0.5}]  # the whole report is kept on the row
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    fx.ray = JobStatus.SUCCEEDED
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["completed_at"] is not None and row["claimed_until"] is None
+    assert row["metrics"] == {"top1": 0.9} and row["report"]["history"] == [{"epoch": 1, "loss": 0.5}]  # the whole report is kept
+    assert fx.mlflow == [("FINISHED", {"top1": 0.9})] and len(fx.published) == 1
+    assert fx.registered == [(row["id"], f"{DEFAULT_MODEL_NAME}-mlflow-1", "1")]
+    assert fx.usage[0]["source_ref"] == f"train-{RUN}" and fx.usage[0]["unit"] == "gpu_seconds"
+    assert fx.metrics == [TrainingStatus.SUCCEEDED]
+    assert fx.open_during == [0, 0, 0, 0]  # report read, MLflow closed, model published and registered with no connection held
 
 
 def _unreadable():
@@ -372,61 +373,116 @@ def _unreadable():
     _unreadable(),  # it wrote one core-api cannot read
 ], ids=["failed", "missing", "unreadable"])
 def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_not_billed(monkeypatch, report):
-    fx = Settle(monkeypatch, report)
-    conn = _Conn(_row("running"))
-    transition(conn)  # Ray said SUCCEEDED
-    assert conn.update_args[1] == TrainingStatus.FAILED
+    fx = Fx(monkeypatch, report)
+    row = fx.seed()
+    fx.ray = JobStatus.SUCCEEDED  # Ray said SUCCEEDED
+    fx.sweep()
+    assert row["status"] == TrainingStatus.FAILED and row["report"]["status"] == "failed"
+    assert row["report"]["code"] == (report.code if isinstance(report, TrainReport) else FailureCode.INTERNAL)
     assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and not fx.usage
-    assert conn.update_args[5]["status"] == "failed"
-    if isinstance(report, TrainReport):
-        assert conn.update_args[5]["code"] == "oom"
-    else:
-        assert conn.update_args[5]["code"] == FailureCode.INTERNAL
+    assert fx.metrics == [TrainingStatus.FAILED]
 
 
 def test_a_report_that_says_succeeded_does_not_save_a_job_ray_failed(monkeypatch):
-    fx = Settle(monkeypatch, TrainReport(status=TrainOutcome.SUCCEEDED))
-    conn = _Conn(_row("running"))
-    transition(conn, TrainingStatus.FAILED)
-    assert conn.update_args[1] == TrainingStatus.FAILED and not fx.registered and not fx.usage
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    fx.ray = JobStatus.FAILED
+    fx.sweep()
+    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and not fx.usage
 
 
-def test_a_second_settle_of_the_same_run_does_nothing(monkeypatch):
-    fx = Settle(monkeypatch, TrainReport(status=TrainOutcome.SUCCEEDED))
-    conn = _Conn(_row("succeeded"))  # someone else already moved it
-    asyncio.run(service.transition(conn, {**conn.row, "status": "running"}, TrainingStatus.SUCCEEDED, "t1"))
-    assert conn.update_args is None and not fx.mlflow and not fx.registered and not fx.usage
+def test_a_stopped_job_cancels_the_run_and_kills_the_mlflow_run(monkeypatch):
+    fx = Fx(monkeypatch)
+    row = fx.seed()
+    fx.ray = JobStatus.STOPPED
+    fx.sweep()
+    assert row["status"] == TrainingStatus.CANCELLED and row["completed_at"] is not None and row["report"] is None
+    assert fx.mlflow == [("KILLED", None)] and fx.metrics == [TrainingStatus.CANCELLED]
 
 
-def test_a_retry_after_a_rollback_does_not_register_the_model_twice(monkeypatch):
-    fx = Settle(monkeypatch, TrainReport(status=TrainOutcome.SUCCEEDED))
-    transition(_Conn(_row("running"), has_model=1))
-    assert not fx.published and not fx.registered
-
-
-def _ray(monkeypatch, status):
-    async def poll(job_id):
-        return status
-
-    monkeypatch.setattr(service.job_follower, "poll", poll)
+def test_a_run_ray_starts_moves_to_running_and_one_still_pending_stays_submitted(monkeypatch):
+    fx = Fx(monkeypatch)
+    pending, running = fx.seed("submitted"), fx.seed("submitted")
+    fx.ray = JobStatus.PENDING
+    fx.sweep()
+    assert pending["status"] == TrainingStatus.SUBMITTED
+    fx.ray = JobStatus.RUNNING
+    fx.sweep()
+    assert running["status"] == TrainingStatus.RUNNING and not fx.mlflow and not fx.metrics
+    fx.sweep()  # running -> running is not an edge: nothing to do
+    assert running["status"] == TrainingStatus.RUNNING and running["completed_at"] is None
 
 
 def test_the_sweep_ignores_a_run_someone_else_just_moved(monkeypatch):
-    Settle(monkeypatch, TrainReport(status=TrainOutcome.SUCCEEDED))
-    _ray(monkeypatch, JobStatus.SUCCEEDED)
-    conn = _Conn(_row("running"), lose_the_race=True)
-    asyncio.run(service._settle(conn, {**conn.row, "status": TrainingStatus.RUNNING}))  # no exception: the 409 is the expected race
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    fx.ray = JobStatus.SUCCEEDED
+    original = effects.data_plane.read_train_report
+
+    async def read_then_cancel(*ids):
+        row["status"] = TrainingStatus.CANCELLED  # a cancel lands between the poll and the write
+        return await original(*ids)
+
+    monkeypatch.setattr(effects.data_plane, "read_train_report", read_then_cancel)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.CANCELLED
+    assert not fx.registered and not fx.usage and not fx.metrics  # only the writer that wins bills and registers
 
 
-def test_a_job_ray_no_longer_knows_fails_only_past_the_deadline(monkeypatch):
-    Settle(monkeypatch, None)
-    _ray(monkeypatch, None)
-    fresh = _Conn(_row("submitted"))
-    asyncio.run(service._settle(fresh, fresh.row))
-    assert fresh.update_args is None
-    old = _Conn({**_row("submitted"), "created_at": datetime.now(UTC) - timedelta(seconds=train_spec.horizon_seconds() + 60)})
-    asyncio.run(service._settle(old, old.row))
-    assert old.update_args[1] == TrainingStatus.FAILED
+def test_two_replicas_sweeping_at_once_bill_a_finished_run_once(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    rows = [fx.seed() for _ in range(5)]
+    fx.ray = JobStatus.SUCCEEDED
+
+    async def both():
+        await asyncio.gather(service.reconcile_inflight_runs(), service.reconcile_inflight_runs())
+
+    asyncio.run(both())
+    assert {r["status"] for r in rows} == {TrainingStatus.SUCCEEDED}
+    assert len(fx.usage) == len(fx.registered) == len(fx.metrics) == 5
+
+
+def test_a_gateway_failure_leaves_the_run_in_flight_and_the_next_sweep_settles_it(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    fx.ray = JobStatus.SUCCEEDED
+    working = effects.mlflow.publish_run_model
+
+    async def broken(*ids):
+        raise RuntimeError("mlflow down")
+
+    monkeypatch.setattr(effects.mlflow, "publish_run_model", broken)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.RUNNING and row["claimed_until"] is None and not fx.usage  # retried at once, not after the lease
+    monkeypatch.setattr(effects.mlflow, "publish_run_model", working)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and len(fx.usage) == 1
+
+
+def test_a_run_ray_no_longer_knows_fails_only_past_the_deadline_and_the_job_is_stopped(monkeypatch):
+    fx = Fx(monkeypatch)
+    fresh = fx.seed("submitted")
+    old = fx.seed("submitted", created_at=datetime.now(UTC) - timedelta(seconds=train_spec.horizon_seconds() + 60))
+    fx.ray = RuntimeError("404 from the dashboard")
+    fx.sweep()
+    assert (fresh["status"], old["status"]) == (TrainingStatus.SUBMITTED, TrainingStatus.FAILED)
+    assert old["report"]["code"] == FailureCode.TIMEOUT and fx.stopped == [old["ray_job_id"]]
+    assert fx.mlflow == [("FAILED", {})] and fx.metrics == [TrainingStatus.FAILED]
+
+
+def test_a_job_still_running_past_the_horizon_is_timed_out_and_stopped(monkeypatch):
+    fx = Fx(monkeypatch)
+    row = fx.seed(created_at=datetime.now(UTC) - timedelta(seconds=train_spec.horizon_seconds() + 60))
+    fx.sweep()  # Ray still answers RUNNING
+    assert row["status"] == TrainingStatus.FAILED and row["report"]["code"] == FailureCode.TIMEOUT and fx.stopped == [row["ray_job_id"]]
+
+
+def test_a_job_that_finished_wins_over_the_horizon(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed(created_at=datetime.now(UTC) - timedelta(seconds=train_spec.horizon_seconds() + 60))
+    fx.ray = JobStatus.SUCCEEDED
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and not fx.stopped
 
 
 # ---- the enums and the database agree ----
@@ -435,8 +491,3 @@ def test_the_status_check_mirrors_the_enum():
     sql = (MIGRATIONS / "20261017172706_init.sql").read_text()
     clause = re.search(r"status\s+text NOT NULL DEFAULT 'submitted'\s+CHECK \(status IN \(([^)]*)\)\)", sql)
     assert set(re.findall(r"'([^']+)'", clause.group(1))) == {s.value for s in TrainingStatus}
-
-
-def test_every_trainable_task_has_a_base_model_per_preset():
-    assert set(BASE_MODELS) == {(t, p) for t in TRAINABLE_TASK_TYPES for p in TrainPreset}
-    assert all(m.revision != "main" and len(m.revision) == 40 for m in BASE_MODELS.values())  # pinned to a commit

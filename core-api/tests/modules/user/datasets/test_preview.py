@@ -41,7 +41,7 @@ def call(monkeypatch, dev_headers):
     client = make_client(datasets)
 
     def send(path, *, acc=None, task=TaskType.IMAGE_CLASSIFICATION, rows=IMAGE_ROWS, found=True, import_status=ImportStatus.AWAITING_REVIEW):
-        vals = {"FROM datasets d": task if found else None, "FROM dataset_versions": 1 if found else None,
+        vals = {"FROM datasets": 1 if found else None, "FROM projects": task, "FROM dataset_versions": 1 if found else None,
                 "FROM dataset_imports": import_status if found else None}
         conn = FakeConn(acc or access_row(roles=["editor"]), vals=vals)
         patch_tenant_conn(monkeypatch, conn, preview_service)

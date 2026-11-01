@@ -8,7 +8,7 @@ from app.modules.user.projects import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "image-classification", "created_at": datetime.now(),
-               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False}
+               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False, "gallery_published": False}
 
 
 @pytest.fixture

@@ -1,9 +1,7 @@
 from enum import StrEnum
 
-from app.core.enums import TaskType, TrainPreset
-from app.integrations.job_spec import TrainBaseModel
-
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+NOT_REGISTRABLE_DETAIL = "training run has no completed MLflow run to register"
 
 class TrainingStatus(StrEnum):
     """Training-run lifecycle. Mirrors the training_runs.status CHECK constraint."""
@@ -33,17 +31,6 @@ TRAINING_LOCK_PREFIX = "training:"  # advisory-lock key prefix: serialises the q
 JOB_ID_PREFIX = "train-"  # Ray submission id = prefix + run id: known before the POST, so a lost answer can still be stopped
 LOST_JOB_GRACE_SECONDS = 3600  # past the run's queue + runtime horizon, a job Ray no longer answers for is failed
 MAX_PRESIGN_SECONDS = 7 * 24 * 3600  # SigV4 presigned URLs live at most 7 days
-
-# One pretrained checkpoint per (task, preset), pinned to a commit (docs/trainer-plan.md T6).
-BASE_MODELS: dict[tuple[TaskType, TrainPreset], TrainBaseModel] = {
-    (TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL): TrainBaseModel(repo_id="facebook/convnext-tiny-224", revision="6166b7613034066690a621d8bf25ffdf181a34f0"),
-    (TaskType.IMAGE_CLASSIFICATION, TrainPreset.MEDIUM): TrainBaseModel(repo_id="facebook/convnext-small-224", revision="e0df91dcc78dbc0f56be8fbecff706128aee7c28"),
-    (TaskType.IMAGE_CLASSIFICATION, TrainPreset.LARGE): TrainBaseModel(repo_id="facebook/convnext-base-224", revision="8550c1da008c99b90c9c42f1d4e1cb650d7a8c05"),
-    (TaskType.OBJECT_DETECTION, TrainPreset.SMALL): TrainBaseModel(repo_id="PekingU/rtdetr_v2_r18vd", revision="5650961749fa93567c0d46fc7f43ea4f9e914107"),
-    (TaskType.OBJECT_DETECTION, TrainPreset.MEDIUM): TrainBaseModel(repo_id="PekingU/rtdetr_v2_r34vd", revision="5d60d8fb5eb2a3ee5575bf200ecbce4e2cfa420c"),
-    (TaskType.OBJECT_DETECTION, TrainPreset.LARGE): TrainBaseModel(repo_id="PekingU/rtdetr_v2_r50vd", revision="282494075698cab9faa1096ae26856890030c817"),
-}
-
 
 S = TrainingStatus
 # Legal transitions: every status change is a compare-and-set along one of these edges.

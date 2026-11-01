@@ -102,7 +102,7 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
         sent["package_dir"] = package_dir
         return "http://ray-side/jobs/ray-training-x.zip"
 
-    monkeypatch.setattr(train.compute, "submit", submit)
+    monkeypatch.setattr(compute, "submit", submit)
     monkeypatch.setattr(train.job_package, "presigned_url", package_url)
     assert asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec)) == "train-1"
     argv = shlex.split(sent["entrypoint"])

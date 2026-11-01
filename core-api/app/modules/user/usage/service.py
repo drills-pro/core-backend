@@ -8,6 +8,8 @@ new version, so past invoices stay reproducible from the version that was
 active when the usage occurred.
 """
 
+from app.modules.user.projects import get_team_id
+
 PRICING_VERSION = "v1-raw-gpu-seconds"
 
 
@@ -25,16 +27,17 @@ async def record_usage(
     """Idempotent append (FR1/NFR2): a repeat call with the same
     (resource_type, source_ref) no-ops. Returns True if a new row was written."""
     # FR1 (09-usage-billing-two-tier.md): team_id derived from the project
-    # at write time, same join path the 02 backfill migration used, so new
-    # rows don't need every call site to look it up themselves.
+    # at write time, so call sites don't need to look it up themselves.
+    team_id = await get_team_id(conn, project_id)
     row = await conn.fetchrow(
         "INSERT INTO usage_events "
         "(tenant_id, project_id, team_id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version) "
-        "VALUES ($1, $2, (SELECT team_id FROM projects WHERE id = $2), $3, $4, $5, $6, $7, $8) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
         "ON CONFLICT (resource_type, source_ref) DO NOTHING "
         "RETURNING id",
         tenant_id,
         project_id,
+        team_id,
         resource_type,
         quantity,
         unit,
