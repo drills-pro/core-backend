@@ -118,6 +118,7 @@ TASKS: Mapping[TaskType, TaskInfo] = {
     ),
     TaskType.TEXT_CLASSIFICATION: TaskInfo(
         data_kind=DataKind.TEXT,
+        servable=True,
         presets={
             TrainPreset.SMALL: PresetSpec(base_model=TrainBaseModel(repo_id="distilbert/distilbert-base-uncased", revision="12040accade4e8a0f71eabdb258fecc2e7e948be"), learning_rate=2e-5, preprocessing=DEFAULT_TEXT_PREPROCESSING),
             TrainPreset.MEDIUM: PresetSpec(base_model=TrainBaseModel(repo_id="google-bert/bert-base-uncased", revision="86b5e0934494bd15c9632b12f734a8a67f723594"), learning_rate=2e-5, preprocessing=DEFAULT_TEXT_PREPROCESSING),

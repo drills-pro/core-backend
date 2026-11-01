@@ -9,6 +9,7 @@ core-api then calls the deployed HTTP route directly for /predict.
 import base64
 import textwrap
 from importlib import resources
+from typing import NamedTuple
 from enum import StrEnum
 from urllib.parse import urlsplit
 
@@ -21,12 +22,21 @@ from app.integrations.data_plane import layout, mlflow
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
 
-# The function in serve_postprocess.py that turns a task's model outputs into the /predict answer. That file is sent
-# to the replica as text and never imported here: core-api does not depend on numpy.
-POSTPROCESS: dict[TaskType, str] = {
-    TaskType.IMAGE_CLASSIFICATION: "classify",
-    TaskType.OBJECT_DETECTION: "detect",
+class Serving(NamedTuple):
+    encoder: str  # factory in serve_inputs.py: request body -> model feeds
+    postprocess: str  # function in serve_postprocess.py: model outputs -> the /predict answer
+
+
+# Both files are sent to the replica as text and never imported here: core-api depends on neither numpy nor PIL.
+SERVING: dict[TaskType, Serving] = {
+    TaskType.IMAGE_CLASSIFICATION: Serving("image_encoder", "classify"),
+    TaskType.OBJECT_DETECTION: Serving("image_encoder", "detect"),
+    TaskType.TEXT_CLASSIFICATION: Serving("text_encoder", "classify"),
 }
+
+
+def _source(name: str) -> str:
+    return resources.files(__package__).joinpath(name).read_text()
 
 
 class ComputeTarget(StrEnum):
@@ -42,29 +52,11 @@ def serve_url() -> str:
     return f"{head.scheme}://{head.hostname}:{SERVE_HTTP_PORT}"
 
 
-# What the trainer did to every training image, read from the `preprocessing` entry of the model's model.json
-# (ray_training.result.load_image). No braces: this part is not run through str.format.
-_PREPROCESS = """
-import io
-import numpy as np
-from PIL import Image
-
-
-def preprocess(data, pre):
-    # returns the NCHW float array and the width and height of the image as sent
-    width, height = pre["resize"]
-    sent = Image.open(io.BytesIO(data)).convert("RGB")
-    img = sent.resize((width, height), getattr(Image, pre["resample"].upper()))
-    arr = (np.asarray(img, dtype=np.float32) * pre["rescale"] - np.array(pre["mean"], dtype=np.float32)) / np.array(pre["std"], dtype=np.float32)
-    return arr.transpose(2, 0, 1)[None, ...], sent.width, sent.height
-"""
-
 # req/06 Ultralytics FR3: serves the actual exported ONNX model — real
 # onnxruntime inference on real weights, not a stub. Accepts a base64
 # image and preprocesses it as model.json says the training job did.
 _SERVE_TEMPLATE = """
-import base64, json
-import numpy as np
+import json
 import urllib.request
 from ray import serve
 from starlette.requests import Request
@@ -73,6 +65,7 @@ import onnxruntime as ort
 class_names = {class_names!r}
 model_url = {model_url!r}
 manifest_url = {manifest_url!r}
+tokenizer_url = {tokenizer_url!r}
 
 @serve.deployment
 class Predictor:
@@ -87,11 +80,12 @@ class Predictor:
         self.input_name = self.session.get_inputs()[0].name
         # a model trained before the manifest named its resampling filter used the library default
         self.pre = {{"resample": {default_resample!r}, **json.loads(urllib.request.urlopen(manifest_url, timeout=120).read())["preprocessing"]}}
+        self.encode = {encoder}(self.pre, tokenizer_url, self.input_name)
 
     async def __call__(self, request: Request):
         body = await request.json()
-        arr, width, height = preprocess(base64.b64decode(body["image_base64"]), self.pre)
-        outputs = self.session.run(None, {{self.input_name: arr}})
+        feeds, width, height = self.encode(body)
+        outputs = self.session.run(None, feeds)
         return {{"predictions": {postprocess}(outputs, class_names, width, height)}}
 
 serve.start(http_options={{"host": "0.0.0.0", "port": {port}}})
@@ -123,8 +117,11 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
-    script = textwrap.dedent(_PREPROCESS) + resources.files(__package__).joinpath("serve_postprocess.py").read_text() + textwrap.dedent(_SERVE_TEMPLATE).format(
-        postprocess=POSTPROCESS[task],
+    serving = SERVING[task]
+    script = _source("serve_inputs.py") + _source("serve_postprocess.py") + textwrap.dedent(_SERVE_TEMPLATE).format(
+        encoder=serving.encoder,
+        postprocess=serving.postprocess,
+        tokenizer_url=model_url.removesuffix(layout.MODEL_KEY) + layout.TOKENIZER_KEY,
         model_url=model_url,
         manifest_url=model_url.removesuffix(layout.MODEL_KEY) + layout.MODEL_META_KEY,  # published side by side
         default_resample=IMAGENET_PREPROCESSING.resample.value,

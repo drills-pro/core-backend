@@ -33,7 +33,7 @@ def test_detection_scales_normalised_boxes_to_the_images_pixels_and_drops_low_sc
 
 
 def test_every_servable_task_has_a_postprocessor():
-    assert set(serve_client.POSTPROCESS) == set(task_catalog.SERVABLE)
+    assert set(serve_client.SERVING) == set(task_catalog.SERVABLE)
 
 
 @pytest.mark.parametrize("task", task_catalog.SERVABLE)
@@ -52,4 +52,19 @@ def test_the_deployed_script_compiles_and_calls_its_tasks_postprocessor(monkeypa
     asyncio.run(serve_client.deploy(deployment_id="d", task=task, mlflow_run_id="r", class_names=CLASSES, tenant_id="t", project_id="p"))
     script = base64.b64decode(re.search(r"b64decode\('([^']+)'\)", scripts[0]).group(1)).decode()
     compile(script, "serve", "exec")
-    assert f"{serve_client.POSTPROCESS[task]}(outputs, class_names, width, height)" in script
+    serving = serve_client.SERVING[task]
+    assert f"{serving.postprocess}(outputs, class_names, width, height)" in script
+    assert f"self.encode = {serving.encoder}(" in script and f"def {serving.encoder}(" in script
+
+
+def test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_beside_the_model(monkeypatch):
+    np = pytest.importorskip("numpy")
+    tokenizers = pytest.importorskip("tokenizers")
+    tk = tokenizers.Tokenizer(tokenizers.models.WordLevel({"[UNK]": 0, "great": 1, "film": 2}, unk_token="[UNK]"))
+    tk.pre_tokenizer = tokenizers.pre_tokenizers.Whitespace()
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout: type("R", (), {"read": lambda self: tk.to_str().encode()})())
+    scope = {}
+    exec(serve_client._source("serve_inputs.py"), scope)
+    feeds, width, height = scope["text_encoder"]({"max_length": 4}, "http://m/tokenizer.json", "input_ids")({"text": "great film"})
+    assert feeds["input_ids"].tolist() == [[1, 2, 0, 0]] and feeds["attention_mask"].tolist() == [[1, 1, 0, 0]]
+    assert (width, height) == (0, 0) and feeds["input_ids"].dtype == np.int64

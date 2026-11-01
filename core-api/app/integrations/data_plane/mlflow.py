@@ -12,6 +12,7 @@ import time
 from enum import StrEnum
 
 import httpx
+from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
 from app.core import secret_files
@@ -21,6 +22,7 @@ from app.integrations.data_plane import access, lakefs, layout
 
 _TIMEOUT = 10
 _HEALTH_TIMEOUT = 3
+_S3_NO_SUCH_KEY = "NoSuchKey"
 _UPLOAD_TIMEOUT = httpx.Timeout(_TIMEOUT, write=600, read=600)  # a model file is hundreds of MB
 _UPLOAD_CHUNK = 1 << 20
 MODEL_DIR = "model"  # artifact directory a registered version's source `runs:/<run>/model` points at
@@ -165,8 +167,13 @@ async def publish_run_model(tenant_id: str, project_id: str, run_id: str, mlflow
         run = await _require_run(client, tenant_id, project_id, mlflow_run_id)
         s3 = lakefs.s3_client(secret_files.STAGING)
         root = run["info"]["artifact_uri"].removeprefix(_SCHEME).strip("/")
-        for name in (layout.MODEL_KEY, layout.MODEL_META_KEY):
-            obj = await asyncio.to_thread(s3.get_object, Bucket=settings.data_plane.staging_bucket, Key=prefix + name)
+        for name in (layout.MODEL_KEY, layout.MODEL_META_KEY, layout.TOKENIZER_KEY):
+            try:
+                obj = await asyncio.to_thread(s3.get_object, Bucket=settings.data_plane.staging_bucket, Key=prefix + name)
+            except ClientError as e:
+                if name == layout.TOKENIZER_KEY and e.response["Error"]["Code"] == _S3_NO_SUCH_KEY:
+                    continue  # only a text model has one
+                raise
             resp = await client.put(
                 artifact_url(f"{root}/{MODEL_DIR}/{name}"), content=_chunks(obj["Body"]),
                 headers={"Content-Length": str(obj["ContentLength"])},

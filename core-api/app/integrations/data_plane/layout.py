@@ -40,9 +40,11 @@ SCHEMA_KEY = "schema.json"
 #   manifest.json      written by core-api before the job starts: {index path: presigned GET}
 #   report.json        TrainReport (train_report.py); always written by the job, also when training fails
 #   model.onnx, model.json   the model and its description (success only)
+#   tokenizer.json           a text model's tokenizer, beside the model
 MANIFEST_KEY = "manifest.json"
 MODEL_KEY = "model.onnx"
 MODEL_META_KEY = "model.json"
+TOKENIZER_KEY = "tokenizer.json"
 
 # /health/deps values.
 HEALTH_OK = "ok"

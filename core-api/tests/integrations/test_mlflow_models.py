@@ -56,13 +56,14 @@ def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url)
     Image = pytest.importorskip("PIL.Image")
     np = pytest.importorskip("numpy")
     asyncio.run(serve_client.deploy(deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
-    assert "def preprocess" in scripts[0]
+    assert "def image_encoder" in scripts[0]
     scope = {}
-    exec(serve_client._PREPROCESS, scope)  # the part of the script that needs neither ray nor onnxruntime
+    exec(serve_client._source("serve_inputs.py"), scope)  # the part of the script that needs neither ray nor onnxruntime
     buf = io.BytesIO()
     Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
     pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}
-    arr, width, height = scope["preprocess"](buf.getvalue(), pre)
+    feeds, width, height = scope["image_encoder"](pre, None, "pixel_values")({"image_base64": base64.b64encode(buf.getvalue()).decode()})
+    arr = feeds["pixel_values"]
     assert (width, height) == (5, 7) and arr.shape == (1, 3, 6, 4) and np.allclose(arr, (0.2 - 0.5) / 0.25, atol=1e-5)  # NCHW, (height, width) swapped from "resize"
 
 
