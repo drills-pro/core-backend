@@ -101,7 +101,7 @@ def test_deploy_requires_a_succeeded_servable_run(deploy_env, row):
     assert e.value.status_code == 409 and not deploy_env.deployed
 
 
-@pytest.mark.parametrize("task", [None, TaskType.OBJECT_DETECTION, TaskType.TABULAR_CLASSIFICATION])
+@pytest.mark.parametrize("task", [None, TaskType.TABULAR_CLASSIFICATION, TaskType.TEXT_GENERATION])
 def test_deploy_requires_a_servable_task_whatever_the_report_carries(deploy_env, task):
     deploy_env.conn.vals["SELECT task_type"] = task  # a tabular classifier's report has labels too
     with pytest.raises(HTTPException) as e:

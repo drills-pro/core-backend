@@ -16,7 +16,7 @@ def test_image_tasks_are_trainable_and_tabular_ones_are_not_yet():
 def test_the_predicates_are_the_catalog():
     assert task_catalog.supported(TaskType.TABULAR_REGRESSION) and not task_catalog.supported(TaskType.TEXT_GENERATION)
     assert task_catalog.is_tabular(TaskType.TABULAR_CLASSIFICATION) and not task_catalog.is_tabular(TaskType.OBJECT_DETECTION)
-    assert task_catalog.servable(TaskType.IMAGE_CLASSIFICATION) and not task_catalog.servable(TaskType.OBJECT_DETECTION)
+    assert task_catalog.servable(TaskType.IMAGE_CLASSIFICATION) and task_catalog.servable(TaskType.OBJECT_DETECTION)
     assert not task_catalog.servable(TaskType.TEXT_GENERATION)
 
 

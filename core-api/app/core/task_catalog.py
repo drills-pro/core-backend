@@ -89,6 +89,7 @@ TASKS: Mapping[TaskType, TaskInfo] = {
     ),
     TaskType.OBJECT_DETECTION: TaskInfo(
         data_kind=DataKind.IMAGES,
+        servable=True,
         presets={
             TrainPreset.SMALL: PresetSpec(base_model=TrainBaseModel(repo_id="PekingU/rtdetr_v2_r18vd", revision="5650961749fa93567c0d46fc7f43ea4f9e914107"), learning_rate=1e-4),
             TrainPreset.MEDIUM: PresetSpec(base_model=TrainBaseModel(repo_id="PekingU/rtdetr_v2_r34vd", revision="5d60d8fb5eb2a3ee5575bf200ecbce4e2cfa420c"), learning_rate=1e-4),

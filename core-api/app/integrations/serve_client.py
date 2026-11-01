@@ -8,15 +8,25 @@ core-api then calls the deployed HTTP route directly for /predict.
 """
 import base64
 import textwrap
+from importlib import resources
 from enum import StrEnum
 from urllib.parse import urlsplit
 
+from app.core.enums import TaskType
 from app.core.settings import settings
 from app.core.task_catalog import IMAGENET_PREPROCESSING
 from app.integrations import compute
 from app.integrations.data_plane import layout, mlflow
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
+
+
+# The function in serve_postprocess.py that turns a task's model outputs into the /predict answer. That file is sent
+# to the replica as text and never imported here: core-api does not depend on numpy.
+POSTPROCESS: dict[TaskType, str] = {
+    TaskType.IMAGE_CLASSIFICATION: "classify",
+    TaskType.OBJECT_DETECTION: "detect",
+}
 
 
 class ComputeTarget(StrEnum):
@@ -41,10 +51,12 @@ from PIL import Image
 
 
 def preprocess(data, pre):
+    # returns the NCHW float array and the width and height of the image as sent
     width, height = pre["resize"]
-    img = Image.open(io.BytesIO(data)).convert("RGB").resize((width, height), getattr(Image, pre["resample"].upper()))
+    sent = Image.open(io.BytesIO(data)).convert("RGB")
+    img = sent.resize((width, height), getattr(Image, pre["resample"].upper()))
     arr = (np.asarray(img, dtype=np.float32) * pre["rescale"] - np.array(pre["mean"], dtype=np.float32)) / np.array(pre["std"], dtype=np.float32)
-    return arr.transpose(2, 0, 1)[None, ...]
+    return arr.transpose(2, 0, 1)[None, ...], sent.width, sent.height
 """
 
 # req/06 Ultralytics FR3: serves the actual exported ONNX model — real
@@ -78,11 +90,9 @@ class Predictor:
 
     async def __call__(self, request: Request):
         body = await request.json()
-        arr = preprocess(base64.b64decode(body["image_base64"]), self.pre)
-        logits = self.session.run(None, {{self.input_name: arr}})[0][0]
-        probs = np.exp(logits) / np.sum(np.exp(logits))
-        ranked = sorted(zip(class_names, probs.tolist()), key=lambda x: -x[1])
-        return {{"predictions": [{{"class": c, "probability": p}} for c, p in ranked]}}
+        arr, width, height = preprocess(base64.b64decode(body["image_base64"]), self.pre)
+        outputs = self.session.run(None, {{self.input_name: arr}})
+        return {{"predictions": {postprocess}(outputs, class_names, width, height)}}
 
 serve.start(http_options={{"host": "0.0.0.0", "port": {port}}})
 serve.run(Predictor.bind(), name="{name}", route_prefix="{route_prefix}")
@@ -93,6 +103,7 @@ print("metric:deployed=1")
 async def deploy(
     *,
     deployment_id: str,
+    task: TaskType,
     mlflow_run_id: str,
     class_names: list[str],
     tenant_id: str,
@@ -112,7 +123,8 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
-    script = textwrap.dedent(_PREPROCESS) + textwrap.dedent(_SERVE_TEMPLATE).format(
+    script = textwrap.dedent(_PREPROCESS) + resources.files(__package__).joinpath("serve_postprocess.py").read_text() + textwrap.dedent(_SERVE_TEMPLATE).format(
+        postprocess=POSTPROCESS[task],
         model_url=model_url,
         manifest_url=model_url.removesuffix(layout.MODEL_KEY) + layout.MODEL_META_KEY,  # published side by side
         default_resample=IMAGENET_PREPROCESSING.resample.value,

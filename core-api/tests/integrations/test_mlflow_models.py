@@ -8,6 +8,7 @@ import re
 import httpx
 import pytest
 
+from app.core.enums import TaskType
 from app.integrations import compute, serve_client
 from app.integrations.data_plane import access, mlflow
 
@@ -43,7 +44,7 @@ def model_url(monkeypatch):
 
 
 def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
-    asyncio.run(serve_client.deploy(deployment_id="d", mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
+    asyncio.run(serve_client.deploy(deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     script = scripts[0]
     compile(script, "serve", "exec")
     assert MODEL_URL in script and "['a', 'b']" in script
@@ -54,15 +55,15 @@ def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
 def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url):
     Image = pytest.importorskip("PIL.Image")
     np = pytest.importorskip("numpy")
-    asyncio.run(serve_client.deploy(deployment_id="d", mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
+    asyncio.run(serve_client.deploy(deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     assert "def preprocess" in scripts[0]
     scope = {}
     exec(serve_client._PREPROCESS, scope)  # the part of the script that needs neither ray nor onnxruntime
     buf = io.BytesIO()
     Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
     pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}
-    arr = scope["preprocess"](buf.getvalue(), pre)
-    assert arr.shape == (1, 3, 6, 4) and np.allclose(arr, (0.2 - 0.5) / 0.25, atol=1e-5)  # NCHW, (height, width) swapped from "resize"
+    arr, width, height = scope["preprocess"](buf.getvalue(), pre)
+    assert (width, height) == (5, 7) and arr.shape == (1, 3, 6, 4) and np.allclose(arr, (0.2 - 0.5) / 0.25, atol=1e-5)  # NCHW, (height, width) swapped from "resize"
 
 
 def test_the_model_url_is_under_the_runs_artifact_root(monkeypatch):
@@ -144,7 +145,7 @@ def test_only_a_gpu_target_asks_for_a_gpu(monkeypatch, model_url):
     monkeypatch.setattr(compute, "submit", submit)
     for target in serve_client.ComputeTarget:
         asyncio.run(serve_client.deploy(
-            deployment_id="d", mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
+            deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
         ))
     assert seen == [0, 1]
 
