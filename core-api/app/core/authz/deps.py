@@ -8,8 +8,10 @@ the caller is not in), then one `project_access` call decides the rest.
     visible but action not allowed              -> 403 forbidden, naming the action
 """
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from fastapi import Depends, Request
 
@@ -62,6 +64,23 @@ class AuthzContext:
         return await conn.fetchval("SELECT array_agg(i) FROM accessible_project_ids($1, $2) i", self.actor, self.tenant_id) or []
 
 
+# Projects live in a context core cannot import: the projects package registers its existence check here when it is
+# imported, and an unregistered check fails closed.
+ProjectExists = Callable[[Any, uuid.UUID], Awaitable[bool]]
+_project_exists: ProjectExists | None = None
+
+
+def register_project_exists(check: ProjectExists) -> None:
+    global _project_exists
+    _project_exists = check
+
+
+async def _exists(conn, project_id: uuid.UUID) -> bool:
+    if _project_exists is None:
+        raise RuntimeError("no project existence check is registered")
+    return await _project_exists(conn, project_id)
+
+
 def _parse_uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
@@ -86,7 +105,7 @@ def require(action: Action, *, allow_pending_delete: bool = False):
             project_id = _parse_uuid(request.path_params["project_id"]) if project_scoped else None
             row = await conn.fetchrow("SELECT * FROM project_access($1, $2, $3)", actor, tenant_id, project_id)
             if row is None and project_scoped and settings.auth.dev_headers:
-                if await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id) is None:
+                if not await _exists(conn, project_id):
                     raise not_found()
 
         if row is None:

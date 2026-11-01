@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.authz import Action, AuthzContext, require
 from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
+from app.modules.user.teams import writers
 
 router = APIRouter(prefix="/v1/teams", tags=["teams"])
 
@@ -29,13 +30,8 @@ async def create_team(name: str, ctx: AuthzContext = Depends(require(Action.TENA
     # FR2 (02): every project belongs to exactly one team; a tenant can add
     # more teams beyond the bootstrap-seeded "Default" one at any time.
     async with TenantConn(ctx.tenant_id) as conn:
-        row = await conn.fetchrow(
-            "INSERT INTO teams (tenant_id, name) VALUES ($1, $2) "
-            "RETURNING id, name, created_at",
-            ctx.tenant_id,
-            name,
-        )
-    return dict(row)
+        team = await writers.create_team(conn, ctx.tenant_id, name)
+    return team.model_dump()
 
 
 @router.get("/{team_id}")

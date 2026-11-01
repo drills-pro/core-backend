@@ -1,5 +1,6 @@
 """teams + usage routes: role -> status through the real routers, database faked."""
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -34,7 +35,7 @@ def test_member_cannot_create_team_403_names_action(serve):
 
 
 def test_admin_creates_team(serve):
-    r = serve(access(TenantRole.ADMIN), dict(id=TEAM, name="x", created_at=None)).post("/v1/teams", params={"name": "x"})
+    r = serve(access(TenantRole.ADMIN), dict(id=TEAM, name="x", created_at=datetime.now(timezone.utc))).post("/v1/teams", params={"name": "x"})
     assert r.status_code == 201
 
 

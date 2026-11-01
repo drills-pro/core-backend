@@ -27,7 +27,7 @@ from app.core.enums import TaskType
 from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
-from app.modules.user import projects
+from app.modules.user import projects, teams
 from app.modules.admin.tenants.routes import ZITADEL_TIMEOUT, zitadel_refused
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
@@ -137,7 +137,7 @@ async def create_tenant_project(
             raise HTTPException(status_code=404, detail="no such tenant")
 
     async with TenantConn(str(tenant_id)) as conn:
-        team_id = await conn.fetchval("SELECT id FROM teams ORDER BY created_at LIMIT 1")
+        team_id = await teams.get_default_team_id(conn)
         if team_id is None:
             raise HTTPException(status_code=409, detail="tenant has no team; create one first")
         created = await projects.create_project(conn, tenant_id, name, team_id, task_type)

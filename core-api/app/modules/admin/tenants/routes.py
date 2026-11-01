@@ -32,6 +32,7 @@ from app.core.auth import get_platform_admin
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import zitadel
+from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +181,7 @@ async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> dict
     # teams is RLS-protected, so the Default team is written as the tenant
     # rather than around it — the same connection its own members get.
     async with TenantConn(str(row["id"])) as conn:
-        await conn.execute(
-            "INSERT INTO teams (tenant_id, name) VALUES ($1, 'Default')", row["id"]
-        )
+        await create_team(conn, row["id"], DEFAULT_TEAM_NAME)
     return dict(row)
 
 

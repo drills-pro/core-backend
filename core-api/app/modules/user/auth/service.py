@@ -9,9 +9,9 @@ from app.core.authz import TenantRole
 from app.core.db import get_pool
 from app.core.schemas import slugify
 from app.core.tenant_conn import TenantConn
-from app.modules.user.auth.constants import DEFAULT_TEAM_NAME, TENANT_SLUG_CONSTRAINT
+from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT
 from app.modules.user.auth.schemas import TenantCreate, TenantCreated
-from app.modules.user.teams import create_team
+from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 from app.modules.user.tenant_members import add_member, upsert_principal
 
 _MY_TENANTS = "SELECT id, name, slug, role, status FROM my_tenants($1)"

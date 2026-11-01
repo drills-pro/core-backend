@@ -10,6 +10,7 @@ from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
+from app.modules.user.teams import get_default_team_id
 from app.modules.user.tenant_members import is_member
 from app.modules.user.projects import readers
 from app.modules.user.projects.writers import create_project as insert_project
@@ -66,7 +67,7 @@ async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team
         if team_id is None:
             # Every org has >=1 team (seeded at provisioning); a project with no team_id given lands in
             # the tenant's oldest (Default) team rather than requiring every caller to look it up.
-            team_id = await conn.fetchval("SELECT id FROM teams ORDER BY created_at LIMIT 1")
+            team_id = await get_default_team_id(conn)
             if team_id is None:
                 raise HTTPException(status_code=409, detail=NO_TEAM)
         created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type)

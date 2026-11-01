@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import uuid
 
 import asyncpg
@@ -13,6 +14,8 @@ from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT
 from app.modules.user.tenant_members import routes as member_routes
 from app.modules.user.tenant_members import service as member_service
 from tests.support import FakeConn, TenantCtx
+
+_TEAM_ROW = {"INSERT INTO teams": {"id": uuid.uuid4(), "name": "Default", "created_at": datetime.now(timezone.utc)}}
 
 
 def test_capabilities_follow_the_role_map():
@@ -74,7 +77,7 @@ def test_replay_with_the_same_key_returns_the_first_tenant_and_creates_nothing(m
 
 
 def test_first_call_claims_the_key_before_inserting_the_tenant(monkeypatch):
-    conn = FakeConn(row=None, val="acme")
+    conn = FakeConn(row=None, rows=_TEAM_ROW, val="acme")
     _patch(monkeypatch, conn)
     asyncio.run(_create(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     sqls = [s for s, _ in conn.calls]
@@ -95,14 +98,14 @@ def _inserted_slug(conn):
 
 
 def test_slug_is_derived_from_the_name_when_free_and_left_to_the_trigger_when_taken(monkeypatch):
-    conn = FakeConn(row=None, vals={"SELECT true": None, "INSERT INTO tenants": "acme-inc"})
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"SELECT true": None, "INSERT INTO tenants": "acme-inc"})
     assert _create_with(None, conn, monkeypatch).slug == "acme-inc" and _inserted_slug(conn) == "acme-inc"
-    conn = FakeConn(row=None, vals={"SELECT true": True, "INSERT INTO tenants": "acme-inc-1a2b3c4d"})
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"SELECT true": True, "INSERT INTO tenants": "acme-inc-1a2b3c4d"})
     assert _create_with(None, conn, monkeypatch).slug == "acme-inc-1a2b3c4d" and _inserted_slug(conn) is None
 
 
 def test_a_requested_slug_is_used_as_is(monkeypatch):
-    conn = FakeConn(row=None, vals={"INSERT INTO tenants": "mine"})
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"INSERT INTO tenants": "mine"})
     assert _create_with("mine", conn, monkeypatch).slug == "mine" and _inserted_slug(conn) == "mine"
     assert not any("SELECT true" in s for s, _ in conn.calls)
 

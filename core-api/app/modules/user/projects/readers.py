@@ -9,6 +9,7 @@ from app.core.enums import TaskType
 _TASK_TYPE = "SELECT task_type FROM projects WHERE id = $1"
 _SETTINGS = "SELECT settings FROM projects WHERE id = $1"
 _TEAM = "SELECT team_id FROM projects WHERE id = $1"
+_EXISTS = "SELECT 1 FROM projects WHERE id = $1"
 _OWNED = "SELECT 1 FROM projects WHERE id = $1 AND tenant_id = $2"
 
 
@@ -26,6 +27,11 @@ async def get_settings(conn, project_id: uuid.UUID) -> dict[str, Any]:
 async def owns_project(conn, tenant_id: uuid.UUID, project_id: uuid.UUID):
     """The gateway's ownership check (data_plane.access)."""
     return await conn.fetchval(_OWNED, project_id, tenant_id)
+
+
+async def exists(conn, project_id: uuid.UUID) -> bool:
+    """Whether the project is visible to the caller (core.authz's dev-header 404)."""
+    return await conn.fetchval(_EXISTS, project_id) is not None
 
 
 async def get_team_id(conn, project_id: uuid.UUID) -> uuid.UUID | None:

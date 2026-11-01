@@ -11,6 +11,7 @@ from app.core.authz import Action, AuthzContext, TenantRole
 from app.core.db import get_pool
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
+from app.modules.user.tenant_members.hooks import member_removed
 from app.modules.user.tenant_members.constants import (
     INVITATION_TTL,
     OWNERSHIP_OFFER_TTL,
@@ -86,7 +87,7 @@ async def _delete_member(conn, ctx: AuthzContext, user_sub: str, action: AuditAc
     if owners == [user_sub]:
         raise _last_owner()
     # Bindings go too, so re-adding the person later does not resurrect old project access.
-    await conn.execute("DELETE FROM project_members WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, user_sub)
+    await member_removed(conn, ctx.tenant_id, user_sub)
     await conn.execute("DELETE FROM tenant_members WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, user_sub)
     await audit.record_for(conn, ctx, None, action, EntityType.TENANT_MEMBER, user_sub)
 
