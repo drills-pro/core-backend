@@ -3,12 +3,12 @@ Domain transitions live in app/modules/user/training/service.py, which the backg
 """
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.core.authz import Action, AuthzContext, require
+from app.core.idempotency import IdempotencyKey
 from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
 from app.modules.user.training import create_service, run_service
-from app.modules.user.training.constants import IDEMPOTENCY_HEADER
 from app.modules.user.training.schemas import (
     TrainingRun,
     TrainingRunCreate,
@@ -35,7 +35,7 @@ async def register_model(
 async def create_training_run(
     project_id: uuid.UUID,
     body: TrainingRunCreate,
-    idempotency_key: str = Header(alias=IDEMPOTENCY_HEADER, min_length=1, max_length=255),
+    idempotency_key: IdempotencyKey,
     ctx: AuthzContext = Depends(require(Action.JOB_CREATE)),
 ):
     """Train on one version of one of this project's datasets. Sending the same Idempotency-Key and body again returns the same run."""

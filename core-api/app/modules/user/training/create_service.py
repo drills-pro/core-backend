@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.core import task_catalog
 from app.core.authz import AuthzContext
 from app.core.enums import TaskType
+from app.core.idempotency import insert_once, replay
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
@@ -69,9 +70,7 @@ def _same_request(row, body: TrainingRunCreate) -> bool:
 
 
 def _replay(row, body: TrainingRunCreate) -> TrainingRun:
-    if not _same_request(row, body):
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.IDEMPOTENCY_MISMATCH, "this Idempotency-Key was used with a different request")
-    return TrainingRun.model_validate(dict(row))
+    return TrainingRun.model_validate(dict(replay(row, lambda r: _same_request(r, body), ProblemCode.IDEMPOTENCY_MISMATCH)))
 
 
 async def _fail_unstarted(ctx: AuthzContext, run_id: uuid.UUID, mlflow_run_id: str, project_id: uuid.UUID) -> None:
@@ -105,13 +104,15 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
     async with TenantConn(tenant_id) as conn:
         await conn.fetchval(_LOCK_TENANT, f"{TRAINING_LOCK_PREFIX}{tenant_id}")  # a concurrent create waits here, then sees this one
         await _check_quota(conn, tenant_id)
-        row = await conn.fetchrow(
-            _INSERT, run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
-            body.hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-            task, body.preset, spec.model_dump(mode="json"),
+        row, created = await insert_once(
+            conn, _INSERT,
+            (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
+             body.hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
+             task, body.preset, spec.model_dump(mode="json")),
+            _BY_KEY, (project_id, idempotency_key),
         )
-        if row is None:  # lost a race with the same key: that one is the run
-            return _replay(await conn.fetchrow(_BY_KEY, project_id, idempotency_key), body)
+        if not created:  # lost a race with the same key: that one is the run
+            return _replay(row, body)
 
     try:
         await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec)

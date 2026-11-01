@@ -1,6 +1,5 @@
 from enum import StrEnum
 
-IDEMPOTENCY_HEADER = "Idempotency-Key"
 NOT_REGISTRABLE_DETAIL = "training run has no completed MLflow run to register"
 
 class TrainingStatus(StrEnum):

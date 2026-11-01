@@ -43,7 +43,6 @@ TRANSITIONS: dict[ImportStatus, frozenset[ImportStatus]] = {
 ACTIVE_STATUSES = (S.AWAITING_UPLOAD, S.QUEUED, S.RUNNING, S.AWAITING_REVIEW, S.COMMITTING)
 
 COMMIT_LEASE_GRACE = timedelta(seconds=30)  # added to the lakeFS commit timeout: how long a committing import is "in progress"
-IDEMPOTENCY_HEADER = "Idempotency-Key"
 IMPORT_UPLOAD_TTL = timedelta(hours=24)  # an upload nobody started is expired after this
 IMPORT_REVIEW_TTL = timedelta(days=7)  # an import nobody committed or discarded is expired after this
 SYSTEM_ACTOR = "system"  # audit actor for what the background sweeps do

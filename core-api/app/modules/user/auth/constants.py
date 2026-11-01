@@ -1,5 +1,4 @@
-IDEMPOTENCY_HEADER = "Idempotency-Key"
-IDEMPOTENCY_KEY_MAX_LENGTH = 128
+TENANT_KEY_MAX_LENGTH = 128  # the tenant_create_keys.key column
 
 # Tenant creation is capped per user and per client IP, per minute.
 TENANT_CREATE_USER_LIMIT = 3

@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from app.core import audit, task_catalog
 from app.core.authz import Action, AuthzContext
 from app.core.enums import TaskType
+from app.core.idempotency import insert_once, replay
 from app.core.metrics import usage
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
@@ -151,18 +152,18 @@ async def create_import(
                     HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_IMPORTS, "too many imports in progress, wait for one to finish"
                 )
             import_id = uuid.uuid4()
-            row = await conn.fetchrow(
-                _INSERT, import_id, ctx.tenant_id, project_id, dataset_id, body.source, body.base_version_id,
-                body.params.model_dump(mode="json", exclude_none=True),
-                layout.staging_prefix(ctx.tenant_id, str(dataset_id), str(import_id)),
-                datetime.now(UTC) + IMPORT_UPLOAD_TTL, idempotency_key,
+            row, created = await insert_once(
+                conn, _INSERT,
+                (import_id, ctx.tenant_id, project_id, dataset_id, body.source, body.base_version_id,
+                 body.params.model_dump(mode="json", exclude_none=True),
+                 layout.staging_prefix(ctx.tenant_id, str(dataset_id), str(import_id)),
+                 datetime.now(UTC) + IMPORT_UPLOAD_TTL, idempotency_key),
+                _BY_KEY, (dataset_id, idempotency_key),
             )
-            if row is None:  # lost a race with the same key: that one is the import
-                row, created = await conn.fetchrow(_BY_KEY, dataset_id, idempotency_key), False
-            else:
+            if created:
                 await audit.record_for(conn, ctx, project_id, AuditAction.IMPORT_CREATED, EntityType.DATASET_IMPORT, import_id)
-    if not created and not _same_request(row, body):
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.IDEMPOTENCY_MISMATCH, "this Idempotency-Key was used with a different request")
+    if not created:
+        replay(row, lambda r: _same_request(r, body), ProblemCode.IDEMPOTENCY_MISMATCH)
     if created:
         usage.dataset_imports.add(1, {"source": body.source})
     return await _to_model(ctx, dict(row), with_upload_url=True)

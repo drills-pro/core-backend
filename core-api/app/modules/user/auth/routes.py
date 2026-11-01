@@ -6,10 +6,10 @@ from app.core import rate_limit
 from app.core.auth import Claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
+from app.core.idempotency import IDEMPOTENCY_HEADER
 from app.modules.user.auth import service
 from app.modules.user.auth.constants import (
-    IDEMPOTENCY_HEADER,
-    IDEMPOTENCY_KEY_MAX_LENGTH,
+    TENANT_KEY_MAX_LENGTH,
     TENANT_CREATE_IP_LIMIT,
     TENANT_CREATE_IP_RATE_KEY,
     TENANT_CREATE_USER_LIMIT,
@@ -46,7 +46,7 @@ async def create_tenant(
     body: TenantCreate,
     request: Request,
     claims: Claims = Depends(get_profile_claims),
-    idempotency_key: str = Header(..., alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH),
+    idempotency_key: str = Header(..., alias=IDEMPOTENCY_HEADER, min_length=1, max_length=TENANT_KEY_MAX_LENGTH),
 ):
     """Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo."""
     if not claims.email_verified:
