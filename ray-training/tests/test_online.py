@@ -5,10 +5,10 @@ import socket
 
 import pytest
 
-from ray_training.constants import MODEL_KEY
+from ray_training.constants import MODEL_KEY, TOKENIZER_KEY
 from ray_training.runner import run
 from ray_training.spec import parse_spec
-from tests.support import MemStore, classification_rows, detection_rows, fake_get, spec_text
+from tests.support import MemStore, classification_rows, detection_rows, fake_get, text_get, text_rows, text_spec_text, spec_text
 
 pytestmark = pytest.mark.online
 
@@ -39,3 +39,11 @@ def test_the_small_presets_real_checkpoint_trains_and_exports(task, rows_fn):
     report = run(spec, store, fake_get(rows, files))
     assert report["status"] == "succeeded", report["message"]
     assert len(store.puts[MODEL_KEY]) > 1_000_000
+
+
+def test_the_small_text_preset_real_checkpoint_trains_and_exports():
+    store = MemStore()
+    spec = parse_spec(text_spec_text("distilbert/distilbert-base-uncased"))  # core-api task_catalog, small preset
+    report = run(type(spec)(**{**spec.__dict__, "base_revision": None}), store, text_get(text_rows()))
+    assert report["status"] == "succeeded", report["message"]
+    assert len(store.puts[MODEL_KEY]) > 1_000_000 and TOKENIZER_KEY in store.puts

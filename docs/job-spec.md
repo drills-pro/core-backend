@@ -6,7 +6,7 @@ The one document core-api hands every Ray job. It generalises the training-only 
 | Part | Content |
 |---|---|
 | Envelope | `spec_version`, `kind`, `job_id` (the submission id), `tenant_id`, `resources` (cpu, memory, gpu, max runtime; declared, never inferred) |
-| `kind=train` | what the train driver reads (docs/trainer-plan.md): staging `bucket` and `prefix`, `task`, `preset`, `base_model` (`repo_id`, `revision`), `learning_rate`, `preprocessing` (`mean`, `std`, `rescale`, `resample`; the catalog's values per task and preset), `data` (`index_url`, `manifest_url`, `version_id`, `lakefs_commit`), `hyperparameters` (`epochs`, `batch_size`, `image_size`), `seed`; `resources.gpu` is 1 |
+| `kind=train` | what the train driver reads (docs/trainer-plan.md): staging `bucket` and `prefix`, `task`, `preset`, `base_model` (`repo_id`, `revision`), `learning_rate`, `preprocessing` (images: `mean`, `std`, `rescale`, `resample`; text: `max_length`; the catalog's values per task and preset), `data` (images: `index_url`, `manifest_url`; text: `data_url`, a table with `text` and `label` columns; plus `version_id`, `lakefs_commit`), `hyperparameters` (`epochs`, `batch_size`, `image_size`), `seed`; `resources.gpu` is 1 |
 | `kind=ingest` | what the dataset import entrypoints read: staging `bucket` and `prefix`, `source`, `task`, `target`, `split`, `limits`, and when relevant `base` (presigned reads of the base version) and `hf` |
 
 Rules: secrets are never in the document (the staging credential is env vars set by the submitter); a job refuses a
