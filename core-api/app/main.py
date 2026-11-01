@@ -27,6 +27,7 @@ from app.core import auth_log, problem, tracing
 from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import models as admin_models
+from app.modules.admin import presets as admin_presets
 from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
     api_keys,
@@ -50,6 +51,7 @@ from app.modules.user import (
 ROUTERS = (
     admin_activity.router,
     admin_models.router,
+    admin_presets.router,
     admin_tenants.router,
     # After the listing, never before it: the detail router owns
     # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the
@@ -67,6 +69,7 @@ ROUTERS = (
     teams.router,
     tenant_members.router,
     tenants.router,
+    training.presets_router,
     training.router,
     usage.router,
     health.router,

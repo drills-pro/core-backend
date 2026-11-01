@@ -20,11 +20,12 @@ class ProblemCode(StrEnum):
     TOO_MANY_RUNS = "too_many_training_runs"
     IDEMPOTENCY_MISMATCH = "idempotency_mismatch"
     START_FAILED = "training_start_failed"
+    UNKNOWN_PRESET = "unknown_preset"
+    HYPERPARAMETER_OUT_OF_RANGE = "hyperparameter_out_of_range"
 
 
 START_FAILED_DETAIL = "could not start the training run, try again shortly"
 DEFAULT_MODEL_NAME = "model"  # the registered model every succeeded run adds a version to (matches model_registry's MODEL_NAME)
-TRAIN_GPUS = 1  # a whole card per run (docs/trainer-plan.md "Ray execution")
 SEED_MAX = 2**32 - 1
 TRAINING_LOCK_PREFIX = "training:"  # advisory-lock key prefix: serialises the quota check and insert per tenant
 JOB_ID_PREFIX = "train-"  # Ray submission id = prefix + run id: known before the POST, so a lost answer can still be stopped

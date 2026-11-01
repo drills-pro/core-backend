@@ -1,13 +1,12 @@
 """The job spec: one envelope, a payload per kind, and the committed JSON Schema matches the models."""
 import json
-import re
 import uuid
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import ImportSource, TaskType, TrainPreset
+from app.core.enums import ImportSource, TaskType
 from app.core.settings import settings
 from app.integrations.job_spec import (
     SPEC_ADAPTER,
@@ -38,7 +37,7 @@ def ingest_payload():
 
 
 def train_payload(**over):
-    return {"bucket": "b", "prefix": "trainings/t/p/r/", "task": TaskType.IMAGE_CLASSIFICATION, "preset": TrainPreset.SMALL,
+    return {"bucket": "b", "prefix": "trainings/t/p/r/", "task": TaskType.IMAGE_CLASSIFICATION, "preset": "small",
             "base_model": {"repo_id": "facebook/convnext-tiny-224", "revision": "abc"}, "learning_rate": 1e-4,
             "preprocessing": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "rescale": 1 / 255, "resample": "bilinear"},
             "data": {"index_url": "http://i", "manifest_url": "http://m", "version_id": str(uuid.uuid4()), "lakefs_commit": "c0ffee"},
@@ -75,7 +74,6 @@ def test_a_train_spec_round_trips_with_its_defaults_filled():
 
 
 @pytest.mark.parametrize("bad", [
-    {"preset": "huge"},
     {"task": TaskType.TABULAR_REGRESSION},
     {"task": "image-segmentation"},
     {"hyperparameters": {"epochs": 0}},
@@ -94,13 +92,3 @@ def test_a_bad_train_payload_is_rejected(bad):
 def test_resources_must_be_declared_and_positive():
     with pytest.raises(ValidationError):
         Resources(cpu=0, memory_bytes=1)
-
-
-def _check_values(sql: str, column: str) -> set[str]:
-    clause = re.search(rf"{column} text CHECK \({column} IN \(([^)]*)\)\)", sql)
-    return set(re.findall(r"'([^']+)'", clause.group(1)))
-
-
-def test_the_db_checks_mirror_the_enums():
-    sql = next(MIGRATIONS.glob("*_training_runs_trainer.sql")).read_text().split("-- migrate:down")[0]
-    assert _check_values(sql, "preset") == {p.value for p in TrainPreset}

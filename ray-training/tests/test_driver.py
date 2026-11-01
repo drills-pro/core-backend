@@ -94,10 +94,3 @@ def test_the_time_limit_cancels_the_task_and_reports_timeout(head, tmp_path, tin
     doc["payload"]["data"]["index_url"] = hang_server
     proc, report = drive(head, doc)
     assert proc.returncode == 1 and report["code"] == "timeout"
-
-
-def test_an_unknown_preset_is_reported_unsupported_without_ray(tmp_path_factory, tmp_path, tiny_convnext):
-    doc = local_doc(tmp_path, tiny_convnext)
-    doc["payload"]["preset"] = "huge"
-    proc, report = drive(tmp_path_factory.mktemp("s"), doc)
-    assert proc.returncode == 1 and report["code"] == "unsupported"

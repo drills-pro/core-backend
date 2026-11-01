@@ -1,0 +1,104 @@
+"""What a training preset trains with, one `task_presets` row per (task, name): the pinned base model, learning rate,
+preprocessing, the resources the job declares and the hyperparameter defaults and bounds (docs/trainer-plan.md T5/T6).
+
+Rows are platform data, written only by /v1/admin/training-presets. A run copies the values it used into its job spec, so
+editing a row never changes a past run.
+"""
+import re
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.core.enums import TaskType
+from app.core.settings import settings
+from app.core.task_catalog import Preprocessing, TextPreprocessing, TrainBaseModel
+
+NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"  # mirrors task_presets_name_check
+_REVISION = re.compile(r"^[0-9a-f]{40}$")  # a commit sha, never a branch that moves
+
+
+class HyperparameterRange(BaseModel):
+    default: int
+    min: int
+    max: int
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        if not 1 <= self.min <= self.default <= self.max:
+            raise ValueError("a range needs 1 <= min <= default <= max")
+        return self
+
+
+class HyperparameterLimits(BaseModel):
+    epochs: HyperparameterRange
+    batch_size: HyperparameterRange
+    image_size: HyperparameterRange
+
+
+class PresetBody(BaseModel):
+    """What an admin writes for one preset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_model: TrainBaseModel
+    learning_rate: float = Field(gt=0)
+    preprocessing: Preprocessing | TextPreprocessing
+    cpu: float = Field(gt=0)
+    memory_bytes: int = Field(gt=0)
+    gpu: float = Field(ge=0)
+    max_runtime_s: int = Field(gt=0)
+    hyperparameters: HyperparameterLimits
+
+    @model_validator(mode="after")
+    def _pinned_and_within_the_ceiling(self):
+        if not _REVISION.match(self.base_model.revision):
+            raise ValueError("base_model.revision must be a 40-character commit sha")
+        if self.max_runtime_s > settings.training.max_runtime_seconds:  # presigned data reads are sized to the ceiling
+            raise ValueError(f"max_runtime_s is at most {settings.training.max_runtime_seconds}")
+        return self
+
+
+class TaskPreset(PresetBody):
+    task: TaskType
+    name: str
+    updated_by: str
+    updated_at: datetime
+
+
+_SELECT = "SELECT * FROM task_presets"
+_UPSERT = (
+    "INSERT INTO task_presets (task, name, base_model_repo, base_model_revision, learning_rate, preprocessing, cpu, "
+    "memory_bytes, gpu, max_runtime_s, hyperparameters, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+    "ON CONFLICT (task, name) DO UPDATE SET base_model_repo = EXCLUDED.base_model_repo, "
+    "base_model_revision = EXCLUDED.base_model_revision, learning_rate = EXCLUDED.learning_rate, "
+    "preprocessing = EXCLUDED.preprocessing, cpu = EXCLUDED.cpu, memory_bytes = EXCLUDED.memory_bytes, gpu = EXCLUDED.gpu, "
+    "max_runtime_s = EXCLUDED.max_runtime_s, hyperparameters = EXCLUDED.hyperparameters, "
+    "updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+)
+
+
+def _model(row) -> TaskPreset:
+    r = dict(row)
+    r["base_model"] = {"repo_id": r.pop("base_model_repo"), "revision": r.pop("base_model_revision")}
+    return TaskPreset.model_validate(r)
+
+
+async def get(conn, task: TaskType, name: str) -> TaskPreset | None:
+    row = await conn.fetchrow(f"{_SELECT} WHERE task = $1 AND name = $2", task, name)
+    return None if row is None else _model(row)
+
+
+async def list_for(conn, task: TaskType) -> list[TaskPreset]:
+    return [_model(r) for r in await conn.fetch(f"{_SELECT} WHERE task = $1 ORDER BY name", task)]
+
+
+async def put(conn, task: TaskType, name: str, body: PresetBody, actor: str) -> TaskPreset:
+    row = await conn.fetchrow(
+        _UPSERT, task, name, body.base_model.repo_id, body.base_model.revision, body.learning_rate,
+        body.preprocessing.model_dump(mode="json"), body.cpu, body.memory_bytes, body.gpu, body.max_runtime_s,
+        body.hyperparameters.model_dump(mode="json"), actor)
+    return _model(row)
+
+
+async def delete(conn, task: TaskType, name: str) -> bool:
+    return await conn.fetchval("DELETE FROM task_presets WHERE task = $1 AND name = $2 RETURNING true", task, name) is True

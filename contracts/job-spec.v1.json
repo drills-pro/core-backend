@@ -571,7 +571,8 @@
           "title": "Preprocessing"
         },
         "preset": {
-          "$ref": "#/$defs/TrainPreset"
+          "title": "Preset",
+          "type": "string"
         },
         "seed": {
           "default": 42,
@@ -601,16 +602,6 @@
       ],
       "title": "TrainPayload",
       "type": "object"
-    },
-    "TrainPreset": {
-      "description": "Model size of a training run (docs/trainer-plan.md T5). Mirrors the training_runs.preset CHECK constraint.",
-      "enum": [
-        "small",
-        "medium",
-        "large"
-      ],
-      "title": "TrainPreset",
-      "type": "string"
     },
     "TrainSpec": {
       "properties": {

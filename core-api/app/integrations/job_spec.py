@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
-from app.core.enums import ImportSource, Split, TaskType, TrainPreset
+from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
 from app.core.task_catalog import TRAINABLE, Preprocessing, TextPreprocessing, TrainBaseModel, is_table
 
@@ -97,7 +97,7 @@ class TrainPayload(BaseModel):
     bucket: str  # staging bucket; the job writes only under `prefix`
     prefix: str
     task: TrainTask
-    preset: TrainPreset
+    preset: str  # the task_presets row's name; the values it stood for are in the fields below
     base_model: TrainBaseModel
     learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
     preprocessing: Preprocessing | TextPreprocessing  # likewise; the trainer applies it and records it in model.json

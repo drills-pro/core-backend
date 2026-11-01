@@ -35,12 +35,6 @@ class Task(StrEnum):
     TEXT_CLASSIFICATION = "text-classification"
 
 
-class Preset(StrEnum):
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
-
-
 class Resample(StrEnum):
     """Mirrors app.core.task_catalog.Resample; the names are PIL.Image.Resampling members."""
 

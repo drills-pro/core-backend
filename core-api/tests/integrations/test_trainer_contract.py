@@ -5,14 +5,14 @@ import uuid
 
 import pytest
 
-from app.core.enums import TrainPreset
-from app.core.task_catalog import TASKS, TRAINABLE, Resample, TextPreprocessing, is_table
+from app.core import task_catalog
+from app.core.task_catalog import TRAINABLE, Resample, TextPreprocessing, is_table
 from app.integrations.job_spec import Resources, TrainData, TrainPayload, TrainSpec
 from ray_training import constants as trainer
 from ray_training.registry import TRAINERS
 from ray_training.spec import parse_spec
+from tests.support.presets import IMAGENET, preset
 
-CASES = [(task, preset) for task in TRAINABLE for preset in TrainPreset]
 
 
 def test_the_trainer_runs_exactly_the_trainable_tasks():
@@ -23,26 +23,30 @@ def test_every_trainable_task_has_a_trainer_registry_entry():
     assert {t.value for t in TRAINERS} == {t.value for t in TRAINABLE}
 
 
-def test_the_trainer_mirrors_the_preset_and_resample_enums():
-    assert {p.value for p in trainer.Preset} == {p.value for p in TrainPreset}
+def test_the_trainer_mirrors_the_resample_enum():
     assert {r.value: r.name for r in trainer.Resample} == {r.value: r.name for r in Resample}
 
 
 def spec_of(task, preset) -> TrainSpec:
-    info = TASKS[task].presets[preset]
+    info = preset
     data = TrainData(version_id=uuid.uuid4(), lakefs_commit="c0ffee", **(
         {"data_url": "http://d"} if is_table(task) else {"index_url": "http://i", "manifest_url": "http://m"}))
     payload = TrainPayload(
-        bucket="b", prefix="p/", task=task, preset=preset, base_model=info.base_model, learning_rate=info.learning_rate,
+        bucket="b", prefix="p/", task=task, preset=info.name, base_model=info.base_model, learning_rate=info.learning_rate,
         preprocessing=info.preprocessing, data=data, hyperparameters={})
     return TrainSpec(job_id="j", tenant_id=uuid.uuid4(), payload=payload, resources=Resources(cpu=1, memory_bytes=1, gpu=1))
 
 
-@pytest.mark.parametrize("task,preset", CASES)
-def test_the_trainer_reads_what_the_catalog_says_for_every_preset(task, preset):
-    info = TASKS[task].presets[preset]
-    spec = parse_spec(spec_of(task, preset).model_dump_json())
-    assert (spec.task.value, spec.preset.value) == (task.value, preset.value)
+def preset_of(task):
+    text = task_catalog.info(task).data_kind is task_catalog.DataKind.TEXT
+    return preset(task, preprocessing={"max_length": 256} if text else IMAGENET)
+
+
+@pytest.mark.parametrize("task", TRAINABLE)
+def test_the_trainer_reads_what_a_preset_says(task):
+    info = preset_of(task)
+    spec = parse_spec(spec_of(task, info).model_dump_json())
+    assert (spec.task.value, spec.preset) == (task.value, info.name)
     assert (spec.base_model, spec.base_revision, spec.learning_rate) == (info.base_model.repo_id, info.base_model.revision, info.learning_rate)
     pre = spec.preprocessing
     if isinstance(info.preprocessing, TextPreprocessing):

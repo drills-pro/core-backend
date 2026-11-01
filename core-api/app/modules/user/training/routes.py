@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, Query
 from app.core.authz import Action, AuthzContext, require
 from app.core.idempotency import IdempotencyKey
 from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
-from app.modules.user.training import create_service, run_service
+from app.modules.user.training import create_service, preset_service, run_service
 from app.modules.user.training.schemas import (
+    PresetSummary,
     TrainingRun,
     TrainingRunCreate,
     TrainingRunLogs,
@@ -17,6 +18,7 @@ from app.modules.user.training.schemas import (
 )
 
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
+presets_router = APIRouter(prefix="/v1/projects/{project_id}/training-presets", tags=["training"])
 # Registering a run's model is training's endpoint (it reads the run) under the registry's URL space.
 models_router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
@@ -29,6 +31,12 @@ async def register_model(
     ctx: AuthzContext = Depends(require(Action.MODEL_WRITE)),
 ):
     return await run_service.register_model(ctx, project_id, run_id, name)
+
+
+@presets_router.get("", response_model=list[PresetSummary])
+async def list_training_presets(project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))):
+    """The presets this project's task type can train with: the names a run's `preset` takes, and their bounds."""
+    return await preset_service.list_for_project(ctx, project_id)
 
 
 @router.post("", status_code=202, response_model=TrainingRun)

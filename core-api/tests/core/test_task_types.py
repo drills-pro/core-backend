@@ -6,7 +6,7 @@ from typing import get_args
 import pytest
 
 from app.core import task_catalog
-from app.core.enums import TaskType, TrainPreset
+from app.core.enums import TaskType
 from app.core.task_catalog import TASKS
 from app.integrations.data_plane.mlflow import ModelStage
 from app.integrations.job_spec import TrainTask
@@ -47,9 +47,3 @@ def test_the_stage_check_mirrors_the_enum():
 
 def test_the_train_job_spec_accepts_exactly_the_trainable_tasks():
     assert set(get_args(TrainTask)) == {t for t in TASKS if task_catalog.trainable(t)}
-
-
-def test_every_trainable_task_has_a_pinned_base_model_per_preset():
-    for task in (t for t in TASKS if task_catalog.trainable(t)):
-        assert set(TASKS[task].presets) == set(TrainPreset), task
-        assert all(len(m.base_model.revision) == 40 for m in TASKS[task].presets.values()), task  # pinned to a commit, never "main"

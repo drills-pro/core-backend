@@ -11,10 +11,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.authz import Role, TenantRole
-from app.core.enums import TaskType, TrainPreset
+from app.core.enums import TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
-from app.core import task_catalog
 from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
@@ -23,19 +22,20 @@ from app.modules.user.model_registry import RegisteredVersion
 from app.modules.user.training import create_service, effects, persist, routes, run_service, service, train_spec
 from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
+from tests.support.presets import LIMITS, preset_row
 from tests.support.job_table import FakeJobTable, patch
 
 BASE = f"/v1/projects/{PROJECT}/training-runs"
 RUN = uuid.uuid4()
 VERSION, DATASET = uuid.uuid4(), uuid.uuid4()
-BODY = {"dataset_version_id": str(VERSION), "preset": TrainPreset.SMALL}
+BODY = {"dataset_version_id": str(VERSION), "preset": "small"}
 HEADERS = {"Idempotency-Key": "k"}
 MIGRATIONS = Path(__file__).parents[4] / "migrations"
 
 
 def run_row(**over):
     return {
-        "id": RUN, "status": "submitted", "dataset_ref": str(VERSION), "dataset_version_id": VERSION, "preset": TrainPreset.SMALL,
+        "id": RUN, "status": "submitted", "dataset_ref": str(VERSION), "dataset_version_id": VERSION, "preset": "small",
         "ray_job_id": f"train-{RUN}", "mlflow_run_id": "mlflow-1", "config": {"epochs": 30, "batch_size": 16, "image_size": 224},
         "metrics": None, "created_at": datetime.now(UTC), "completed_at": None, "tenant_id": uuid.uuid4(), "project_id": PROJECT,
         "task": TaskType.IMAGE_CLASSIFICATION, "report": None, "idempotency_key": "k", "model_artifact": None, "dataset_version": "c0ffee",
@@ -101,7 +101,7 @@ def test_cross_tenant_project_is_404(call):
 
 
 @pytest.mark.parametrize("body,headers", [
-    ({**BODY, "preset": "huge"}, HEADERS),
+    ({**BODY, "preset": "Not A Name!"}, HEADERS),
     ({**BODY, "hyperparameters": {"epochs": 0}}, HEADERS),
     ({**BODY, "dataset_ref": "x"}, HEADERS),  # the old body is gone
     ({"preset": "small"}, HEADERS),
@@ -159,7 +159,7 @@ class Gateway:
 def make_conn(monkeypatch, *, task=TaskType.IMAGE_CLASSIFICATION, inflight=0, existing=None, version=True):
     conn = FakeConn(
         rows={"idempotency_key = $2": existing, "FROM dataset_versions": {"dataset_id": DATASET, "lakefs_commit": "c0ffee"} if version else None,
-              "INSERT INTO training_runs": run_row()},
+              "FROM task_presets": preset_row(task) if task is not None else None, "INSERT INTO training_runs": run_row()},
         vals={"task_type": task, "count(*)": inflight},
     )
     patch_tenant_conn(monkeypatch, conn, create_service, service)  # service: fail_unstarted
@@ -183,11 +183,12 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     spec = gw.spec
     assert (spec.kind, spec.job_id.startswith("train-"), spec.resources.gpu) == ("train", True, 1)
     p = spec.payload
-    assert (p.task, p.preset, p.base_model) == (TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL, task_catalog.base_model(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL))
-    preset = task_catalog.preset_spec(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL)
-    assert (p.learning_rate, p.preprocessing) == (preset.learning_rate, preset.preprocessing)
+    row = preset_row()
+    assert (p.task, p.preset, p.base_model.repo_id, p.base_model.revision) == (TaskType.IMAGE_CLASSIFICATION, "small", row["base_model_repo"], row["base_model_revision"])
+    assert (p.learning_rate, p.preprocessing.max_length if hasattr(p.preprocessing, "max_length") else p.preprocessing.rescale) == (row["learning_rate"], row["preprocessing"]["rescale"])
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
-    assert (spec.resources.cpu, spec.resources.max_runtime_s) == (settings.training.task_cpus, settings.training.max_runtime_seconds)
+    assert (spec.resources.cpu, spec.resources.memory_bytes, spec.resources.gpu, spec.resources.max_runtime_s) == (
+        row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
     insert = next(args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs"))
     assert insert[4] == spec.job_id and insert[5] == "mlflow-1" and insert[8] == DATASET and insert[10] == VERSION  # job id, MLflow run, dataset, version
@@ -199,6 +200,32 @@ def test_hyperparameters_override_only_what_they_name(monkeypatch):
     make_conn(monkeypatch)
     create({**BODY, "hyperparameters": {"epochs": 5}, "seed": 7})
     assert (gw.spec.payload.hyperparameters.epochs, gw.spec.payload.hyperparameters.batch_size, gw.spec.payload.seed) == (5, 16, 7)
+
+
+def test_a_preset_the_task_does_not_have_is_422_and_nothing_starts(monkeypatch):
+    gw = Gateway(monkeypatch)
+    conn = make_conn(monkeypatch)
+    conn.rows["FROM task_presets"] = None
+    with pytest.raises(Problem) as err:
+        create({**BODY, "preset": "xlarge"})
+    assert (err.value.status_code, err.value.code) == (422, ProblemCode.UNKNOWN_PRESET) and not gw.started
+
+
+@pytest.mark.parametrize("name,asked", [("epochs", 501), ("batch_size", 513), ("image_size", 31)])
+def test_a_hyperparameter_outside_the_presets_bounds_is_422_and_nothing_starts(monkeypatch, name, asked):
+    gw = Gateway(monkeypatch)
+    make_conn(monkeypatch)
+    with pytest.raises(Problem) as err:
+        create({**BODY, "hyperparameters": {name: asked}})
+    assert (err.value.status_code, err.value.code) == (422, ProblemCode.HYPERPARAMETER_OUT_OF_RANGE) and not gw.started
+
+
+def test_a_silent_request_gets_the_presets_defaults(monkeypatch):
+    gw = Gateway(monkeypatch)
+    conn = make_conn(monkeypatch)
+    conn.rows["FROM task_presets"] = preset_row(hyperparameters={**LIMITS, "epochs": {"default": 12, "min": 1, "max": 20}})
+    create()
+    assert gw.spec.payload.hyperparameters.epochs == 12
 
 
 def test_a_version_of_another_project_or_tenant_is_404_and_nothing_starts(monkeypatch):
@@ -239,7 +266,7 @@ def test_the_same_key_and_request_returns_the_same_run_without_starting_another(
 
 def test_the_same_key_with_another_request_is_409(monkeypatch):
     Gateway(monkeypatch)
-    make_conn(monkeypatch, existing=run_row(preset=TrainPreset.LARGE))
+    make_conn(monkeypatch, existing=run_row(preset="large"))
     with pytest.raises(Problem) as err:
         create()
     assert (err.value.status_code, err.value.code) == (409, ProblemCode.IDEMPOTENCY_MISMATCH)
@@ -258,6 +285,8 @@ def test_losing_a_race_on_the_key_returns_the_winner_and_submits_nothing(monkeyp
             if "INSERT INTO training_runs" in sql:
                 conn_rows["inserted"] = True
                 return None
+            if "FROM task_presets" in sql:
+                return preset_row()
             return {"dataset_id": DATASET, "lakefs_commit": "c0ffee"}
 
     patch_tenant_conn(monkeypatch, Racing(vals={"task_type": TaskType.IMAGE_CLASSIFICATION, "count(*)": 0}), create_service)

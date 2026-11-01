@@ -10,7 +10,7 @@ from http import HTTPStatus
 
 from fastapi import HTTPException
 
-from app.core import task_catalog
+from app.core import presets, task_catalog
 from app.core.authz import AuthzContext
 from app.core.enums import TaskType
 from app.core.idempotency import insert_once, replay
@@ -64,7 +64,7 @@ def _same_request(row, body: TrainingRunCreate) -> bool:
     return (
         row["dataset_version_id"] == body.dataset_version_id
         and row["preset"] == body.preset
-        and row["config"] == body.hyperparameters.model_dump(mode="json")
+        and all(row["config"][k] == v for k, v in body.hyperparameters.model_dump(exclude_none=True).items())  # the rest was the preset's default then
         and row["spec"]["payload"]["seed"] == body.seed
     )
 
@@ -92,12 +92,16 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         version = await get_version_source(conn, project_id, body.dataset_version_id)
         if version is None:  # another project's or tenant's version is indistinguishable from a missing one
             raise not_found()
+        preset = await presets.get(conn, task, body.preset)
+        if preset is None:
+            raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.UNKNOWN_PRESET, f"task type '{task}' has no preset '{body.preset}'")
+        hyperparameters = train_spec.resolve_hyperparameters(preset, body.hyperparameters)
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
     try:
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, task, body)
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, task, body, preset, hyperparameters)
     except Exception as e:
         raise _start_failed(e, run_id) from e
 
@@ -107,8 +111,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         row, created = await insert_once(
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
-             body.hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-             task, body.preset, spec.model_dump(mode="json")),
+             hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
+             task, preset.name, spec.model_dump(mode="json")),
             _BY_KEY, (project_id, idempotency_key),
         )
         if not created:  # lost a race with the same key: that one is the run

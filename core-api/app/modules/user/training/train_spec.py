@@ -1,20 +1,23 @@
 """The train job's spec, built for a run that has an id but no row yet. The job gets presigned reads of the dataset
 version and the run's staging prefix, nothing else (no lakeFS or MLflow credential, docs/trainer-plan.md T7)."""
 import uuid
+from http import HTTPStatus
 
 from app.core import task_catalog
 from app.core.enums import TaskType
+from app.core.presets import HyperparameterRange, TaskPreset
+from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
-from app.integrations.job_spec import Resources, TrainPayload, TrainSpec
+from app.integrations.job_spec import Hyperparameters, Resources, TrainPayload, TrainSpec
 from app.modules.user.training.constants import (
     JOB_ID_PREFIX,
     LOST_JOB_GRACE_SECONDS,
     MAX_PRESIGN_SECONDS,
-    TRAIN_GPUS,
+    ProblemCode,
 )
-from app.modules.user.training.schemas import TrainingRunCreate
+from app.modules.user.training.schemas import HyperparameterOverrides, TrainingRunCreate
 
 
 def submission_id(run_id: uuid.UUID) -> str:
@@ -28,16 +31,33 @@ def horizon_seconds() -> int:
     return waiting_and_running + LOST_JOB_GRACE_SECONDS
 
 
+def _pick(name: str, bounds: HyperparameterRange, asked: int | None) -> int:
+    if asked is None:
+        return bounds.default
+    if not bounds.min <= asked <= bounds.max:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.HYPERPARAMETER_OUT_OF_RANGE, f"{name} must be between {bounds.min} and {bounds.max}")
+    return asked
+
+
+def resolve_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides) -> Hyperparameters:
+    """The preset's defaults where the request is silent, its bounds where it is not."""
+    limits = preset.hyperparameters
+    return Hyperparameters(
+        epochs=_pick("epochs", limits.epochs, asked.epochs),
+        batch_size=_pick("batch_size", limits.batch_size, asked.batch_size),
+        image_size=_pick("image_size", limits.image_size, asked.image_size),
+    )
+
+
 async def build(
-    tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskType, body: TrainingRunCreate
+    tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskType, body: TrainingRunCreate,
+    preset: TaskPreset, hyperparameters: Hyperparameters,
 ) -> TrainSpec:
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
         *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS),
         table=task_catalog.is_table(task),
     )
-    cfg = settings.training
-    preset = task_catalog.preset_spec(task, body.preset)
     return TrainSpec(
         job_id=submission_id(run_id),
         tenant_id=tenant_id,
@@ -45,13 +65,13 @@ async def build(
             bucket=settings.data_plane.staging_bucket,
             prefix=layout.train_prefix(*ids, str(run_id)),
             task=task,
-            preset=body.preset,
+            preset=preset.name,
             base_model=preset.base_model,
             learning_rate=preset.learning_rate,
             preprocessing=preset.preprocessing,
             data=data,
-            hyperparameters=body.hyperparameters,
+            hyperparameters=hyperparameters,
             seed=body.seed,
         ),
-        resources=Resources(cpu=cfg.task_cpus, memory_bytes=cfg.task_memory_bytes, gpu=TRAIN_GPUS, max_runtime_s=cfg.max_runtime_seconds),
+        resources=Resources(cpu=preset.cpu, memory_bytes=preset.memory_bytes, gpu=preset.gpu, max_runtime_s=preset.max_runtime_s),
     )

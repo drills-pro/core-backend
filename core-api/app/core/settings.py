@@ -110,12 +110,10 @@ class DatasetLimits(_Section):
 
 
 class Training(_Section):
-    """The train job's declared resources (docs/trainer-plan.md). The GPU task asks Ray for one whole card plus these."""
+    """The driver and the deadline ceiling; the task's own cpu, memory and gpu are per preset (app/core/presets.py)."""
 
-    task_cpus: int  # CPUs of the Ray task on the GPU worker
-    task_memory_bytes: int
     driver_cpus: float  # the CPU-pool driver that starts that task
-    max_runtime_seconds: int  # the job deadline; presigned data reads outlive it
+    max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
 
 
 class Observability(_Section):

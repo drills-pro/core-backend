@@ -59,9 +59,7 @@ dataset_limits:
   ray_job_memory_bytes: 8589934592      # 8 GiB
   max_active_imports_per_tenant: 3
 
-training:                    # app/modules/user/training; the GPU worker must have at least task_cpus/task_memory_bytes free
-  task_cpus: 8
-  task_memory_bytes: 25769803776        # 24 GiB
+training:                    # app/modules/user/training; a task's cpu and memory are per preset (task_presets)
   driver_cpus: 1
   max_runtime_seconds: 14400            # 4 h
 

@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Preset, Resample, Task)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Resample, Task)
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ class TrainSpec:
     bucket: str
     prefix: str
     task: Task
-    preset: Preset
+    preset: str  # a task_presets name in core-api; only recorded, the spec carries the values it stood for
     base_model: str
     base_revision: str | None
     index_url: str | None  # images: presigned GET of index.parquet
@@ -64,7 +64,7 @@ def parse_spec(text: str) -> TrainSpec:
     if doc.get("kind") != JobKind.TRAIN:
         raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_training")
     p, data = doc["payload"], doc["payload"]["data"]
-    task, preset = Task(p["task"]), Preset(p["preset"])
+    task, preset = Task(p["task"]), p["preset"]
     base, hp = p["base_model"], p.get("hyperparameters") or {}
     pre = p["preprocessing"]
     return TrainSpec(
