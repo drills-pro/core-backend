@@ -5,10 +5,9 @@ import jsonschema
 import pytest
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, FailCode, Outcome, Preset, Task)
-from ray_training.presets import PRESETS
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, FailCode, Outcome, Preset, Resample, Task)
 from ray_training.spec import parse_spec
-from tests.support import VERSION_ID, classification_rows, spec_doc
+from tests.support import LEARNING_RATE, PREPROCESSING, VERSION_ID, classification_rows, spec_doc
 
 ROWS = classification_rows()[0]
 REPO = Path(__file__).resolve().parents[2]
@@ -16,19 +15,28 @@ CONTRACT = REPO / "contracts" / "job-spec.v1.json"
 REPORT_SCHEMA_FILE = REPO / "core-api/app/integrations/data_plane/train_report.schema.json"
 
 
-def test_payload_fields_and_preset_defaults():
+def test_payload_fields_and_hyperparameter_defaults():
     doc = spec_doc("image-classification", "m", ROWS)
     del doc["payload"]["hyperparameters"]
     spec = parse_spec(json.dumps(doc))
-    d = PRESETS[spec.task][spec.preset]
-    assert (spec.epochs, spec.batch_size, spec.image_size, spec.learning_rate) == (30, 16, 224, d.learning_rate)
+    assert (spec.epochs, spec.batch_size, spec.image_size) == (30, 16, 224)
     assert (spec.bucket, spec.version_id, spec.lakefs_commit, spec.seed, spec.base_model) == ("b", VERSION_ID, "c0ffee", 42, "m")
 
 
-def test_base_model_defaults_to_the_preset_when_absent():
-    doc = spec_doc("object-detection", "m", ROWS)
-    del doc["payload"]["base_model"]
-    assert parse_spec(json.dumps(doc)).base_model == PRESETS["object-detection"]["small"].base_model
+def test_learning_rate_and_preprocessing_come_from_the_spec():
+    spec = parse_spec(json.dumps(spec_doc("image-classification", "m", ROWS)))
+    pre = spec.preprocessing
+    assert spec.learning_rate == LEARNING_RATE
+    assert (list(pre.mean), list(pre.std), pre.rescale, pre.resample.value) == (
+        PREPROCESSING["mean"], PREPROCESSING["std"], PREPROCESSING["rescale"], PREPROCESSING["resample"])
+
+
+@pytest.mark.parametrize("field", ["base_model", "learning_rate", "preprocessing"])
+def test_what_the_trainer_has_no_table_for_must_be_in_the_spec(field):
+    doc = spec_doc("image-classification", "m", ROWS)
+    del doc["payload"][field]
+    with pytest.raises(KeyError):
+        parse_spec(json.dumps(doc))
 
 
 @pytest.mark.parametrize("over", [{"spec_version": 2}, {"kind": "ingest"}])
@@ -56,6 +64,7 @@ def test_the_contract_enums_equal_the_trainers():
     defs = json.loads(CONTRACT.read_text())["$defs"]
     assert set(defs["TrainPreset"]["enum"]) == {p.value for p in Preset}
     assert set(defs["TrainPayload"]["properties"]["task"]["enum"]) == {t.value for t in Task}
+    assert set(defs["Resample"]["enum"]) == {r.value for r in Resample}
     hp = defs["Hyperparameters"]["properties"]
     assert (hp["epochs"]["default"], hp["batch_size"]["default"], hp["image_size"]["default"]) == (
         DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE)

@@ -6,12 +6,14 @@ import socket
 import pytest
 
 from ray_training.constants import MODEL_KEY
-from ray_training.presets import PRESETS
 from ray_training.runner import run
 from ray_training.spec import parse_spec
 from tests.support import MemStore, classification_rows, detection_rows, fake_get, spec_text
 
 pytestmark = pytest.mark.online
+
+
+SMALL_BASE_MODELS = {"image-classification": "facebook/convnext-tiny-224", "object-detection": "PekingU/rtdetr_v2_r18vd"}  # core-api task_catalog
 
 
 def hub_reachable() -> bool:
@@ -32,7 +34,7 @@ elif not hub_reachable():
 def test_the_small_presets_real_checkpoint_trains_and_exports(task, rows_fn):
     rows, files = rows_fn()
     store = MemStore()
-    spec = parse_spec(spec_text(task, PRESETS[task]["small"].base_model, rows))
+    spec = parse_spec(spec_text(task, SMALL_BASE_MODELS[task], rows))
     spec = type(spec)(**{**spec.__dict__, "base_revision": None, "image_size": 224 if task == "image-classification" else 320})
     report = run(spec, store, fake_get(rows, files))
     assert report["status"] == "succeeded", report["message"]

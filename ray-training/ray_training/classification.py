@@ -14,18 +14,18 @@ from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.metrics import classification_metrics
 from ray_training.result import (
     INPUT_NAME, NUM_WORKERS_GPU, Result, device, export_onnx, load_image, preprocessing, seed_everything)
-from ray_training.spec import TrainSpec
+from ray_training.spec import Preprocessing, TrainSpec
 
 
 class Images(TorchDataset):
-    def __init__(self, samples: list[Sample], size: int):
-        self.samples, self.size = samples, size
+    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing):
+        self.samples, self.size, self.pre = samples, size, pre
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, i):
-        return load_image(self.samples[i].file, self.size)[0], self.samples[i].label
+        return load_image(self.samples[i].file, self.size, self.pre)[0], self.samples[i].label
 
 
 class Logits(torch.nn.Module):
@@ -56,8 +56,8 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result:
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True).to(dev)
     workers = NUM_WORKERS_GPU if dev.type == "cuda" else 0
-    train_loader = DataLoader(Images(train_set, spec.image_size), spec.batch_size, shuffle=True, num_workers=workers)
-    eval_loader = DataLoader(Images(held_out, spec.image_size), spec.batch_size, num_workers=workers)
+    train_loader = DataLoader(Images(train_set, spec.image_size, spec.preprocessing), spec.batch_size, shuffle=True, num_workers=workers)
+    eval_loader = DataLoader(Images(held_out, spec.image_size, spec.preprocessing), spec.batch_size, num_workers=workers)
     optimizer = torch.optim.AdamW(model.parameters(), lr=spec.learning_rate)
     history = []
     for epoch in range(spec.epochs):
@@ -77,5 +77,5 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result:
     signature = {
         "inputs": [{"name": INPUT_NAME, "shape": ["batch", 3, spec.image_size, spec.image_size], "dtype": "float32"}],
         "outputs": [{"name": "logits", "shape": ["batch", n], "dtype": "float32"}],
-        "preprocessing": preprocessing(spec.image_size), "top_k": min(CONFUSION_TOP_K, n)}
+        "preprocessing": preprocessing(spec), "top_k": min(CONFUSION_TOP_K, n)}
     return Result(ds.classes, metrics, history, onnx, signature, {"labels": ds.classes, "matrix": matrix})

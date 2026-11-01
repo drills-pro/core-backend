@@ -40,3 +40,9 @@ def test_base_model_is_looked_up_by_task_and_preset():
 def test_an_untrainable_task_has_no_base_model():
     with pytest.raises(KeyError):
         task_catalog.base_model(TaskType.TABULAR_REGRESSION, TrainPreset.SMALL)
+
+
+def test_a_preset_carries_learning_rate_and_preprocessing_and_defaults_to_imagenet():
+    spec = task_catalog.preset_spec(TaskType.OBJECT_DETECTION, TrainPreset.MEDIUM)
+    assert (spec.base_model.repo_id, spec.learning_rate) == ("PekingU/rtdetr_v2_r34vd", 1e-4)
+    assert spec.preprocessing == task_catalog.IMAGENET_PREPROCESSING

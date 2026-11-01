@@ -315,6 +315,70 @@
       "title": "IngestSpec",
       "type": "object"
     },
+    "Preprocessing": {
+      "description": "How an image becomes the model's input: resize (stretch, to a square `image_size`) with `resample`, multiply by\n`rescale`, then (x - mean) / std per RGB channel. Trained with, recorded in model.json, applied again when serving.",
+      "properties": {
+        "mean": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Mean",
+          "type": "array"
+        },
+        "resample": {
+          "$ref": "#/$defs/Resample"
+        },
+        "rescale": {
+          "exclusiveMinimum": 0,
+          "title": "Rescale",
+          "type": "number"
+        },
+        "std": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Std",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean",
+        "std",
+        "rescale",
+        "resample"
+      ],
+      "title": "Preprocessing",
+      "type": "object"
+    },
+    "Resample": {
+      "description": "PIL resampling filter of the resize to a square `image_size` (the trainer mirrors this enum, contract-tested).",
+      "enum": [
+        "bilinear",
+        "bicubic"
+      ],
+      "title": "Resample",
+      "type": "string"
+    },
     "Resources": {
       "description": "Declared, never inferred (planning 06): the scheduler and quotas act on these.",
       "properties": {
@@ -444,9 +508,17 @@
         "hyperparameters": {
           "$ref": "#/$defs/Hyperparameters"
         },
+        "learning_rate": {
+          "exclusiveMinimum": 0,
+          "title": "Learning Rate",
+          "type": "number"
+        },
         "prefix": {
           "title": "Prefix",
           "type": "string"
+        },
+        "preprocessing": {
+          "$ref": "#/$defs/Preprocessing"
         },
         "preset": {
           "$ref": "#/$defs/TrainPreset"
@@ -471,6 +543,8 @@
         "task",
         "preset",
         "base_model",
+        "learning_rate",
+        "preprocessing",
         "data",
         "hyperparameters"
       ],

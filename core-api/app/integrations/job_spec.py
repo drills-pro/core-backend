@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from app.core.enums import ImportSource, Split, TaskType, TrainPreset
 from app.core.settings import DatasetLimits
-from app.core.task_catalog import TRAINABLE, TrainBaseModel
+from app.core.task_catalog import TRAINABLE, Preprocessing, TrainBaseModel
 
 SPEC_VERSION = 1
 
@@ -98,6 +98,8 @@ class TrainPayload(BaseModel):
     task: TrainTask
     preset: TrainPreset
     base_model: TrainBaseModel
+    learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
+    preprocessing: Preprocessing  # likewise; the trainer applies it and records it in model.json
     data: TrainData
     hyperparameters: Hyperparameters
     seed: int = DEFAULT_SEED

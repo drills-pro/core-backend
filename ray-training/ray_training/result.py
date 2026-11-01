@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ray_training.constants import IMAGENET_MEAN, IMAGENET_STD, ONNX_OPSET
+from ray_training.constants import ONNX_OPSET
+from ray_training.spec import Preprocessing, TrainSpec
 
 INPUT_NAME = "pixel_values"
 NUM_WORKERS_GPU = 4  # data loading workers when a GPU waits on them; 0 on CPU (CI)
@@ -33,18 +34,22 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def load_image(file: Path, size: int) -> tuple[torch.Tensor, int, int]:
-    """(normalised CHW float tensor resized to size x size, original width, original height)."""
+def load_image(file: Path, size: int, pre: Preprocessing) -> tuple[torch.Tensor, int, int]:
+    """(CHW float tensor resized to size x size and normalised by `pre`, original width, original height)."""
     with Image.open(file) as im:
         im = im.convert("RGB")
         w, h = im.size
-        arr = np.asarray(im.resize((size, size)), dtype=np.float32) / 255.0
-    arr = (arr - np.array(IMAGENET_MEAN, dtype=np.float32)) / np.array(IMAGENET_STD, dtype=np.float32)
+        arr = np.asarray(im.resize((size, size), Image.Resampling[pre.resample.name]), dtype=np.float32) * pre.rescale
+    arr = (arr - np.array(pre.mean, dtype=np.float32)) / np.array(pre.std, dtype=np.float32)
     return torch.from_numpy(arr).permute(2, 0, 1).contiguous(), w, h
 
 
-def preprocessing(size: int) -> dict:
-    return {"resize": [size, size], "rescale": 1 / 255, "mean": list(IMAGENET_MEAN), "std": list(IMAGENET_STD), "layout": "NCHW", "color": "RGB"}
+def preprocessing(spec: TrainSpec) -> dict:
+    """The model.json entry: exactly what load_image applied, for whatever serves the model."""
+    pre = spec.preprocessing
+    return {
+        "resize": [spec.image_size, spec.image_size], "resample": pre.resample.value, "rescale": pre.rescale,
+        "mean": list(pre.mean), "std": list(pre.std), "layout": "NCHW", "color": "RGB"}
 
 
 def export_onnx(wrapper: torch.nn.Module, size: int, outputs: list[str], path: Path) -> None:

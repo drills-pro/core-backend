@@ -10,8 +10,8 @@ Status: draft, 2026-10-27. Scope from the owner: both tasks in the first trainer
 | T2 | Results come back as `report.json` in a staging prefix, written by one shared `run()` like `ray_jobs/runner.py`. No events API, no log parsing | Reuses the ingest pattern. Progress is coarse (queued, running, done) until the events API exists |
 | T3 | Trainer code runs as a **Ray task** on the GPU worker, started by a CPU-side driver that calls `ray.init(address="auto")` | See "Ray execution" below |
 | T4 | Classification: HF `transformers` (ConvNeXt, ViT) or `timm`. Detection: `RTDetrV2ForObjectDetection` (ADR-016, no AGPL). Both export ONNX | Doc 06 |
-| T5 | Presets (small, medium, large) are a Python table with a DB `CHECK`-mirrored enum for now; a Postgres table when presets must change without a deploy | No magic strings; smallest thing that works |
-| T6 | One hardcoded base model per preset. Catalog admission (doc 17) is deferred | The catalog is a separate slice |
+| T5 | Presets (small, medium, large) are a Python table in core-api's `task_catalog` (base model, learning rate, preprocessing per task and preset) with a DB `CHECK`-mirrored enum for now; a Postgres table when presets must change without a deploy. The trainer keeps no table: the job spec carries `learning_rate` and `preprocessing` | No magic strings; smallest thing that works |
+| T6 | One hardcoded base model per preset, pinned to a commit, in `task_catalog` and sent in the job spec. Catalog admission (doc 17) is deferred | The catalog is a separate slice |
 | T7 | The trainer holds no MLflow or lakeFS credential. core-api reads `report.json`, logs metrics to MLflow, registers the model version | Doc 06, 16 |
 
 ## Ray execution (the `ray.init` question)

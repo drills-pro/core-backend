@@ -39,7 +39,8 @@ def ingest_payload():
 
 def train_payload(**over):
     return {"bucket": "b", "prefix": "trainings/t/p/r/", "task": TaskType.IMAGE_CLASSIFICATION, "preset": TrainPreset.SMALL,
-            "base_model": {"repo_id": "facebook/convnext-tiny-224", "revision": "abc"},
+            "base_model": {"repo_id": "facebook/convnext-tiny-224", "revision": "abc"}, "learning_rate": 1e-4,
+            "preprocessing": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "rescale": 1 / 255, "resample": "bilinear"},
             "data": {"index_url": "http://i", "manifest_url": "http://m", "version_id": str(uuid.uuid4()), "lakefs_commit": "c0ffee"},
             "hyperparameters": {}, "seed": 1, **over}
 
@@ -80,6 +81,10 @@ def test_a_train_spec_round_trips_with_its_defaults_filled():
     {"hyperparameters": {"epochs": 0}},
     {"hyperparameters": {"image_size": 4}},
     {"data": {"index_url": "http://i"}},
+    {"learning_rate": 0},
+    {"preprocessing": {"mean": [0.5, 0.5, 0.5]}},
+    {"preprocessing": {"mean": [0.5], "std": [0.5, 0.5, 0.5], "rescale": 1 / 255, "resample": "bilinear"}},
+    {"preprocessing": {"mean": [0.5] * 3, "std": [0.5] * 3, "rescale": 1 / 255, "resample": "lanczos"}},
 ])
 def test_a_bad_train_payload_is_rejected(bad):
     with pytest.raises(ValidationError):

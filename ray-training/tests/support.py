@@ -15,6 +15,8 @@ REPORT_SCHEMA = json.loads(REPORT_SCHEMA_FILE.read_text()) if REPORT_SCHEMA_FILE
 SIZE = 32  # image side in pixels and image_size of the tiny runs
 INDEX_URL = "mem://index.parquet"
 MANIFEST_URL = "mem://manifest.json"
+PREPROCESSING = {"mean": [0.5, 0.5, 0.5], "std": [0.25, 0.25, 0.25], "rescale": 1 / 255, "resample": "bilinear"}  # not ImageNet: proves the spec is what is used
+LEARNING_RATE = 1e-3
 VERSION_ID = "6f1c5a5e-2a39-4d57-9d65-0d8f0d3b5a11"
 BOX_TYPE = pa.struct([(f.value, pa.string() if f == Box.CATEGORY else pa.float64()) for f in Box])
 SCHEMA = pa.schema([(c.value, {Col.SIZE: pa.int64(), Col.BOXES: pa.list_(BOX_TYPE)}.get(c, pa.string())) for c in Col])
@@ -80,6 +82,7 @@ def spec_doc(task, base_model, rows, kind="train", **payload) -> dict:
         "payload": {
             "bucket": "b", "prefix": "trainings/t/p/r/", "task": task, "preset": "small",
             "base_model": {"repo_id": str(base_model), "revision": "0" * 40},
+            "learning_rate": LEARNING_RATE, "preprocessing": PREPROCESSING,
             "data": {"index_url": INDEX_URL, "manifest_url": MANIFEST_URL, "version_id": VERSION_ID, "lakefs_commit": "c0ffee"},
             "hyperparameters": {"epochs": 1, "batch_size": 4, "image_size": SIZE},
             "seed": 42, **payload}}

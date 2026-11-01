@@ -7,28 +7,14 @@ import json
 import math
 import tempfile
 from pathlib import Path
-from typing import Callable
 
 from ray_training.constants import (
-    MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION, TRAINER_VERSION, FailCode, Outcome, Task)
+    MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION, TRAINER_VERSION, FailCode, Outcome)
 from ray_training.data import Get, load_dataset
-from ray_training.errors import TrainFailure, Unsupported
-from ray_training.result import Result
+from ray_training.errors import TrainFailure
+from ray_training.registry import Trainer, trainer_for
 from ray_training.spec import TrainSpec
 from ray_training.store import http_get
-
-Trainer = Callable[[TrainSpec, object, Path], Result]
-
-
-def trainer_for(task: Task) -> Trainer:
-    """Lazy import: the driver on the CPU pool never loads torch."""
-    if task == Task.IMAGE_CLASSIFICATION:
-        from ray_training.classification import train
-    elif task == Task.OBJECT_DETECTION:
-        from ray_training.detection import train
-    else:
-        raise Unsupported(f"task {task!r} is not supported")
-    return train
 
 
 def failure_code(e: BaseException) -> FailCode:

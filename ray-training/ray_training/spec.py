@@ -1,10 +1,21 @@
-"""The train job spec: envelope plus the `kind: train` payload of docs/trainer-plan.md (core-api TrainSpec mirrors it)."""
+"""The train job spec: envelope plus the `kind: train` payload of docs/trainer-plan.md (core-api TrainSpec mirrors it).
+
+The trainer keeps no preset table: base model, learning rate and preprocessing all come from the spec (core-api's task_catalog)."""
 import json
 from dataclasses import dataclass
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Preset, Task)
-from ray_training.presets import PRESETS
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Preset, Resample, Task)
+
+
+@dataclass(frozen=True)
+class Preprocessing:
+    """How an image becomes model input; core-api task_catalog.Preprocessing. Written to model.json as it was used."""
+
+    mean: tuple[float, float, float]
+    std: tuple[float, float, float]
+    rescale: float
+    resample: Resample
 
 
 @dataclass(frozen=True)
@@ -27,7 +38,8 @@ class TrainSpec:
     epochs: int
     batch_size: int
     image_size: int
-    learning_rate: float  # from the preset: the contract does not carry it
+    learning_rate: float
+    preprocessing: Preprocessing
     seed: int
 
 
@@ -39,16 +51,18 @@ def parse_spec(text: str) -> TrainSpec:
         raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_training")
     p, data = doc["payload"], doc["payload"]["data"]
     task, preset = Task(p["task"]), Preset(p["preset"])
-    base, hp = p.get("base_model") or {}, p.get("hyperparameters") or {}
-    d = PRESETS[task][preset]
+    base, hp = p["base_model"], p.get("hyperparameters") or {}
+    pre = p["preprocessing"]
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"],
         max_runtime_s=doc["resources"].get("max_runtime_s", 0),
         bucket=p["bucket"], prefix=p["prefix"], task=task, preset=preset,
-        base_model=base.get("repo_id") or d.base_model, base_revision=base.get("revision"),
+        base_model=base["repo_id"], base_revision=base.get("revision"),
         index_url=data["index_url"], manifest_url=data["manifest_url"],
         version_id=data.get("version_id"), lakefs_commit=data.get("lakefs_commit"),
         epochs=hp.get("epochs", DEFAULT_EPOCHS), batch_size=hp.get("batch_size", DEFAULT_BATCH_SIZE),
-        image_size=hp.get("image_size", DEFAULT_IMAGE_SIZE), learning_rate=d.learning_rate, seed=p.get("seed", DEFAULT_SEED),
+        image_size=hp.get("image_size", DEFAULT_IMAGE_SIZE), learning_rate=p["learning_rate"],
+        preprocessing=Preprocessing(tuple(pre["mean"]), tuple(pre["std"]), pre["rescale"], Resample(pre["resample"])),
+        seed=p.get("seed", DEFAULT_SEED),
     )

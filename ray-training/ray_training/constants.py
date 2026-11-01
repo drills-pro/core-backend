@@ -11,8 +11,6 @@ LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; 
 DEFAULT_TASK_GPUS = 1
 CONFUSION_TOP_K = 5
 ONNX_OPSET = 17
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
 MAP_IOU_THRESHOLDS = tuple(0.5 + 0.05 * i for i in range(10))  # COCO: 0.50..0.95
 MAP_RECALL_POINTS = 101
 SPLIT_BUCKETS = 100  # hash split: bucket = int(sha256[:8], 16) % 100
@@ -36,6 +34,13 @@ class Preset(StrEnum):
     SMALL = "small"
     MEDIUM = "medium"
     LARGE = "large"
+
+
+class Resample(StrEnum):
+    """Mirrors app.core.task_catalog.Resample; the names are PIL.Image.Resampling members."""
+
+    BILINEAR = "bilinear"
+    BICUBIC = "bicubic"
 
 
 class Split(StrEnum):

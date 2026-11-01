@@ -184,6 +184,8 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     assert (spec.kind, spec.job_id.startswith("train-"), spec.resources.gpu) == ("train", True, 1)
     p = spec.payload
     assert (p.task, p.preset, p.base_model) == (TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL, task_catalog.base_model(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL))
+    preset = task_catalog.preset_spec(TaskType.IMAGE_CLASSIFICATION, TrainPreset.SMALL)
+    assert (p.learning_rate, p.preprocessing) == (preset.learning_rate, preset.preprocessing)
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
     assert (spec.resources.cpu, spec.resources.max_runtime_s) == (settings.training.task_cpus, settings.training.max_runtime_seconds)
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run

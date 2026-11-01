@@ -13,20 +13,20 @@ from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.metrics import detection_metrics
 from ray_training.result import (
     INPUT_NAME, NUM_WORKERS_GPU, Result, device, export_onnx, load_image, preprocessing, seed_everything)
-from ray_training.spec import TrainSpec
+from ray_training.spec import Preprocessing, TrainSpec
 
 MAX_DETECTIONS = 100  # kept per image when scoring
 
 
 class Images(TorchDataset):
-    def __init__(self, samples: list[Sample], size: int):
-        self.samples, self.size = samples, size
+    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing):
+        self.samples, self.size, self.pre = samples, size, pre
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, i):
-        image, w, h = load_image(self.samples[i].file, self.size)
+        image, w, h = load_image(self.samples[i].file, self.size, self.pre)
         boxes = [[(x + bw / 2) / w, (y + bh / 2) / h, bw / w, bh / h] for _, x, y, bw, bh in self.samples[i].boxes]
         classes = [c for c, *_ in self.samples[i].boxes]
         return image, {"class_labels": torch.tensor(classes, dtype=torch.long), "boxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4)}
@@ -75,8 +75,8 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result:
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True).to(dev)
     workers = NUM_WORKERS_GPU if dev.type == "cuda" else 0
-    train_loader = DataLoader(Images(train_set, spec.image_size), spec.batch_size, shuffle=True, collate_fn=collate, num_workers=workers)
-    eval_loader = DataLoader(Images(held_out, spec.image_size), spec.batch_size, collate_fn=collate, num_workers=workers)
+    train_loader = DataLoader(Images(train_set, spec.image_size, spec.preprocessing), spec.batch_size, shuffle=True, collate_fn=collate, num_workers=workers)
+    eval_loader = DataLoader(Images(held_out, spec.image_size, spec.preprocessing), spec.batch_size, collate_fn=collate, num_workers=workers)
     optimizer = torch.optim.AdamW(model.parameters(), lr=spec.learning_rate)
     history = []
     for epoch in range(spec.epochs):
@@ -98,5 +98,5 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result:
         "inputs": [{"name": INPUT_NAME, "shape": ["batch", 3, spec.image_size, spec.image_size], "dtype": "float32"}],
         "outputs": [{"name": "logits", "shape": ["batch", queries, n], "dtype": "float32", "activation": "sigmoid"},
                     {"name": "pred_boxes", "shape": ["batch", queries, 4], "dtype": "float32", "format": "cxcywh_normalized"}],
-        "preprocessing": preprocessing(spec.image_size)}
+        "preprocessing": preprocessing(spec)}
     return Result(ds.classes, metrics, history, onnx, signature)

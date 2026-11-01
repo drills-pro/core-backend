@@ -51,5 +51,5 @@ def test_the_train_job_spec_accepts_exactly_the_trainable_tasks():
 
 def test_every_trainable_task_has_a_pinned_base_model_per_preset():
     for task in (t for t in TASKS if task_catalog.trainable(t)):
-        assert set(TASKS[task].base_models) == set(TrainPreset), task
-        assert all(len(m.revision) == 40 for m in TASKS[task].base_models.values()), task  # pinned to a commit, never "main"
+        assert set(TASKS[task].presets) == set(TrainPreset), task
+        assert all(len(m.base_model.revision) == 40 for m in TASKS[task].presets.values()), task  # pinned to a commit, never "main"

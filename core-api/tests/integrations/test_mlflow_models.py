@@ -2,6 +2,7 @@
 and MLflow names are namespaced so tenants cannot reach each other's experiments or models."""
 import asyncio
 import base64
+import io
 import re
 
 import httpx
@@ -46,7 +47,22 @@ def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
     script = scripts[0]
     compile(script, "serve", "exec")
     assert MODEL_URL in script and "['a', 'b']" in script
-    assert "boto3" not in script
+    assert MODEL_URL.replace("model.onnx", "model.json") in script  # preprocessing is read from the model's manifest
+    assert "boto3" not in script and "(32, 32)" not in script
+
+
+def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url):
+    Image = pytest.importorskip("PIL.Image")
+    np = pytest.importorskip("numpy")
+    asyncio.run(serve_client.deploy(deployment_id="d", mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
+    assert "def preprocess" in scripts[0]
+    scope = {}
+    exec(serve_client._PREPROCESS, scope)  # the part of the script that needs neither ray nor onnxruntime
+    buf = io.BytesIO()
+    Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
+    pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}
+    arr = scope["preprocess"](buf.getvalue(), pre)
+    assert arr.shape == (1, 3, 6, 4) and np.allclose(arr, (0.2 - 0.5) / 0.25, atol=1e-5)  # NCHW, (height, width) swapped from "resize"
 
 
 def test_the_model_url_is_under_the_runs_artifact_root(monkeypatch):

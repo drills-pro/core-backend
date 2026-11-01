@@ -36,6 +36,7 @@ async def build(
         *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS)
     )
     cfg = settings.training
+    preset = task_catalog.preset_spec(task, body.preset)
     return TrainSpec(
         job_id=submission_id(run_id),
         tenant_id=tenant_id,
@@ -44,7 +45,9 @@ async def build(
             prefix=layout.train_prefix(*ids, str(run_id)),
             task=task,
             preset=body.preset,
-            base_model=task_catalog.base_model(task, body.preset),
+            base_model=preset.base_model,
+            learning_rate=preset.learning_rate,
+            preprocessing=preset.preprocessing,
             data=data,
             hyperparameters=body.hyperparameters,
             seed=body.seed,
