@@ -28,6 +28,7 @@ from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
 from app.modules.user import projects, teams
+from app.modules.user import tenants as tenants_ctx
 from app.modules.admin.tenants.routes import ZITADEL_TIMEOUT, zitadel_refused
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
@@ -55,14 +56,7 @@ UNKNOWN_USER = {
 async def get_tenant(tenant_id: uuid.UUID):
     """The header of the detail page: identity, owner, status, counts."""
     async with (await get_pool()).acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT t.id, t.name, t.zitadel_org_id, t.plan_tier, t.created_at, t.settings, "
-            "       s.project_count, s.member_count, s.dataset_count, s.model_count "
-            "FROM tenants t "
-            "JOIN LATERAL admin_tenant_detail_stats(t.id) s ON true "
-            "WHERE t.id = $1",
-            tenant_id,
-        )
+        row = await tenants_ctx.admin_detail(conn, tenant_id)
     if row is None:
         raise HTTPException(status_code=404, detail="no such tenant")
 
@@ -70,13 +64,12 @@ async def get_tenant(tenant_id: uuid.UUID):
         # The instance-wide search is one call and already handles being
         # unreachable, which a per-org read would have to repeat.
         states = await zitadel.list_org_states(client)
-        owner = await zitadel.get_org_owner(client, row["zitadel_org_id"])
+        owner = await zitadel.get_org_owner(client, row.zitadel_org_id)
 
     return dict(
-        row,
-        status=states.get(row["zitadel_org_id"], "unknown"),
+        row.model_dump(),
+        status=states.get(row.zitadel_org_id, "unknown"),
         owner=owner,
-        settings=TenantSettings.model_validate(row["settings"]).model_dump(),
     )
 
 
@@ -99,10 +92,10 @@ async def list_tenant_members(tenant_id: uuid.UUID):
     in the listing (admin_tenant_stats()), so the two agree.
     """
     async with (await get_pool()).acquire() as conn:
-        tenant = await conn.fetchrow("SELECT zitadel_org_id FROM tenants WHERE id = $1", tenant_id)
-        if tenant is None:
+        org_ids = await tenants_ctx.get_org_ids(conn, [tenant_id])
+        if tenant_id not in org_ids:
             raise HTTPException(status_code=404, detail="no such tenant")
-        org_id = tenant["zitadel_org_id"]  # None for a tenant created through POST /v1/tenants
+        org_id = org_ids[tenant_id]  # None for a tenant created through POST /v1/tenants
         rows = await conn.fetch("SELECT * FROM admin_tenant_members($1)", tenant_id)
 
     async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
@@ -133,7 +126,7 @@ async def create_tenant_project(
     """
     task_catalog.require_supported_task_type(task_type)
     async with (await get_pool()).acquire() as conn:
-        if not await conn.fetchval("SELECT true FROM tenants WHERE id = $1", tenant_id):
+        if await tenants_ctx.get_ref(conn, tenant_id) is None:
             raise HTTPException(status_code=404, detail="no such tenant")
 
     async with TenantConn(str(tenant_id)) as conn:
@@ -161,14 +154,10 @@ async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings)
     two operators on two switches don't overwrite each other.
     """
     async with (await get_pool()).acquire() as conn:
-        row = await conn.fetchrow(
-            "UPDATE tenants SET settings = settings || $2::jsonb WHERE id = $1 RETURNING settings",
-            tenant_id,
-            settings.model_dump(exclude_unset=True),
-        )
-    if row is None:
+        stored = await tenants_ctx.merge_settings(conn, tenant_id, settings.model_dump(exclude_unset=True))
+    if stored is None:
         raise HTTPException(status_code=404, detail="no such tenant")
-    return {"settings": TenantSettings.model_validate(row["settings"]).model_dump()}
+    return {"settings": TenantSettings.model_validate(stored).model_dump()}
 
 
 @router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)])
@@ -183,7 +172,7 @@ async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=
         raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn, conn.transaction():
-        org_id = await conn.fetchval("UPDATE tenants SET status = $2 WHERE id = $1 RETURNING coalesce(zitadel_org_id, '')", tenant_id, status)
+        org_id = await tenants_ctx.set_status(conn, tenant_id, status)
         if org_id is None:
             raise HTTPException(status_code=404, detail="no such tenant")
         if org_id:

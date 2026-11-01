@@ -70,7 +70,7 @@ def _create(claims, key="k1"):
 
 def test_replay_with_the_same_key_returns_the_first_tenant_and_creates_nothing(monkeypatch):
     T = uuid.uuid4()
-    conn = FakeConn(row={"id": T, "name": "Acme", "slug": "acme"})
+    conn = FakeConn(row={"id": T, "new_tenant": T, "name": "Acme", "slug": "acme"})
     _patch(monkeypatch, conn)
     out = asyncio.run(_create(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     assert out.id == T and not conn.executed

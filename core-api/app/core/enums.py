@@ -104,3 +104,11 @@ class AuthSpan(StrEnum):
     UPSERT_PRINCIPAL = "auth.upsert_principal"
 
 
+
+
+class PlanTier(StrEnum):
+    """Mirrors the tenants.plan_tier CHECK constraint."""
+
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"

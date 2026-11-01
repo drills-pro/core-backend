@@ -32,6 +32,7 @@ from app.core.auth import get_platform_admin
 from app.core.db import get_pool
 from app.core.tenant_conn import TenantConn
 from app.integrations import zitadel
+from app.modules.user import tenants as tenants_ctx
 from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 
 logger = logging.getLogger(__name__)
@@ -69,25 +70,12 @@ async def list_tenants(
     and status tabs cost no extra requests."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT t.id, t.name, t.zitadel_org_id, t.plan_tier, t.created_at, "
-            "       s.project_count, s.member_count "
-            "FROM tenants t "
-            # LATERAL so the counters run for the rows this filter keeps,
-            # not for every tenant on the platform.
-            "JOIN LATERAL admin_tenant_stats(ARRAY[t.id]) s ON true "
-            "WHERE ($1::text IS NULL OR t.name ILIKE '%' || $1 || '%') "
-            "AND ($2::text IS NULL OR t.plan_tier = $2) "
-            "ORDER BY t.created_at, t.id LIMIT $3",
-            q,
-            plan_tier,
-            MAX_SCAN,
-        )
+        rows = await tenants_ctx.admin_list(conn, q, plan_tier, MAX_SCAN)
 
     async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
         org_states = await zitadel.list_org_states(client)
         tenants = [
-            dict(row, status=org_states.get(row["zitadel_org_id"], "unknown")) for row in rows
+            dict(row.model_dump(), status=org_states.get(row.zitadel_org_id, "unknown")) for row in rows
         ]
         # Before the status filter, so a status-filtered request still knows
         # what the other tabs hold and a back-office UI doesn't have to ask
@@ -165,13 +153,7 @@ async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> dict
     pool = await get_pool()
     async with pool.acquire() as conn:
         try:
-            row = await conn.fetchrow(
-                "INSERT INTO tenants (zitadel_org_id, name, plan_tier) VALUES ($1, $2, $3) "
-                "RETURNING id, name, zitadel_org_id, plan_tier, created_at",
-                zitadel_org_id,
-                name,
-                plan_tier,
-            )
+            row = await tenants_ctx.insert_admin_tenant(conn, zitadel_org_id, name, plan_tier)
         except asyncpg.UniqueViolationError as error:
             raise HTTPException(
                 status_code=409,
@@ -180,9 +162,9 @@ async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> dict
 
     # teams is RLS-protected, so the Default team is written as the tenant
     # rather than around it — the same connection its own members get.
-    async with TenantConn(str(row["id"])) as conn:
-        await create_team(conn, row["id"], DEFAULT_TEAM_NAME)
-    return dict(row)
+    async with TenantConn(str(row.id)) as conn:
+        await create_team(conn, row.id, DEFAULT_TEAM_NAME)
+    return row.model_dump()
 
 
 async def _discard_org(client: httpx.AsyncClient, org_id: str) -> None:
@@ -230,8 +212,8 @@ async def tenants_summary():
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        stats = await conn.fetchrow("SELECT * FROM admin_platform_stats()")
-        org_ids = await conn.fetch("SELECT zitadel_org_id FROM tenants")
+        stats = await tenants_ctx.admin_platform_stats(conn)
+        org_ids = await tenants_ctx.admin_org_ids(conn)
 
     async with httpx.AsyncClient(timeout=ZITADEL_TIMEOUT) as client:
         org_states = await zitadel.list_org_states(client)
@@ -239,7 +221,7 @@ async def tenants_summary():
     # instance with no tenant row (Zitadel's own instance org, for one) is
     # not an organisation this platform has.
     counts = collections.Counter(
-        org_states.get(row["zitadel_org_id"], "unknown") for row in org_ids
+        org_states.get(org_id, "unknown") for org_id in org_ids
     )
 
     return {

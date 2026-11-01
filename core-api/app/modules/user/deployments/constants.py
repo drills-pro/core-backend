@@ -2,14 +2,7 @@
 from enum import StrEnum
 
 from app.core import task_catalog
-
-
-class PlanTier(StrEnum):
-    """Mirrors the tenants.plan_tier CHECK."""
-
-    FREE = "free"
-    PRO = "pro"
-    ENTERPRISE = "enterprise"
+from app.core.enums import PlanTier
 
 
 class DeployStrategy(StrEnum):

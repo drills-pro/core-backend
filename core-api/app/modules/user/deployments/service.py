@@ -37,6 +37,7 @@ from app.modules.user.deployments.schemas import (
 )
 from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.projects import get_settings, get_task_type
+from app.modules.user.tenants import get_plan_tier
 from app.modules.user.training import get_run_model
 from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
@@ -77,7 +78,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
                 project_id,
                 f"/predict/{project_id}/{MAIN_ROUTE_SUFFIX}",
             )
-        plan_tier = await conn.fetchval("SELECT plan_tier FROM tenants WHERE id = $1", ctx.tenant_id)
+        plan_tier = await get_plan_tier(conn, ctx.tenant_id)
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
     ray_job_id, route_prefix = await serve_client.deploy(

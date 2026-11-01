@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.core.authz import TenantRole, TenantStatus
 from app.core.schemas import TenantName
+from app.core.tenant_settings import TenantSettings
 
 
 class TenantRename(BaseModel):
@@ -36,3 +37,36 @@ class TenantAuditEntry(BaseModel):
     entity_type: str
     entity_id: str
     created_at: datetime
+
+
+class TenantRef(BaseModel):
+    """The identifying columns of a tenant, for other contexts."""
+
+    id: uuid.UUID
+    name: str
+    slug: str
+
+
+class AdminTenantCreated(BaseModel):
+    """The row POST /v1/admin/tenants inserts."""
+
+    id: uuid.UUID
+    name: str
+    zitadel_org_id: str | None
+    plan_tier: str
+    created_at: datetime
+
+
+class AdminTenantRow(AdminTenantCreated):
+    """One line of the back-office listing: the tenant plus its SECURITY DEFINER counters."""
+
+    project_count: int
+    member_count: int
+
+
+class AdminTenantFull(AdminTenantRow):
+    """The detail header: the listing row plus settings and the two extra counters."""
+
+    settings: TenantSettings
+    dataset_count: int
+    model_count: int

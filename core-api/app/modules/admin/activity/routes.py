@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
 from app.integrations import zitadel
+from app.modules.user.tenants import get_org_ids
 
 router = APIRouter(prefix="/v1/admin/activity", tags=["admin"])
 
@@ -107,10 +108,7 @@ async def _org_ids(conn, tenant_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """
     if not tenant_ids:
         return {}
-    rows = await conn.fetch(
-        "SELECT id, zitadel_org_id FROM tenants WHERE id = ANY($1::uuid[])", list(tenant_ids)
-    )
-    return {row["id"]: row["zitadel_org_id"] for row in rows}
+    return await get_org_ids(conn, list(tenant_ids))
 
 
 async def _actor_names(orgs: dict[uuid.UUID, str]) -> dict[tuple[uuid.UUID, str], str]:
