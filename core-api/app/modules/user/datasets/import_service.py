@@ -17,7 +17,7 @@ from http import HTTPStatus
 
 from fastapi import HTTPException
 
-from app.core import audit, task_catalog
+from app.core import audit, task_types
 from app.core.authz import Action, AuthzContext
 from app.core.enums import TaskType
 from app.core.idempotency import insert_once, replay
@@ -105,15 +105,15 @@ async def _check_base(conn, row: dict) -> None:
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.STALE_BASE, STALE_BASE_DETAIL)
 
 
-def _validate(task_type: TaskType, body: ImportCreate) -> None:
-    task_catalog.require_supported_task_type(task_type)
+async def _validate(conn, task_type: TaskType, body: ImportCreate) -> None:
+    info = await task_types.require_supported(conn, task_type)
     if body.task_type is not None and body.task_type != task_type:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISMATCH, f"this project's task type is '{task_type}'")
     if body.source is ImportSource.HUGGINGFACE and body.params.repo is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a Hugging Face import needs params.repo")
     if body.source is ImportSource.HUGGINGFACE and task_type == TaskType.TEXT_CLASSIFICATION:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a text dataset is imported from a CSV upload for now")
-    if body.source is ImportSource.UPLOAD and task_catalog.is_tabular(task_type) and body.params.target is None:
+    if body.source is ImportSource.UPLOAD and info.is_tabular and body.params.target is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_PARAMS, "a CSV import needs params.target")
 
 
@@ -142,7 +142,7 @@ async def create_import(
         if created:
             if task is None:
                 raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISSING, "this project has no task type, so it cannot import data")
-            _validate(TaskType(task), body)
+            await _validate(conn, TaskType(task), body)
             if body.base_version_id is None and await conn.fetchval(_LATEST_VERSION, dataset_id) is not None:
                 raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BASE_REQUIRED, BASE_REQUIRED_DETAIL)
             if body.base_version_id and await conn.fetchval(_BASE_EXISTS, body.base_version_id, dataset_id) is None:
@@ -215,6 +215,7 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
     async with TenantConn(ctx.tenant_id) as conn:
         row = await _load(conn, project_id, dataset_id, import_id)
         task_type = await dataset_task(conn, project_id, dataset_id)
+        info = await task_types.require_supported(conn, TaskType(task_type))
         await _check_base(conn, row)
         # expires_at is the job deadline while queued/running, so the timeout runs from the start, not from creation
         deadline = datetime.now(UTC) + timedelta(seconds=settings.dataset_limits.job_timeout_seconds)
@@ -222,7 +223,7 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
     submission_id = f"ingest-{imp}-{uuid.uuid4().hex[:8]}"  # Ray refuses a reused id, and a retry is a new submission; known before the POST, so a lost answer can still be stopped
     try:
         await data_plane.create_dataset_repo(tenant, ds)
-        spec, kind = await ingest_spec.build(row, TaskType(task_type), submission_id)
+        spec, kind = await ingest_spec.build(row, TaskType(task_type), info.is_table, submission_id)
         job_id = await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
     except Exception as e:
         await job_lifecycle.stop_quietly(submission_id)  # Ray may have accepted it: a retry must not run a second job on this prefix

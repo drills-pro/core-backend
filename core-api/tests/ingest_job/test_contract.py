@@ -81,8 +81,8 @@ def test_every_job_type_has_an_entrypoint_module_that_runs_as_main():
 
 
 def test_every_source_and_task_picks_a_job_type():
-    picked = {(s, t): job_catalog.ingest_job_type(s, t) for s in ImportSource for t in TaskType}
+    picked = {(s, table): job_catalog.ingest_job_type(s, table) for s in ImportSource for table in (False, True)}
     assert set(picked.values()) == set(job_catalog.JobType)
-    assert picked[(ImportSource.UPLOAD, TaskType.OBJECT_DETECTION)] == job_catalog.JobType.UPLOAD_IMAGES
-    assert picked[(ImportSource.UPLOAD, TaskType.TABULAR_REGRESSION)] == job_catalog.JobType.UPLOAD_CSV
-    assert picked[(ImportSource.HUGGINGFACE, TaskType.IMAGE_CLASSIFICATION)] == job_catalog.JobType.HUGGINGFACE
+    assert picked[(ImportSource.UPLOAD, False)] == job_catalog.JobType.UPLOAD_IMAGES
+    assert picked[(ImportSource.UPLOAD, True)] == job_catalog.JobType.UPLOAD_CSV
+    assert picked[(ImportSource.HUGGINGFACE, False)] == job_catalog.JobType.HUGGINGFACE

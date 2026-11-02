@@ -3,10 +3,11 @@ import asyncio
 import uuid
 from http import HTTPStatus
 
-from app.core import task_catalog
+from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.enums import TaskType
 from app.core.problem import Problem, not_found
+from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
@@ -20,22 +21,22 @@ _IMPORT_STATUS = "SELECT status FROM dataset_imports WHERE id = $1 AND dataset_i
 _NOT_IN_REVIEW = "only an import awaiting review has a staged preview"
 
 
-async def _task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID) -> TaskType:
+async def _task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID) -> TaskInfo:
     task = await dataset_task(conn, project_id, dataset_id)
     if task is None:  # a project without a task type has no data to preview
         raise not_found()
-    return task
+    return await task_types.require_supported(conn, TaskType(task))
 
 
-async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, version_id: uuid.UUID) -> TaskType:
+async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, version_id: uuid.UUID) -> TaskInfo:
     task = await _task(conn, project_id, dataset_id)
     if await conn.fetchval(_VERSION_EXISTS, version_id, dataset_id) is None:
         raise not_found()
     return task
 
 
-def _key(task: TaskType) -> str:
-    return layout.DATA_KEY if task_catalog.is_table(task) else layout.INDEX_KEY
+def _key(task: TaskInfo) -> str:
+    return layout.DATA_KEY if task.is_table else layout.INDEX_KEY
 
 
 async def version_preview(
@@ -45,7 +46,7 @@ async def version_preview(
         task = await _version_task(conn, project_id, dataset_id, version_id)
     tenant, ds, ver = ctx.tenant_id, str(dataset_id), str(version_id)
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
-    if task_catalog.is_table(task):
+    if task.is_table:
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
     # ponytail: one ownership query per URL, PRESIGN_CONCURRENCY at a time; add a batch presign op if previews grow past a page
     gate = asyncio.Semaphore(PRESIGN_CONCURRENCY)

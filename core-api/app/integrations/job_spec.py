@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
 from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
-from app.core.task_catalog import TRAINABLE, Preprocessing, TextPreprocessing, TrainBaseModel, is_table
+from app.core.task_catalog import DataKind, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.task_types import TRAINER_PATTERN
 
 SPEC_VERSION = 1
 
@@ -66,7 +67,6 @@ class IngestPayload(BaseModel):
 
 # ---- train ----
 
-TrainTask = Literal[*TRAINABLE]  # the catalog's trainable tasks: a new one is a TASKS entry, and the contract schema follows
 DEFAULT_EPOCHS, MAX_EPOCHS = 30, 500
 DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE = 16, 512
 DEFAULT_IMAGE_SIZE, MIN_IMAGE_SIZE, MAX_IMAGE_SIZE = 224, 32, 1536
@@ -96,7 +96,9 @@ class TrainPayload(BaseModel):
 
     bucket: str  # staging bucket; the job writes only under `prefix`
     prefix: str
-    task: TrainTask
+    task: TaskType
+    trainer: str = Field(pattern=TRAINER_PATTERN)  # "module:function" in the ray_training package: the task_types row's trainer
+    data_kind: DataKind  # which urls `data` carries
     preset: str  # the task_presets row's name; the values it stood for are in the fields below
     base_model: TrainBaseModel
     learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
@@ -108,7 +110,7 @@ class TrainPayload(BaseModel):
     @model_validator(mode="after")
     def _data_fits_the_task(self):
         """Image tasks read an index and a manifest, table tasks a data file; the trainer reads only what its task needs."""
-        have = (self.data.data_url,) if is_table(self.task) else (self.data.index_url, self.data.manifest_url)
+        have = (self.data.data_url,) if self.data_kind is not DataKind.IMAGES else (self.data.index_url, self.data.manifest_url)
         if not all(have):
             raise ValueError(f"the data of a {self.task} run is missing a url")
         return self

@@ -37,7 +37,7 @@ def ingest_payload():
 
 
 def train_payload(**over):
-    return {"bucket": "b", "prefix": "trainings/t/p/r/", "task": TaskType.IMAGE_CLASSIFICATION, "preset": "small",
+    return {"bucket": "b", "prefix": "trainings/t/p/r/", "task": TaskType.IMAGE_CLASSIFICATION, "trainer": "ray_training.classification:train", "data_kind": "images", "preset": "small",
             "base_model": {"repo_id": "facebook/convnext-tiny-224", "revision": "abc"}, "learning_rate": 1e-4,
             "preprocessing": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "rescale": 1 / 255, "resample": "bilinear"},
             "data": {"index_url": "http://i", "manifest_url": "http://m", "version_id": str(uuid.uuid4()), "lakefs_commit": "c0ffee"},
@@ -74,8 +74,8 @@ def test_a_train_spec_round_trips_with_its_defaults_filled():
 
 
 @pytest.mark.parametrize("bad", [
-    {"task": TaskType.TABULAR_REGRESSION},
-    {"task": "image-segmentation"},
+    {"trainer": "not a trainer"},
+    {"data_kind": "text"},  # a table task needs data_url
     {"hyperparameters": {"epochs": 0}},
     {"hyperparameters": {"image_size": 4}},
     {"data": {"index_url": "http://i"}},

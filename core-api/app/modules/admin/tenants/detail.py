@@ -19,7 +19,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from app.core import audit, task_catalog
+from app.core import audit, task_types
 from app.core.auth import get_platform_admin
 from app.core.authz import TenantStatus
 from app.core.db import get_pool
@@ -124,8 +124,8 @@ async def create_tenant_project(
     the audit row — so a project the operator creates is indistinguishable
     from one the tenant created itself.
     """
-    task_catalog.require_supported_task_type(task_type)
     async with (await get_pool()).acquire() as conn:
+        await task_types.require_supported(conn, task_type)
         if await tenants_ctx.get_ref(conn, tenant_id) is None:
             raise HTTPException(status_code=404, detail="no such tenant")
 

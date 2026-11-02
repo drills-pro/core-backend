@@ -28,7 +28,7 @@ LABEL_COLUMN = "label"
 
 
 class Task(StrEnum):
-    """Mirrors app.core.enums.TaskType (the ones this trainer runs)."""
+    """The task slugs the data loader reads differently (core-api TaskType); which trainer runs a task comes from the spec."""
 
     IMAGE_CLASSIFICATION = "image-classification"
     OBJECT_DETECTION = "object-detection"

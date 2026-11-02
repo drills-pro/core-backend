@@ -1,7 +1,6 @@
 """Named values for deployments and inference."""
 from enum import StrEnum
 
-from app.core import task_catalog
 from app.core.enums import PlanTier
 
 
@@ -26,6 +25,5 @@ SERVE_TIMEOUT_SECONDS = 10
 TEST_CALLS_DEFAULT_LIMIT = 20
 
 NOT_DEPLOYABLE_DETAIL = (
-    "training run has no deployable model "
-    f"(only a succeeded {' or '.join(task_catalog.SERVABLE)} run can be served so far)"
+    "training run has no deployable model (only a succeeded run of a servable task type can be served)"
 )

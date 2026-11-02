@@ -44,7 +44,7 @@ def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None
     try:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            result = (trainer or trainer_for(spec.task))(spec, load_dataset(spec, work, get), work)
+            result = (trainer or trainer_for(spec.trainer))(spec, load_dataset(spec, work, get), work)
             manifest = {
                 "format": "onnx", "task": spec.task, "preset": spec.preset, "base_model": spec.base_model,
                 "base_revision": spec.base_revision, "classes": result.classes, **result.signature,

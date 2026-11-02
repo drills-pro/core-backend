@@ -3,11 +3,10 @@ version and the run's staging prefix, nothing else (no lakeFS or MLflow credenti
 import uuid
 from http import HTTPStatus
 
-from app.core import task_catalog
-from app.core.enums import TaskType
 from app.core.presets import HyperparameterRange, TaskPreset
 from app.core.problem import Problem
 from app.core.settings import settings
+from app.core.task_types import TaskInfo
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
 from app.integrations.job_spec import Hyperparameters, Resources, TrainPayload, TrainSpec
@@ -50,13 +49,13 @@ def resolve_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides) 
 
 
 async def build(
-    tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskType, body: TrainingRunCreate,
+    tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskInfo, body: TrainingRunCreate,
     preset: TaskPreset, hyperparameters: Hyperparameters,
 ) -> TrainSpec:
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
         *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS),
-        table=task_catalog.is_table(task),
+        table=task.is_table,
     )
     return TrainSpec(
         job_id=submission_id(run_id),
@@ -64,7 +63,9 @@ async def build(
         payload=TrainPayload(
             bucket=settings.data_plane.staging_bucket,
             prefix=layout.train_prefix(*ids, str(run_id)),
-            task=task,
+            task=task.slug,
+            trainer=task.trainer,
+            data_kind=task.data_kind,
             preset=preset.name,
             base_model=preset.base_model,
             learning_rate=preset.learning_rate,

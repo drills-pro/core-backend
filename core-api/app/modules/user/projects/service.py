@@ -3,7 +3,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from app.core import audit, task_catalog
+from app.core import audit, task_types
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
 from app.core.enums import TaskType
 from app.core.metrics import usage as usage_metrics
@@ -62,8 +62,8 @@ async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSumm
 
 
 async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team_id: uuid.UUID | None) -> ProjectSummary:
-    task_catalog.require_supported_task_type(task_type)
     async with TenantConn(ctx.tenant_id) as conn:
+        await task_types.require_supported(conn, task_type)
         if team_id is None:
             # Every org has >=1 team (seeded at provisioning); a project with no team_id given lands in
             # the tenant's oldest (Default) team rather than requiring every caller to look it up.

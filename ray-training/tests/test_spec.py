@@ -5,7 +5,7 @@ import jsonschema
 import pytest
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, FailCode, Outcome, Resample, Task)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, FailCode, Outcome, Resample)
 from ray_training.spec import parse_spec
 from tests.support import LEARNING_RATE, PREPROCESSING, VERSION_ID, classification_rows, spec_doc
 
@@ -45,12 +45,10 @@ def test_an_unknown_version_or_kind_is_refused(over):
         parse_spec(json.dumps({**spec_doc("image-classification", "m", ROWS), **over}))
 
 
-@pytest.mark.parametrize("field,value", [("task", "image-segmentation")])
-def test_a_bad_task_is_refused(field, value):
+def test_the_trainer_is_the_one_the_spec_names():
     doc = spec_doc("image-classification", "m", ROWS)
-    doc["payload"][field] = value
-    with pytest.raises(ValueError):
-        parse_spec(json.dumps(doc))
+    doc["payload"]["trainer"] = "ray_training.detection:train"
+    assert parse_spec(json.dumps(doc)).trainer == "ray_training.detection:train"
 
 
 def test_a_spec_validates_against_the_committed_contract():
@@ -62,7 +60,6 @@ def test_a_spec_validates_against_the_committed_contract():
 
 def test_the_contract_enums_equal_the_trainers():
     defs = json.loads(CONTRACT.read_text())["$defs"]
-    assert set(defs["TrainPayload"]["properties"]["task"]["enum"]) == {t.value for t in Task}
     assert set(defs["Resample"]["enum"]) == {r.value for r in Resample}
     hp = defs["Hyperparameters"]["properties"]
     assert (hp["epochs"]["default"], hp["batch_size"]["default"], hp["image_size"]["default"]) == (

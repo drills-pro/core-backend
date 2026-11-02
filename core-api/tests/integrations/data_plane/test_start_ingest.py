@@ -35,7 +35,7 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     monkeypatch.setattr(ingest.job_package, "resolve_stable", resolve_stable)
     monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
     monkeypatch.setattr(compute, "submit", submit)
-    spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, "ingest-1"))
+    spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, True, "ingest-1"))
     assert asyncio.run(ingest.submit_ingest(TENANT, DATASET, IMPORT, spec, kind)) == "job-1"
     argv = shlex.split(sent["entrypoint"])
     assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]

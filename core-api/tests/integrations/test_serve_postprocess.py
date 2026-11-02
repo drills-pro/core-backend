@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from app.core import task_catalog
+from tests.support.task_types import SERVABLE
 from app.integrations import serve_client
 from app.integrations.data_plane import mlflow
 
@@ -33,10 +33,10 @@ def test_detection_scales_normalised_boxes_to_the_images_pixels_and_drops_low_sc
 
 
 def test_every_servable_task_has_a_postprocessor():
-    assert set(serve_client.SERVING) == set(task_catalog.SERVABLE)
+    assert set(serve_client.SERVING) == set(SERVABLE)
 
 
-@pytest.mark.parametrize("task", task_catalog.SERVABLE)
+@pytest.mark.parametrize("task", SERVABLE)
 def test_the_deployed_script_compiles_and_calls_its_tasks_postprocessor(monkeypatch, task):
     scripts = []
 

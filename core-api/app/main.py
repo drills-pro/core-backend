@@ -29,6 +29,7 @@ from app.modules.admin import activity as admin_activity
 from app.modules.admin import job_packages as admin_job_packages
 from app.modules.admin import models as admin_models
 from app.modules.admin import presets as admin_presets
+from app.modules.admin import task_types as admin_task_types
 from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
     api_keys,
@@ -54,6 +55,7 @@ ROUTERS = (
     admin_job_packages.router,
     admin_models.router,
     admin_presets.router,
+    admin_task_types.router,
     admin_tenants.router,
     # After the listing, never before it: the detail router owns
     # /v1/admin/tenants/{tenant_id}, which would otherwise swallow the

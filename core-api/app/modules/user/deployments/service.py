@@ -9,7 +9,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core import rate_limit
-from app.core import task_catalog
+from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
@@ -59,7 +59,8 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         if run is None:
             raise HTTPException(status_code=404, detail="training run not found")
         task = await get_task_type(conn, project_id)
-        if task is None or not task_catalog.servable(task) or not run.servable:
+        info = None if task is None else await task_types.get(conn, task)
+        if info is None or not info.enabled or not info.servable or not run.servable:
             raise HTTPException(status_code=409, detail=NOT_DEPLOYABLE_DETAIL)
 
         settings = await get_settings(conn, project_id)

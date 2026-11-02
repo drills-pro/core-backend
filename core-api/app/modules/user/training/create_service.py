@@ -10,11 +10,12 @@ from http import HTTPStatus
 
 from fastapi import HTTPException
 
-from app.core import presets, task_catalog
+from app.core import presets, task_types
 from app.core.authz import AuthzContext
 from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
 from app.core.problem import Problem, not_found
+from app.core.task_types import TaskInfo
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute, data_plane
@@ -48,16 +49,16 @@ async def _check_quota(conn, tenant_id: str) -> None:
         raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_RUNS, "too many training runs in progress, wait for one to finish")
 
 
-def _task_of(project_task: str | None, body: TrainingRunCreate) -> TaskType:
+async def _task_of(conn, project_task: str | None, body: TrainingRunCreate) -> TaskInfo:
     if project_task is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISSING, "this project has no task type, so it cannot train")
     task = TaskType(project_task)
-    task_catalog.require_supported_task_type(task)
-    if not task_catalog.trainable(task):
+    info = await task_types.require_supported(conn, task)
+    if not info.trainable:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_NOT_TRAINABLE, f"task type '{task}' cannot be trained yet")
     if body.task_type is not None and body.task_type != task:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_TYPE_MISMATCH, f"this project's task type is '{task}'")
-    return task
+    return info
 
 
 def _same_request(row, body: TrainingRunCreate) -> bool:
@@ -88,7 +89,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
         if existing is not None:
             return _replay(existing, body)
-        task = _task_of(await get_task_type(conn, project_id), body)
+        info = await _task_of(conn, await get_task_type(conn, project_id), body)
+        task = info.slug
         version = await get_version_source(conn, project_id, body.dataset_version_id)
         if version is None:  # another project's or tenant's version is indistinguishable from a missing one
             raise not_found()
@@ -102,7 +104,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
     try:
         package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, task, body, preset, hyperparameters)
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters)
     except Exception as e:
         raise _start_failed(e, run_id) from e
 

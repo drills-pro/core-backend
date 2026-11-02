@@ -1,23 +1,15 @@
-"""What the platform knows about each supported task type, in one table: a new task type is one entry here (plus a
-member of `TaskType` and, for a task not in projects.task_type's CHECK yet, a migration).
-
-`TASKS` carries what differs between task types: the kind of data a task works on, whether the trainer can train it, and
-whether a deployment can serve its models. What a trainable task trains with (checkpoint pinned to a commit, learning
-rate, preprocessing, resources, hyperparameter bounds) is rows of `task_presets` (app/core/presets.py), changed through
-/v1/admin without a deploy; the train job spec carries the values, the trainer holds no table. Everything that asks "is
-it supported / tabular / trainable / servable" asks this module; `job_spec.TrainTask` and the deployment error text derive
-from it. Report parsing, model registration and metering do not branch on the task.
+"""Shapes shared by the train job and the presets: the kinds of data, the column names of a text dataset, the base model pin
+and the two preprocessing models. What the platform can do with each task type (its data kind, trainer, whether it can be
+served) is rows of `task_types` (app/core/task_types.py), changed through /v1/admin without a deploy; what a trainable task
+trains with is rows of `task_presets` (app/core/presets.py).
 
 A model that normalises differently (CLIP, 0.5/0.5 ViTs) sets its own `Preprocessing` in its preset row. A text task's
 preprocessing is `TextPreprocessing`.
 """
-from collections.abc import Mapping
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import TaskType
-from app.core.problem import Problem
 
 
 class DataKind(StrEnum):
@@ -77,54 +69,3 @@ class TextPreprocessing(BaseModel):
 
 
 DEFAULT_TEXT_PREPROCESSING = TextPreprocessing(max_length=DEFAULT_MAX_LENGTH)
-
-
-class TaskInfo(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    data_kind: DataKind
-    trainable: bool = False  # the trainer has a trainer for it; what it trains with is the task_presets rows (app/core/presets.py)
-    servable: bool = False  # the serving script in serve_client can serve its models
-
-
-TASKS: Mapping[TaskType, TaskInfo] = {
-    TaskType.IMAGE_CLASSIFICATION: TaskInfo(data_kind=DataKind.IMAGES, trainable=True, servable=True),
-    TaskType.OBJECT_DETECTION: TaskInfo(data_kind=DataKind.IMAGES, trainable=True, servable=True),
-    TaskType.TEXT_CLASSIFICATION: TaskInfo(data_kind=DataKind.TEXT, trainable=True, servable=True),
-    TaskType.TABULAR_CLASSIFICATION: TaskInfo(data_kind=DataKind.TABULAR),
-    TaskType.TABULAR_REGRESSION: TaskInfo(data_kind=DataKind.TABULAR),
-}
-
-
-TRAINABLE: tuple[TaskType, ...] = tuple(t for t, i in TASKS.items() if i.trainable)  # job_spec.TrainTask is these
-SERVABLE: tuple[TaskType, ...] = tuple(t for t, i in TASKS.items() if i.servable)
-
-
-def info(task: TaskType) -> TaskInfo:
-    return TASKS[task]
-
-
-def supported(task: TaskType) -> bool:
-    return task in TASKS
-
-
-def is_tabular(task: TaskType) -> bool:
-    return task in TASKS and TASKS[task].data_kind is DataKind.TABULAR
-
-
-def is_table(task: TaskType) -> bool:
-    """The dataset is a table (data.parquet + schema.json) rather than an image index."""
-    return task in TASKS and TASKS[task].data_kind in (DataKind.TABULAR, DataKind.TEXT)
-
-
-def trainable(task: TaskType) -> bool:
-    return task in TASKS and TASKS[task].trainable
-
-
-def servable(task: TaskType) -> bool:
-    return task in TASKS and TASKS[task].servable
-
-
-def require_supported_task_type(task_type: TaskType) -> None:
-    if not supported(task_type):
-        raise Problem(422, "task_type_not_supported", f"task type '{task_type}' is not supported yet")

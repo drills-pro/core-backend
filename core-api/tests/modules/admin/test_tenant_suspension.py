@@ -11,6 +11,7 @@ from app.core.authz import Action, AuthzContext, TenantRole, TenantStatus, requi
 from app.core.enums import TaskType
 from app.modules.admin.tenants import detail
 from tests.support import FakeConn, TenantCtx, access, patch_tenant_conn
+from tests.support.task_types import seeded
 
 TENANT = uuid.uuid4()
 
@@ -29,7 +30,9 @@ class TenantsConn(FakeConn):
         self.state["status"] = status
         return self.org_id if self.org_id is not None else ""
 
-    async def fetchrow(self, sql, actor, tenant, project):
+    async def fetchrow(self, sql, actor, tenant=None, project=None):
+        if "FROM task_types" in sql:
+            return seeded(actor)
         return access(TenantRole.OWNER, None, None, None, self.state["status"])
 
 

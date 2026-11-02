@@ -10,7 +10,7 @@ class BlockstoreScheme(StrEnum):
 
 class TaskType(StrEnum):
     """Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole
-    taxonomy is accepted by the schema; core/task_catalog.py is what the platform can do today."""
+    taxonomy is accepted by the schema; the task_types table is what the platform can do today."""
 
     # image
     IMAGE_CLASSIFICATION = "image-classification"

@@ -39,6 +39,7 @@ from app.modules.user.datasets.schemas import ImportCreate, ImportParams
 from app.core.pagination import PageParams
 from tests.support import PROJECT, TENANT, access, make_client, patch_tenant_conn
 from tests.support.job_table import apply_advance
+from tests.support.task_types import seeded
 
 DS, KEY = uuid.uuid4(), "key-1"
 STATS = {"file_count": 1, "total_bytes": 7, "row_count": 1}
@@ -101,6 +102,8 @@ class _Conn:
         db = self.db
         if "project_access" in sql:
             return db.access
+        if "FROM task_types" in sql:
+            return seeded(a[0])
         if sql == svc._IMPORT:
             row = db.imports.get(a[0])
             return row and dict(row)

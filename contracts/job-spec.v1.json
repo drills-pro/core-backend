@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "DataKind": {
+      "enum": [
+        "images",
+        "tabular",
+        "text"
+      ],
+      "title": "DataKind",
+      "type": "string"
+    },
     "DatasetLimits": {
       "additionalProperties": false,
       "description": "Ceilings the API and the ingest job enforce (docs/datasets-plan.md decision 16). Static knobs.",
@@ -423,7 +432,7 @@
       "type": "string"
     },
     "TaskType": {
-      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; core/task_catalog.py is what the platform can do today.",
+      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; the task_types table is what the platform can do today.",
       "enum": [
         "image-classification",
         "object-detection",
@@ -547,6 +556,9 @@
         "data": {
           "$ref": "#/$defs/TrainData"
         },
+        "data_kind": {
+          "$ref": "#/$defs/DataKind"
+        },
         "hyperparameters": {
           "$ref": "#/$defs/Hyperparameters"
         },
@@ -580,12 +592,11 @@
           "type": "integer"
         },
         "task": {
-          "enum": [
-            "image-classification",
-            "object-detection",
-            "text-classification"
-          ],
-          "title": "Task",
+          "$ref": "#/$defs/TaskType"
+        },
+        "trainer": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Trainer",
           "type": "string"
         }
       },
@@ -593,6 +604,8 @@
         "bucket",
         "prefix",
         "task",
+        "trainer",
+        "data_kind",
         "preset",
         "base_model",
         "learning_rate",

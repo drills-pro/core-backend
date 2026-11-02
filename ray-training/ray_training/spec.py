@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Resample, Task)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Resample)
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,8 @@ class TrainSpec:
     max_runtime_s: int  # resources.max_runtime_s, 0 = none
     bucket: str
     prefix: str
-    task: Task
+    task: str  # a task_types slug; data.py compares it with constants.Task for the three it reads differently
+    trainer: str  # "module:function" of the function that trains it (registry.trainer_for)
     preset: str  # a task_presets name in core-api; only recorded, the spec carries the values it stood for
     base_model: str
     base_revision: str | None
@@ -64,14 +65,14 @@ def parse_spec(text: str) -> TrainSpec:
     if doc.get("kind") != JobKind.TRAIN:
         raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_training")
     p, data = doc["payload"], doc["payload"]["data"]
-    task, preset = Task(p["task"]), p["preset"]
+    task, preset = p["task"], p["preset"]
     base, hp = p["base_model"], p.get("hyperparameters") or {}
     pre = p["preprocessing"]
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"],
         max_runtime_s=doc["resources"].get("max_runtime_s", 0),
-        bucket=p["bucket"], prefix=p["prefix"], task=task, preset=preset,
+        bucket=p["bucket"], prefix=p["prefix"], task=task, trainer=p["trainer"], preset=preset,
         base_model=base["repo_id"], base_revision=base.get("revision"),
         index_url=data.get("index_url"), manifest_url=data.get("manifest_url"), data_url=data.get("data_url"),
         version_id=data.get("version_id"), lakefs_commit=data.get("lakefs_commit"),

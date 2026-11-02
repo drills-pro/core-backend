@@ -23,6 +23,7 @@ from app.modules.user.training import create_service, effects, persist, routes, 
 from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 from tests.support.presets import LIMITS, preset_row
+from tests.support.task_types import seeded
 from tests.support.job_table import FakeJobTable, patch
 
 BASE = f"/v1/projects/{PROJECT}/training-runs"
@@ -296,6 +297,8 @@ def test_losing_a_race_on_the_key_returns_the_winner_and_submits_nothing(monkeyp
                 return None
             if "FROM task_presets" in sql:
                 return preset_row()
+            if "FROM task_types" in sql:
+                return seeded(args[0])
             return {"dataset_id": DATASET, "lakefs_commit": "c0ffee"}
 
     patch_tenant_conn(monkeypatch, Racing(vals={"task_type": TaskType.IMAGE_CLASSIFICATION, "count(*)": 0}), create_service)

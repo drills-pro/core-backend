@@ -33,7 +33,7 @@ def call(monkeypatch):
 def test_put_writes_the_row_as_the_actor_and_returns_it(call):
     conn = FakeConn(row=preset_row(name="tiny", updated_by="ops"))
     res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
-    sql, args = conn.calls[0]
+    sql, args = conn.calls[-1]
     assert res.status_code == 200 and res.json()["updated_by"] == "ops" and sql.startswith("INSERT INTO task_presets")
     assert args[:2] == ("image-classification", "tiny") and args[-1] == "ops"
 

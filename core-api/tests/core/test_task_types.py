@@ -1,22 +1,15 @@
-"""Task types are the HF slugs, spelled once (core/enums.py); what the platform does with each is core/task_catalog.py."""
+"""Task types are the HF slugs, spelled once (core/enums.py); what the platform does with each is the task_types table."""
 import re
 from pathlib import Path
-from typing import get_args
 
 import pytest
 
-from app.core import task_catalog
 from app.core.enums import TaskType
-from app.core.task_catalog import TASKS
+from app.core.task_catalog import DataKind
 from app.integrations.data_plane.mlflow import ModelStage
-from app.integrations.job_spec import TrainTask
 
 APP = Path(__file__).parents[2] / "app"
 MIGRATIONS = Path(__file__).parents[2] / "migrations"
-
-
-def test_supported_is_a_subset_of_the_taxonomy():
-    assert set(TASKS) < set(TaskType)
 
 
 def test_no_bare_task_type_literal_outside_the_enum():
@@ -45,5 +38,14 @@ def test_the_stage_check_mirrors_the_enum():
     assert _latest_check("model_versions_stage_check") == {s.value for s in ModelStage}
 
 
-def test_the_train_job_spec_accepts_exactly_the_trainable_tasks():
-    assert set(get_args(TrainTask)) == {t for t in TASKS if task_catalog.trainable(t)}
+TASK_TYPES = next(MIGRATIONS.glob("*_task_types.sql")).read_text()
+
+
+def test_the_task_types_seed_is_inside_the_taxonomy():
+    seeded = set(re.findall(r"^\s*\('([a-z-]+)', '", TASK_TYPES, re.M))
+    assert seeded and seeded <= {t.value for t in TaskType}
+
+
+def test_the_data_kind_check_mirrors_the_enum():
+    kinds = re.search(r"data_kind text NOT NULL CHECK \(data_kind IN \(([^)]*)\)", TASK_TYPES).group(1)
+    assert set(re.findall(r"'([^']+)'", kinds)) == {k.value for k in DataKind}
