@@ -6,8 +6,16 @@ import shlex
 import subprocess
 import sys
 import zipfile
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
+import pytest
+from botocore.exceptions import ClientError
+
+from app.core.enums import JobPackageName, PackageStatus
+from app.core.problem import Problem
 from app.integrations.data_plane import ingest, job_catalog, job_package, layout
+from tests.support import TenantCtx
 
 
 def test_the_zip_is_deterministic_and_named_by_its_hash():
@@ -31,28 +39,83 @@ def test_the_bootstrap_makes_the_zip_importable_and_runs_the_entrypoint_as_main(
     assert "job spec version None" in done.stderr  # reached main() of the entrypoint: the spec {} is refused
 
 
-def test_presigned_url_uploads_a_new_version_once(monkeypatch):
-    calls = []
+class S3:
+    def __init__(self):
+        self.calls = []
 
-    class S3:
-        def head_object(self, **kw):
-            from botocore.exceptions import ClientError
+    def head_object(self, **kw):
+        self.calls.append("head")
+        raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
 
-            calls.append("head")
-            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+    def put_object(self, **kw):
+        self.calls.append(("put", kw["Key"]))
 
-        def put_object(self, **kw):
-            calls.append(("put", kw["Key"]))
+    def generate_presigned_url(self, op, Params, ExpiresIn):
+        return f"http://ray-side/{Params['Key']}"
 
-        def generate_presigned_url(self, op, Params, ExpiresIn):
-            return f"http://ray-side/{Params['Key']}"
 
-    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: S3())
+@pytest.fixture
+def registry(monkeypatch):
+    """A one-row job_packages table behind get_pool, and an S3 that has nothing staged."""
+    s3 = S3()
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: s3)
     monkeypatch.setattr(job_package, "_uploaded", set())
-    _, key = job_package.build()
-    assert asyncio.run(job_package.presigned_url()) == f"http://ray-side/{key}"
-    asyncio.run(job_package.presigned_url())
-    assert calls == ["head", ("put", key)]  # the second start finds it in this process's memory
+    rows = {}
+
+    class Conn:
+        async def execute(self, sql, name, sha, key, actor):
+            rows.setdefault((name, sha), package_row(name, sha, key, actor))
+
+        async def fetchrow(self, sql, *args):
+            if sql.startswith("UPDATE"):
+                name, sha, status, actor = args
+                rows[(name, sha)] |= {"status": status, "updated_by": actor}
+                return rows[(name, sha)]
+            if "status" in sql:
+                return next((r for r in rows.values() if r["status"] == PackageStatus.STABLE), None)
+            return rows.get(args)
+
+    async def get_pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(Conn()))
+
+    monkeypatch.setattr(job_package, "get_pool", get_pool)
+    s3.rows = rows
+    return s3
+
+
+def package_row(name, sha, key, actor, status=PackageStatus.CANDIDATE):
+    return {"name": name, "sha256": sha, "s3_key": key, "status": status, "published_by": actor, "updated_by": actor, "updated_at": datetime.now(UTC)}
+
+
+def test_publish_stages_a_new_version_once_and_registers_a_candidate(registry):
+    data, key = job_package.build()
+    first = asyncio.run(job_package.publish(JobPackageName.RAY_JOBS, "ops"))
+    asyncio.run(job_package.publish(JobPackageName.RAY_JOBS, "ops"))
+    assert (first.sha256, first.s3_key, first.status) == (hashlib.sha256(data).hexdigest(), key, PackageStatus.CANDIDATE)
+    assert registry.calls == ["head", ("put", key)]  # the second publish finds it in this process's memory
+
+
+def test_a_run_gets_the_registered_key_whatever_its_status(registry):
+    package = asyncio.run(job_package.publish(JobPackageName.RAY_JOBS, "ops"))
+    assert asyncio.run(job_package.presigned_url(JobPackageName.RAY_JOBS, package.sha256)) == f"http://ray-side/{package.s3_key}"
+    with pytest.raises(LookupError):
+        asyncio.run(job_package.presigned_url(JobPackageName.RAY_JOBS, "0" * 64))
+
+
+def test_prod_runs_only_a_promoted_package(registry, monkeypatch):
+    monkeypatch.setattr(job_package.settings, "env", job_package.PROD_ENV)
+    asyncio.run(job_package.publish(JobPackageName.RAY_JOBS, "ops"))
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.resolve_stable(JobPackageName.RAY_JOBS))
+    assert err.value.status_code == 503
+    (key,) = registry.rows
+    registry.rows[key]["status"] = PackageStatus.STABLE
+    assert asyncio.run(job_package.resolve_stable(JobPackageName.RAY_JOBS)).sha256 == key[1]
+
+
+def test_outside_prod_the_bundled_source_is_published_and_promoted(registry):
+    package = asyncio.run(job_package.resolve_stable(JobPackageName.RAY_TRAINING))
+    assert package.status == PackageStatus.STABLE and package.published_by == job_package.SELF_PUBLISHER
 
 
 def test_another_package_is_zipped_the_same_way_under_its_own_name(tmp_path):

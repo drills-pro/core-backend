@@ -11,6 +11,7 @@ import json
 from botocore.exceptions import ClientError
 
 from app.core import secret_files
+from app.core.enums import JobPackageName
 from app.core.settings import settings
 from app.integrations.data_plane import access, job_catalog, job_package, job_submit, lakefs, layout
 from app.integrations.data_plane.train_report import TrainReport
@@ -43,10 +44,11 @@ async def prepare_train_data(
     return TrainData(index_url=index_url, manifest_url=manifest, version_id=version_id, lakefs_commit=commit)
 
 
-async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: TrainSpec) -> str:
-    """Submit the driver under the spec's job_id (the caller's submission id); returns the Ray job id."""
+async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str) -> str:
+    """Submit the driver under the spec's job_id (the caller's submission id), running the ray_training package the run
+    was created with; returns the Ray job id."""
     await access.training_run(tenant_id, project_id, run_id)
-    package_url = await job_package.presigned_url(job_package.TRAINING_PACKAGE_DIR)
+    package_url = await job_package.presigned_url(JobPackageName.RAY_TRAINING, package_sha256)
     # num_gpus stays 0: the driver must not hold the only GPU, its Ray task asks for it (spec.resources.gpu)
     return await job_submit.submit(
         package_url=package_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,

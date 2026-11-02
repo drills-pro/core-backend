@@ -47,6 +47,21 @@ class ImportSource(StrEnum):
     HUGGINGFACE = "huggingface"
 
 
+class JobPackageName(StrEnum):
+    """The job packages the platform ships. Mirrors the job_packages_name_check constraint."""
+
+    RAY_JOBS = "ray_jobs"
+    RAY_TRAINING = "ray_training"
+
+
+class PackageStatus(StrEnum):
+    """Mirrors the job_packages_status_check constraint. Runs use `stable` packages only."""
+
+    CANDIDATE = "candidate"
+    STABLE = "stable"
+    RETIRED = "retired"
+
+
 class AuthResult(StrEnum):
     """Outcome of checking a bearer token: the `result` label on auth_token_verifications_total."""
 

@@ -11,9 +11,10 @@ import pytest
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
 
+from app.core.enums import JobPackageName
 from app.core.settings import settings
 from app.integrations import compute
-from app.integrations.data_plane import access, job_catalog, job_package, lakefs, layout, mlflow, train
+from app.integrations.data_plane import access, job_catalog, lakefs, layout, mlflow, train
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 from app.integrations.job_spec import SPEC_ADAPTER, TrainSpec
 from tests.support import FakeConn, TenantCtx
@@ -21,6 +22,7 @@ from tests.support import FakeConn, TenantCtx
 TENANT, PROJECT, RUN, DATASET, VERSION = (str(uuid.uuid4()) for _ in range(5))
 COMMIT = "c0ffee"
 PREFIX = layout.train_prefix(TENANT, PROJECT, RUN)
+SHA = "a" * 64
 CREDS = {"endpoint": "http://s3.test", "access_key": "k", "secret_key": "s"}
 
 
@@ -98,18 +100,18 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
         sent.update(job.model_dump())
         return "train-1"
 
-    async def package_url(package_dir):
-        sent["package_dir"] = package_dir
+    async def package_url(name, sha256):
+        sent["package"] = (name, sha256)
         return "http://ray-side/jobs/ray-training-x.zip"
 
     monkeypatch.setattr(compute, "submit", submit)
     monkeypatch.setattr(train.job_package, "presigned_url", package_url)
-    assert asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec)) == "train-1"
+    assert asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA)) == "train-1"
     argv = shlex.split(sent["entrypoint"])
     assert argv[3:5] == ["http://ray-side/jobs/ray-training-x.zip", job_catalog.TRAIN_ENTRYPOINT]
     assert SPEC_ADAPTER.validate_json(argv[5]) == spec  # the job reads exactly the spec core-api stored
     assert (sent["num_gpus"], sent["resources"], sent["submission_id"]) == (0, {compute.CPU_POOL_RESOURCE: 1}, spec.job_id)
-    assert sent["timeout_seconds"] == spec.resources.max_runtime_s and sent["package_dir"] == job_package.TRAINING_PACKAGE_DIR
+    assert sent["timeout_seconds"] == spec.resources.max_runtime_s and sent["package"] == (JobPackageName.RAY_TRAINING, SHA)
     assert set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
 
 

@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.core import presets, task_catalog
 from app.core.authz import AuthzContext
-from app.core.enums import TaskType
+from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
@@ -37,8 +37,8 @@ _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
 _INSERT = (
     "INSERT INTO training_runs (id, tenant_id, project_id, idempotency_key, ray_job_id, mlflow_run_id, dataset_ref, "
-    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) "
+    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
 )
 
@@ -100,6 +100,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
 
     run_id = uuid.uuid4()
     try:
+        package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
         spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, task, body, preset, hyperparameters)
     except Exception as e:
@@ -112,14 +113,14 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
              hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-             task, preset.name, spec.model_dump(mode="json")),
+             task, preset.name, spec.model_dump(mode="json"), package.sha256),
             _BY_KEY, (project_id, idempotency_key),
         )
         if not created:  # lost a race with the same key: that one is the run
             return _replay(row, body)
 
     try:
-        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec)
+        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256)
     except Exception as e:
         try:
             await compute.stop(spec.job_id)  # Ray may have accepted it

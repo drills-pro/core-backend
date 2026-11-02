@@ -3,6 +3,7 @@ import asyncio
 import json
 import shlex
 import uuid
+from types import SimpleNamespace
 
 from app.core.enums import TaskType
 from app.core.settings import settings
@@ -25,9 +26,13 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
         sent.update(spec.model_dump())
         return "job-1"
 
-    async def package_url():
+    async def resolve_stable(name):
+        return SimpleNamespace(name=name, sha256="a" * 64)
+
+    async def package_url(name, sha256):
         return "http://ray-side/jobs/ray-jobs-x.zip"
 
+    monkeypatch.setattr(ingest.job_package, "resolve_stable", resolve_stable)
     monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
     monkeypatch.setattr(compute, "submit", submit)
     spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, "ingest-1"))

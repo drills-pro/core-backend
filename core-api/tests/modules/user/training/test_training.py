@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.authz import Role, TenantRole
-from app.core.enums import TaskType
+from app.core.enums import JobPackageName, TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations import compute, job_lifecycle
@@ -27,6 +27,7 @@ from tests.support.job_table import FakeJobTable, patch
 
 BASE = f"/v1/projects/{PROJECT}/training-runs"
 RUN = uuid.uuid4()
+PACKAGE_SHA = "b" * 64
 VERSION, DATASET = uuid.uuid4(), uuid.uuid4()
 BODY = {"dataset_version_id": str(VERSION), "preset": "small"}
 HEADERS = {"Idempotency-Key": "k"}
@@ -137,8 +138,12 @@ class Gateway:
             self.ttl = ttl
             return TrainData(index_url="http://i", manifest_url="http://m", version_id=version_id, lakefs_commit="c0ffee")
 
-        async def submit(tenant_id, project_id, run_id, spec):
-            self.spec = spec
+        async def resolve_stable(name):
+            self.package_name = name
+            return SimpleNamespace(sha256=PACKAGE_SHA)
+
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256):
+            self.spec, self.package_sha = spec, package_sha256
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -152,6 +157,7 @@ class Gateway:
         monkeypatch.setattr(create_service.mlflow, "start_run", start_run)
         monkeypatch.setattr(create_service.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(train_spec.data_plane, "prepare_train_data", prepare)
+        monkeypatch.setattr(create_service.data_plane, "resolve_stable_package", resolve_stable)
         monkeypatch.setattr(create_service.data_plane, "submit_train", submit)
         monkeypatch.setattr(create_service.compute, "stop", stop)
 
@@ -189,6 +195,9 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
     assert (spec.resources.cpu, spec.resources.memory_bytes, spec.resources.gpu, spec.resources.max_runtime_s) == (
         row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
+    assert (gw.package_name, gw.package_sha) == (JobPackageName.RAY_TRAINING, PACKAGE_SHA)  # pinned for the run, and what the job runs
+    (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
+    assert insert[-1] == PACKAGE_SHA
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
     insert = next(args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs"))
     assert insert[4] == spec.job_id and insert[5] == "mlflow-1" and insert[8] == DATASET and insert[10] == VERSION  # job id, MLflow run, dataset, version
