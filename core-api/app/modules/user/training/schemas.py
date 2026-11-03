@@ -88,6 +88,7 @@ class LineageRun(BaseModel):
     status: str
     dataset_id: uuid.UUID | None
     dataset_version: str | None
+    dataset_version_id: uuid.UUID | None
     test_dataset_id: uuid.UUID | None
     test_dataset_version: str | None
     mlflow_run_id: str | None

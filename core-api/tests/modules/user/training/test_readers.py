@@ -10,7 +10,7 @@ from tests.support import PROJECT, FakeConn
 RUN = uuid.uuid4()
 S = TrainingStatus
 RUN_ROW = {
-    "id": RUN, "status": S.SUCCEEDED, "dataset_id": None, "dataset_version": "c0ffee", "test_dataset_id": None, "test_dataset_version": None,
+    "id": RUN, "status": S.SUCCEEDED, "dataset_id": None, "dataset_version": "c0ffee", "dataset_version_id": None, "test_dataset_id": None, "test_dataset_version": None,
     "mlflow_run_id": "mlflow-1", "reproduction_group_id": None, "config": {}, "created_at": datetime.now(UTC),
 }
 

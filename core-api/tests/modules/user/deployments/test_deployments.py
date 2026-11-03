@@ -9,6 +9,7 @@ from app.modules.user.deployments import lineage as lineage_module, routes, serv
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 DEPLOYMENT = uuid.uuid4()
+DATASET, DATASET_VERSION = uuid.uuid4(), uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/deployments"
 
 
@@ -73,10 +74,11 @@ def test_get_is_read_only_and_hides_internals(call, monkeypatch):
 RUN, VERSION = uuid.uuid4(), uuid.uuid4()
 LINEAGE = f"/v1/projects/{PROJECT}/training-runs/{RUN}/lineage"
 RUN_ROW = {
-    "id": RUN, "status": "succeeded", "dataset_id": None, "dataset_version": "c0ffee", "test_dataset_id": None,
+    "id": RUN, "status": "succeeded", "dataset_id": None, "dataset_version": "c0ffee", "dataset_version_id": DATASET_VERSION, "test_dataset_id": None,
     "test_dataset_version": None, "mlflow_run_id": "m1", "reproduction_group_id": None, "config": {},
     "created_at": datetime.now(timezone.utc),
 }
+DATASET_VERSION_ROW = {"id": DATASET_VERSION, "dataset_id": DATASET, "number": 3, "created_at": datetime.now(timezone.utc)}
 MODEL_ROW = {"id": VERSION, "mlflow_model_name": "t.p.model", "mlflow_version": "2", "stage": "Staging"}
 DEPLOYMENT_ROW = {"id": DEPLOYMENT, "status": "active", "route_prefix": "/predict/x"}
 
@@ -88,10 +90,18 @@ def lineage(monkeypatch, dev_headers, rows):
 
 
 def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_headers):
-    r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": RUN_ROW, "FROM model_versions": MODEL_ROW, "FROM deployments": DEPLOYMENT_ROW})
+    rows = {"FROM training_runs": RUN_ROW, "FROM dataset_versions": DATASET_VERSION_ROW, "FROM model_versions": MODEL_ROW, "FROM deployments": DEPLOYMENT_ROW}
+    r, _ = lineage(monkeypatch, dev_headers, rows)
     body = r.json()
     assert r.status_code == 200
     assert (body["training_run"]["id"], body["model_version"]["stage"], body["deployment"]["route_prefix"]) == (str(RUN), "Staging", "/predict/x")
+    assert (body["dataset_version"]["id"], body["dataset_version"]["number"]) == (str(DATASET_VERSION), 3)
+
+
+def test_lineage_of_a_run_without_a_dataset_version_skips_the_version_lookup(monkeypatch, dev_headers):
+    r, conn = lineage(monkeypatch, dev_headers, {"FROM training_runs": {**RUN_ROW, "dataset_version_id": None}, "FROM model_versions": None})
+    assert r.json()["dataset_version"] is None
+    assert not any("FROM dataset_versions" in sql for sql, _ in conn.calls)
 
 
 def test_lineage_of_a_run_without_a_model_has_no_deployment_lookup(monkeypatch, dev_headers):

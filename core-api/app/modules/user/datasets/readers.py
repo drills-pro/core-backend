@@ -1,6 +1,7 @@
 """What other contexts may ask of datasets, and the gateway's ownership checks (data_plane.access). Each reader takes
 the caller's connection, so it is one more query in the caller's transaction, under the same RLS."""
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -14,6 +15,7 @@ _VERSION_SOURCE = (
     "SELECT v.dataset_id, v.lakefs_commit FROM dataset_versions v JOIN datasets d ON d.id = v.dataset_id "
     "WHERE v.id = $1 AND d.project_id = $2 AND d.deleted_at IS NULL"
 )
+_VERSION_REF = "SELECT id, dataset_id, number, created_at FROM dataset_versions WHERE id = $1"
 _DATASET = "SELECT 1 FROM datasets WHERE id = $1 AND tenant_id = $2"
 _IMPORT = "SELECT 1 FROM dataset_imports WHERE id = $1 AND dataset_id = $2 AND tenant_id = $3"
 _VERSION = "SELECT lakefs_commit FROM dataset_versions WHERE id = $1 AND dataset_id = $2 AND tenant_id = $3"
@@ -24,6 +26,21 @@ class VersionSource(BaseModel):
 
     dataset_id: uuid.UUID
     lakefs_commit: str
+
+
+class VersionRef(BaseModel):
+    """Which version of which dataset: what lineage shows for a training run."""
+
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    number: int
+    created_at: datetime
+
+
+async def get_version_ref(conn, version_id: uuid.UUID) -> VersionRef | None:
+    """The version (RLS keeps it to the caller's tenant); None once its dataset is purged."""
+    row = await conn.fetchrow(_VERSION_REF, version_id)
+    return None if row is None else VersionRef.model_validate(dict(row))
 
 
 async def get_version_source(conn, project_id: uuid.UUID, version_id: uuid.UUID) -> VersionSource | None:

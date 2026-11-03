@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.modules.user.datasets import VersionRef
 from app.modules.user.training import LineageRun
 
 class DeploymentCreated(BaseModel):
@@ -63,6 +64,6 @@ class LineageModel(BaseModel):
 
 class TrainingRunLineage(BaseModel):
     training_run: LineageRun
-    dataset_commit_message: str | None
+    dataset_version: VersionRef | None
     model_version: LineageModel | None
     deployment: RunDeployment | None

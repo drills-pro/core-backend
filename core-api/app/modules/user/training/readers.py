@@ -41,7 +41,7 @@ async def get_run_model(conn, project_id: uuid.UUID, run_id: uuid.UUID) -> RunMo
 
 
 _RUN_LINEAGE = (
-    "SELECT id, status, dataset_id, dataset_version, test_dataset_id, test_dataset_version, "
+    "SELECT id, status, dataset_id, dataset_version, dataset_version_id, test_dataset_id, test_dataset_version, "
     "mlflow_run_id, reproduction_group_id, config, created_at FROM training_runs WHERE id = $1 AND project_id = $2"
 )
 

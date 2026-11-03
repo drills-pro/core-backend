@@ -1,11 +1,12 @@
-"""FR1 (05-reproducibility-lineage.md): the lineage view composes the readers of training, model_registry and
-deployments. It lives here because deployments already depends on training; neither of them imports the other back."""
+"""FR1 (05-reproducibility-lineage.md): the lineage view composes the readers of training, datasets,
+model_registry and deployments. It lives here because deployments already depends on training; neither of them imports the other back."""
 import uuid
 
 from fastapi import HTTPException
 
 from app.core.authz import AuthzContext
 from app.core.tenant_conn import TenantConn
+from app.modules.user.datasets import get_version_ref
 from app.modules.user.deployments.readers import get_run_deployment
 from app.modules.user.deployments.schemas import LineageModel, TrainingRunLineage
 from app.modules.user.model_registry import get_run_version
@@ -17,11 +18,12 @@ async def get_lineage(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUI
         run = await get_run_lineage(conn, project_id, run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="training run not found")
+        version = await get_version_ref(conn, run.dataset_version_id) if run.dataset_version_id else None
         model = await get_run_version(conn, run_id)
         deployment = await get_run_deployment(conn, run_id) if model is not None else None
     return TrainingRunLineage(
         training_run=run,
-        dataset_commit_message=None,  # ponytail: lineage joins dataset_versions once training is rewired
+        dataset_version=version,
         model_version=LineageModel.model_validate(model.model_dump()) if model else None,
         deployment=deployment,
     )
