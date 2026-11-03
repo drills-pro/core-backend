@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from botocore.exceptions import ClientError
 
-from app.core.enums import JobPackageName, PackageStatus
+from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.problem import Problem
 from app.integrations.data_plane import job_catalog, job_package, job_submit, layout
 from tests.support import TenantCtx
@@ -83,7 +83,7 @@ def registry(monkeypatch):
 
 
 def package_row(name, sha, key, actor, status=PackageStatus.CANDIDATE):
-    return {"name": name, "sha256": sha, "s3_key": key, "status": status, "published_by": actor, "updated_by": actor, "updated_at": datetime.now(UTC)}
+    return {"name": name, "sha256": sha, "s3_key": key, "status": status, "published_by": actor, "updated_by": actor, "updated_at": datetime.now(UTC), "smoke_status": SmokeStatus.PENDING, "smoke_job_id": None}
 
 
 def test_publish_stages_a_new_version_once_and_registers_a_candidate(registry):
@@ -210,3 +210,42 @@ def test_the_ci_build_script_makes_the_same_zip_as_core_api():
     spec.loader.exec_module(script)
     for name, package_dir in job_package.PACKAGE_DIRS.items():
         assert script.build(script.DIRS[name]) == job_package.build(package_dir)[0], name
+
+
+def _pending(job_id="smoke-x"):
+    return job_package.JobPackage.model_validate(package_row("ray_jobs", "d" * 64, "jobs/x.zip", "ci") | {"smoke_job_id": job_id})
+
+
+@pytest.fixture
+def settled(monkeypatch):
+    seen = []
+
+    async def set_smoke(conn, name, sha, smoke):
+        seen.append(smoke)
+        return _pending().model_copy(update={"smoke_status": smoke})
+
+    async def get_pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(None))
+
+    monkeypatch.setattr(job_package, "get_pool", get_pool)
+    monkeypatch.setattr(job_package.job_packages, "set_smoke", set_smoke)
+    return seen
+
+
+@pytest.mark.parametrize("written,expected", [(b'{"ok": true}', SmokeStatus.PASSED), (b'{"ok": false}', SmokeStatus.FAILED)])
+def test_a_written_smoke_result_settles_the_package(settled, monkeypatch, written, expected):
+    monkeypatch.setattr(job_package, "_read_smoke", lambda key: written)
+    assert asyncio.run(job_package.refresh_smoke(_pending())).smoke_status == expected and settled == [expected]
+
+
+@pytest.mark.parametrize("ray,expected", [
+    (job_package.compute.JobStatus.FAILED, SmokeStatus.FAILED), (job_package.compute.JobStatus.STOPPED, SmokeStatus.FAILED),
+    (job_package.compute.JobStatus.RUNNING, None)])
+def test_without_a_result_a_dead_job_fails_and_a_live_one_stays_pending(settled, monkeypatch, ray, expected):
+    async def status(job_id):
+        return ray
+
+    monkeypatch.setattr(job_package, "_read_smoke", lambda key: None)
+    monkeypatch.setattr(job_package.compute, "status", status)
+    assert asyncio.run(job_package.refresh_smoke(_pending())).smoke_status == (expected or SmokeStatus.PENDING)
+    assert settled == ([expected] if expected else [])

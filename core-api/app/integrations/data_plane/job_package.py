@@ -9,21 +9,24 @@ import asyncio
 import functools
 import hashlib
 import io
+import json
 import re
 import zipfile
 from pathlib import Path
 
 from http import HTTPStatus
 
+import httpx
 from botocore.exceptions import ClientError
 
 from app.core import job_packages, secret_files
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageStatus
+from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
 from app.core.settings import settings
-from app.integrations.data_plane import layout, lakefs
+from app.integrations import compute
+from app.integrations.data_plane import job_catalog, job_submit, layout, lakefs
 
 PACKAGE_DIR = Path(__file__).parents[4] / "ray-jobs" / "ray_jobs"  # /ray-jobs/ray_jobs in the image, <repo>/ray-jobs/ray_jobs in the checkout
 TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_training"  # the train driver and trainer, same layout
@@ -34,6 +37,8 @@ SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api r
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
 INVALID_PACKAGE = "invalid_package"
+SMOKE_TIMEOUT_SECONDS = 600  # a tiny run: this is only the ceiling for a stuck one
+_SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
 MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
 _S3_NOT_FOUND = "404"
 _S3_NO_SUCH_KEY = "NoSuchKey"
@@ -117,6 +122,48 @@ async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobP
     _check_upload(name, await asyncio.to_thread(_read_staged, s3_key), sha256)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register(conn, name, sha256, s3_key, actor)
+
+
+async def start_smoke(package: JobPackage) -> JobPackage:
+    """Submit the package's smoke job (once: a package that has one is returned as it is)."""
+    if package.smoke_job_id is not None:
+        return package
+    name, job_id = package.name, f"smoke-{package.name.replace('_', '-')}-{package.sha256[:12]}"
+    spec = {"job_id": job_id, "bucket": settings.data_plane.staging_bucket, "prefix": layout.smoke_prefix(name, package.sha256)}
+    await job_submit.submit(
+        package_url=await presigned_url(name, package.sha256), module=job_catalog.SMOKE_ENTRYPOINTS[name], spec_json=json.dumps(spec),
+        job_id=job_id, metadata={"package": name, "sha256": package.sha256}, num_cpus=settings.training.driver_cpus,
+        timeout_seconds=SMOKE_TIMEOUT_SECONDS)
+    async with (await get_pool()).acquire() as conn:
+        await job_packages.start_smoke(conn, name, package.sha256, job_id)
+        return await job_packages.get(conn, name, package.sha256)
+
+
+def _read_smoke(key: str) -> bytes | None:
+    try:
+        return lakefs.s3_client(secret_files.STAGING).get_object(Bucket=settings.data_plane.staging_bucket, Key=key)["Body"].read()
+    except ClientError as e:
+        if e.response["Error"]["Code"] not in (_S3_NOT_FOUND, _S3_NO_SUCH_KEY):
+            raise
+        return None
+
+
+async def refresh_smoke(package: JobPackage) -> JobPackage:
+    """Settle a pending smoke from what the job left: its smoke.json, else a dead Ray job means failed, else still pending."""
+    if package.smoke_status != SmokeStatus.PENDING or package.smoke_job_id is None:
+        return package
+    written = await asyncio.to_thread(_read_smoke, layout.smoke_prefix(package.name, package.sha256) + layout.SMOKE_KEY)
+    if written is not None:
+        outcome = SmokeStatus.PASSED if json.loads(written)["ok"] else SmokeStatus.FAILED
+    else:
+        try:
+            outcome = SmokeStatus.FAILED if await compute.status(package.smoke_job_id) in _SMOKE_DEAD else None
+        except httpx.HTTPError:  # the job is gone or Ray is unreachable: not an answer
+            outcome = None
+    if outcome is None:
+        return package
+    async with (await get_pool()).acquire() as conn:
+        return await job_packages.set_smoke(conn, package.name, package.sha256, outcome)
 
 
 async def resolve_stable(name: JobPackageName) -> JobPackage:

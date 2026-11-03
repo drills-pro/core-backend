@@ -23,6 +23,7 @@ HASH_HEX_CHARS = 8
 
 # key names under the run prefix
 REPORT_KEY = "report.json"
+SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 MODEL_KEY = "model.onnx"
 MODEL_MANIFEST_KEY = "model.json"
 TRAIN_STATE_DIR = "train-state"  # Ray Train checkpoints, under the run prefix

@@ -1,6 +1,7 @@
 """Platform-wide job packages. Rows are shared by every tenant, so these go through get_platform_admin and an
 unscoped connection; the packages run by training and ingest are chosen in app/integrations/data_plane/job_package.py."""
 import logging
+from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, ConfigDict
@@ -8,10 +9,12 @@ from pydantic import BaseModel, ConfigDict
 from app.core import job_packages
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageStatus
+from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.job_packages import SHA256_PATTERN, JobPackage
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.integrations import data_plane
+
+SMOKE_NOT_PASSED = "smoke_not_passed"
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +36,14 @@ class RegisterBody(BaseModel):
 @router.get("/{name}", response_model=list[JobPackage])
 async def list_packages(name: JobPackageName, actor: str = Depends(get_platform_admin)):
     async with (await get_pool()).acquire() as conn:
-        return await job_packages.list_for(conn, name)
+        packages = await job_packages.list_for(conn, name)
+    return [await data_plane.refresh_package_smoke(p) for p in packages]
 
 
 @router.post("/{name}/publish", response_model=JobPackage)
 async def publish_package(name: JobPackageName, actor: str = Depends(get_platform_admin)):
     """Stage the source this core-api ships with and register it as a candidate (the existing row when it is already known)."""
-    package = await data_plane.publish_package(name, actor)
+    package = await data_plane.start_package_smoke(await data_plane.publish_package(name, actor))
     logger.info("job package %s %s published by %s", name, package.sha256, actor)
     return package
 
@@ -48,7 +52,7 @@ async def publish_package(name: JobPackageName, actor: str = Depends(get_platfor
 async def register_package(name: JobPackageName, body: RegisterBody, actor: str = Depends(get_platform_admin)):
     """Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads
     the object back and checks its hash and contents."""
-    package = await data_plane.register_staged_package(name, body.s3_key, actor)
+    package = await data_plane.start_package_smoke(await data_plane.register_staged_package(name, body.s3_key, actor))
     logger.info("job package %s %s registered by %s", name, package.sha256, actor)
     return package
 
@@ -56,6 +60,10 @@ async def register_package(name: JobPackageName, body: RegisterBody, actor: str 
 @router.put("/{name}/{sha256}/status", response_model=JobPackage)
 async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
     """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs."""
+    async with (await get_pool()).acquire() as conn:
+        current = await job_packages.get(conn, name, sha256) if body.status == PackageStatus.STABLE else None
+    if current is not None and (await data_plane.refresh_package_smoke(current)).smoke_status != SmokeStatus.PASSED:
+        raise Problem(HTTPStatus.CONFLICT, SMOKE_NOT_PASSED, "the package's smoke job has not passed")
     async with (await get_pool()).acquire() as conn:
         package = await job_packages.set_status(conn, name, sha256, body.status, actor)
     if package is None:

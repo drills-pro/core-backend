@@ -4,6 +4,7 @@ import re
 # --- layout (mirrors app/integrations/data_plane/layout.py; tests/ingest_job asserts equality) ---
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
+SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 OUT_PREFIX = "out/"
 OBJECTS_PREFIX = "objects/"
 INDEX_KEY = "index.parquet"

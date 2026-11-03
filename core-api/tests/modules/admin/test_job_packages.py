@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
-from app.core.enums import PackageStatus
+from app.core.enums import PackageStatus, SmokeStatus
 from app.modules.admin.job_packages import routes
 from tests.integrations.data_plane.test_job_package import package_row
 from tests.support import FakeConn, TenantCtx
@@ -21,7 +21,12 @@ def call(monkeypatch):
         async def get_pool():
             return SimpleNamespace(acquire=lambda: TenantCtx(conn))
 
+        async def unchanged(package):
+            return package
+
         monkeypatch.setattr(routes, "get_pool", get_pool)
+        monkeypatch.setattr(routes.data_plane, "start_package_smoke", unchanged)
+        monkeypatch.setattr(routes.data_plane, "refresh_package_smoke", unchanged)
         app = FastAPI()
         problem.install(app)
         app.dependency_overrides[routes.get_platform_admin] = lambda: "ops"
@@ -41,9 +46,9 @@ def test_publish_registers_the_bundled_source_as_the_actor(call, monkeypatch):
 
 
 def test_promote_sets_the_status_as_the_actor(call):
-    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops", PackageStatus.STABLE))
+    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops", PackageStatus.STABLE) | {"smoke_status": SmokeStatus.PASSED})
     res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
-    sql, args = conn.calls[0]
+    sql, args = conn.calls[-1]
     assert res.status_code == 200 and sql.startswith("UPDATE job_packages") and args == ("ray_jobs", SHA, "stable", "ops")
 
 
@@ -64,3 +69,10 @@ def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch
     res = call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "jobs/ray-jobs-x.zip"})
     assert res.status_code == 200 and seen == [("ray_jobs", "jobs/ray-jobs-x.zip", "ops")] and res.json()["status"] == "candidate"
     assert call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "k", "extra": 1}).status_code == 422
+
+
+def test_a_package_whose_smoke_has_not_passed_cannot_be_promoted(call):
+    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops"))  # smoke_status pending
+    res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
+    assert res.status_code == 409 and res.json()["code"] == routes.SMOKE_NOT_PASSED
+    assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops")), json={"status": "retired"}).status_code == 200

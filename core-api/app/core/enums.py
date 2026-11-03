@@ -62,6 +62,14 @@ class PackageStatus(StrEnum):
     RETIRED = "retired"
 
 
+class SmokeStatus(StrEnum):
+    """Mirrors the job_packages_smoke_status_check constraint: how a package's smoke job went."""
+
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
 class AuthResult(StrEnum):
     """Outcome of checking a bearer token: the `result` label on auth_token_verifications_total."""
 

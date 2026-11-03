@@ -29,6 +29,7 @@ from app.core.enums import Split  # noqa: F401 - lives in core so job_spec need 
 STAGING_ROOT = "imports"
 TRAIN_ROOT = "trainings"
 JOB_PACKAGE_ROOT = "jobs"
+SMOKE_KEY = "smoke.json"  # what a package's smoke job writes under smoke_prefix: {"ok": bool}
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
 OUT_PREFIX = "out/"
@@ -77,6 +78,10 @@ def staging_prefix(tenant_id: str, dataset_id: str, import_id: str) -> str:
 
 def train_prefix(tenant_id: str, project_id: str, run_id: str) -> str:
     return f"{TRAIN_ROOT}/{tenant_id}/{project_id}/{run_id}/"
+
+
+def smoke_prefix(name: str, sha256: str) -> str:
+    return f"{JOB_PACKAGE_ROOT}/smoke/{name}-{sha256}/"
 
 
 def repo_name(dataset_id: str) -> str:
