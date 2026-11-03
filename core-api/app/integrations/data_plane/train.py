@@ -51,7 +51,7 @@ async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: Train
     was created with; returns the Ray job id."""
     await access.training_run(tenant_id, project_id, run_id)
     package_url = await job_package.presigned_url(JobPackageName.RAY_TRAINING, package_sha256)
-    # num_gpus stays 0: the driver must not hold the only GPU, its Ray task asks for it (spec.resources.gpu)
+    # num_gpus stays 0: the driver must not hold a GPU, the Ray Train workers it starts ask for them (spec.resources.gpu)
     return await job_submit.submit(
         package_url=package_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "training_run_id": run_id},

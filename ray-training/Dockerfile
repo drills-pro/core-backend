@@ -11,5 +11,6 @@ COPY --chown=ray:users pyproject.toml /tmp/ray-training/pyproject.toml
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-training/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-training/requirements.txt \
     && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/ray-training/requirements.txt \
-    && python -c "import torch, transformers, onnxruntime; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
+    && pip install --no-cache-dir "ray[train]==$(python -c 'import ray; print(ray.__version__)')" \
+    && python -c "import ray.train.torch, torch, transformers, onnxruntime; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
     && rm -rf /tmp/ray-training

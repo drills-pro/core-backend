@@ -132,7 +132,7 @@ class IngestSpec(_Envelope):
 
 class TrainSpec(_Envelope):
     kind: Literal[JobKind.TRAIN] = JobKind.TRAIN
-    payload: TrainPayload  # resources.gpu = 1: the GPU belongs to the Ray task the driver starts, not to the driver
+    payload: TrainPayload  # resources.gpu = Ray Train workers, one GPU each (a fraction: one worker on that share); the driver holds none
 
 
 AnyJobSpec = Annotated[IngestSpec | TrainSpec, Field(discriminator="kind")]

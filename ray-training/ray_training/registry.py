@@ -13,7 +13,7 @@ from ray_training.spec import TrainSpec
 if TYPE_CHECKING:
     from ray_training.result import Result
 
-Trainer = Callable[[TrainSpec, object, Path], "Result"]
+Trainer = Callable[[TrainSpec, object, Path], "Result | None"]  # None: not the root rank of a Ray Train run
 
 
 def trainer_for(target: str) -> Trainer:

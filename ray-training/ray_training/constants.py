@@ -7,8 +7,12 @@ TRAINER_VERSION = "0.1.0"
 DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE, DEFAULT_SEED = 30, 16, 224, 42  # core-api job_spec.py defaults
 NO_ALARM = 0  # signal.alarm(0) cancels
 HTTP_TIMEOUT_SECONDS = 60
+ROOT_RANK = 0  # the Ray Train worker that evaluates, exports and uploads
 LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; production leaves it unset (= 1)
 DEFAULT_TASK_GPUS = 1
+TRAIN_ATTEMPTS = 2  # Ray Train's FailureConfig.max_failures: one failed attempt is resumed from its last checkpoint, a second ends the run
+TRAIN_STATE_KEEP = 1  # checkpoints kept per run
+STATE_FILE = "state.pt"  # the resume state inside a checkpoint
 CONFUSION_TOP_K = 5
 ONNX_OPSET = 17
 MAP_IOU_THRESHOLDS = tuple(0.5 + 0.05 * i for i in range(10))  # COCO: 0.50..0.95
@@ -21,6 +25,7 @@ HASH_HEX_CHARS = 8
 REPORT_KEY = "report.json"
 MODEL_KEY = "model.onnx"
 MODEL_MANIFEST_KEY = "model.json"
+TRAIN_STATE_DIR = "train-state"  # Ray Train checkpoints, under the run prefix
 TOKENIZER_KEY = "tokenizer.json"  # a text model is served with the tokenizer it was trained with
 
 TEXT_COLUMN = "text"  # the columns of a text dataset's data.parquet (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)

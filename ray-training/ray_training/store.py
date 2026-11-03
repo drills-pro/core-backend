@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from urllib.request import urlopen
 
-from ray_training.constants import HTTP_TIMEOUT_SECONDS
+from ray_training.constants import HTTP_TIMEOUT_SECONDS, TRAIN_STATE_DIR
 
 
 class S3Store:
@@ -43,3 +43,19 @@ def store_from_env(bucket: str, prefix: str):
     if endpoint.startswith(LOCAL_SCHEME):
         return DirStore(endpoint.removeprefix(LOCAL_SCHEME), prefix)
     return S3Store(bucket, prefix, endpoint, os.environ["STAGING_ACCESS_KEY"], os.environ["STAGING_SECRET_KEY"])
+
+
+def train_state_storage(bucket: str, prefix: str):
+    """(pyarrow filesystem, path) where Ray Train keeps a run's checkpoints: under the run prefix, in the same store."""
+    from urllib.parse import urlsplit
+
+    from pyarrow import fs
+
+    endpoint = os.environ["STAGING_ENDPOINT"]
+    if endpoint.startswith(LOCAL_SCHEME):
+        return fs.LocalFileSystem(), f"{endpoint.removeprefix(LOCAL_SCHEME)}/{prefix}{TRAIN_STATE_DIR}"
+    url = urlsplit(endpoint)
+    s3 = fs.S3FileSystem(
+        access_key=os.environ["STAGING_ACCESS_KEY"], secret_key=os.environ["STAGING_SECRET_KEY"],
+        endpoint_override=url.netloc, scheme=url.scheme)
+    return s3, f"{bucket}/{prefix}{TRAIN_STATE_DIR}"

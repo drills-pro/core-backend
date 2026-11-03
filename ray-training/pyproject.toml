@@ -1,7 +1,7 @@
 [project]
 name = "ray-training"
 version = "0.1.0"
-description = "Ray training jobs of the drills.pro trainer: image classification and object detection (python -m ray_training.entrypoints.train)"
+description = "Ray training jobs of the drills.pro trainer: image classification, object detection and text classification, trained with Ray Train (python -m ray_training.entrypoints.train)"
 requires-python = ">=3.11"  # the Ray image runs 3.11
 dependencies = [
     "torch>=2.7,<2.12",  # the cu128 wheel index ends at 2.11; a newer PyPI wheel targets another CUDA
@@ -20,7 +20,7 @@ dependencies = [
 
 [dependency-groups]
 # ray is in the cluster image (2.60.0, not on PyPI yet; 2.59 is the closest for local tests), so dev-only here
-dev = ["pytest>=8.0", "jsonschema>=4", "ray>=2.59,<2.61"]
+dev = ["pytest>=8.0", "jsonschema>=4", "ray[train]>=2.59,<2.61"]  # [train] is what makes ray.train importable (pandas, fsspec, ...)
 
 [build-system]
 requires = ["hatchling"]

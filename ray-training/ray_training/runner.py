@@ -1,7 +1,8 @@
 """The one place a training run becomes a report.json, so no trainer can skip it.
 
 `execute` trains and uploads model.onnx + model.json, and returns the report (never raises). `run` is execute plus
-writing report.json, for use without Ray; the Ray driver calls `write_report` itself, in a `finally`.
+writing report.json, for use without Ray; the Ray driver calls `write_report` itself, in a `finally`, and Ray Train's
+workers (worker.py) call `upload` on the root rank.
 """
 import json
 import math
@@ -39,23 +40,28 @@ def _base(spec: TrainSpec | None) -> dict:
         "status": Outcome.SUCCEEDED, "code": None, "message": None, "metrics": {}, "history": [], "confusion_matrix": None}
 
 
+def upload(spec: TrainSpec, store, result) -> dict:
+    """Put the model and its manifest in the store and return the succeeded report. The files must still exist."""
+    manifest = {
+        "format": "onnx", "task": spec.task, "preset": spec.preset, "base_model": spec.base_model,
+        "base_revision": spec.base_revision, "classes": result.classes, **result.signature,
+        "trainer_version": TRAINER_VERSION, "lakefs_commit": spec.lakefs_commit, "metrics": result.metrics}
+    if not all(math.isfinite(v) for m in [result.metrics, *result.history] for v in m.values()):
+        raise ArithmeticError("a metric is not finite (training diverged)")
+    store.put(MODEL_KEY, result.onnx.read_bytes())
+    store.put(MODEL_MANIFEST_KEY, json.dumps(manifest).encode())
+    for name, path in result.extra_files.items():
+        store.put(name, path.read_bytes())
+    return {**_base(spec), "metrics": result.metrics, "history": result.history, "confusion_matrix": result.confusion}
+
+
 def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None = None) -> dict:
     """Train, upload the model, return the report dict. Every exception becomes a failed report."""
     try:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             result = (trainer or trainer_for(spec.trainer))(spec, load_dataset(spec, work, get), work)
-            manifest = {
-                "format": "onnx", "task": spec.task, "preset": spec.preset, "base_model": spec.base_model,
-                "base_revision": spec.base_revision, "classes": result.classes, **result.signature,
-                "trainer_version": TRAINER_VERSION, "lakefs_commit": spec.lakefs_commit, "metrics": result.metrics}
-            if not all(math.isfinite(v) for m in [result.metrics, *result.history] for v in m.values()):
-                raise ArithmeticError("a metric is not finite (training diverged)")
-            store.put(MODEL_KEY, result.onnx.read_bytes())
-            store.put(MODEL_MANIFEST_KEY, json.dumps(manifest).encode())
-            for name, path in result.extra_files.items():
-                store.put(name, path.read_bytes())
-        return {**_base(spec), "metrics": result.metrics, "history": result.history, "confusion_matrix": result.confusion}
+            return upload(spec, store, result)
     except Exception as e:  # noqa: BLE001 - the report must always be written
         return failed_report(spec, failure_code(e), f"{type(e).__name__}: {e}")
 

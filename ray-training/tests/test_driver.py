@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from ray_training.constants import REPORT_KEY
+from tests.crashy import crash_marker
 from tests.support import classification_rows, parquet, spec_doc
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,3 +95,45 @@ def test_the_time_limit_cancels_the_task_and_reports_timeout(head, tmp_path, tin
     doc["payload"]["data"]["index_url"] = hang_server
     proc, report = drive(head, doc)
     assert proc.returncode == 1 and report["code"] == "timeout"
+
+
+@pytest.fixture
+def in_process(head, monkeypatch):
+    """This process as a driver connected to the head, for the tests that change how the trainer is scaled."""
+    import ray
+
+    from ray_training.entrypoints import train as entry
+
+    monkeypatch.setenv("STAGING_ENDPOINT", f"file://{head}")
+    ray.init(address="auto", runtime_env={"env_vars": {"PYTHONPATH": str(ROOT)}}, ignore_reinit_error=True)
+    yield entry
+    ray.shutdown()
+
+
+def cpu_workers(entry, monkeypatch, n):
+    from ray.train import ScalingConfig
+
+    monkeypatch.setattr(entry, "scaling", lambda spec: ScalingConfig(num_workers=n, use_gpu=False, resources_per_worker={"CPU": 1}))
+
+
+def test_several_workers_train_one_model_and_only_the_root_rank_uploads(head, tmp_path, tiny_convnext, in_process, monkeypatch):
+    cpu_workers(in_process, monkeypatch, 2)
+    doc = local_doc(tmp_path, tiny_convnext)
+    text = json.dumps(doc)
+    report = in_process.fit(in_process.parse_spec(text), text)
+    assert report["status"] == "succeeded" and set(report["metrics"]) == {"top1", "top5"}
+    assert (head / f"{tmp_path.name}/model.onnx").stat().st_size > 0 and (head / f"{tmp_path.name}/model.json").exists()
+
+
+def test_a_lost_worker_resumes_from_the_last_epoch_not_from_scratch(head, tmp_path, tiny_convnext, in_process, monkeypatch):
+    cpu_workers(in_process, monkeypatch, 2)
+    doc = local_doc(tmp_path, tiny_convnext)
+    doc["job_id"] = f"crash-{tmp_path.name}"
+    marker = crash_marker(doc["job_id"])
+    marker.unlink(missing_ok=True)
+    doc["payload"]["trainer"] = "tests.crashy:train"
+    doc["payload"]["hyperparameters"]["epochs"] = 2
+    text = json.dumps(doc)
+    report = in_process.fit(in_process.parse_spec(text), text)
+    assert marker.exists() and report["status"] == "succeeded"
+    assert [h["epoch"] for h in report["history"]] == [1, 2]  # epoch 1 came back from the checkpoint, epoch 2 was trained

@@ -29,8 +29,9 @@ class TextPreprocessing:
 class TrainSpec:
     job_id: str
     tenant_id: str
-    cpu: float  # resources.cpu and memory_bytes size the Ray task
+    cpu: float  # resources size each Ray Train worker
     memory_bytes: int
+    gpu: float  # resources.gpu: the Ray Train workers, one GPU each (a fraction = one worker holding that share)
     max_runtime_s: int  # resources.max_runtime_s, 0 = none
     bucket: str
     prefix: str
@@ -70,7 +71,7 @@ def parse_spec(text: str) -> TrainSpec:
     pre = p["preprocessing"]
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
-        cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"],
+        cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
         max_runtime_s=doc["resources"].get("max_runtime_s", 0),
         bucket=p["bucket"], prefix=p["prefix"], task=task, trainer=p["trainer"], preset=preset,
         base_model=base["repo_id"], base_revision=base.get("revision"),

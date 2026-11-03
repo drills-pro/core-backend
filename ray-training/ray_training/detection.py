@@ -6,13 +6,13 @@ Boxes in index.parquet are pixels (x, y, width, height) of the original image; t
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader, Dataset as TorchDataset
+from torch.utils.data import Dataset as TorchDataset
 from transformers import RTDetrV2ForObjectDetection
 
 from ray_training.data import Dataset, Sample, split_for_training
+from ray_training.loop import Kit, fit
 from ray_training.metrics import detection_metrics
-from ray_training.result import (
-    INPUT_NAME, NUM_WORKERS_GPU, Result, device, export_onnx, load_image, preprocessing, seed_everything)
+from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
 from ray_training.spec import Preprocessing, TrainSpec
 
 MAX_DETECTIONS = 100  # kept per image when scoring
@@ -52,8 +52,9 @@ class Outputs(torch.nn.Module):
         return out.logits, out.pred_boxes
 
 
-def evaluate(model, loader, dev, num_classes: int) -> dict:
+def evaluate(model, loader, dev) -> tuple[dict, None]:
     model.eval()
+    num_classes = model.config.num_labels
     predictions, targets = [], []
     with torch.no_grad():
         for x, labels in loader:
@@ -63,40 +64,31 @@ def evaluate(model, loader, dev, num_classes: int) -> dict:
             for s, i, boxes, label in zip(top.cpu(), idx.cpu(), out.pred_boxes.cpu(), labels):
                 predictions.append([(int(k % num_classes), float(sc), cxcywh_to_xyxy(boxes[k // num_classes].tolist())) for sc, k in zip(s, i)])
                 targets.append([(int(c), cxcywh_to_xyxy(b.tolist())) for c, b in zip(label["class_labels"], label["boxes"])])
-    return detection_metrics(predictions, targets, num_classes)
+    return detection_metrics(predictions, targets, num_classes), None
 
 
-def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result:
+def loss(model, batch, dev):
+    x, labels = batch
+    labels = [{k: v.to(dev) for k, v in label.items()} for label in labels]
+    return model(pixel_values=x.to(dev), labels=labels).loss, len(labels)
+
+
+def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
     seed_everything(spec.seed)
-    dev = device()
     train_set, held_out = split_for_training(ds)
     n = len(ds.classes)
     model = RTDetrV2ForObjectDetection.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
-        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True).to(dev)
-    workers = NUM_WORKERS_GPU if dev.type == "cuda" else 0
-    train_loader = DataLoader(Images(train_set, spec.image_size, spec.preprocessing), spec.batch_size, shuffle=True, collate_fn=collate, num_workers=workers)
-    eval_loader = DataLoader(Images(held_out, spec.image_size, spec.preprocessing), spec.batch_size, collate_fn=collate, num_workers=workers)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=spec.learning_rate)
-    history = []
-    for epoch in range(spec.epochs):
-        model.train()
-        total = 0.0
-        for x, labels in train_loader:
-            labels = [{k: v.to(dev) for k, v in label.items()} for label in labels]
-            loss = model(pixel_values=x.to(dev), labels=labels).loss
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            total += loss.item() * len(labels)
-        history.append({"epoch": epoch + 1, "train_loss": total / len(train_set), **evaluate(model, eval_loader, dev, n)})
-    metrics = evaluate(model, eval_loader, dev, n)
+        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
+    done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing), Images(held_out, spec.image_size, spec.preprocessing), collate, loss, evaluate), spec)
+    if done is None:
+        return None
     onnx = work / "model.onnx"
-    export_onnx(Outputs(model), spec.image_size, ["logits", "pred_boxes"], onnx)
-    queries = model.config.num_queries
+    export_onnx(Outputs(done.model), spec.image_size, ["logits", "pred_boxes"], onnx)
+    queries = done.model.config.num_queries
     signature = {
         "inputs": [{"name": INPUT_NAME, "shape": ["batch", 3, spec.image_size, spec.image_size], "dtype": "float32"}],
         "outputs": [{"name": "logits", "shape": ["batch", queries, n], "dtype": "float32", "activation": "sigmoid"},
                     {"name": "pred_boxes", "shape": ["batch", queries, 4], "dtype": "float32", "format": "cxcywh_normalized"}],
         "preprocessing": preprocessing(spec)}
-    return Result(ds.classes, metrics, history, onnx, signature)
+    return Result(ds.classes, done.metrics, done.history, onnx, signature)
