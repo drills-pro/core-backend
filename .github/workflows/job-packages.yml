@@ -1,7 +1,7 @@
 name: Publish the Ray job packages
 
-# Builds ray_jobs and ray_training (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
-# the staging bucket as jobs/<ray-jobs|ray-training>-<sha256>.zip, then tells core-api the key so it registers a candidate
+# Builds ray_jobs, ray_training and ray_serving (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
+# the staging bucket as jobs/<ray-jobs|ray-training|ray-serving>-<sha256>.zip, then tells core-api the key so it registers a candidate
 # (it reads the object back and checks its hash and contents). Nothing runs a candidate until an admin promotes it to stable
 # (PUT /v1/admin/job-packages/{name}/{sha256}/status), so a push here changes no running or new job by itself.
 #
@@ -19,6 +19,7 @@ on:
     paths:
       - "ray-jobs/ray_jobs/**"
       - "ray-training/ray_training/**"
+      - "ray-serving/ray_serving/**"
       - "scripts/build-job-package.py"
       - ".github/workflows/job-packages.yml"
   workflow_dispatch:
@@ -31,10 +32,10 @@ jobs:
       id-token: write  # for the Google workload identity federation below
     steps:
       - uses: actions/checkout@v4
-      - name: Build both packages
+      - name: Build the packages
         id: build
         run: |
-          for name in ray_jobs ray_training; do
+          for name in ray_jobs ray_training ray_serving; do
             echo "${name}=$(python3 scripts/build-job-package.py "$name" dist)" >> "$GITHUB_OUTPUT"
           done
       - uses: google-github-actions/auth@v2
@@ -47,9 +48,11 @@ jobs:
           BUCKET: ${{ vars.STAGING_BUCKET }}
           RAY_JOBS: ${{ steps.build.outputs.ray_jobs }}
           RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
+          RAY_SERVING: ${{ steps.build.outputs.ray_serving }}
         run: |
           gcloud storage cp dist/ray_jobs.zip "gs://${BUCKET}/jobs/ray-jobs-${RAY_JOBS}.zip"
           gcloud storage cp dist/ray_training.zip "gs://${BUCKET}/jobs/ray-training-${RAY_TRAINING}.zip"
+          gcloud storage cp dist/ray_serving.zip "gs://${BUCKET}/jobs/ray-serving-${RAY_SERVING}.zip"
       - name: Get a platform_admin token
         id: token
         env:
@@ -70,6 +73,7 @@ jobs:
           TOKEN: ${{ steps.token.outputs.token }}
           RAY_JOBS: ${{ steps.build.outputs.ray_jobs }}
           RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
+          RAY_SERVING: ${{ steps.build.outputs.ray_serving }}
         run: |
           register() {  # name key: core-api reads the object back and checks it against the sha256 in the key
             curl -fsS -X POST "${API}/v1/admin/job-packages/$1/register" \
@@ -78,3 +82,4 @@ jobs:
           }
           register ray_jobs "jobs/ray-jobs-${RAY_JOBS}.zip"
           register ray_training "jobs/ray-training-${RAY_TRAINING}.zip"
+          register ray_serving "jobs/ray-serving-${RAY_SERVING}.zip"

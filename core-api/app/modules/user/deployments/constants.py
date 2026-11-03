@@ -4,6 +4,13 @@ from enum import StrEnum
 from app.core.enums import PlanTier
 
 
+class Serving(StrEnum):
+    """How a deployment is served. Mirrors the deployments_serving_check constraint."""
+
+    LEGACY = "legacy"  # a Serve app of its own at route_prefix, started by a Ray job
+    SHARED = "shared"  # a model the two long-lived predictor apps load by id
+
+
 class DeployStrategy(StrEnum):
     """Project setting `deploy_strategy`."""
 

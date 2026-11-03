@@ -52,6 +52,7 @@ class JobPackageName(StrEnum):
 
     RAY_JOBS = "ray_jobs"
     RAY_TRAINING = "ray_training"
+    RAY_SERVING = "ray_serving"
 
 
 class PackageStatus(StrEnum):

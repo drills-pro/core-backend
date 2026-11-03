@@ -20,4 +20,5 @@ TRAIN_ENTRYPOINT = "ray_training.entrypoints.train"  # the train driver (top-lev
 SMOKE_ENTRYPOINTS = {  # one per package: a tiny run through the package's own entrypoints, run before it can be promoted
     JobPackageName.RAY_JOBS: "ray_jobs.entrypoints.smoke",
     JobPackageName.RAY_TRAINING: "ray_training.entrypoints.smoke",
+    JobPackageName.RAY_SERVING: "ray_serving.entrypoints.smoke",
 }

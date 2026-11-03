@@ -1,6 +1,6 @@
 """Build a job package zip the way core-api does (app/integrations/data_plane/job_package.py build()), for CI to upload.
 
-    python3 scripts/build-job-package.py ray_jobs|ray_training <out dir>
+    python3 scripts/build-job-package.py ray_jobs|ray_training|ray_serving <out dir>
 
 Writes <out dir>/<name>.zip and prints its sha256. The same sources always give the same bytes; a test in core-api
 (tests/integrations/data_plane/test_job_package.py) fails if this and build() ever disagree.
@@ -12,7 +12,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-training" / "ray_training"}
+DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-training" / "ray_training",
+        "ray_serving": ROOT / "ray-serving" / "ray_serving"}
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
