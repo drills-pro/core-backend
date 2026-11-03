@@ -46,8 +46,8 @@ class TaskTypeBody(BaseModel):
     data_kind: DataKind
     trainer: str | None = Field(default=None, pattern=TRAINER_PATTERN)  # a trainer in the ray_training package; None = not trainable
     servable: bool = False
-    encoder: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)  # a function in serve_inputs.py
-    postprocess: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)  # a function in serve_postprocess.py
+    encoder: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)  # a function in ray_serving/inputs.py
+    postprocess: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)  # a function in ray_serving/postprocess.py
     serving: ServingParams = ServingParams()
     enabled: bool = True
 

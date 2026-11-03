@@ -9,7 +9,6 @@ core-api then calls the deployed HTTP route directly for /predict.
 import ast
 import base64
 import textwrap
-from importlib import resources
 from enum import StrEnum
 from urllib.parse import urlsplit
 
@@ -17,17 +16,18 @@ from app.core.settings import settings
 from app.core.task_catalog import IMAGENET_PREPROCESSING
 from app.core.task_types import TaskInfo
 from app.integrations import compute
-from app.integrations.data_plane import layout, mlflow
+from app.integrations.data_plane import job_package, layout, mlflow
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
-# Both files are sent to the replica as text and never imported here: core-api depends on neither numpy nor PIL.
-INPUTS_FILE = "serve_inputs.py"
-POSTPROCESS_FILE = "serve_postprocess.py"
+# Both files live in the ray_serving package and are read as text, never imported here: core-api depends on neither numpy
+# nor PIL. A legacy deployment embeds them in its script; the admin task-type routes check function names against them.
+INPUTS_FILE = "inputs.py"
+POSTPROCESS_FILE = "postprocess.py"
 
 
 def _source(name: str) -> str:
-    return resources.files(__package__).joinpath(name).read_text()
+    return (job_package.SERVING_PACKAGE_DIR / name).read_text()
 
 
 def _functions(name: str) -> set[str]:

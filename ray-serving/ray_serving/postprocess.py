@@ -1,7 +1,7 @@
 """What a served model's raw ONNX outputs become, one function per kind of output.
 
-This file is sent to the Ray Serve replica as text (serve_client embeds its source), so it imports numpy and the
-standard library only, and each function takes `(outputs, class_names, width, height, params)`: the session's output
+This runs in the Ray Serve replica (the ray_serving package; core-api also embeds this file as text for legacy
+deployments), so it imports numpy and the standard library only, and each function takes `(outputs, class_names, width, height, params)`: the session's output
 arrays, the size of the image the caller sent and the task's serving params (app.core.task_types.ServingParams as a
 dict). Boxes are answered in pixels of that image as x, y, width, height, the same convention the datasets store them in.
 """

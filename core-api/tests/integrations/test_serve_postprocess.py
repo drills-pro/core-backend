@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import re
+import types
 
 import pytest
 
@@ -14,9 +15,16 @@ CLASSES = ["cat", "dog"]
 PARAMS = ServingParams().model_dump(mode="json")
 
 
+def _postprocess():
+    """The ray_serving postprocess file, run as the module it is on a replica."""
+    scope = {}
+    exec(serve_client._source(serve_client.POSTPROCESS_FILE), scope)
+    return types.SimpleNamespace(**scope)
+
+
 def test_classification_ranks_classes_by_softmax():
     np = pytest.importorskip("numpy")  # a core-api dependency of neither the app nor its tests; the replica has it
-    from app.integrations import serve_postprocess
+    serve_postprocess = _postprocess()
 
     out = serve_postprocess.classify([np.array([[0.0, 2.0]])], CLASSES, 10, 10, PARAMS)
     assert [p["class"] for p in out] == ["dog", "cat"] and sum(p["probability"] for p in out) == pytest.approx(1)
@@ -24,7 +32,7 @@ def test_classification_ranks_classes_by_softmax():
 
 def test_detection_scales_normalised_boxes_to_the_images_pixels_and_drops_low_scores():
     np = pytest.importorskip("numpy")
-    from app.integrations import serve_postprocess
+    serve_postprocess = _postprocess()
 
     logits = np.full((1, 2, 2), -20.0)
     logits[0, 1, 0] = 5.0  # query 1 is a "cat"; every other pair scores ~0
@@ -70,7 +78,7 @@ def test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_be
     tk.pre_tokenizer = tokenizers.pre_tokenizers.Whitespace()
     monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout: type("R", (), {"read": lambda self: tk.to_str().encode()})())
     scope = {}
-    exec(serve_client._source("serve_inputs.py"), scope)
+    exec(serve_client._source(serve_client.INPUTS_FILE), scope)
     feeds, width, height = scope["text_encoder"]({"max_length": 4}, "http://m/tokenizer.json", "input_ids")({"text": "great film"})
     assert feeds["input_ids"].tolist() == [[1, 2, 0, 0]] and feeds["attention_mask"].tolist() == [[1, 1, 0, 0]]
     assert (width, height) == (0, 0) and feeds["input_ids"].dtype == np.int64

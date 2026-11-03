@@ -58,7 +58,7 @@ def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url)
     asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     assert "def image_encoder" in scripts[0]
     scope = {}
-    exec(serve_client._source("serve_inputs.py"), scope)  # the part of the script that needs neither ray nor onnxruntime
+    exec(serve_client._source(serve_client.INPUTS_FILE), scope)  # the part of the script that needs neither ray nor onnxruntime
     buf = io.BytesIO()
     Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
     pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}

@@ -1,6 +1,6 @@
 """How a request body becomes the model's input feeds, one encoder factory per kind of input.
 
-Sent to the Ray Serve replica as text (serve_client embeds this file), so it imports nothing at module level: each
+Runs in the Ray Serve replica (the ray_serving package; core-api also embeds this file as text for legacy deployments), so it imports nothing at module level: each
 factory imports what it needs, and a deployment needs only the libraries of its own task. A factory takes the
 `preprocessing` entry of the model's model.json, the URL of tokenizer.json and the model's first input name, and
 returns `encode(body) -> (feeds, width, height)`: the arrays for `session.run` and the size of the image the caller
