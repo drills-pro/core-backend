@@ -3,7 +3,8 @@
 # Ray version); keep the two in step.
 # Only dependencies are baked in: the job code itself still arrives as the zip core-api stages (it wins on sys.path),
 # so a job-code change needs no image rebuild. Dependency source of truth: pyproject.toml, except the two lines below it:
-# the training driver runs on this group too and starts Ray Train, whose TorchTrainer imports torch (CPU wheel is enough).
+# the training driver runs on this group too and starts Ray Train, whose TorchTrainer imports torch (CPU wheel is enough);
+# predictor-cpu (ray_serving, Ray Serve) runs here as well, hence ray[serve] and onnxruntime.
 # BASE is the amd64 image of the cluster; docker-compose.yml overrides it with the arm64 build for Apple Silicon.
 ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe985437f083bfb72f63d6c54987ecad98f9505a380ceb
 FROM ${BASE}
@@ -13,6 +14,6 @@ RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-jobs/
         > /tmp/ray-jobs/requirements.txt \
     && pip install --no-cache-dir -r /tmp/ray-jobs/requirements.txt \
     && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
-    && pip install --no-cache-dir "ray[train]==$(python -c 'import ray; print(ray.__version__)')" \
-    && python -c "import ray.train.torch, boto3, pyarrow, PIL; print('boto3', boto3.__version__, 'pyarrow', pyarrow.__version__, 'Pillow', PIL.__version__)" \
+    && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
+    && python -c "import ray.serve, ray.train.torch, boto3, pyarrow, PIL, onnxruntime, tokenizers; print('boto3', boto3.__version__, 'pyarrow', pyarrow.__version__, 'Pillow', PIL.__version__)" \
     && rm -rf /tmp/ray-jobs
