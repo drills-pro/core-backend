@@ -29,12 +29,11 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.task_catalog import IMAGENET_PREPROCESSING
 from app.core.task_types import TaskInfo
-from app.integrations import compute
+from app.integrations import compute, serve_config
 from app.integrations.data_plane import job_package, layout, mlflow
+from app.integrations.serve_config import SERVE_HTTP_PORT, ComputeTarget
 
 logger = logging.getLogger(__name__)
-
-SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
 # Both files live in the ray_serving package and are read as text, never imported here: core-api depends on neither numpy
 # nor PIL. A legacy deployment embeds them in its script; the admin task-type routes check function names against them.
@@ -56,15 +55,8 @@ def unknown_serving_functions(encoder: str | None, postprocess: str | None) -> l
     return missing + ([] if postprocess is None or postprocess in _functions(POSTPROCESS_FILE) else [postprocess])
 
 
-class ComputeTarget(StrEnum):
-    """Where a deployment runs; also the project setting `compute_target`."""
-
-    CPU = "cpu"
-    GPU = "gpu"
-
-
 def serve_url() -> str:
-    """Where deployed routes are served: the configured Ray head (settings.ray.dashboard) at Serve's port, read per call."""
+    """Where legacy routes are served: the configured Ray head (settings.ray.dashboard) at Serve's port, read per call."""
     head = urlsplit(settings.ray.dashboard)
     return f"{head.scheme}://{head.hostname}:{SERVE_HTTP_PORT}"
 
@@ -164,17 +156,9 @@ async def deploy(
 
 # ---- shared predictor apps ----
 
-SERVE_APPLICATIONS_PATH = "/api/serve/applications/"  # GET: what runs; PUT: declare the whole set
-PREDICTOR_IMPORT_PATH = "ray_serving.app:build"
-PREDICTOR_DEPLOYMENT = "Predictor"  # the class name inside ray_serving.app.build
+SERVE_APPLICATIONS_PATH = "/api/serve/applications/"  # on the dashboard. GET: what runs; PUT: declare the whole set
 MODEL_ID_HEADER = "serve_multiplexed_model_id"  # Serve's own name for the id a multiplexed model is picked by
-PACKAGE_SHA_ENV = "RAY_SERVING_SHA256"  # in each app's runtime_env, so a later call can see which package it was declared with
-URL_ISSUED_ENV = "RAY_SERVING_URL_ISSUED_AT"  # unix seconds the zip's presigned URL was made; it is re-declared after half its life
 SERVE_API_TIMEOUT_SECONDS = 10
-
-
-def predictor_app(target: ComputeTarget) -> str:
-    return f"predictor-{target.value}"
 
 
 def model_id(deployment_id: str, run_id: str) -> str:
@@ -226,32 +210,25 @@ async def served_model(task: TaskInfo, mlflow_run_id: str, class_names: list[str
         providers=params.pop("providers"), params=params, encoder=task.encoder, postprocess=task.postprocess)
 
 
-def serve_config(package_url: str, sha256: str, issued_at: int) -> dict:
-    """The declaration of both predictor apps. Replicas scale on their ongoing requests; each holds `max_models_per_replica` models."""
-    cfg = settings.serving
-
-    def app(target: ComputeTarget) -> dict:
-        size = getattr(cfg.apps, target.value)
-        return {
-            "name": predictor_app(target), "route_prefix": f"/{predictor_app(target)}", "import_path": PREDICTOR_IMPORT_PATH,
-            "args": {"max_models_per_replica": cfg.max_models_per_replica},
-            "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)}},
-            "deployments": [{
-                "name": PREDICTOR_DEPLOYMENT, "max_ongoing_requests": cfg.max_ongoing_requests,
-                "autoscaling_config": {"min_replicas": size.min_replicas, "max_replicas": size.max_replicas},
-                "ray_actor_options": {"num_cpus": size.num_cpus, "num_gpus": size.num_gpus}}]}
-
-    return {"http_options": {"host": "0.0.0.0", "port": SERVE_HTTP_PORT}, "applications": [app(t) for t in ComputeTarget]}
+def _dashboard() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=settings.ray.dashboard, timeout=SERVE_API_TIMEOUT_SECONDS)
 
 
-def _declared(applications: dict, sha256: str, now: float) -> bool:
-    """Both predictor apps are declared with this package and with a zip URL that has most of its life left."""
-    for target in ComputeTarget:
-        env = ((applications.get(predictor_app(target)) or {}).get("deployed_app_config") or {}).get("runtime_env", {}).get("env_vars", {})
-        issued = int(env.get(URL_ISSUED_ENV, 0))
-        if env.get(PACKAGE_SHA_ENV) != sha256 or now - issued > settings.serving.package_url_ttl_seconds / 2:
-            return False
-    return True
+async def _live_applications(client: httpx.AsyncClient) -> dict:
+    resp = await client.get(SERVE_APPLICATIONS_PATH)
+    resp.raise_for_status()
+    return resp.json().get("applications", {})
+
+
+async def apps_declared() -> bool:
+    """Read-only: both predictor apps are declared on the cluster (by whichever package). The poller is the only writer."""
+    try:
+        async with _dashboard() as client:
+            live = await _live_applications(client)
+    except httpx.HTTPError as e:
+        logger.warning("Serve applications not readable: %s", e)
+        return False
+    return all(serve_config.predictor_app(t) in live for t in ComputeTarget)
 
 
 async def _legacy_active() -> bool:
@@ -260,22 +237,23 @@ async def _legacy_active() -> bool:
 
 
 async def ensure_apps() -> bool:
-    """Declare the two predictor apps with the stable ray_serving package unless they already are. True when they are in
-    place; False when there is no stable package, a legacy deployment is still served (declaring would delete its app) or
-    Serve cannot be reached."""
+    """Make the cluster's Serve config the one render() gives for the stable ray_serving package: GET the live config and PUT
+    only when it differs (or its zip URL is old). True when it matches afterwards; False when there is no stable package, a
+    legacy deployment is still served (declaring would delete its Serve app) or Ray cannot be reached. Idempotent and never
+    raises for a down cluster: the poller (the only caller) tries again next tick."""
     try:
         package = await job_package.resolve_stable(JobPackageName.RAY_SERVING)
-        async with httpx.AsyncClient(base_url=settings.ray.dashboard, timeout=SERVE_API_TIMEOUT_SECONDS) as client:
-            resp = await client.get(SERVE_APPLICATIONS_PATH)
-            resp.raise_for_status()
+        async with _dashboard() as client:
             now = time.time()
-            if _declared(resp.json().get("applications", {}), package.sha256, now):
+            ttl = settings.serving.package_url_ttl_seconds
+            url = "https://zip.invalid"  # only for the comparison: the real URL is made when a PUT is needed
+            if serve_config.up_to_date(await _live_applications(client), serve_config.render(url, package.sha256, int(now)), now, ttl):
                 return True
             if await _legacy_active():
                 logger.warning("predictor apps not declared: a legacy deployment is still served and declaring would delete its Serve app")
                 return False
-            url = await job_package.presigned_url(JobPackageName.RAY_SERVING, package.sha256, settings.serving.package_url_ttl_seconds)
-            put = await client.put(SERVE_APPLICATIONS_PATH, json=serve_config(url, package.sha256, int(now)))
+            url = await job_package.presigned_url(JobPackageName.RAY_SERVING, package.sha256, ttl)
+            put = await client.put(SERVE_APPLICATIONS_PATH, json=serve_config.render(url, package.sha256, int(now)))
             put.raise_for_status()
     except (Problem, httpx.HTTPError) as e:
         logger.warning("predictor apps not ensured: %s", e)
@@ -285,21 +263,33 @@ async def ensure_apps() -> bool:
 
 
 async def ensure_serving() -> None:
-    """The poller: keeps the apps declared (and their zip URL fresh) without anything having to ask."""
+    """The poller body (app/background.py, leader-elected): keeps the apps as declared, healing a restarted cluster."""
     await ensure_apps()
 
 
+def _proxy_url() -> str:
+    return settings.serving.url or serve_url()
+
+
 async def predict(target: ComputeTarget, deployment_id: str, run_id: str, model: ServedModel, body: dict) -> Prediction:
-    """Answer `body` with the deployment's model on the shared app. Raises ServeCallError."""
-    try:
-        async with httpx.AsyncClient(timeout=settings.serving.request_timeout_seconds) as client:
-            resp = await client.post(
-                f"{serve_url()}/{predictor_app(target)}", headers={MODEL_ID_HEADER: model_id(deployment_id, run_id)},
-                json={"model": model.model_dump(mode="json"), "input": body})
-    except httpx.TimeoutException as e:
-        raise ServeCallError(ServeErrorCode.TIMEOUT, f"no answer within {settings.serving.request_timeout_seconds}s") from e
-    except httpx.HTTPError as e:
-        raise ServeCallError(ServeErrorCode.UNREACHABLE, f"{type(e).__name__}: {e}") from e
+    """Answer `body` with the deployment's model on the shared app, through the Serve Service (a connect error is retried
+    `serving.connect_retries` times: another proxy may answer). Raises ServeCallError."""
+    cfg = settings.serving
+    resp = None
+    for attempt in range(cfg.connect_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=cfg.request_timeout_seconds) as client:
+                resp = await client.post(
+                    f"{_proxy_url()}/{serve_config.predictor_app(target)}", headers={MODEL_ID_HEADER: model_id(deployment_id, run_id)},
+                    json={"model": model.model_dump(mode="json"), "input": body})
+            break
+        except httpx.ConnectError as e:
+            if attempt == cfg.connect_retries:
+                raise ServeCallError(ServeErrorCode.UNREACHABLE, f"{type(e).__name__}: {e}") from e
+        except httpx.TimeoutException as e:
+            raise ServeCallError(ServeErrorCode.TIMEOUT, f"no answer within {cfg.request_timeout_seconds}s") from e
+        except httpx.HTTPError as e:
+            raise ServeCallError(ServeErrorCode.UNREACHABLE, f"{type(e).__name__}: {e}") from e
     try:
         answer = resp.json()
     except ValueError as e:

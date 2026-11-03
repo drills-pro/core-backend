@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 RECONCILE_INTERVAL_SECONDS = 10
 SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
-SERVING_ENSURE_INTERVAL_SECONDS = 300
+SERVING_ENSURE_INTERVAL_SECONDS = 60
 
 
 # (name, coroutine function, seconds between runs)

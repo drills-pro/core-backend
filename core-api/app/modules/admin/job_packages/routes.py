@@ -12,7 +12,7 @@ from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.job_packages import SHA256_PATTERN, JobPackage
 from app.core.problem import Problem, not_found
-from app.integrations import data_plane, serve_client
+from app.integrations import data_plane
 
 SMOKE_NOT_PASSED = "smoke_not_passed"
 
@@ -69,6 +69,4 @@ async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str
     if package is None:
         raise not_found()
     logger.info("job package %s %s set to %s by %s", name, sha256, body.status, actor)
-    if name == JobPackageName.RAY_SERVING and body.status == PackageStatus.STABLE:
-        await serve_client.ensure_apps()  # the predictor apps pick the new package up now, not at the next poll
     return package

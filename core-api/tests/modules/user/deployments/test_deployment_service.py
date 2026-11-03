@@ -57,7 +57,7 @@ def deploy_env(monkeypatch):
         return False  # the legacy path; the shared one is in test_shared_deployments.py
 
     monkeypatch.setattr(service.serve_client, "deploy", deploy)
-    monkeypatch.setattr(service.serve_client, "ensure_apps", no_shared_apps)
+    monkeypatch.setattr(service.serve_client, "apps_declared", no_shared_apps)
     return e
 
 

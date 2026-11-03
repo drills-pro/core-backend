@@ -41,13 +41,13 @@ def shared_env(monkeypatch):
         vals={"SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_counted_conn(monkeypatch, conn, service)
 
-    async def ensure_apps():
+    async def apps_declared():
         return True
 
     async def deploy(**kw):
         raise AssertionError("a shared deployment starts no Ray job")
 
-    monkeypatch.setattr(service.serve_client, "ensure_apps", ensure_apps)
+    monkeypatch.setattr(service.serve_client, "apps_declared", apps_declared)
     monkeypatch.setattr(service.serve_client, "deploy", deploy)
     return conn
 

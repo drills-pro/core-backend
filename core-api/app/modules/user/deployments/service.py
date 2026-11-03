@@ -93,7 +93,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
-    if await serve_client.ensure_apps():
+    if await serve_client.apps_declared():
         # The predictor apps load the model on its first request: nothing to start, so the deployment is active at once.
         ray_job_id, serving, status = None, Serving.SHARED, DeploymentStatus.ACTIVE
         route_prefix = serve_client.route_prefix_for(str(deployment_id), str(project_id), deploy_strategy)
