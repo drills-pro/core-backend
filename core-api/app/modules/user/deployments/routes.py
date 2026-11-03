@@ -1,9 +1,11 @@
 """Deployments HTTP surface: parse, authorize, call the service, shape the response."""
+import json
 import uuid
 
-from fastapi import APIRouter, Body, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.core.authz import Action, AuthzContext, public, require
+from app.core.settings import settings
 from app.modules.user.deployments import lineage, service
 from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT
 from app.modules.user.deployments.schemas import (
@@ -16,6 +18,24 @@ from app.modules.user.deployments.schemas import (
 )
 
 router = APIRouter(tags=["deployments"])
+
+
+async def capped_body(request: Request) -> dict:
+    """The JSON object the caller sent, refused with 413 above serving.max_body_bytes (the declared length is checked before reading)."""
+    limit = settings.serving.max_body_bytes
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise HTTPException(status_code=413, detail=f"the body is over {limit} bytes")
+    data = await request.body()
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"the body is over {limit} bytes")
+    try:
+        body = json.loads(data)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="the body is not JSON") from None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="the body must be a JSON object")
+    return body
 
 
 @router.post(
@@ -55,7 +75,7 @@ async def get_training_run_lineage(
 async def test_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
-    body: dict = Body(...),
+    body: dict = Depends(capped_body),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_TRY)),
 ):
     return await service.test_deployment(ctx, project_id, deployment_id, body)
@@ -75,7 +95,7 @@ async def list_test_calls(
 @router.post("/v1/predict/{deployment_id}", dependencies=[Depends(public)])
 async def predict(
     deployment_id: uuid.UUID,
-    body: dict = Body(...),
+    body: dict = Depends(capped_body),
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
 ):
     return await service.predict(deployment_id, x_predict_key, body)

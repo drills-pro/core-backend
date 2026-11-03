@@ -112,6 +112,11 @@ print("metric:deployed=1")
 """
 
 
+def route_prefix_for(deployment_id: str, project_id: str, deploy_strategy: str) -> str:
+    """The route a deployment is listed under; a shared deployment keeps it as a label (nothing is served there)."""
+    return f"/predict/{project_id}/main" if deploy_strategy == "main" else f"/predict/{deployment_id}"
+
+
 async def deploy(
     *,
     deployment_id: str,
@@ -127,12 +132,8 @@ async def deploy(
     # route per project across deploys (serve.run against the same `name`
     # updates the running replica in place); 'latest' keeps Phase 1's
     # behavior of a permanent per-deployment route.
-    if deploy_strategy == "main":
-        route_prefix = f"/predict/{project_id}/main"
-        name = f"deploy-project-{project_id}-main"
-    else:
-        route_prefix = f"/predict/{deployment_id}"
-        name = f"deploy-{deployment_id}"
+    route_prefix = route_prefix_for(deployment_id, project_id, deploy_strategy)
+    name = f"deploy-project-{project_id}-main" if deploy_strategy == "main" else f"deploy-{deployment_id}"
 
     model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
     params = task.serving.model_dump(mode="json")

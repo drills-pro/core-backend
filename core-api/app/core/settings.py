@@ -136,6 +136,8 @@ class Serving(_Section):
     max_models_per_replica: int  # models a replica keeps loaded; the least recently used is dropped for another
     max_ongoing_requests: int  # per replica; more wait in Serve's queue
     request_timeout_seconds: int  # core-api's wait for an answer, which includes a cold load of the model
+    max_body_bytes: int  # a /predict or test body larger than this is refused with 413 before it is parsed
+    max_inflight_per_deployment: int  # concurrent requests to one deployment in one core-api process; more get 429
     package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
     apps: ServingApps
 

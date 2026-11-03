@@ -53,7 +53,11 @@ def deploy_env(monkeypatch):
         e.deployed.append(kw)
         return "ray-job-1", f"/predict/{kw['deployment_id']}"
 
+    async def no_shared_apps():
+        return False  # the legacy path; the shared one is in test_shared_deployments.py
+
     monkeypatch.setattr(service.serve_client, "deploy", deploy)
+    monkeypatch.setattr(service.serve_client, "ensure_apps", no_shared_apps)
     return e
 
 
@@ -141,7 +145,7 @@ def test_test_deployment_releases_the_connection_before_calling_serve(monkeypatc
         async def __aenter__(self):
             nonlocal open_conns
             open_conns += 1
-            return FakeConn(row={"status": "active", "route_prefix": "/p"})
+            return FakeConn(row={"status": "active", "route_prefix": "/p", "serving": "legacy", "training_run_id": uuid.uuid4()})
 
         async def __aexit__(self, *a):
             nonlocal open_conns

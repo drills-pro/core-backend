@@ -15,10 +15,12 @@ from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
+from app.modules.user.deployments import shared
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
     MAIN_ROUTE_SUFFIX,
     METADATA_FIELD,
+    PREDICTIONS_FIELD,
     NOT_DEPLOYABLE_DETAIL,
     PLAN_TIER_RATE_LIMITS,
     PREDICT_KEY_BYTES,
@@ -27,6 +29,7 @@ from app.modules.user.deployments.constants import (
     SETTING_DEPLOY_STRATEGY,
     DeployStrategy,
     PlanTier,
+    Serving,
 )
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
@@ -82,26 +85,33 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
-    ray_job_id, route_prefix = await serve_client.deploy(
-        deployment_id=str(deployment_id),
-        task=info,
-        mlflow_run_id=run.mlflow_run_id,
-        class_names=run.class_names,
-        tenant_id=ctx.tenant_id,
-        project_id=str(project_id),
-        compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
-        deploy_strategy=deploy_strategy,
-    )
+    if await serve_client.ensure_apps():
+        # The predictor apps load the model on its first request: nothing to start, so the deployment is active at once.
+        ray_job_id, serving, status = None, Serving.SHARED, DeploymentStatus.ACTIVE
+        route_prefix = serve_client.route_prefix_for(str(deployment_id), str(project_id), deploy_strategy)
+    else:
+        ray_job_id, route_prefix = await serve_client.deploy(
+            deployment_id=str(deployment_id),
+            task=info,
+            mlflow_run_id=run.mlflow_run_id,
+            class_names=run.class_names,
+            tenant_id=ctx.tenant_id,
+            project_id=str(project_id),
+            compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
+            deploy_strategy=deploy_strategy,
+        )
+        serving, status = Serving.LEGACY, DeploymentStatus.DEPLOYING
 
     async with TenantConn(ctx.tenant_id) as conn:
         if existing_main:
             row = await conn.fetchrow(
-                "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4 "
+                "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5 "
                 "WHERE id = $1 RETURNING id, status, route_prefix, rate_limit_per_minute",
                 deployment_id,
                 training_run_id,
                 ray_job_id,
-                DeploymentStatus.DEPLOYING,
+                status,
+                serving,
             )
             return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
@@ -110,8 +120,8 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         # scope used everywhere else. Only the hash is stored.
         predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
         row = await conn.fetchrow(
-            "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, rate_limit_per_minute) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, status, route_prefix, rate_limit_per_minute",
+            "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, rate_limit_per_minute, serving, status) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, status, route_prefix, rate_limit_per_minute",
             deployment_id,
             ctx.tenant_id,
             project_id,
@@ -120,6 +130,8 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
             route_prefix,
             hash_key(predict_key),
             rate_limit_for(plan_tier),
+            serving,
+            status,
         )
     usage_metrics.deployments_created.add(1)
     return DeploymentCreated.model_validate({**dict(row), "predict_key": predict_key, "plan_tier": plan_tier})
@@ -165,7 +177,7 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     # model does not hold a pooled connection.
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT status, route_prefix FROM deployments WHERE id = $1 AND project_id = $2",
+            "SELECT status, route_prefix, serving, training_run_id FROM deployments WHERE id = $1 AND project_id = $2",
             deployment_id,
             project_id,
         )
@@ -174,9 +186,13 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     if row["status"] != DeploymentStatus.ACTIVE:
         raise HTTPException(status_code=409, detail=f"deployment is {row['status']}, not active")
 
-    resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
-    resp.raise_for_status()
-    response_body = resp.json()
+    if row["serving"] == Serving.SHARED:
+        prediction, elapsed_ms = await shared.answer(ctx.tenant_id, project_id, deployment_id, row["training_run_id"], body)
+        response_body = {PREDICTIONS_FIELD: prediction.predictions}
+    else:
+        resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
+        resp.raise_for_status()
+        response_body = resp.json()
 
     async with TenantConn(ctx.tenant_id) as conn:
         await conn.execute(
@@ -231,9 +247,17 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
     # echoed back alongside the prediction.
     metadata = body.pop(METADATA_FIELD, None)
 
-    resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
-    inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
-    resp.raise_for_status()
+    async with TenantConn(str(row["tenant_id"])) as conn:
+        served = await conn.fetchrow("SELECT serving, training_run_id FROM deployments WHERE id = $1", deployment_id)
+    if served["serving"] == Serving.SHARED:
+        prediction, elapsed_ms = await shared.answer(str(row["tenant_id"]), row["project_id"], deployment_id, served["training_run_id"], body)
+        inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": prediction.cold_load})
+        result = {PREDICTIONS_FIELD: prediction.predictions}
+    else:
+        resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
+        inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
+        resp.raise_for_status()
+        result = resp.json()
 
     # FR2 (09-usage-billing-two-tier.md): meter inference — request id in
     # source_ref (not just deployment_id) so the existing
@@ -251,7 +275,6 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
             source_ref=f"{deployment_id}:{uuid.uuid4()}",
         )
 
-    result = resp.json()
     if metadata is not None:
         result[METADATA_FIELD] = metadata
     return result
