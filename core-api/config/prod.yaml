@@ -10,6 +10,8 @@ zitadel:
   project_id: "395337035725930916"   # the Zitadel project the SPA and API share; tokens must carry it in aud
 ray:
   dashboard: http://ray-head-svc.ray.svc.cluster.local:8265
+serving:
+  url: http://ray-serve.ray.svc.cluster.local:8000   # k8s apps/ray/app/serve-service.yaml: the Serve proxies of every Ray node
 mlflow:
   url: http://mlflow.platform.svc.cluster.local:5000
 observability:
