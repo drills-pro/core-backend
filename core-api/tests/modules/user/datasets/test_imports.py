@@ -104,6 +104,8 @@ class _Conn:
             return db.access
         if "FROM task_types" in sql:
             return seeded(a[0])
+        if "FROM plan_limits" in sql:
+            return None  # the YAML limits
         if sql == svc._IMPORT:
             row = db.imports.get(a[0])
             return row and dict(row)

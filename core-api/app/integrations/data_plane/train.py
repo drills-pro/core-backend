@@ -13,7 +13,8 @@ from botocore.exceptions import ClientError
 from app.core import secret_files
 from app.core.enums import JobPackageName
 from app.core.settings import settings
-from app.integrations.data_plane import access, job_catalog, job_package, job_submit, lakefs, layout
+from app.core.task_catalog import DataKind
+from app.integrations.data_plane import access, data_kinds, job_catalog, job_package, job_submit, lakefs, layout
 from app.integrations.data_plane.train_report import TrainReport
 from app.integrations.job_spec import TrainData, TrainSpec
 
@@ -22,15 +23,16 @@ INDEX_PATH_COLUMN = "path"
 
 
 async def prepare_train_data(
-    tenant_id: str, project_id: str, dataset_id: str, version_id: str, run_id: str, ttl_seconds: int, *, table: bool = False
+    tenant_id: str, project_id: str, dataset_id: str, version_id: str, run_id: str, ttl_seconds: int, *, data_kind: DataKind = DataKind.IMAGES
 ) -> TrainData:
     """Presign the version's index and every image it lists, stage {index path: url} as the run's manifest.json, presign the
-    manifest. A table dataset (text) has one file, data.parquet, and needs only that read. All reads stay valid for
+    manifest. A table dataset (tabular, text) has one file, data.parquet, and needs only that read. All reads stay valid for
     `ttl_seconds`, which must outlast the run's queue time and `max_runtime_s`."""
     commit = await access.version_commit(tenant_id, dataset_id, version_id)
-    if table:
-        urls = await lakefs.presign_version_objects(tenant_id, dataset_id, version_id, [layout.DATA_KEY], ttl_seconds)
-        return TrainData(data_url=urls[layout.DATA_KEY], version_id=version_id, lakefs_commit=commit)
+    kind_layout = data_kinds.LAYOUTS[data_kind]
+    if not kind_layout.has_objects:
+        urls = await lakefs.presign_version_objects(tenant_id, dataset_id, version_id, [kind_layout.data_key], ttl_seconds)
+        return TrainData(data_url=urls[kind_layout.data_key], version_id=version_id, lakefs_commit=commit)
     paths = await lakefs.read_version_column(tenant_id, dataset_id, version_id, layout.INDEX_KEY, INDEX_PATH_COLUMN)
     keys = [layout.OBJECTS_PREFIX + p for p in paths] + [layout.INDEX_KEY]
     urls = await lakefs.presign_version_objects(tenant_id, dataset_id, version_id, keys, ttl_seconds)

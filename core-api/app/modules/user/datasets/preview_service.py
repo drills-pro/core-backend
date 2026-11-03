@@ -11,6 +11,7 @@ from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
+from app.integrations.data_plane.data_kinds import LAYOUTS
 from app.modules.user.datasets.constants import ImportStatus, ProblemCode
 from app.modules.user.datasets.readers import dataset_task
 from app.modules.user.datasets.schemas import DatasetPreview, FileLink, PreviewRow
@@ -36,7 +37,7 @@ async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, vers
 
 
 def _key(task: TaskInfo) -> str:
-    return layout.DATA_KEY if task.is_table else layout.INDEX_KEY
+    return LAYOUTS[task.data_kind].data_key
 
 
 async def version_preview(
@@ -46,7 +47,7 @@ async def version_preview(
         task = await _version_task(conn, project_id, dataset_id, version_id)
     tenant, ds, ver = ctx.tenant_id, str(dataset_id), str(version_id)
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
-    if task.is_table:
+    if not LAYOUTS[task.data_kind].has_objects:
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
     # ponytail: one ownership query per URL, PRESIGN_CONCURRENCY at a time; add a batch presign op if previews grow past a page
     gate = asyncio.Semaphore(PRESIGN_CONCURRENCY)

@@ -23,8 +23,6 @@ def test_image_tasks_are_trainable_and_tabular_ones_are_not_yet():
 
 def test_the_predicates_are_the_row():
     assert info(TaskType.TABULAR_CLASSIFICATION).is_tabular and not info(TaskType.OBJECT_DETECTION).is_tabular
-    assert info(TaskType.TEXT_CLASSIFICATION).is_table and info(TaskType.TABULAR_REGRESSION).is_table
-    assert not info(TaskType.OBJECT_DETECTION).is_table
     assert info(TaskType.IMAGE_CLASSIFICATION).servable and not info(TaskType.TABULAR_REGRESSION).servable
 
 

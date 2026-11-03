@@ -10,13 +10,12 @@ from http import HTTPStatus
 
 from fastapi import HTTPException
 
-from app.core import presets, task_types
+from app.core import plan_limits, presets, task_types
 from app.core.authz import AuthzContext
 from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
-from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute, data_plane
 from app.integrations.data_plane import mlflow
@@ -45,7 +44,7 @@ _INSERT = (
 
 
 async def _check_quota(conn, tenant_id: str) -> None:
-    if await conn.fetchval(_INFLIGHT_COUNT, tenant_id, [str(s) for s in INFLIGHT_STATUSES]) >= settings.ray.max_concurrent_training_runs:
+    if await conn.fetchval(_INFLIGHT_COUNT, tenant_id, [str(s) for s in INFLIGHT_STATUSES]) >= await plan_limits.max_training_runs(conn, tenant_id):
         raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_RUNS, "too many training runs in progress, wait for one to finish")
 
 

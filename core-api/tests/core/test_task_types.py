@@ -58,3 +58,9 @@ def test_the_serving_checks_mirror_the_models():
     assert "NOT servable OR (encoder IS NOT NULL AND postprocess IS NOT NULL)" in sql
     with pytest.raises(ValueError):
         TaskTypeBody(data_kind=DataKind.IMAGES, servable=True)
+
+
+def test_every_data_kind_has_a_layout():
+    from app.integrations.data_plane.data_kinds import LAYOUTS
+
+    assert set(LAYOUTS) == set(DataKind)

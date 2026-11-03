@@ -39,6 +39,8 @@ class FakeConn:
         if "project_access" in sql:
             return self.access
         default = self.row
+        if "FROM plan_limits" in sql:  # no row = the YAML limits, unless the test says otherwise (rows={"FROM plan_limits": ...})
+            default = None
         if "FROM task_types WHERE slug" in sql:  # the seeded table, unless the test says otherwise (rows={"FROM task_types": ...})
             from tests.support.task_types import seeded
 

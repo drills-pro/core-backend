@@ -55,7 +55,7 @@ async def build(
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
         *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS),
-        table=task.is_table,
+        data_kind=task.data_kind,
     )
     return TrainSpec(
         job_id=submission_id(run_id),

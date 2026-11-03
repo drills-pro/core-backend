@@ -17,7 +17,7 @@ from http import HTTPStatus
 
 from fastapi import HTTPException
 
-from app.core import audit, task_types
+from app.core import audit, plan_limits, task_types
 from app.core.authz import Action, AuthzContext
 from app.core.enums import TaskType
 from app.core.idempotency import insert_once, replay
@@ -149,7 +149,7 @@ async def create_import(
                 raise not_found()
             await conn.fetchval(_TENANT_LOCK, ctx.tenant_id)  # a concurrent create waits here, then sees this one
             active = await conn.fetchval(_ACTIVE_COUNT, ctx.tenant_id, [str(s) for s in ACTIVE_STATUSES])
-            if active >= settings.dataset_limits.max_active_imports_per_tenant:
+            if active >= (await plan_limits.dataset_limits(conn, ctx.tenant_id)).max_active_imports_per_tenant:
                 raise Problem(
                     HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_IMPORTS, "too many imports in progress, wait for one to finish"
                 )
@@ -219,11 +219,12 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
         await _check_base(conn, row)
         # expires_at is the job deadline while queued/running, so the timeout runs from the start, not from creation
         deadline = datetime.now(UTC) + timedelta(seconds=settings.dataset_limits.job_timeout_seconds)
+        limits = await plan_limits.dataset_limits(conn, tenant)
         row = await cas(conn, row, ImportStatus.QUEUED, deadline)
     submission_id = f"ingest-{imp}-{uuid.uuid4().hex[:8]}"  # Ray refuses a reused id, and a retry is a new submission; known before the POST, so a lost answer can still be stopped
     try:
         await data_plane.create_dataset_repo(tenant, ds)
-        spec, kind = await ingest_spec.build(row, TaskType(task_type), info.is_table, submission_id)
+        spec, kind = await ingest_spec.build(row, TaskType(task_type), info.data_kind, limits, submission_id)
         job_id = await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
     except Exception as e:
         await job_lifecycle.stop_quietly(submission_id)  # Ray may have accepted it: a retry must not run a second job on this prefix
@@ -318,8 +319,10 @@ async def commit_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uu
     if isinstance(claimed, DatasetVersion):
         return claimed
     try:
+        async with TenantConn(ctx.tenant_id) as conn:
+            limits = await plan_limits.dataset_limits(conn, ctx.tenant_id)
         commit = await data_plane.commit_staged(
-            ctx.tenant_id, str(dataset_id), str(import_id), f"Import {import_id}"
+            ctx.tenant_id, str(dataset_id), str(import_id), f"Import {import_id}", limits
         )
         async with TenantConn(ctx.tenant_id) as conn:
             if await conn.fetchval(_LOCK_DATASET, project_id, dataset_id) is None:

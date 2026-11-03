@@ -4,8 +4,6 @@ Adding one = the module and a JobType member.
 """
 from enum import StrEnum
 
-from app.core.enums import ImportSource
-
 
 class JobType(StrEnum):
     """Names of the catalog entries; tests/ingest_job/test_contract.py checks each one is an importable module."""
@@ -17,10 +15,3 @@ class JobType(StrEnum):
 
 ENTRYPOINTS = "ray_jobs.entrypoints"  # one module per JobType, run as `python -m`
 TRAIN_ENTRYPOINT = "ray_training.entrypoints.train"  # the train driver (top-level ray-training/); not an ingest JobType
-
-
-def ingest_job_type(source: str, table: bool) -> JobType:
-    """Which catalog entry imports this source for a task whose dataset is a table (`table`) or an image index."""
-    if source == ImportSource.HUGGINGFACE:
-        return JobType.HUGGINGFACE
-    return JobType.UPLOAD_CSV if table else JobType.UPLOAD_IMAGES

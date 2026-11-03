@@ -71,11 +71,6 @@ class TaskInfo(TaskTypeBody):
     def is_tabular(self) -> bool:
         return self.data_kind is DataKind.TABULAR
 
-    @property
-    def is_table(self) -> bool:
-        """The dataset is a table (data.parquet + schema.json) rather than an image index."""
-        return self.data_kind in (DataKind.TABULAR, DataKind.TEXT)
-
 
 _SELECT = "SELECT * FROM task_types"
 _UPSERT = (

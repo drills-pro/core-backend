@@ -135,7 +135,7 @@ class Gateway:
             self.started.append(ids)
             return SimpleNamespace(run_id="mlflow-1")
 
-        async def prepare(tenant_id, project_id, dataset_id, version_id, run_id, ttl, *, table=False):
+        async def prepare(tenant_id, project_id, dataset_id, version_id, run_id, ttl, *, data_kind=None):
             self.ttl = ttl
             return TrainData(index_url="http://i", manifest_url="http://m", version_id=version_id, lakefs_commit="c0ffee")
 
@@ -299,6 +299,8 @@ def test_losing_a_race_on_the_key_returns_the_winner_and_submits_nothing(monkeyp
                 return preset_row()
             if "FROM task_types" in sql:
                 return seeded(args[0])
+            if "FROM plan_limits" in sql:
+                return None
             return {"dataset_id": DATASET, "lakefs_commit": "c0ffee"}
 
     patch_tenant_conn(monkeypatch, Racing(vals={"task_type": TaskType.IMAGE_CLASSIFICATION, "count(*)": 0}), create_service)

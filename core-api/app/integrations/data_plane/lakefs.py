@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError
 from app.core import secret_files
 from app.core.enums import BlockstoreScheme
 from app.core.problem import Problem
-from app.core.settings import settings
+from app.core.settings import DatasetLimits, settings
 from app.integrations.data_plane import access, layout
 from app.integrations.data_plane.report import ImportReport
 
@@ -247,9 +247,8 @@ def _list_staged(prefix: str) -> list[tuple[str, int]]:
     return found
 
 
-def _staged_violation(entries: list[tuple[str, int]]) -> str | None:
+def _staged_violation(entries: list[tuple[str, int]], limits: DatasetLimits) -> str | None:
     """Why `out/` may not be imported, or None. The job is untrusted input: what it wrote is checked here, not believed."""
-    limits = settings.dataset_limits
     top = {k for k, _ in entries if not k.startswith(layout.OBJECTS_PREFIX)}
     objects = [size for k, size in entries if k.startswith(layout.OBJECTS_PREFIX)]
     if any(k.startswith("/") or posixpath.normpath(k) != k for k, _ in entries):
@@ -301,10 +300,10 @@ async def _link_staged(client: httpx.AsyncClient, s3, repo: str, staged_prefix: 
     await asyncio.gather(*(link(rel, size) for rel, size in entries))
 
 
-async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str) -> str:
+async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str, limits: DatasetLimits) -> str:
     """Put the staged `out/` tree on the repo's main branch as one commit; returns the commit id.
 
-    What is staged is checked first (limits, allowed file names), then copied inside the object store into the
+    What is staged is checked first (the tenant's plan `limits`, allowed file names), then copied inside the object store into the
     repo's own storage and linked, so the version outlives staging. The commit carries the import id, so calling
     this again for the same import after a failure returns the commit already made instead of making a second one.
     """
@@ -315,7 +314,7 @@ async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message
         if (done := await _existing_commit(client, repo, import_id)) is not None:
             return done
         entries = await asyncio.to_thread(_list_staged, prefix + layout.OUT_PREFIX)
-        if violation := _staged_violation(entries):
+        if violation := _staged_violation(entries, limits):
             raise Problem(_HTTP_UNPROCESSABLE, INVALID_STAGED_OUTPUT, violation)
         async with asyncio.timeout(settings.data_plane.commit_timeout_seconds):
             await _link_staged(client, _s3(secret_files.STAGING), repo, prefix + layout.OUT_PREFIX, entries)
