@@ -181,7 +181,7 @@ async def resolve_stable(name: JobPackageName) -> JobPackage:
     return stable
 
 
-async def presigned_url(name: JobPackageName, sha256: str) -> str:
+async def presigned_url(name: JobPackageName, sha256: str, ttl_seconds: int | None = None) -> str:
     """A GET the Ray job can reach (signed for the endpoint of the `ingest` credential, which is the address Ray uses)
     for the registered package, whatever its status: a run keeps the package it was created with."""
     async with (await get_pool()).acquire() as conn:
@@ -190,4 +190,4 @@ async def presigned_url(name: JobPackageName, sha256: str) -> str:
         raise LookupError(f"{name} package {sha256} is not registered")
     return lakefs.s3_client(secret_files.INGEST).generate_presigned_url(
         "get_object", Params={"Bucket": settings.data_plane.staging_bucket, "Key": package.s3_key},
-        ExpiresIn=settings.data_plane.presign_ttl_seconds)
+        ExpiresIn=ttl_seconds or settings.data_plane.presign_ttl_seconds)

@@ -116,6 +116,30 @@ class Training(_Section):
     max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
 
 
+class ServingApp(_Section):
+    """One shared predictor app (ray_serving), per compute target: its replicas and what each one holds."""
+
+    min_replicas: int
+    max_replicas: int
+    num_cpus: float
+    num_gpus: float
+
+
+class ServingApps(_Section):
+    cpu: ServingApp
+    gpu: ServingApp
+
+
+class Serving(_Section):
+    """The shared Serve apps every shared deployment is answered by (app/integrations/serve_client.py)."""
+
+    max_models_per_replica: int  # models a replica keeps loaded; the least recently used is dropped for another
+    max_ongoing_requests: int  # per replica; more wait in Serve's queue
+    request_timeout_seconds: int  # core-api's wait for an answer, which includes a cold load of the model
+    package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
+    apps: ServingApps
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
@@ -147,6 +171,7 @@ class Settings(BaseSettings):
     data_plane: DataPlane
     dataset_limits: DatasetLimits
     training: Training
+    serving: Serving
     observability: Observability
     public: Public
     secrets: SecretPaths

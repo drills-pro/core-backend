@@ -1,6 +1,11 @@
 """Ray Serve deployment (req/04 Deployments group, req/07 FR3: Ray Serve).
 
-Deploying is itself a Ray job: the entrypoint calls `serve.run(...)`, which
+Shared deployments (deployments.serving = 'shared') have no Serve app of their own. Two long-lived apps, predictor-cpu and
+predictor-gpu (the ray_serving package), load each deployment's model by id: `ensure_apps` declares them through Serve's
+REST API, `predict` calls one with the deployment's model spec. Declaring replaces every Serve app not in the config, so it
+waits while a legacy deployment is still served.
+
+Legacy deployments: deploying is itself a Ray job: the entrypoint calls `serve.run(...)`, which
 starts the Serve replica as an independent Ray actor and returns — the
 submission job then exits, but the deployment keeps running (this is the
 standard way to drive Serve from outside the cluster's own Python process).
@@ -8,15 +13,26 @@ core-api then calls the deployed HTTP route directly for /predict.
 """
 import ast
 import base64
+import logging
 import textwrap
+import time
 from enum import StrEnum
+from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
+from pydantic import BaseModel
+
+from app.core.db import get_pool
+from app.core.enums import JobPackageName
+from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.task_catalog import IMAGENET_PREPROCESSING
 from app.core.task_types import TaskInfo
 from app.integrations import compute
 from app.integrations.data_plane import job_package, layout, mlflow
+
+logger = logging.getLogger(__name__)
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
@@ -143,3 +159,156 @@ async def deploy(
         num_gpus=1 if compute_target == ComputeTarget.GPU else 0,
     ))
     return job_id, route_prefix
+
+
+# ---- shared predictor apps ----
+
+SERVE_APPLICATIONS_PATH = "/api/serve/applications/"  # GET: what runs; PUT: declare the whole set
+PREDICTOR_IMPORT_PATH = "ray_serving.app:build"
+PREDICTOR_DEPLOYMENT = "Predictor"  # the class name inside ray_serving.app.build
+MODEL_ID_HEADER = "serve_multiplexed_model_id"  # Serve's own name for the id a multiplexed model is picked by
+PACKAGE_SHA_ENV = "RAY_SERVING_SHA256"  # in each app's runtime_env, so a later call can see which package it was declared with
+URL_ISSUED_ENV = "RAY_SERVING_URL_ISSUED_AT"  # unix seconds the zip's presigned URL was made; it is re-declared after half its life
+SERVE_API_TIMEOUT_SECONDS = 10
+
+
+def predictor_app(target: ComputeTarget) -> str:
+    return f"predictor-{target.value}"
+
+
+def model_id(deployment_id: str, run_id: str) -> str:
+    """What a replica caches a model under. A new run behind the same deployment (a `main` re-deploy) gets a new id."""
+    return f"{deployment_id}@{run_id}"
+
+
+class ServeErrorCode(StrEnum):
+    """`error.code` of a failed answer. The first three mirror ray_serving.model.ErrorCode (drift-tested)."""
+
+    MODEL_LOAD_FAILED = "model_load_failed"
+    UNKNOWN_FUNCTION = "unknown_function"
+    BAD_INPUT = "bad_input"
+    UNREACHABLE = "serve_unreachable"
+    TIMEOUT = "serve_timeout"
+    BAD_ANSWER = "serve_bad_answer"
+
+
+class ServeCallError(Exception):
+    def __init__(self, code: ServeErrorCode, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+class ServedModel(BaseModel):
+    """What a request carries about its model (ray_serving.model.ModelSpec): where it is and how to run it."""
+
+    model_url: str
+    manifest_url: str
+    tokenizer_url: str
+    class_names: list[str]
+    params: dict[str, Any]
+    providers: list[str]
+    encoder: str
+    postprocess: str
+
+
+class Prediction(BaseModel):
+    predictions: Any
+    cold_load: bool
+
+
+async def served_model(task: TaskInfo, mlflow_run_id: str, class_names: list[str], tenant_id: str, project_id: str) -> ServedModel:
+    model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
+    params = task.serving.model_dump(mode="json")
+    return ServedModel(
+        model_url=model_url, manifest_url=model_url.removesuffix(layout.MODEL_KEY) + layout.MODEL_META_KEY,
+        tokenizer_url=model_url.removesuffix(layout.MODEL_KEY) + layout.TOKENIZER_KEY, class_names=class_names,
+        providers=params.pop("providers"), params=params, encoder=task.encoder, postprocess=task.postprocess)
+
+
+def serve_config(package_url: str, sha256: str, issued_at: int) -> dict:
+    """The declaration of both predictor apps. Replicas scale on their ongoing requests; each holds `max_models_per_replica` models."""
+    cfg = settings.serving
+
+    def app(target: ComputeTarget) -> dict:
+        size = getattr(cfg.apps, target.value)
+        return {
+            "name": predictor_app(target), "route_prefix": f"/{predictor_app(target)}", "import_path": PREDICTOR_IMPORT_PATH,
+            "args": {"max_models_per_replica": cfg.max_models_per_replica},
+            "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)}},
+            "deployments": [{
+                "name": PREDICTOR_DEPLOYMENT, "max_ongoing_requests": cfg.max_ongoing_requests,
+                "autoscaling_config": {"min_replicas": size.min_replicas, "max_replicas": size.max_replicas},
+                "ray_actor_options": {"num_cpus": size.num_cpus, "num_gpus": size.num_gpus}}]}
+
+    return {"http_options": {"host": "0.0.0.0", "port": SERVE_HTTP_PORT}, "applications": [app(t) for t in ComputeTarget]}
+
+
+def _declared(applications: dict, sha256: str, now: float) -> bool:
+    """Both predictor apps are declared with this package and with a zip URL that has most of its life left."""
+    for target in ComputeTarget:
+        env = ((applications.get(predictor_app(target)) or {}).get("deployed_app_config") or {}).get("runtime_env", {}).get("env_vars", {})
+        issued = int(env.get(URL_ISSUED_ENV, 0))
+        if env.get(PACKAGE_SHA_ENV) != sha256 or now - issued > settings.serving.package_url_ttl_seconds / 2:
+            return False
+    return True
+
+
+async def _legacy_active() -> bool:
+    async with (await get_pool()).acquire() as conn:
+        return bool(await conn.fetchval("SELECT legacy_deployments_active()"))
+
+
+async def ensure_apps() -> bool:
+    """Declare the two predictor apps with the stable ray_serving package unless they already are. True when they are in
+    place; False when there is no stable package, a legacy deployment is still served (declaring would delete its app) or
+    Serve cannot be reached."""
+    try:
+        package = await job_package.resolve_stable(JobPackageName.RAY_SERVING)
+        async with httpx.AsyncClient(base_url=settings.ray.dashboard, timeout=SERVE_API_TIMEOUT_SECONDS) as client:
+            resp = await client.get(SERVE_APPLICATIONS_PATH)
+            resp.raise_for_status()
+            now = time.time()
+            if _declared(resp.json().get("applications", {}), package.sha256, now):
+                return True
+            if await _legacy_active():
+                logger.warning("predictor apps not declared: a legacy deployment is still served and declaring would delete its Serve app")
+                return False
+            url = await job_package.presigned_url(JobPackageName.RAY_SERVING, package.sha256, settings.serving.package_url_ttl_seconds)
+            put = await client.put(SERVE_APPLICATIONS_PATH, json=serve_config(url, package.sha256, int(now)))
+            put.raise_for_status()
+    except (Problem, httpx.HTTPError) as e:
+        logger.warning("predictor apps not ensured: %s", e)
+        return False
+    logger.info("predictor apps declared with ray_serving %s", package.sha256)
+    return True
+
+
+async def ensure_serving() -> None:
+    """The poller: keeps the apps declared (and their zip URL fresh) without anything having to ask."""
+    await ensure_apps()
+
+
+async def predict(target: ComputeTarget, deployment_id: str, run_id: str, model: ServedModel, body: dict) -> Prediction:
+    """Answer `body` with the deployment's model on the shared app. Raises ServeCallError."""
+    try:
+        async with httpx.AsyncClient(timeout=settings.serving.request_timeout_seconds) as client:
+            resp = await client.post(
+                f"{serve_url()}/{predictor_app(target)}", headers={MODEL_ID_HEADER: model_id(deployment_id, run_id)},
+                json={"model": model.model_dump(mode="json"), "input": body})
+    except httpx.TimeoutException as e:
+        raise ServeCallError(ServeErrorCode.TIMEOUT, f"no answer within {settings.serving.request_timeout_seconds}s") from e
+    except httpx.HTTPError as e:
+        raise ServeCallError(ServeErrorCode.UNREACHABLE, f"{type(e).__name__}: {e}") from e
+    try:
+        answer = resp.json()
+    except ValueError as e:
+        raise ServeCallError(ServeErrorCode.BAD_ANSWER, f"serve answered {resp.status_code} with a body that is not JSON") from e
+    if isinstance(answer, dict) and "error" in answer:
+        try:
+            code = ServeErrorCode(answer["error"]["code"])
+        except (KeyError, ValueError):
+            code = ServeErrorCode.BAD_ANSWER
+        raise ServeCallError(code, str(answer["error"].get("message", "")))
+    if resp.status_code != httpx.codes.OK:
+        raise ServeCallError(ServeErrorCode.BAD_ANSWER, f"serve answered {resp.status_code}")
+    return Prediction.model_validate(answer)

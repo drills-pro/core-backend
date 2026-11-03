@@ -63,6 +63,15 @@ training:                    # app/modules/user/training; a task's cpu and memor
   driver_cpus: 1
   max_runtime_seconds: 14400            # 4 h
 
+serving:                     # app/integrations/serve_client.py: the two shared predictor apps
+  max_models_per_replica: 8
+  max_ongoing_requests: 8
+  request_timeout_seconds: 60          # includes a cold load of the model
+  package_url_ttl_seconds: 604800      # 7 days, S3's maximum; the apps are re-declared (new URL) after half of it
+  apps:
+    cpu: {min_replicas: 1, max_replicas: 4, num_cpus: 1, num_gpus: 0}
+    gpu: {min_replicas: 0, max_replicas: 2, num_cpus: 1, num_gpus: 1}
+
 observability:
 
 public:                      # browser-facing, not the in-network names
