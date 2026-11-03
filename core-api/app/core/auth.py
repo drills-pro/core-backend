@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 ZITADEL_ISSUER = settings.zitadel.issuer
 ROLES_CLAIM = "urn:zitadel:iam:org:project:roles"
+PROJECT_ROLES_CLAIM = "urn:zitadel:iam:org:project:{project_id}:roles"  # Zitadel's claim when the token asks for the project's audience
 
 # NFR2: cache JWKS, don't fetch on every request. PyJWKClient caches by
 # default (lifespan=300s); one client for the process is enough.
@@ -78,7 +79,8 @@ class Claims:
         self.email: str | None = raw.get("email")
         self.email_verified: bool = raw.get("email_verified") is True
         self.display_name: str | None = raw.get("name")
-        self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
+        project_roles = raw.get(PROJECT_ROLES_CLAIM.format(project_id=settings.zitadel.project_id), {})
+        self.roles: set[str] = set(raw.get(ROLES_CLAIM, {})) | set(project_roles)
 
 
 # Most specific first: InvalidSignatureError is a DecodeError and PyJWKClientConnectionError a

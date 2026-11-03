@@ -52,6 +52,16 @@ def test_verify_token_extracts_identity_and_roles(monkeypatch, keypair):
     assert claims.roles == {"org_owner"}
 
 
+def test_roles_come_from_the_projects_own_claim_too(monkeypatch, keypair):
+    private_key, public_key = keypair
+    _patch_jwks(monkeypatch, public_key)
+    claim = auth.PROJECT_ROLES_CLAIM.format(project_id=PROJECT)
+    token = _sign(private_key, {
+        "sub": "ci", "iss": auth.ZITADEL_ISSUER, "aud": [PROJECT], "iat": 1, "exp": 4102444800,
+        claim: {auth.PLATFORM_ADMIN_ROLE: {"org-1": "staff"}}})
+    assert auth.verify_token(token).roles == {auth.PLATFORM_ADMIN_ROLE}
+
+
 def test_verify_token_rejects_wrong_audience(monkeypatch, keypair):
     private_key, public_key = keypair
     _patch_jwks(monkeypatch, public_key)
