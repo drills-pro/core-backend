@@ -1,21 +1,23 @@
 """Deployment rules and queries: deploy, read, try-it and the key-authenticated predict path."""
 import hashlib
+import json
 import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from http import HTTPStatus
 
 import httpx
 from fastapi import HTTPException
 
-from app.core import rate_limit
+from app.core import plan_limits, rate_limit
 from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
-from app.modules.user.deployments import shared
+from app.modules.user.deployments import calls, shared
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
     MAIN_ROUTE_SUFFIX,
@@ -53,6 +55,12 @@ def hash_key(key: str) -> str:
 
 def rate_limit_for(plan_tier: str | None) -> int:
     return PLAN_TIER_RATE_LIMITS.get(plan_tier, PLAN_TIER_RATE_LIMITS[PlanTier.FREE])
+
+
+def _check_size(size: int, limits: plan_limits.Predict) -> None:
+    """The plan's body cap, which is at most the ceiling the route already refused above before parsing."""
+    if size > limits.max_body_bytes:
+        raise HTTPException(status_code=413, detail=f"the body is over {limits.max_body_bytes} bytes (this plan's limit)")
 
 
 async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
@@ -187,7 +195,11 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
         raise HTTPException(status_code=409, detail=f"deployment is {row['status']}, not active")
 
     if row["serving"] == Serving.SHARED:
-        prediction, elapsed_ms = await shared.answer(ctx.tenant_id, project_id, deployment_id, row["training_run_id"], body)
+        async with TenantConn(ctx.tenant_id) as conn:
+            limits = await plan_limits.predict_limits(conn, ctx.tenant_id)
+        _check_size(len(json.dumps(body)), limits)
+        prediction, elapsed_ms = await shared.answer(
+            ctx.tenant_id, project_id, deployment_id, row["training_run_id"], body, limits.max_inflight_per_deployment)
         response_body = {PREDICTIONS_FIELD: prediction.predictions}
     else:
         resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
@@ -249,9 +261,17 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
 
     async with TenantConn(str(row["tenant_id"])) as conn:
         served = await conn.fetchrow("SELECT serving, training_run_id FROM deployments WHERE id = $1", deployment_id)
+        limits = await plan_limits.predict_limits(conn, str(row["tenant_id"]))
     if served["serving"] == Serving.SHARED:
-        prediction, elapsed_ms = await shared.answer(str(row["tenant_id"]), row["project_id"], deployment_id, served["training_run_id"], body)
+        tenant_id, run_id, size = str(row["tenant_id"]), served["training_run_id"], len(json.dumps(body))
+        _check_size(size, limits)
+        try:
+            prediction, elapsed_ms = await shared.answer(tenant_id, row["project_id"], deployment_id, run_id, body, limits.max_inflight_per_deployment)
+        except shared.ServeFailed as e:
+            await calls.record(tenant_id, deployment_id, run_id, status=e.status_code, latency_ms=e.elapsed_ms, cold_load=None, error_code=e.code, request_bytes=size)
+            raise
         inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": prediction.cold_load})
+        await calls.record(tenant_id, deployment_id, run_id, status=HTTPStatus.OK, latency_ms=elapsed_ms, cold_load=prediction.cold_load, error_code=None, request_bytes=size)
         result = {PREDICTIONS_FIELD: prediction.predictions}
     else:
         resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)

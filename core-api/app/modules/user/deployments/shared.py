@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from fastapi import HTTPException
 
 from app.core import task_types
-from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
 from app.modules.user.deployments.constants import (
@@ -26,6 +25,14 @@ from app.modules.user.projects import get_settings, get_task_type
 from app.modules.user.training import get_run_model
 
 _NO_MODEL = "the deployment's run has no servable model"
+
+
+class ServeFailed(HTTPException):
+    """A call that reached Serve and failed: the status for its code, and what predict_calls logs about it."""
+
+    def __init__(self, code: serve_client.ServeErrorCode, message: str, elapsed_ms: float):
+        super().__init__(status_code=SERVE_ERROR_STATUS[code], detail=f"{code}: {message}")
+        self.code, self.elapsed_ms = code, elapsed_ms
 
 
 @dataclass(frozen=True)
@@ -59,8 +66,8 @@ async def _target(tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUI
 
 
 @contextmanager
-def _slot(deployment_id: uuid.UUID):
-    if _inflight.get(deployment_id, 0) >= settings.serving.max_inflight_per_deployment:
+def _slot(deployment_id: uuid.UUID, limit: int):
+    if _inflight.get(deployment_id, 0) >= limit:
         raise HTTPException(status_code=429, detail=TOO_MANY_REQUESTS_DETAIL)
     _inflight[deployment_id] = _inflight.get(deployment_id, 0) + 1
     try:
@@ -72,14 +79,14 @@ def _slot(deployment_id: uuid.UUID):
 
 
 async def answer(
-    tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUID, run_id: uuid.UUID, body: dict
+    tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUID, run_id: uuid.UUID, body: dict, max_inflight: int
 ) -> tuple[serve_client.Prediction, float]:
-    """(the prediction, milliseconds it took) for the run the deployment serves. HTTPException on a failed call, with the status SERVE_ERROR_STATUS gives its code."""
+    """(the prediction, milliseconds it took) for the run the deployment serves; `max_inflight` is the tenant plan's cap for this deployment. ServeFailed (an HTTPException) on a failed call, with the status SERVE_ERROR_STATUS gives its code."""
     target = await _target(tenant_id, project_id, deployment_id, run_id)
-    with _slot(deployment_id):
+    with _slot(deployment_id, max_inflight):
         start = time.perf_counter()
         try:
             prediction = await serve_client.predict(target.app, str(deployment_id), str(target.run_id), target.model, body)
         except serve_client.ServeCallError as e:
-            raise HTTPException(status_code=SERVE_ERROR_STATUS[e.code], detail=f"{e.code}: {e.message}") from e
+            raise ServeFailed(e.code, e.message, (time.perf_counter() - start) * 1000) from e
     return prediction, (time.perf_counter() - start) * 1000

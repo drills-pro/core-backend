@@ -15,12 +15,15 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from tests.support import FakeConn
 
-SQL = next((Path(__file__).parents[2] / "migrations").glob("*_plan_limits.sql")).read_text()
+MIGRATIONS = Path(__file__).parents[2] / "migrations"
+SQL = next(MIGRATIONS.glob("*_plan_limits.sql")).read_text()
+PREDICT_SQL = next(MIGRATIONS.glob("*_plan_limits_predict.sql")).read_text()
 
 
 def groups(**over) -> dict:
     """A plan's limits as the YAML has them today, grouped as the table groups them; `over` replaces whole groups."""
-    values = {**settings.dataset_limits.model_dump(), "max_concurrent_training_runs": settings.ray.max_concurrent_training_runs}
+    values = {**settings.dataset_limits.model_dump(), "max_concurrent_training_runs": settings.ray.max_concurrent_training_runs,
+              "max_body_bytes": settings.serving.max_body_bytes, "max_inflight_per_deployment": settings.serving.max_inflight_per_deployment}
     return {name: {k: values[k] for k in model.model_fields}
             for name, model in ((n, f.annotation) for n, f in PlanLimitsBody.model_fields.items())} | over
 
@@ -31,7 +34,8 @@ def row(**over) -> dict:
 
 def test_the_columns_and_the_tier_check_mirror_the_models_and_the_enum():
     columns = re.findall(r"^  (\w+) jsonb NOT NULL CHECK \(jsonb_typeof\(\1\) = 'object'\)", SQL, re.M)
-    assert columns == list(PlanLimitsBody.model_fields)
+    added = re.findall(r"ADD COLUMN (\w+) jsonb NOT NULL", PREDICT_SQL)
+    assert columns + added == list(PlanLimitsBody.model_fields)
     tiers = re.search(r"plan_tier text PRIMARY KEY CHECK \(plan_tier IN \(([^)]*)\)", SQL).group(1)
     assert set(re.findall(r"'([^']+)'", tiers)) == {t.value for t in PlanTier}
 
@@ -39,7 +43,9 @@ def test_the_columns_and_the_tier_check_mirror_the_models_and_the_enum():
 def test_every_tier_is_seeded_with_the_yaml_values():
     seeded = {name: json.loads(text) for name, text in re.findall(r"^\s+'(\{.*\})'::jsonb,?$", SQL, re.M) and zip(
         PlanLimitsBody.model_fields, re.findall(r"^\s+'(\{.*\})'::jsonb,?$", SQL, re.M))}
-    assert seeded == groups()
+    assert seeded == {k: v for k, v in groups().items() if k != "predict"}
+    predict_default = json.loads(re.search(r"DEFAULT '(\{.*\})'::jsonb", PREDICT_SQL).group(1))
+    assert predict_default == groups()["predict"]  # the column default is the YAML fallback
     assert set(re.findall(r"ARRAY\[([^\]]*)\]", SQL)[0].replace("'", "").split(", ")) == {t.value for t in PlanTier}
 
 
@@ -69,6 +75,19 @@ def test_the_plan_never_reaches_a_limit_it_does_not_own():
 
 def test_concurrency_above_the_yaml_ceiling_is_refused():
     over = groups(concurrency={"max_active_imports_per_tenant": 1, "max_concurrent_training_runs": settings.ray.max_concurrent_training_runs + 1})
+    with pytest.raises(Problem) as e:
+        asyncio.run(plan_limits.put(FakeConn(), PlanTier.PRO, PlanLimitsBody(**over), "ops"))
+    assert e.value.code == plan_limits.LIMIT_ABOVE_CEILING
+
+
+def test_a_tenant_without_a_row_gets_the_yaml_predict_limits_and_a_plan_row_replaces_them():
+    assert asyncio.run(plan_limits.predict_limits(FakeConn(row=None), "t")) == plan_limits.Predict(**groups()["predict"])
+    conn = FakeConn(rows={"FROM plan_limits": row(predict={"max_body_bytes": 7, "max_inflight_per_deployment": 2})})
+    assert asyncio.run(plan_limits.predict_limits(conn, "t")).max_body_bytes == 7
+
+
+def test_a_body_cap_above_the_yaml_ceiling_is_refused():
+    over = groups(predict={"max_body_bytes": settings.serving.max_body_bytes + 1, "max_inflight_per_deployment": 1})
     with pytest.raises(Problem) as e:
         asyncio.run(plan_limits.put(FakeConn(), PlanTier.PRO, PlanLimitsBody(**over), "ops"))
     assert e.value.code == plan_limits.LIMIT_ABOVE_CEILING

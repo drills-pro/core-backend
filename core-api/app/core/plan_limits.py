@@ -1,5 +1,5 @@
 """What each plan tier may do, one `plan_limits` row per tier with a jsonb object per group of limits: how many imports and
-training runs at once and how big a dataset can be. The YAML `dataset_limits` and `ray` sections are the fallback for a tier without a row and the ceiling
+training runs at once, how big a dataset can be and how big and how concurrent a /predict call. The YAML `dataset_limits` and `ray` sections are the fallback for a tier without a row and the ceiling
 for concurrency; job timeout and Ray sizing are not per plan. Platform data, written only through /v1/admin/plan-limits.
 """
 from datetime import datetime
@@ -43,6 +43,11 @@ class HuggingFace(_Group):
     hf_max_repo_bytes: int = Field(gt=0)
 
 
+class Predict(_Group):
+    max_body_bytes: int = Field(gt=0)
+    max_inflight_per_deployment: int = Field(gt=0)
+
+
 class PlanLimitsBody(_Group):
     """What an admin writes for one tier; each field is a jsonb column of plan_limits, its keys named like DatasetLimits's."""
 
@@ -51,10 +56,11 @@ class PlanLimitsBody(_Group):
     images: Images
     tables: Tables
     huggingface: HuggingFace
+    predict: Predict
 
     def dataset_overrides(self) -> dict[str, int]:
         """The values that replace DatasetLimits fields (training concurrency is not one of them)."""
-        flat = {k: v for name in PlanLimitsBody.model_fields for k, v in getattr(self, name).model_dump().items()}
+        flat = {k: v for name in PlanLimitsBody.model_fields if name != "predict" for k, v in getattr(self, name).model_dump().items()}
         flat.pop("max_concurrent_training_runs")
         return flat
 
@@ -92,6 +98,14 @@ async def max_training_runs(conn, tenant_id: str) -> int:
     return settings.ray.max_concurrent_training_runs if plan is None else plan.concurrency.max_concurrent_training_runs
 
 
+async def predict_limits(conn, tenant_id: str) -> Predict:
+    """The tenant's /predict limits; a tier without a row gets the serving section of the YAML."""
+    plan = await for_tenant(conn, tenant_id)
+    if plan is not None:
+        return plan.predict
+    return Predict(max_body_bytes=settings.serving.max_body_bytes, max_inflight_per_deployment=settings.serving.max_inflight_per_deployment)
+
+
 async def list_all(conn) -> list[PlanLimits]:
     return [PlanLimits.model_validate(dict(r)) for r in await conn.fetch(f"{_SELECT} ORDER BY plan_tier")]
 
@@ -102,5 +116,9 @@ async def put(conn, tier: PlanTier, body: PlanLimitsBody, actor: str) -> PlanLim
         raise Problem(
             HTTPStatus.UNPROCESSABLE_ENTITY, LIMIT_ABOVE_CEILING,
             f"max_concurrent_training_runs is at most {settings.ray.max_concurrent_training_runs} (ray.max_concurrent_training_runs)")
+    if body.predict.max_body_bytes > settings.serving.max_body_bytes:
+        raise Problem(
+            HTTPStatus.UNPROCESSABLE_ENTITY, LIMIT_ABOVE_CEILING,
+            f"max_body_bytes is at most {settings.serving.max_body_bytes} (serving.max_body_bytes)")
     row = await conn.fetchrow(_UPSERT, tier, *(getattr(body, c).model_dump() for c in _COLUMNS), actor)
     return PlanLimits.model_validate(dict(row))

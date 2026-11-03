@@ -13,7 +13,7 @@ from app.core import rate_limit
 from app.core.db import get_pool
 from app.integrations.serve_client import ensure_serving
 from app.modules.user.datasets import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
-from app.modules.user.deployments import reconcile_inflight_deployments
+from app.modules.user.deployments import purge_predict_calls, reconcile_inflight_deployments
 from app.modules.user.training import reconcile_inflight_runs
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ POLLERS = (
     ("dataset-purge", purge_deleted_datasets, PURGE_INTERVAL_SECONDS),
     ("rate-limit-purge", rate_limit.purge, SWEEP_INTERVAL_SECONDS),
     ("serving-ensure", ensure_serving, SERVING_ENSURE_INTERVAL_SECONDS),
+    ("predict-calls-purge", purge_predict_calls, PURGE_INTERVAL_SECONDS),
 )
 
 

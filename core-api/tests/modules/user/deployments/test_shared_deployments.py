@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.core import plan_limits
 from app.core.enums import TaskType
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeCallError, ServeErrorCode
@@ -99,8 +100,8 @@ def served(monkeypatch):
     return state
 
 
-def answer(run=RUN, body=None):
-    return asyncio.run(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, run, body or {"text": "x"}))
+def answer(run=RUN, body=None, max_inflight=8):
+    return asyncio.run(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, run, body or {"text": "x"}, max_inflight))
 
 
 def test_a_request_goes_to_the_projects_compute_target_under_the_deployments_run(served):
@@ -133,20 +134,19 @@ def test_a_run_that_cannot_be_served_is_409(served):
     assert err.value.status_code == 409
 
 
-def test_requests_over_the_in_flight_cap_get_429_and_free_their_slot(served, monkeypatch):
-    monkeypatch.setattr(shared.settings.serving, "max_inflight_per_deployment", 1)
+def test_requests_over_the_in_flight_cap_get_429_and_free_their_slot(served):
 
     async def run():
         served.gate = asyncio.Event()
-        first = asyncio.create_task(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}))
+        first = asyncio.create_task(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1))
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         with pytest.raises(HTTPException) as err:
-            await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {})
+            await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1)
         assert err.value.status_code == 429
         served.gate.set()
         await first
-        await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {})  # the slot came back
+        await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1)  # the slot came back
 
     asyncio.run(run())
     assert not shared._inflight
@@ -175,14 +175,21 @@ def test_a_body_over_the_cap_is_413_before_it_is_parsed(monkeypatch):
 def test_the_test_call_and_key_predict_answer_a_shared_deployment_with_its_predictions(monkeypatch):
     seen = []
 
-    async def answer_(tenant_id, project_id, deployment_id, run_id, body):
-        seen.append((tenant_id, run_id, body))
+    async def answer_(tenant_id, project_id, deployment_id, run_id, body, max_inflight):
+        seen.append((tenant_id, run_id, body, max_inflight))
         return serve_client.Prediction(predictions=[1], cold_load=True), 2.5
 
+    async def predict_limits(conn, tenant_id):
+        return plan_limits.Predict(max_body_bytes=1000, max_inflight_per_deployment=3)
+
     monkeypatch.setattr(service.shared, "answer", answer_)
+    monkeypatch.setattr(service.plan_limits, "predict_limits", predict_limits)
     row = {"status": "active", "route_prefix": "/p", "serving": "shared", "training_run_id": RUN}
     conn = FakeConn(row=row)
     patch_counted_conn(monkeypatch, conn, service)
     out = asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x"}))
-    assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, RUN, {"text": "x"})]
+    assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, RUN, {"text": "x"}, 3)]
     assert any(sql.startswith("INSERT INTO deployment_test_calls") for sql, _ in conn.calls)
+    with pytest.raises(HTTPException) as err:  # the plan's body cap
+        asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x" * 2000}))
+    assert err.value.status_code == 413
