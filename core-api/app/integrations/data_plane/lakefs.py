@@ -120,30 +120,21 @@ async def _physical_object(repo: str, commit: str, path: str) -> tuple[str, str]
     return address.netloc, address.path.lstrip("/")
 
 
-async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: str) -> str:
-    """URL for one object of a committed version: through the lakeFS S3 gateway at the version's commit, or, when
-    lakeFS keeps its data on GCS and has no public gateway, straight from the bucket it stores the object in."""
+async def _presign_version(
+    tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int, *, public: bool
+) -> dict[str, str]:
+    """Presigned reads of objects of one committed version, as {path: url}, after one ownership check: through the
+    lakeFS S3 gateway at the version's commit, or, when lakeFS keeps its data on GCS and has no public gateway,
+    straight from the bucket it stores each object in. `public` signs for the browser-facing endpoints, otherwise
+    for the in-network ones a job reaches."""
     commit = await access.version_commit(tenant_id, dataset_id, version_id)
-    repo, path = layout.repo_name(dataset_id), _checked_path(path)
-    if settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS:
-        # ponytail: one stat call per URL; add a batch presign op if previews grow past a page
-        bucket, key = await _physical_object(repo, commit, path)
-        client = _s3(secret_files.STAGING, settings.public.staging_endpoint)  # its credentials must cover this bucket (docs/runtime-contract.md)
-    else:
-        bucket, key = repo, f"{commit}/{path}"
-        client = _s3(secret_files.LAKEFS, settings.public.lakefs_endpoint)
-    return client.generate_presigned_url(
-        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=settings.data_plane.presign_ttl_seconds
-    )
-
-
-async def presign_version_objects(tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int) -> dict[str, str]:
-    """Presigned reads of many objects of one version, as {path: url}, for a job that reaches the stores at their
-    in-network addresses (the credentials' own endpoints, not the browser-facing ones of presign_get)."""
-    commit = await access.version_commit(tenant_id, dataset_id, version_id)
-    repo = layout.repo_name(dataset_id)
+    repo, paths = layout.repo_name(dataset_id), [_checked_path(p) for p in paths]
     on_gcs = settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS
-    client = _s3(secret_files.STAGING if on_gcs else secret_files.LAKEFS)
+    if on_gcs:  # the staging credentials must cover the bucket lakeFS writes to (docs/runtime-contract.md)
+        secret, endpoint = secret_files.STAGING, settings.public.staging_endpoint
+    else:
+        secret, endpoint = secret_files.LAKEFS, settings.public.lakefs_endpoint
+    client = _s3(secret, endpoint if public else None)
     gate = asyncio.Semaphore(LINK_CONCURRENCY)
 
     async def one(path: str) -> tuple[str, str]:
@@ -152,7 +143,26 @@ async def presign_version_objects(tenant_id: str, dataset_id: str, version_id: s
         url = client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=ttl_seconds)
         return path, url
 
-    return dict(await asyncio.gather(*(one(_checked_path(p)) for p in paths)))
+    return dict(await asyncio.gather(*(one(p) for p in paths)))
+
+
+async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: str) -> str:
+    """Browser URL for one object of a committed version."""
+    urls = await presign_gets(tenant_id, dataset_id, version_id, [path])
+    return urls[path]
+
+
+async def presign_gets(tenant_id: str, dataset_id: str, version_id: str, paths: list[str]) -> dict[str, str]:
+    """Browser URLs for many objects of one committed version (a preview page), as {path: url}."""
+    return await _presign_version(
+        tenant_id, dataset_id, version_id, paths, settings.data_plane.presign_ttl_seconds, public=True
+    )
+
+
+async def presign_version_objects(tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int) -> dict[str, str]:
+    """Presigned reads of many objects of one version, as {path: url}, for a job that reaches the stores at their
+    in-network addresses (the credentials' own endpoints, not the browser-facing ones of presign_gets)."""
+    return await _presign_version(tenant_id, dataset_id, version_id, paths, ttl_seconds, public=False)
 
 
 class _S3Object(io.RawIOBase):

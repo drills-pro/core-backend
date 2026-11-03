@@ -1,5 +1,4 @@
 """Preview and files, served from the parquet index plus presigned GETs; lakeFS is never listed."""
-import asyncio
 import uuid
 from http import HTTPStatus
 
@@ -16,7 +15,6 @@ from app.modules.user.datasets.constants import ImportStatus, ProblemCode
 from app.modules.user.datasets.readers import dataset_task
 from app.modules.user.datasets.schemas import DatasetPreview, FileLink, PreviewRow
 
-PRESIGN_CONCURRENCY = 5  # each presign checks ownership on a pooled connection: bound them so a page cannot take the pool
 _VERSION_EXISTS = "SELECT 1 FROM dataset_versions WHERE id = $1 AND dataset_id = $2"
 _IMPORT_STATUS = "SELECT status FROM dataset_imports WHERE id = $1 AND dataset_id = $2"
 _NOT_IN_REVIEW = "only an import awaiting review has a staged preview"
@@ -49,15 +47,9 @@ async def version_preview(
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
     if not LAYOUTS[task.data_kind].has_objects:
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
-    # ponytail: one ownership query per URL, PRESIGN_CONCURRENCY at a time; add a batch presign op if previews grow past a page
-    gate = asyncio.Semaphore(PRESIGN_CONCURRENCY)
-
-    async def presign(row: dict) -> str:
-        async with gate:
-            return await data_plane.presign_get(tenant, ds, ver, layout.OBJECTS_PREFIX + row["path"])
-
-    urls = await asyncio.gather(*(presign(r) for r in rows))
-    return DatasetPreview(rows=[PreviewRow(data=r, url=u) for r, u in zip(rows, urls)])
+    paths = [layout.OBJECTS_PREFIX + r["path"] for r in rows]
+    urls = await data_plane.presign_gets(tenant, ds, ver, paths)
+    return DatasetPreview(rows=[PreviewRow(data=r, url=urls[p]) for r, p in zip(rows, paths)])
 
 
 async def import_preview(

@@ -35,6 +35,10 @@ class FakeGateway:
         self.calls.append(("presign_get", path))
         return f"https://files.test/{path}"
 
+    async def presign_gets(self, tenant_id, dataset_id, version_id, paths):
+        self.calls.append(("presign_gets", paths))
+        return {p: f"https://files.test/{p}" for p in paths}
+
 
 @pytest.fixture
 def call(monkeypatch, dev_headers):
@@ -61,7 +65,7 @@ def test_version_preview_returns_rows_with_urls_and_reads_only_the_index(call):
         {"data": IMAGE_ROWS[0], "url": "https://files.test/objects/cat/1.jpg"},
         {"data": IMAGE_ROWS[1], "url": "https://files.test/objects/dog/2.jpg"},
     ]
-    assert {c[0] for c in r.gw.calls} == {"read_version_sample", "presign_get"}  # no listing operation exists on the gateway
+    assert [c[0] for c in r.gw.calls] == ["read_version_sample", "presign_gets"]  # one batch presign; no listing operation exists on the gateway
     assert r.gw.calls[0] == ("read_version_sample", layout.INDEX_KEY, 20)
 
 
