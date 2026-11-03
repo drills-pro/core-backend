@@ -8,6 +8,7 @@ report schema: report.py.
 from app.integrations.data_plane import mlflow
 from app.integrations.data_plane.ingest import submit_ingest
 from app.integrations.data_plane.job_package import publish as publish_package  # noqa: F401 - used by the admin job-packages routes, not a tenant operation
+from app.integrations.data_plane.job_package import register_staged as register_staged_package  # noqa: F401 - used by the admin job-packages routes, not a tenant operation
 from app.integrations.data_plane.job_package import resolve_stable as resolve_stable_package  # noqa: F401 - used by the training module, not a tenant operation
 from app.integrations.data_plane.lakefs import (
     commit_staged,

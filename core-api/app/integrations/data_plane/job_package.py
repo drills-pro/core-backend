@@ -1,7 +1,7 @@
 """The job packages (`ray-jobs/ray_jobs`, `ray-training/ray_training`) as zips in the staging bucket, named by their content hash.
 
-`publish` builds a zip from the source tree the image ships with, stages it once per version of the code and registers it
-as a candidate in `job_packages`; an admin promotes it to stable (core/job_packages.py). Jobs run a registered package:
+`register_staged` registers the zip CI put in staging and `publish` builds one from the source tree the image ships with; both register it
+as a candidate in `job_packages`, and an admin promotes it to stable (core/job_packages.py). Jobs run a registered package:
 `presigned_url` hands the Ray job a GET for it and the job holds no extra credential. Outside prod, `resolve_stable`
 publishes and promotes the bundled source itself, so a checkout runs without an admin step.
 """
@@ -9,6 +9,7 @@ import asyncio
 import functools
 import hashlib
 import io
+import re
 import zipfile
 from pathlib import Path
 
@@ -26,26 +27,34 @@ from app.integrations.data_plane import layout, lakefs
 
 PACKAGE_DIR = Path(__file__).parents[4] / "ray-jobs" / "ray_jobs"  # /ray-jobs/ray_jobs in the image, <repo>/ray-jobs/ray_jobs in the checkout
 TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_training"  # the train driver and trainer, same layout
+ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive, so the package sits one level down
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)  # the zip epoch: the same sources always give the same bytes, hence the same hash
 PACKAGE_DIRS = {JobPackageName.RAY_JOBS: PACKAGE_DIR, JobPackageName.RAY_TRAINING: TRAINING_PACKAGE_DIR}
 SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api registers its own source
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
+INVALID_PACKAGE = "invalid_package"
+MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
 _S3_NOT_FOUND = "404"
+_S3_NO_SUCH_KEY = "NoSuchKey"
 _uploaded: set[str] = set()
 
 
 @functools.cache
 def build(package_dir: Path = PACKAGE_DIR) -> tuple[bytes, str]:
-    """(zip bytes, staging key). The archive root holds the package (`ray_jobs/`), so extracting it anywhere makes it importable."""
+    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
-            info = zipfile.ZipInfo(f"{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
+            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, path.read_bytes())
     data = buf.getvalue()
-    return data, f"{layout.JOB_PACKAGE_ROOT}/{package_dir.parent.name}-{hashlib.sha256(data).hexdigest()}.zip"
+    return data, package_key(package_dir, hashlib.sha256(data).hexdigest())
+
+
+def package_key(package_dir: Path, sha256: str) -> str:
+    return f"{layout.JOB_PACKAGE_ROOT}/{package_dir.parent.name}-{sha256}.zip"
 
 
 def _upload_once(data: bytes, key: str) -> None:
@@ -67,6 +76,47 @@ async def publish(name: JobPackageName, actor: str) -> JobPackage:
     await asyncio.to_thread(_upload_once, data, key)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register(conn, name, hashlib.sha256(data).hexdigest(), key, actor)
+
+
+def _check_upload(name: JobPackageName, data: bytes, sha256: str) -> None:
+    """An upload is the package CI built: pure-Python sources under the package's own directory, hashing to `sha256`."""
+    if len(data) > MAX_PACKAGE_BYTES:
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, INVALID_PACKAGE, f"a package is at most {MAX_PACKAGE_BYTES} bytes")
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body does not hash to the sha256 in the path")
+    try:
+        names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+    except zipfile.BadZipFile:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body is not a zip archive") from None
+    root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
+    if not names or any(not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/") for n in names):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"every file must be a .py under {root}")
+
+
+def _read_staged(key: str) -> bytes:
+    """The object at `key` in the staging bucket; a missing or oversized one is a 422, not a crash."""
+    client, bucket = lakefs.s3_client(secret_files.STAGING), settings.data_plane.staging_bucket
+    try:
+        size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
+        if size > MAX_PACKAGE_BYTES:
+            raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"a package is at most {MAX_PACKAGE_BYTES} bytes")
+        return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except ClientError as e:
+        if e.response["Error"]["Code"] not in (_S3_NOT_FOUND, _S3_NO_SUCH_KEY):
+            raise
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"{key} is not in the staging bucket") from None
+
+
+async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobPackage:
+    """Register a zip CI already put in staging (`jobs/<dir>-<sha256>.zip`) as a candidate. The key must be the one the
+    package's name and hash give, and the object is read back and checked, so a key proves nothing by itself."""
+    match = re.fullmatch(rf"{re.escape(package_key(PACKAGE_DIRS[name], '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
+    if match is None:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(PACKAGE_DIRS[name], '<sha256>')}")
+    sha256 = match.group(1)
+    _check_upload(name, await asyncio.to_thread(_read_staged, s3_key), sha256)
+    async with (await get_pool()).acquire() as conn:
+        return await job_packages.register(conn, name, sha256, s3_key, actor)
 
 
 async def resolve_stable(name: JobPackageName) -> JobPackage:

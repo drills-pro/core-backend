@@ -1,4 +1,4 @@
-"""What every Ray job core-api starts from a package has in common: the bootstrap command, the CPU-pool pin and the
+"""What every Ray job core-api starts from a package has in common: the package as a runtime_env py_module, the CPU-pool pin and the
 `ingest` credential (staging bucket only) in the environment. Ingest and training differ only in package, module,
 metadata and sizing."""
 import shlex
@@ -6,20 +6,10 @@ import shlex
 from app.core import secret_files
 from app.integrations import compute
 
-# Fetches the package zip, makes it importable and runs the entrypoint as __main__ (argv: url, module, params json).
-# ponytail: stands in for runtime_env working_dir, which compute.JobSpec does not take yet; drop it then,
-# or once the package is baked into the Ray image (entrypoint becomes a plain `python -m`).
-_BOOTSTRAP = (
-    "import io, runpy, sys, tempfile, urllib.request, zipfile; d = tempfile.mkdtemp(); "
-    "zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(sys.argv[1], timeout=60).read())).extractall(d); "
-    "sys.path.insert(0, d); module = sys.argv[2]; sys.argv = [module, *sys.argv[3:]]; "
-    "runpy.run_module(module, run_name='__main__', alter_sys=True)"
-)
-
-
-def command(package_url: str, module: str, spec_json: str) -> str:
-    """Shell command Ray runs: the bootstrap, then the package url, the module and the job spec JSON as plain argv."""
-    return shlex.join(["python", "-c", _BOOTSTRAP, package_url, module, spec_json])
+def command(module: str, spec_json: str) -> str:
+    """Shell command Ray runs: the module as __main__, the job spec JSON as its only argument. The package is on the
+    import path because the job's runtime_env lists its zip under py_modules."""
+    return shlex.join(["python", "-m", module, spec_json])
 
 
 async def submit(
@@ -30,7 +20,8 @@ async def submit(
     answer is lost); returns the Ray job id. CPU-only: pinned to the CPU worker group, never holds the GPU."""
     creds = secret_files.get(secret_files.INGEST)
     return await compute.submit(compute.JobSpec(
-        entrypoint=command(package_url, module, spec_json),
+        entrypoint=command(module, spec_json),
+        py_modules=[package_url],
         submission_id=job_id,
         metadata=metadata,
         num_cpus=num_cpus,

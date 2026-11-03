@@ -39,8 +39,8 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, DataKind.TABULAR, settings.dataset_limits, "ingest-1"))
     assert asyncio.run(ingest.submit_ingest(TENANT, DATASET, IMPORT, spec, kind)) == "job-1"
     argv = shlex.split(sent["entrypoint"])
-    assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]
-    spec = json.loads(argv[5])
+    assert argv[:3] == ["python", "-m", "ray_jobs.entrypoints.upload_csv"] and sent["py_modules"] == ["http://ray-side/jobs/ray-jobs-x.zip"]
+    spec = json.loads(argv[3])
     job = spec["payload"]
     assert spec["kind"] == "ingest" and spec["spec_version"] == 1 and spec["job_id"] == "ingest-1"
     assert job["prefix"] == layout.staging_prefix(TENANT, DATASET, IMPORT) and job["task"] == "tabular-regression"

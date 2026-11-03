@@ -7,10 +7,6 @@ from app.integrations.data_plane.job_catalog import ENTRYPOINTS, JobType
 from app.integrations.job_spec import IngestSpec
 
 
-def entrypoint(package_url: str, kind: JobType, spec_json: str) -> str:
-    return job_submit.command(package_url, f"{ENTRYPOINTS}.{kind.value}", spec_json)
-
-
 async def submit_ingest(tenant_id: str, dataset_id: str, import_id: str, spec: IngestSpec, kind: JobType) -> str:
     """Submit the ingest job for an import under the spec's job_id (the caller's submission id, so it can stop the
     job even when the answer is lost); returns the Ray job id. The caller builds the spec from its own data."""

@@ -57,8 +57,14 @@ class JobSpec(BaseModel):
     num_gpus: float = 0
     memory: int = 0  # bytes
     resources: dict[str, float] = Field(default_factory=dict)  # custom Ray resources, to pin a job to a worker group
+    py_modules: list[str] = Field(default_factory=list)  # URIs of zips Ray downloads and puts on the job's import path
     submission_id: str | None = None  # the caller's id for the job, so it can stop it even if the answer is lost
     timeout_seconds: int = 0  # 0 = none; the RayJob backend enforces it as activeDeadlineSeconds
+
+
+def runtime_env(spec: JobSpec) -> dict:
+    """The job's Ray runtime_env: what Ray sets up before the entrypoint runs."""
+    return {k: v for k, v in (("env_vars", spec.env_vars), ("py_modules", spec.py_modules)) if v}
 
 
 def rayjob_manifest(spec: JobSpec, name: str) -> dict:
@@ -75,8 +81,8 @@ def rayjob_manifest(spec: JobSpec, name: str) -> dict:
         body["clusterSelector"] = {CLUSTER_SELECTOR_LABEL: cfg.cluster_name}
     else:
         body["rayClusterSpec"] = cfg.cluster_spec
-    if spec.env_vars:
-        body["runtimeEnvYAML"] = json.dumps({"env_vars": spec.env_vars})  # JSON is YAML
+    if env := runtime_env(spec):
+        body["runtimeEnvYAML"] = json.dumps(env)  # JSON is YAML
     if spec.num_cpus:
         body["entrypointNumCpus"] = spec.num_cpus
     if spec.num_gpus:
@@ -137,8 +143,8 @@ def _dashboard_payload(spec: JobSpec) -> dict:
         payload["entrypoint_resources"] = spec.resources
     if spec.submission_id:
         payload["submission_id"] = spec.submission_id
-    if spec.env_vars:
-        payload["runtime_env"] = {"env_vars": spec.env_vars}
+    if env := runtime_env(spec):
+        payload["runtime_env"] = env
     return payload
 
 

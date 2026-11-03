@@ -24,6 +24,12 @@ class StatusBody(BaseModel):
     status: PackageStatus
 
 
+class RegisterBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    s3_key: str  # in the staging bucket: jobs/<ray-jobs|ray-training>-<sha256>.zip
+
+
 @router.get("/{name}", response_model=list[JobPackage])
 async def list_packages(name: JobPackageName, actor: str = Depends(get_platform_admin)):
     async with (await get_pool()).acquire() as conn:
@@ -35,6 +41,15 @@ async def publish_package(name: JobPackageName, actor: str = Depends(get_platfor
     """Stage the source this core-api ships with and register it as a candidate (the existing row when it is already known)."""
     package = await data_plane.publish_package(name, actor)
     logger.info("job package %s %s published by %s", name, package.sha256, actor)
+    return package
+
+
+@router.post("/{name}/register", response_model=JobPackage)
+async def register_package(name: JobPackageName, body: RegisterBody, actor: str = Depends(get_platform_admin)):
+    """Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads
+    the object back and checks its hash and contents."""
+    package = await data_plane.register_staged_package(name, body.s3_key, actor)
+    logger.info("job package %s %s registered by %s", name, package.sha256, actor)
     return package
 
 

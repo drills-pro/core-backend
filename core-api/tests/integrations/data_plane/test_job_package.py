@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 
 from app.core.enums import JobPackageName, PackageStatus
 from app.core.problem import Problem
-from app.integrations.data_plane import ingest, job_catalog, job_package, layout
+from app.integrations.data_plane import job_catalog, job_package, job_submit, layout
 from tests.support import TenantCtx
 
 
@@ -22,19 +22,18 @@ def test_the_zip_is_deterministic_and_named_by_its_hash():
     data, key = job_package.build()
     assert key == f"{layout.JOB_PACKAGE_ROOT}/ray-jobs-{hashlib.sha256(data).hexdigest()}.zip"
     names = zipfile.ZipFile(io.BytesIO(data)).namelist()
-    assert "ray_jobs/__init__.py" in names and "ray_jobs/entrypoints/upload_images.py" in names
+    assert "package/ray_jobs/__init__.py" in names and "package/ray_jobs/entrypoints/upload_images.py" in names
     assert not any("__pycache__" in n or n.startswith("tests") for n in names)
     job_package.build.cache_clear()
     assert job_package.build() == (data, key)
 
 
-def test_the_bootstrap_makes_the_zip_importable_and_runs_the_entrypoint_as_main(tmp_path):
+def test_ray_makes_the_unpacked_zip_importable_and_the_entrypoint_runs_as_main(tmp_path):
     data, _ = job_package.build()
-    archive = tmp_path / "pkg.zip"
-    archive.write_bytes(data)
-    argv = shlex.split(ingest.entrypoint(archive.as_uri(), job_catalog.JobType.UPLOAD_CSV, "{}"))
+    zipfile.ZipFile(io.BytesIO(data)).extractall(tmp_path)  # what Ray does for a py_module: the directory holding ray_jobs/ goes on the path
+    argv = shlex.split(job_submit.command(f"{job_catalog.ENTRYPOINTS}.{job_catalog.JobType.UPLOAD_CSV.value}", "{}"))
     argv[0] = sys.executable  # `python` on PATH may be another interpreter
-    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, env={})
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, env={"PYTHONPATH": str(tmp_path / job_package.ZIP_ROOT)})
     assert "ModuleNotFoundError" not in done.stderr and done.returncode != 0
     assert "job spec version None" in done.stderr  # reached main() of the entrypoint: the spec {} is refused
 
@@ -124,4 +123,90 @@ def test_another_package_is_zipped_the_same_way_under_its_own_name(tmp_path):
     (package / "__init__.py").write_text("")
     data, key = job_package.build(package)
     assert key == f"{layout.JOB_PACKAGE_ROOT}/ray-training-{hashlib.sha256(data).hexdigest()}.zip"
-    assert zipfile.ZipFile(io.BytesIO(data)).namelist() == ["ray_training/__init__.py"]
+    assert zipfile.ZipFile(io.BytesIO(data)).namelist() == ["package/ray_training/__init__.py"]
+
+
+def _zip(*names: str) -> tuple[bytes, str]:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for n in names:
+            zf.writestr(n, "")
+    return buf.getvalue(), hashlib.sha256(buf.getvalue()).hexdigest()
+
+
+class StagedS3:
+    """A staging bucket holding `objects` ({key: bytes})."""
+
+    def __init__(self, objects):
+        self.objects = objects
+
+    def _get(self, Key):
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return self.objects[Key]
+
+    def head_object(self, Bucket, Key):
+        return {"ContentLength": len(self._get(Key))}
+
+    def get_object(self, Bucket, Key):
+        return {"Body": io.BytesIO(self._get(Key))}
+
+
+def _staged(registry, monkeypatch, *names, sha=None):
+    data, real = _zip(*names)
+    sha = sha or real
+    key = job_package.package_key(job_package.PACKAGE_DIRS[JobPackageName.RAY_TRAINING], sha)
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: StagedS3({key: data}))
+    return key, real
+
+
+def test_a_staged_package_is_read_back_and_registered_as_a_candidate(registry, monkeypatch):
+    key, sha = _staged(registry, monkeypatch, "package/ray_training/__init__.py", "package/ray_training/spec.py")
+    package = asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert (package.sha256, package.s3_key, package.status, package.published_by) == (sha, key, PackageStatus.CANDIDATE, "ci")
+
+
+@pytest.mark.parametrize("names", [
+    ["package/ray_jobs/__init__.py"],  # another package's directory
+    ["package/ray_training/../evil.py"], ["package/ray_training/data.bin"], ["ray_training/__init__.py"], ["setup.py"], []])
+def test_a_staged_package_must_be_python_files_under_its_own_directory(registry, monkeypatch, names):
+    key, _ = _staged(registry, monkeypatch, *names)
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert err.value.status_code == 422 and not registry.rows
+
+
+def test_the_object_must_hash_to_the_sha_in_its_key(registry, monkeypatch):
+    key, _ = _staged(registry, monkeypatch, "package/ray_training/__init__.py", sha="0" * 64)
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert err.value.status_code == 422 and not registry.rows
+
+
+@pytest.mark.parametrize("key", [
+    "jobs/ray-jobs-" + "a" * 64 + ".zip",  # another package's key
+    "imports/t/d/i/upload/source", "jobs/ray-training-short.zip", "../jobs/ray-training-" + "a" * 64 + ".zip", ""])
+def test_only_the_key_the_name_and_hash_give_is_accepted(registry, monkeypatch, key):
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: StagedS3({}))
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert err.value.status_code == 422 and not registry.rows
+
+
+def test_a_key_that_is_not_in_staging_is_refused(registry, monkeypatch):
+    key, _ = _staged(registry, monkeypatch, "package/ray_training/__init__.py")
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: StagedS3({}))
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert err.value.status_code == 422
+
+
+def test_the_ci_build_script_makes_the_same_zip_as_core_api():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("build_job_package", Path(__file__).parents[4] / "scripts" / "build-job-package.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    for name, package_dir in job_package.PACKAGE_DIRS.items():
+        assert script.build(script.DIRS[name]) == job_package.build(package_dir)[0], name

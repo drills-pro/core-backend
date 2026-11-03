@@ -10,7 +10,7 @@ from app.integrations import compute
 
 SPEC = compute.JobSpec(
     entrypoint="python job.py", metadata={"tenant_id": "t1", "import_id": "i1"}, env_vars={"K": "v"},
-    num_cpus=2, memory=1024, resources={"cpu_pool": 1}, submission_id="ingest-1", timeout_seconds=60,
+    num_cpus=2, memory=1024, resources={"cpu_pool": 1}, submission_id="ingest-1", timeout_seconds=60, py_modules=["http://pkg/a.zip"],
 )
 RAYJOBS = "/apis/ray.io/v1/namespaces/ray/rayjobs"
 
@@ -49,7 +49,7 @@ def test_rayjob_submit_creates_a_cr_named_by_the_submission_id(kube):
     assert asyncio.run(compute.submit(SPEC)) == "ingest-1"
     cr = kube.crs["ingest-1"]
     assert cr["spec"]["entrypoint"] == "python job.py" and cr["spec"]["jobId"] == "ingest-1"
-    assert json.loads(cr["spec"]["runtimeEnvYAML"]) == {"env_vars": {"K": "v"}}
+    assert json.loads(cr["spec"]["runtimeEnvYAML"]) == {"env_vars": {"K": "v"}, "py_modules": ["http://pkg/a.zip"]}
     assert cr["spec"]["entrypointNumCpus"] == 2 and cr["spec"]["entrypointMemory"] == 1024
     assert json.loads(cr["spec"]["entrypointResources"]) == {"cpu_pool": 1}
     assert cr["spec"]["activeDeadlineSeconds"] == 60 and "entrypointNumGpus" not in cr["spec"]
@@ -115,7 +115,7 @@ def test_dashboard_backend_maps_the_spec_onto_the_ray_job_api(monkeypatch):
     assert asyncio.run(compute.submit(SPEC)) == "ray-1"
     assert seen[0] == ("POST", "/api/jobs/", {
         "entrypoint": "timeout 60 sh -c 'python job.py'", "metadata": SPEC.metadata, "entrypoint_num_cpus": 2,
-        "entrypoint_memory": 1024, "entrypoint_resources": {"cpu_pool": 1}, "runtime_env": {"env_vars": {"K": "v"}},
+        "entrypoint_memory": 1024, "entrypoint_resources": {"cpu_pool": 1}, "runtime_env": {"env_vars": {"K": "v"}, "py_modules": ["http://pkg/a.zip"]},
         "submission_id": "ingest-1"})
     assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.RUNNING
     asyncio.run(compute.stop("ray-1"))

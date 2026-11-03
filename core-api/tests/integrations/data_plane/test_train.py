@@ -108,8 +108,8 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
     monkeypatch.setattr(train.job_package, "presigned_url", package_url)
     assert asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA)) == "train-1"
     argv = shlex.split(sent["entrypoint"])
-    assert argv[3:5] == ["http://ray-side/jobs/ray-training-x.zip", job_catalog.TRAIN_ENTRYPOINT]
-    assert SPEC_ADAPTER.validate_json(argv[5]) == spec  # the job reads exactly the spec core-api stored
+    assert argv[:3] == ["python", "-m", job_catalog.TRAIN_ENTRYPOINT] and sent["py_modules"] == ["http://ray-side/jobs/ray-training-x.zip"]
+    assert SPEC_ADAPTER.validate_json(argv[3]) == spec  # the job reads exactly the spec core-api stored
     assert (sent["num_gpus"], sent["resources"], sent["submission_id"]) == (0, {compute.CPU_POOL_RESOURCE: 1}, spec.job_id)
     assert sent["timeout_seconds"] == spec.resources.max_runtime_s and sent["package"] == (JobPackageName.RAY_TRAINING, SHA)
     assert set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}

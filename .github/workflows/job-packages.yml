@@ -1,0 +1,80 @@
+name: Publish the Ray job packages
+
+# Builds ray_jobs and ray_training (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
+# the staging bucket as jobs/<ray-jobs|ray-training>-<sha256>.zip, then tells core-api the key so it registers a candidate
+# (it reads the object back and checks its hash and contents). Nothing runs a candidate until an admin promotes it to stable
+# (PUT /v1/admin/job-packages/{name}/{sha256}/status), so a push here changes no running or new job by itself.
+#
+# Needs, in the repo's settings:
+#   vars.STAGING_BUCKET        the staging bucket (data_plane.staging_bucket in core-api prod.yaml)
+#   vars.GCP_WORKLOAD_IDENTITY_PROVIDER, vars.GCP_SERVICE_ACCOUNT
+#                              a service account that may create objects under jobs/ in that bucket, trusted from this repo
+#   vars.CORE_API_URL          base URL of core-api, e.g. https://api.drills.pro
+#   vars.ZITADEL_ISSUER        the issuer in core-api config (https://auth.drills.pro)
+#   vars.ZITADEL_PROJECT_ID    the project core-api verifies tokens for (token audience)
+#   secrets.ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET   a machine user with the platform_admin role, access token type JWT
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ray-jobs/ray_jobs/**"
+      - "ray-training/ray_training/**"
+      - "scripts/build-job-package.py"
+      - ".github/workflows/job-packages.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # for the Google workload identity federation below
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build both packages
+        id: build
+        run: |
+          for name in ray_jobs ray_training; do
+            echo "${name}=$(python3 scripts/build-job-package.py "$name" dist)" >> "$GITHUB_OUTPUT"
+          done
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Copy the zips to the staging bucket
+        env:
+          BUCKET: ${{ vars.STAGING_BUCKET }}
+          RAY_JOBS: ${{ steps.build.outputs.ray_jobs }}
+          RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
+        run: |
+          gcloud storage cp dist/ray_jobs.zip "gs://${BUCKET}/jobs/ray-jobs-${RAY_JOBS}.zip"
+          gcloud storage cp dist/ray_training.zip "gs://${BUCKET}/jobs/ray-training-${RAY_TRAINING}.zip"
+      - name: Get a platform_admin token
+        id: token
+        env:
+          ISSUER: ${{ vars.ZITADEL_ISSUER }}
+          PROJECT_ID: ${{ vars.ZITADEL_PROJECT_ID }}
+          CLIENT_ID: ${{ secrets.ZITADEL_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ZITADEL_CLIENT_SECRET }}
+        run: |
+          token=$(curl -fsS -u "${CLIENT_ID}:${CLIENT_SECRET}" "${ISSUER}/oauth/v2/token" \
+            -d grant_type=client_credentials \
+            --data-urlencode "scope=openid urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud urn:zitadel:iam:org:projects:roles" \
+            | jq -er .access_token)
+          echo "::add-mask::${token}"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
+      - name: Register the candidates
+        env:
+          API: ${{ vars.CORE_API_URL }}
+          TOKEN: ${{ steps.token.outputs.token }}
+          RAY_JOBS: ${{ steps.build.outputs.ray_jobs }}
+          RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
+        run: |
+          register() {  # name key: core-api reads the object back and checks it against the sha256 in the key
+            curl -fsS -X POST "${API}/v1/admin/job-packages/$1/register" \
+              -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+              -d "{\"s3_key\": \"$2\"}" | jq -c '{name, sha256, status}'
+          }
+          register ray_jobs "jobs/ray-jobs-${RAY_JOBS}.zip"
+          register ray_training "jobs/ray-training-${RAY_TRAINING}.zip"

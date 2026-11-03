@@ -51,3 +51,16 @@ def test_an_unknown_package_is_404_and_a_bad_hash_or_name_is_422(call):
     assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=None), json={"status": "retired"}).status_code == 404
     assert call("PUT", f"{URL}/ray_jobs/nothex/status", FakeConn(), json={"status": "stable"}).status_code == 422
     assert call("GET", f"{URL}/other", FakeConn()).status_code == 422
+
+
+def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch):
+    seen = []
+
+    async def register(name, s3_key, actor):
+        seen.append((name, s3_key, actor))
+        return routes.JobPackage.model_validate(package_row(name, SHA, s3_key, actor))
+
+    monkeypatch.setattr(routes.data_plane, "register_staged_package", register)
+    res = call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "jobs/ray-jobs-x.zip"})
+    assert res.status_code == 200 and seen == [("ray_jobs", "jobs/ray-jobs-x.zip", "ops")] and res.json()["status"] == "candidate"
+    assert call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "k", "extra": 1}).status_code == 422
