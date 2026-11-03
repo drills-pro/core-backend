@@ -5,7 +5,7 @@
 import sys
 import zipfile
 
-from ray_jobs.common.constants import IMAGE_CLASSIFICATION
+from ray_jobs.common.constants import IMAGE_CLASSIFICATION, OBJECT_DETECTION
 from ray_jobs.common.enums import Code, Param
 from ray_jobs.common.job import Job
 from ray_jobs.common.store import fetch_upload
@@ -15,8 +15,13 @@ from ray_jobs.sources.archive import inspect_archive
 from ray_jobs.sources.coco import ingest_detection
 from ray_jobs.sources.images import ingest_classification
 
+INGESTERS = {IMAGE_CLASSIFICATION: ingest_classification, OBJECT_DETECTION: ingest_detection}
+
 
 def extract(job: Job) -> Extracted:
+    ingest = INGESTERS.get(job.task)
+    if ingest is None:
+        raise ValueError(f"upload_images does not ingest {job.task}")
     source = fetch_upload(job.store, job.limits.upload_max_bytes, job.tmp)
     try:
         zf = zipfile.ZipFile(source)
@@ -27,7 +32,6 @@ def extract(job: Job) -> Extracted:
         members = inspect_archive(zf.infolist(), source.stat().st_size, job.limits, job.report)
         if job.report.failed:
             return Extracted([], None, None)
-        ingest = ingest_classification if job.task == IMAGE_CLASSIFICATION else ingest_detection
         rows = ingest(zf, members, job.limits, job.report, job.decode, job.sink, job.params.get(Param.SPLIT))
         return Extracted(rows, None, None)
 

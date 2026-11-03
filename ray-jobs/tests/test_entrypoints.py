@@ -89,6 +89,12 @@ def test_a_timeout_is_reported():
     assert codes(rep) == [Code.JOB_TIMEOUT] and final_report(store)["outcome"] == "failed"
 
 
+def test_upload_images_refuses_a_task_it_does_not_ingest():
+    store = FakeStore(zip_bytes({"a/1.png": PNG}))
+    rep = run_images(params(TABULAR_CLASSIFICATION), store)
+    assert codes(rep) == [Code.INTERNAL_ERROR]
+
+
 # ---- upload_csv ----
 
 def test_an_oversized_upload_is_refused_before_it_is_downloaded():

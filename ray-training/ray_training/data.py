@@ -9,7 +9,7 @@ from typing import Callable
 
 from ray_training.constants import (
     HASH_HEX_CHARS, LABEL_COLUMN, SPLIT_BUCKETS, SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW, TEXT_COLUMN, Box, Col, Split, Task)
-from ray_training.errors import BadData
+from ray_training.errors import BadData, Unsupported
 from ray_training.spec import TrainSpec
 from ray_training.store import http_get
 
@@ -63,14 +63,11 @@ def load_text_dataset(spec: TrainSpec, get: Get) -> Dataset:
     return Dataset(classes, samples)
 
 
-def load_dataset(spec: TrainSpec, work: Path, get: Get = http_get) -> Dataset:
-    if spec.task == Task.TEXT_CLASSIFICATION:
-        return load_text_dataset(spec, get)
+def load_image_dataset(spec: TrainSpec, work: Path, get: Get, detection: bool) -> Dataset:
     rows = read_index(get(spec.index_url))
     if not rows:
         raise BadData("index.parquet has no rows")
     objects = json.loads(get(spec.manifest_url))
-    detection = spec.task == Task.OBJECT_DETECTION
     classes = sorted({b[Box.CATEGORY] for r in rows for b in r[Col.BOXES] or []} if detection
                      else {r[Col.LABEL] for r in rows if r[Col.LABEL] is not None})
     if not classes:
@@ -99,6 +96,20 @@ def load_dataset(spec: TrainSpec, work: Path, get: Get = http_get) -> Dataset:
         elif r[Col.LABEL] is not None:
             samples.append(Sample(file, split, label=ids[r[Col.LABEL]]))
     return Dataset(classes, samples)
+
+
+LOADERS: dict[str, Callable[[TrainSpec, Path, Get], Dataset]] = {
+    Task.IMAGE_CLASSIFICATION: lambda spec, work, get: load_image_dataset(spec, work, get, detection=False),
+    Task.OBJECT_DETECTION: lambda spec, work, get: load_image_dataset(spec, work, get, detection=True),
+    Task.TEXT_CLASSIFICATION: lambda spec, work, get: load_text_dataset(spec, get),
+}
+
+
+def load_dataset(spec: TrainSpec, work: Path, get: Get = http_get) -> Dataset:
+    loader = LOADERS.get(spec.task)
+    if loader is None:
+        raise Unsupported(f"no dataset loader for task {spec.task}")
+    return loader(spec, work, get)
 
 
 def split_for_training(ds: Dataset) -> tuple[list[Sample], list[Sample]]:

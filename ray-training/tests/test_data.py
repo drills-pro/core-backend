@@ -2,7 +2,7 @@ import pytest
 
 from ray_training.constants import Col, Split
 from ray_training.data import hash_split, load_dataset, split_for_training
-from ray_training.errors import BadData
+from ray_training.errors import BadData, Unsupported
 from ray_training.spec import parse_spec
 from tests.support import MemStore, classification_rows, detection_rows, fake_get, spec_text  # noqa: F401
 
@@ -46,3 +46,9 @@ def test_training_needs_both_sides(tmp_path):
         r[Col.SPLIT] = "train"
     with pytest.raises(BadData):
         split_for_training(load_dataset(spec_for(rows), tmp_path, fake_get(rows, files)))
+
+
+def test_a_task_without_a_loader_is_unsupported(tmp_path):
+    rows, files = classification_rows()
+    with pytest.raises(Unsupported):
+        load_dataset(spec_for(rows, "image-segmentation"), tmp_path, fake_get(rows, files))

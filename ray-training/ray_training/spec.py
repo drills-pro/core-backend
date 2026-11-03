@@ -34,7 +34,7 @@ class TrainSpec:
     max_runtime_s: int  # resources.max_runtime_s, 0 = none
     bucket: str
     prefix: str
-    task: str  # a task_types slug; data.py compares it with constants.Task for the three it reads differently
+    task: str  # a task_types slug; data.py looks its loader up by slug (LOADERS)
     trainer: str  # "module:function" of the function that trains it (registry.trainer_for)
     preset: str  # a task_presets name in core-api; only recorded, the spec carries the values it stood for
     base_model: str
