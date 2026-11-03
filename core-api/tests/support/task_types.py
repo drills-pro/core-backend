@@ -4,12 +4,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.enums import TaskType
+from app.core.task_types import TaskInfo
 
 _SEED = re.findall(
     r"^\s*\('([a-z-]+)', '(\w+)', (NULL|'[^']+'), (true|false), 'migration'\)",
     next((Path(__file__).parents[2] / "migrations").glob("*_task_types.sql")).read_text(), re.M)
 
+_SERVING = re.findall(
+    r"SET encoder = '(\w+)', postprocess = '(\w+)' WHERE slug = '([a-z-]+)'",
+    next((Path(__file__).parents[2] / "migrations").glob("*_task_types_serving.sql")).read_text())
+
 SEEDED = {TaskType(slug): (kind, None if trainer == "NULL" else trainer.strip("'"), servable == "true") for slug, kind, trainer, servable in _SEED}
+SERVING = {TaskType(slug): (encoder, postprocess) for encoder, postprocess, slug in _SERVING}  # task -> (encoder, postprocess)
 TRAINABLE = tuple(t for t, (_, trainer, _) in SEEDED.items() if trainer)
 SERVABLE = tuple(t for t, (_, _, servable) in SEEDED.items() if servable)
 
@@ -21,5 +27,10 @@ def seeded(task) -> dict | None:
 
 def task_row(task=TaskType.IMAGE_CLASSIFICATION, **over) -> dict:
     kind, trainer, servable = SEEDED[task]
-    return {"slug": task, "data_kind": kind, "trainer": trainer, "servable": servable, "enabled": True,
-            "updated_by": "migration", "updated_at": datetime.now(UTC), **over}
+    encoder, postprocess = SERVING.get(task, (None, None))
+    return {"slug": task, "data_kind": kind, "trainer": trainer, "servable": servable, "encoder": encoder,
+            "postprocess": postprocess, "serving": {}, "enabled": True, "updated_by": "migration", "updated_at": datetime.now(UTC), **over}
+
+
+def task_info(task=TaskType.IMAGE_CLASSIFICATION, **over) -> TaskInfo:
+    return TaskInfo.model_validate(task_row(task, **over))

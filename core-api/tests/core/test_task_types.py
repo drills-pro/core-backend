@@ -6,6 +6,7 @@ import pytest
 
 from app.core.enums import TaskType
 from app.core.task_catalog import DataKind
+from app.core.task_types import IDENTIFIER_PATTERN, TaskTypeBody
 from app.integrations.data_plane.mlflow import ModelStage
 
 APP = Path(__file__).parents[2] / "app"
@@ -49,3 +50,11 @@ def test_the_task_types_seed_is_inside_the_taxonomy():
 def test_the_data_kind_check_mirrors_the_enum():
     kinds = re.search(r"data_kind text NOT NULL CHECK \(data_kind IN \(([^)]*)\)", TASK_TYPES).group(1)
     assert set(re.findall(r"'([^']+)'", kinds)) == {k.value for k in DataKind}
+
+
+def test_the_serving_checks_mirror_the_models():
+    sql = next(MIGRATIONS.glob("*_task_types_serving.sql")).read_text()
+    assert "encoder ~ '^[A-Za-z_][A-Za-z0-9_]*$'" in sql and IDENTIFIER_PATTERN == r"^[A-Za-z_][A-Za-z0-9_]*$"
+    assert "NOT servable OR (encoder IS NOT NULL AND postprocess IS NOT NULL)" in sql
+    with pytest.raises(ValueError):
+        TaskTypeBody(data_kind=DataKind.IMAGES, servable=True)

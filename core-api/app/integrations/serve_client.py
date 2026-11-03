@@ -6,37 +6,38 @@ submission job then exits, but the deployment keeps running (this is the
 standard way to drive Serve from outside the cluster's own Python process).
 core-api then calls the deployed HTTP route directly for /predict.
 """
+import ast
 import base64
 import textwrap
 from importlib import resources
-from typing import NamedTuple
 from enum import StrEnum
 from urllib.parse import urlsplit
 
-from app.core.enums import TaskType
 from app.core.settings import settings
 from app.core.task_catalog import IMAGENET_PREPROCESSING
+from app.core.task_types import TaskInfo
 from app.integrations import compute
 from app.integrations.data_plane import layout, mlflow
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on the Ray head; the serve scripts below start it on the same one
 
-
-class Serving(NamedTuple):
-    encoder: str  # factory in serve_inputs.py: request body -> model feeds
-    postprocess: str  # function in serve_postprocess.py: model outputs -> the /predict answer
-
-
 # Both files are sent to the replica as text and never imported here: core-api depends on neither numpy nor PIL.
-SERVING: dict[TaskType, Serving] = {
-    TaskType.IMAGE_CLASSIFICATION: Serving("image_encoder", "classify"),
-    TaskType.OBJECT_DETECTION: Serving("image_encoder", "detect"),
-    TaskType.TEXT_CLASSIFICATION: Serving("text_encoder", "classify"),
-}
+INPUTS_FILE = "serve_inputs.py"
+POSTPROCESS_FILE = "serve_postprocess.py"
 
 
 def _source(name: str) -> str:
     return resources.files(__package__).joinpath(name).read_text()
+
+
+def _functions(name: str) -> set[str]:
+    return {n.name for n in ast.parse(_source(name)).body if isinstance(n, ast.FunctionDef)}
+
+
+def unknown_serving_functions(encoder: str | None, postprocess: str | None) -> list[str]:
+    """The names, of those given, that the serve files do not define."""
+    missing = [] if encoder is None or encoder in _functions(INPUTS_FILE) else [encoder]
+    return missing + ([] if postprocess is None or postprocess in _functions(POSTPROCESS_FILE) else [postprocess])
 
 
 class ComputeTarget(StrEnum):
@@ -63,6 +64,7 @@ from starlette.requests import Request
 import onnxruntime as ort
 
 class_names = {class_names!r}
+params = {params!r}
 model_url = {model_url!r}
 manifest_url = {manifest_url!r}
 tokenizer_url = {tokenizer_url!r}
@@ -76,7 +78,7 @@ class Predictor:
         # module-level objects captured in a closure.
         # The model is an artifact of the training run's MLflow run (core-api authorized this deployment).
         onnx_bytes = urllib.request.urlopen(model_url, timeout=120).read()
-        self.session = ort.InferenceSession(onnx_bytes, providers=["CPUExecutionProvider"])
+        self.session = ort.InferenceSession(onnx_bytes, providers={providers!r})
         self.input_name = self.session.get_inputs()[0].name
         # a model trained before the manifest named its resampling filter used the library default
         self.pre = {{"resample": {default_resample!r}, **json.loads(urllib.request.urlopen(manifest_url, timeout=120).read())["preprocessing"]}}
@@ -86,7 +88,7 @@ class Predictor:
         body = await request.json()
         feeds, width, height = self.encode(body)
         outputs = self.session.run(None, feeds)
-        return {{"predictions": {postprocess}(outputs, class_names, width, height)}}
+        return {{"predictions": {postprocess}(outputs, class_names, width, height, params)}}
 
 serve.start(http_options={{"host": "0.0.0.0", "port": {port}}})
 serve.run(Predictor.bind(), name="{name}", route_prefix="{route_prefix}")
@@ -97,7 +99,7 @@ print("metric:deployed=1")
 async def deploy(
     *,
     deployment_id: str,
-    task: TaskType,
+    task: TaskInfo,
     mlflow_run_id: str,
     class_names: list[str],
     tenant_id: str,
@@ -117,10 +119,12 @@ async def deploy(
         name = f"deploy-{deployment_id}"
 
     model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
-    serving = SERVING[task]
-    script = _source("serve_inputs.py") + _source("serve_postprocess.py") + textwrap.dedent(_SERVE_TEMPLATE).format(
-        encoder=serving.encoder,
-        postprocess=serving.postprocess,
+    params = task.serving.model_dump(mode="json")
+    script = _source(INPUTS_FILE) + _source(POSTPROCESS_FILE) + textwrap.dedent(_SERVE_TEMPLATE).format(
+        encoder=task.encoder,
+        postprocess=task.postprocess,
+        providers=params.pop("providers"),
+        params=params,
         tokenizer_url=model_url.removesuffix(layout.MODEL_KEY) + layout.TOKENIZER_KEY,
         model_url=model_url,
         manifest_url=model_url.removesuffix(layout.MODEL_KEY) + layout.MODEL_META_KEY,  # published side by side

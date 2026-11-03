@@ -84,7 +84,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
     ray_job_id, route_prefix = await serve_client.deploy(
         deployment_id=str(deployment_id),
-        task=task,
+        task=info,
         mlflow_run_id=run.mlflow_run_id,
         class_names=run.class_names,
         tenant_id=ctx.tenant_id,

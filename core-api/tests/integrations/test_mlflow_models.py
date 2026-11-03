@@ -8,8 +8,8 @@ import re
 import httpx
 import pytest
 
-from app.core.enums import TaskType
 from app.integrations import compute, serve_client
+from tests.support.task_types import task_info
 from app.integrations.data_plane import access, mlflow
 
 T, P = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
@@ -44,7 +44,7 @@ def model_url(monkeypatch):
 
 
 def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
-    asyncio.run(serve_client.deploy(deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
+    asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     script = scripts[0]
     compile(script, "serve", "exec")
     assert MODEL_URL in script and "['a', 'b']" in script
@@ -55,7 +55,7 @@ def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
 def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url):
     Image = pytest.importorskip("PIL.Image")
     np = pytest.importorskip("numpy")
-    asyncio.run(serve_client.deploy(deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
+    asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
     assert "def image_encoder" in scripts[0]
     scope = {}
     exec(serve_client._source("serve_inputs.py"), scope)  # the part of the script that needs neither ray nor onnxruntime
@@ -146,7 +146,7 @@ def test_only_a_gpu_target_asks_for_a_gpu(monkeypatch, model_url):
     monkeypatch.setattr(compute, "submit", submit)
     for target in serve_client.ComputeTarget:
         asyncio.run(serve_client.deploy(
-            deployment_id="d", task=TaskType.IMAGE_CLASSIFICATION, mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
+            deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
         ))
     assert seen == [0, 1]
 
