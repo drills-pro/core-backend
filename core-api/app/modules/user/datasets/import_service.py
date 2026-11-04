@@ -15,7 +15,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
-from fastapi import HTTPException
 
 from app.core import audit, plan_limits, task_types
 from app.core.authz import Action, AuthzContext
@@ -202,7 +201,7 @@ async def _unqueue(ctx: AuthzContext, row: dict) -> None:
 def _start_failed(e: Exception, imp: str) -> Exception:
     """What the caller sees when starting failed: a Problem stays as it is, anything else (storage, Ray, the
     database) becomes a 503 the frontend can show, with the cause in the log."""
-    if isinstance(e, HTTPException):
+    if isinstance(e, Problem):
         return e
     logger.error("could not start import %s", imp, exc_info=e)
     problem = Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.START_FAILED, START_FAILED_DETAIL)

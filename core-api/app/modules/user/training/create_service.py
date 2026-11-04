@@ -8,7 +8,6 @@ import logging
 import uuid
 from http import HTTPStatus
 
-from fastapi import HTTPException
 
 from app.core import plan_limits, presets, task_types
 from app.core.authz import AuthzContext
@@ -134,7 +133,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
 
 def _start_failed(e: Exception, run_id: uuid.UUID) -> Exception:
     """A Problem stays as it is; anything else (storage, MLflow, Ray, the database) becomes a 503 with the cause in the log."""
-    if isinstance(e, HTTPException):
+    if isinstance(e, Problem):
         return e
     logger.error("could not start training run %s", run_id, exc_info=e)
     return Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.START_FAILED, START_FAILED_DETAIL)

@@ -7,9 +7,9 @@ import re
 import uuid
 from http import HTTPStatus
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 MEDIA_TYPE = "application/problem+json"
 REQUEST_ID_HEADER = "X-Request-Id"
@@ -28,7 +28,7 @@ def not_found() -> Problem:
     return Problem(404, "not_found", "not found")
 
 
-def _problem(request: Request, exc: HTTPException) -> JSONResponse:
+def _problem(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     status = HTTPStatus(exc.status_code)
     code = getattr(exc, "code", None) or status.phrase.lower().replace(" ", "_")
     # Whatever a handler wrote ("dataset not found in this project") would tell a caller more than
@@ -47,7 +47,7 @@ def _problem(request: Request, exc: HTTPException) -> JSONResponse:
 
 
 def install(app: FastAPI) -> None:
-    app.add_exception_handler(HTTPException, _problem)
+    app.add_exception_handler(StarletteHTTPException, _problem)  # also the router's own 404/405
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
