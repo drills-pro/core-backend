@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "test-console",
+      "runtimeExecutable": "mise",
+      "runtimeArgs": ["exec", "--", "pnpm", "--dir", "test-console", "dev"],
+      "port": 5174
+    }
+  ]
+}
