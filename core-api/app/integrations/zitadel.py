@@ -25,6 +25,7 @@ import httpx
 import jwt
 
 from app.core import secret_files
+from app.core.enums import IdentityStatus
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ def auth_header() -> dict[str, str]:
 # holds the mapping to them (init migration: "org maps 1:1 to tenant"). Rather than
 # shadow-copying either into Postgres, the admin list reads them here.
 
-ORG_STATE_TO_STATUS = {"ORG_STATE_ACTIVE": "active", "ORG_STATE_INACTIVE": "suspended"}
+ORG_STATE_TO_STATUS = {"ORG_STATE_ACTIVE": IdentityStatus.ACTIVE, "ORG_STATE_INACTIVE": IdentityStatus.SUSPENDED}
 # Machine users are automation, not people: scripts/zitadel-bootstrap.sh's own
 # PAT user holds ORG_OWNER on every org it provisions, so it would otherwise
 # show up as the owner of everything.
@@ -130,17 +131,17 @@ async def list_org_states(client: httpx.AsyncClient) -> dict[str, str]:
         logger.warning("zitadel org search failed; tenant statuses unknown", exc_info=True)
         return {}
     return {
-        org["id"]: ORG_STATE_TO_STATUS.get(org.get("state"), "unknown")
+        org["id"]: ORG_STATE_TO_STATUS.get(org.get("state"), IdentityStatus.UNKNOWN)
         for org in resp.json().get("result") or []
     }
 
 
 USER_STATE_TO_STATUS = {
-    "USER_STATE_ACTIVE": "active",
-    "USER_STATE_INACTIVE": "suspended",
-    "USER_STATE_LOCKED": "suspended",
+    "USER_STATE_ACTIVE": IdentityStatus.ACTIVE,
+    "USER_STATE_INACTIVE": IdentityStatus.SUSPENDED,
+    "USER_STATE_LOCKED": IdentityStatus.SUSPENDED,
     # Invited but never signed in: a real state of its own, not "active".
-    "USER_STATE_INITIAL": "pending",
+    "USER_STATE_INITIAL": IdentityStatus.PENDING,
 }
 
 
@@ -174,7 +175,7 @@ async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, di
             or user.get("preferredLoginName"),
             "email": (human.get("email") or {}).get("email"),
             "login_name": user.get("preferredLoginName"),
-            "status": USER_STATE_TO_STATUS.get(user.get("state"), "unknown"),
+            "status": USER_STATE_TO_STATUS.get(user.get("state"), IdentityStatus.UNKNOWN),
         }
     return users
 

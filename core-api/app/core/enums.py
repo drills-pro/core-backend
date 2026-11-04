@@ -128,3 +128,12 @@ class PlanTier(StrEnum):
     FREE = "free"
     PRO = "pro"
     ENTERPRISE = "enterprise"
+
+
+class IdentityStatus(StrEnum):
+    """An org's or a user's state as the back-office shows it, mapped from Zitadel's (integrations/zitadel.py)."""
+
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    PENDING = "pending"  # a user invited who never signed in; orgs are never pending
+    UNKNOWN = "unknown"  # Zitadel did not say: unreachable, or the org or user is gone

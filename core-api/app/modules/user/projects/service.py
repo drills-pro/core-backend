@@ -70,8 +70,7 @@ async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team
             team_id = await get_default_team_id(conn)
             if team_id is None:
                 raise HTTPException(status_code=409, detail=NO_TEAM)
-        created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type)
-        await audit.record_for(conn, ctx, created.id, AuditAction.CREATE, EntityType.PROJECT, created.id)
+        created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type, ctx.actor)
         # The creator administers what they create (planning/04: auto-bound project_admin).
         await conn.execute(
             "INSERT INTO project_members (tenant_id, project_id, user_sub, role) VALUES ($1, $2, $3, $4)",
