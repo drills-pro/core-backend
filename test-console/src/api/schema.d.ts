@@ -37,9 +37,6 @@ export interface paths {
         /**
          * Activity Summary
          * @description The totals behind the log's stat strip.
-         *
-         *     `events_today` counts the database's day - the clock that stamped the
-         *     rows - so it always agrees with what the listing groups under Today.
          */
         get: operations["activity_summary_v1_admin_activity_summary_get"];
         put?: never;
@@ -344,13 +341,6 @@ export interface paths {
          *
          *     An `internal` tenant (staff testing on prod) gets the caller as its
          *     owner, since nobody else could act in it; other staff join by invitation.
-         *
-         *     Zitadel and Postgres cannot be written in one transaction. The org
-         *     goes first, because a tenant row pointing at an org that does not
-         *     exist is the worse half-state - every listing would show it as
-         *     "unknown" forever. If the row then fails to land, an org this request
-         *     created is deleted again on the way out; an adopted one is left alone,
-         *     since it was not this request's to remove.
          */
         post: operations["create_tenant_v1_admin_tenants_post"];
         delete?: never;
@@ -371,14 +361,8 @@ export interface paths {
          * @description The platform-wide totals behind the back-office stat cards.
          *
          *     Deliberately unfiltered: the cards sit above the listing's tabs and
-         *     filters and describe the platform, not the page under them. Counting
-         *     happens in Postgres (admin_platform_stats()) rather than over the
-         *     listing's rows, so the numbers don't stop at MAX_SCAN or at one page.
-         *
-         *     `status_counts` is the same active/suspended/unknown breakdown the
-         *     listing sends as `X-Status-Counts`, and degrades the same way: with
-         *     Zitadel unreachable every organisation counts as unknown, which is
-         *     honest about not knowing rather than reporting zero suspended.
+         *     filters and describe the platform, not the page under them.
+         *     `status_counts` is the same breakdown the listing sends as `X-Status-Counts`.
          */
         get: operations["tenants_summary_v1_admin_tenants_summary_get"];
         put?: never;
@@ -450,10 +434,9 @@ export interface paths {
          * List Tenant Members
          * @description One row per person with access to a project in this tenant.
          *
-         *     project_members holds the membership and Zitadel holds the person, so
-         *     each row is one joined onto the other. A member of the Zitadel org who
-         *     is on no project yet is not here - same definition as the member count
-         *     in the listing (admin_tenant_stats()), so the two agree.
+         *     A member of the Zitadel org who is on no project yet is not here - same
+         *     definition as the member count in the listing (admin_tenant_stats()), so
+         *     the two agree.
          */
         get: operations["list_tenant_members_v1_admin_tenants__tenant_id__members_get"];
         put?: never;
@@ -498,8 +481,7 @@ export interface paths {
          * Update Tenant Settings
          * @description Merge a partial settings object into the tenant's, and return all of it.
          *
-         *     A merge, not a replace: the page sends the one switch that moved, and
-         *     two operators on two switches don't overwrite each other.
+         *     The page sends the one switch that moved.
          */
         patch: operations["update_tenant_settings_v1_admin_tenants__tenant_id__settings_patch"];
         trace?: never;
@@ -516,10 +498,6 @@ export interface paths {
         /**
          * Set Tenant Status
          * @description Suspend or reactivate the tenant.
-         *
-         *     tenants.status is what require() enforces. A tenant with a Zitadel org
-         *     has that org moved too; the UPDATE rolls back if Zitadel refuses, so the
-         *     two never disagree.
          */
         post: operations["set_tenant_status_v1_admin_tenants__tenant_id__status_post"];
         delete?: never;
@@ -1662,6 +1640,108 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityItem */
+        ActivityItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string | null;
+            /** Project Id */
+            project_id: string | null;
+            /** Project Name */
+            project_name: string | null;
+            /** Actor */
+            actor: string;
+            /** Action */
+            action: string;
+            /** Entity Type */
+            entity_type: string;
+            /** Entity Id */
+            entity_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Actor Name */
+            actor_name: string | null;
+        };
+        /** ActivityStats */
+        ActivityStats: {
+            /** Events Today */
+            events_today: number;
+            /** Tenants Today */
+            tenants_today: number;
+        };
+        /**
+         * AdminModel
+         * @description One model: its newest version, plus what it belongs to.
+         */
+        AdminModel: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: string;
+            /** Stage */
+            stage: string;
+            status: components["schemas"]["ModelStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /** Task Type */
+            task_type: string | null;
+            /** Visibility */
+            visibility: string;
+            /** Model Name */
+            model_name: string;
+            /** Version Count */
+            version_count: number;
+        };
+        /** AdminModelVersion */
+        AdminModelVersion: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: string;
+            /** Stage */
+            stage: string;
+            status: components["schemas"]["ModelStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** Archives */
         Archives: {
             /** Upload Max Bytes */
@@ -1759,6 +1839,49 @@ export interface components {
             created_at: string;
             /** Secret */
             secret: string;
+        };
+        /** CreatedProject */
+        CreatedProject: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            status: components["schemas"]["ProjectStatus"];
+            /** Team Id */
+            team_id: string | null;
+            task_type: components["schemas"]["TaskType"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            visibility: components["schemas"]["Visibility"];
+            default_access: components["schemas"]["DefaultAccess"];
+            /** Gallery Published */
+            gallery_published: boolean;
+        };
+        /** CreatedTenant */
+        CreatedTenant: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
+            /** Plan Tier */
+            plan_tier: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            status: components["schemas"]["IdentityStatus"];
         };
         /**
          * DataKind
@@ -1987,6 +2110,12 @@ export interface components {
             /** Max */
             max: number;
         };
+        /**
+         * IdentityStatus
+         * @description An org's or a user's state as the back-office shows it, mapped from Zitadel's (integrations/zitadel.py).
+         * @enum {string}
+         */
+        IdentityStatus: "active" | "suspended" | "pending" | "unknown";
         /** Images */
         Images: {
             /** Image Max Dimension */
@@ -2264,6 +2393,29 @@ export interface components {
          * @enum {string}
          */
         ModelStage: "None" | "Staging" | "Production";
+        /** ModelStats */
+        ModelStats: {
+            /** Model Count */
+            model_count: number;
+            /** Deployed Count */
+            deployed_count: number;
+            /** Deploying Count */
+            deploying_count: number;
+            /** Stopped Count */
+            stopped_count: number;
+            /** Not Deployed Count */
+            not_deployed_count: number;
+            /** Project Count */
+            project_count: number;
+            /** Version Count */
+            version_count: number;
+        };
+        /**
+         * ModelStatus
+         * @description The statuses admin_models() derives from a model's newest deployment (a test checks the function names each).
+         * @enum {string}
+         */
+        ModelStatus: "deployed" | "deploying" | "stopped" | "not_deployed";
         /** ModelVersion */
         ModelVersion: {
             /**
@@ -2315,6 +2467,15 @@ export interface components {
             model_ids: string[];
             /** Expires At */
             expires_at?: string | null;
+        };
+        /** OrgOwner */
+        OrgOwner: {
+            /** User Id */
+            user_id: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Login Name */
+            login_name: string | null;
         };
         /**
          * Outcome
@@ -2623,6 +2784,61 @@ export interface components {
             /** Customer Label */
             customer_label: string;
         };
+        /**
+         * PublicDataset
+         * @description A private dataset of a public project is listed with no name: "exists" is visible, contents are not.
+         */
+        PublicDataset: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Published */
+            published: boolean;
+            /** Version Number */
+            version_number: number | null;
+            /** Stats */
+            stats: unknown;
+        };
+        /**
+         * PublicModel
+         * @description Likewise: an unpublished model's name and version are null.
+         */
+        PublicModel: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mlflow Model Name */
+            mlflow_model_name: string | null;
+            /** Mlflow Version */
+            mlflow_version: string | null;
+            /** Publish Metadata */
+            publish_metadata: boolean;
+            /** Publish Artifact */
+            publish_artifact: boolean;
+        };
+        /** PublicProject */
+        PublicProject: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Task Type */
+            task_type: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** PublishRequest */
         PublishRequest: {
             /**
@@ -2884,6 +3100,21 @@ export interface components {
              */
             enabled: boolean;
         };
+        /** Team */
+        Team: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * TenantAuditEntry
          * @description One audit row of the tenant: tenant-level events have no project.
@@ -2931,13 +3162,11 @@ export interface components {
             /** @default owner */
             role: components["schemas"]["TenantRole"];
         };
-        /** TenantDelete */
-        TenantDelete: {
-            /** Confirm Name */
-            confirm_name: string;
-        };
-        /** TenantDetail */
-        TenantDetail: {
+        /**
+         * TenantDataset
+         * @description A row of admin_tenant_datasets().
+         */
+        TenantDataset: {
             /**
              * Id
              * Format: uuid
@@ -2945,10 +3174,37 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /** Slug */
-            slug: string;
-            status: components["schemas"]["TenantStatus"];
-            role: components["schemas"]["TenantRole"];
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /** Import Status */
+            import_status: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** TenantDelete */
+        TenantDelete: {
+            /** Confirm Name */
+            confirm_name: string;
+        };
+        /** TenantListItem */
+        TenantListItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
             /** Plan Tier */
             plan_tier: string;
             /**
@@ -2956,8 +3212,67 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Deleted At */
-            deleted_at?: string | null;
+            /** Project Count */
+            project_count: number;
+            /** Member Count */
+            member_count: number;
+            status: components["schemas"]["IdentityStatus"];
+            owner: components["schemas"]["OrgOwner"] | null;
+        };
+        /**
+         * TenantMember
+         * @description A row of admin_tenant_members(), with the person Zitadel knows behind it.
+         */
+        TenantMember: {
+            /** Display Name */
+            display_name: string | null;
+            /** Email */
+            email: string | null;
+            /** Login Name */
+            login_name: string | null;
+            status: components["schemas"]["IdentityStatus"];
+            /** User Id */
+            user_id: string;
+            /** Roles */
+            roles: string[];
+            /** Projects */
+            projects: string[];
+            /** Project Count */
+            project_count: number;
+            /** Joined At */
+            joined_at: string | null;
+        };
+        /**
+         * TenantProject
+         * @description A row of admin_tenant_projects().
+         */
+        TenantProject: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+            /** Task Type */
+            task_type: string | null;
+            /** Visibility */
+            visibility: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dataset Count */
+            dataset_count: number;
+            /** Model Count */
+            model_count: number;
+            /** Model Name */
+            model_name: string | null;
+            /** Model Version */
+            model_version: string | null;
         };
         /** TenantRename */
         TenantRename: {
@@ -2993,11 +3308,19 @@ export interface components {
              */
             allow_public_models: boolean;
         };
+        /** TenantSettingsOut */
+        TenantSettingsOut: {
+            settings: components["schemas"]["TenantSettings"];
+        };
         /**
          * TenantStatus
          * @enum {string}
          */
         TenantStatus: "active" | "suspended" | "pending_delete";
+        /** TenantStatusOut */
+        TenantStatusOut: {
+            status: components["schemas"]["TenantStatus"];
+        };
         /** TenantSummary */
         TenantSummary: {
             /**
@@ -3016,6 +3339,23 @@ export interface components {
              * @description Tenant-level actions the role holds
              */
             capabilities: string[];
+        };
+        /** TenantsSummary */
+        TenantsSummary: {
+            /** Organizations */
+            organizations: number;
+            /** Organizations New 30D */
+            organizations_new_30d: number;
+            /** Projects */
+            projects: number;
+            /** Projects New 30D */
+            projects_new_30d: number;
+            /** Members */
+            members: number;
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
         };
         /** TestCall */
         TestCall: {
@@ -3186,6 +3526,44 @@ export interface components {
             /** Completed At */
             completed_at: string | null;
         };
+        /** UsageEvent */
+        UsageEvent: {
+            /** Id */
+            id: number;
+            resource_type: components["schemas"]["UsageResource"];
+            /** Quantity */
+            quantity: number;
+            /** Unit */
+            unit: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Pricing Version */
+            pricing_version: string;
+        };
+        /**
+         * UsageResource
+         * @description Mirrors the usage_events.resource_type CHECK.
+         * @enum {string}
+         */
+        UsageResource: "training" | "storage_dataset" | "storage_model" | "inference";
+        /** UsageTotal */
+        UsageTotal: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            resource_type: components["schemas"]["UsageResource"];
+            /** Unit */
+            unit: string;
+            /** Total Quantity */
+            total_quantity: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3237,6 +3615,36 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
             default_access: components["schemas"]["DefaultAccess"];
         };
+        /** TenantDetail */
+        app__modules__admin__tenants__schemas__TenantDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
+            /** Plan Tier */
+            plan_tier: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Project Count */
+            project_count: number;
+            /** Member Count */
+            member_count: number;
+            settings: components["schemas"]["TenantSettings"];
+            /** Dataset Count */
+            dataset_count: number;
+            /** Model Count */
+            model_count: number;
+            status: components["schemas"]["IdentityStatus"];
+            owner: components["schemas"]["OrgOwner"] | null;
+        };
         /** Member */
         app__modules__user__projects__schemas__Member: {
             /** User Sub */
@@ -3263,6 +3671,29 @@ export interface components {
             email?: string | null;
             /** Display Name */
             display_name?: string | null;
+        };
+        /** TenantDetail */
+        app__modules__user__tenants__schemas__TenantDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            status: components["schemas"]["TenantStatus"];
+            role: components["schemas"]["TenantRole"];
+            /** Plan Tier */
+            plan_tier: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
         };
     };
     responses: never;
@@ -3301,7 +3732,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ActivityItem"][];
                 };
             };
             /** @description Validation Error */
@@ -3332,7 +3763,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ActivityStats"];
                 };
             };
             /** @description Validation Error */
@@ -3516,7 +3947,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AdminModel"][];
                 };
             };
             /** @description Validation Error */
@@ -3552,7 +3983,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AdminModelVersion"][];
                 };
             };
             /** @description Validation Error */
@@ -3583,7 +4014,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ModelStats"];
                 };
             };
             /** @description Validation Error */
@@ -3841,7 +4272,7 @@ export interface operations {
             query?: {
                 /** @description case-insensitive match on tenant name */
                 q?: string | null;
-                /** @description free | pro | enterprise | internal (hidden unless asked for) */
+                /** @description free | pro | enterprise | internal (left out unless asked for) */
                 plan_tier?: string | null;
                 /** @description active | suspended | unknown */
                 status?: string | null;
@@ -3862,7 +4293,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantListItem"][];
                 };
             };
             /** @description Validation Error */
@@ -3897,7 +4328,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreatedTenant"];
                 };
             };
             /** @description Validation Error */
@@ -3928,7 +4359,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantsSummary"];
                 };
             };
             /** @description Validation Error */
@@ -3961,7 +4392,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["app__modules__admin__tenants__schemas__TenantDetail"];
                 };
             };
             /** @description Validation Error */
@@ -3994,7 +4425,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantProject"][];
                 };
             };
             /** @description Validation Error */
@@ -4031,7 +4462,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreatedProject"];
                 };
             };
             /** @description Validation Error */
@@ -4064,7 +4495,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantMember"][];
                 };
             };
             /** @description Validation Error */
@@ -4097,7 +4528,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantDataset"][];
                 };
             };
             /** @description Validation Error */
@@ -4134,7 +4565,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantSettingsOut"];
                 };
             };
             /** @description Validation Error */
@@ -4171,7 +4602,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -5892,7 +6323,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PublicProject"][];
                 };
             };
             /** @description Validation Error */
@@ -5923,7 +6354,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PublicDataset"][];
                 };
             };
             /** @description Validation Error */
@@ -5954,7 +6385,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PublicModel"][];
                 };
             };
             /** @description Validation Error */
@@ -5989,7 +6420,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Team"][];
                 };
             };
             /** @description Validation Error */
@@ -6023,7 +6454,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Team"];
                 };
             };
             /** @description Validation Error */
@@ -6057,7 +6488,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Team"];
                 };
             };
             /** @description Validation Error */
@@ -6470,7 +6901,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TenantDetail"];
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
                 };
             };
             /** @description Validation Error */
@@ -6508,7 +6939,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TenantDetail"];
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
                 };
             };
             /** @description Validation Error */
@@ -6618,7 +7049,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TenantDetail"];
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
                 };
             };
             /** @description Validation Error */
@@ -6652,7 +7083,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TenantDetail"];
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
                 };
             };
             /** @description Validation Error */
@@ -6941,7 +7372,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UsageEvent"][];
                 };
             };
             /** @description Validation Error */
@@ -6973,7 +7404,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UsageTotal"][];
                 };
             };
             /** @description Validation Error */
@@ -7007,7 +7438,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UsageTotal"][];
                 };
             };
             /** @description Validation Error */
