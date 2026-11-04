@@ -11,6 +11,7 @@ from app.modules.user.projects.readers import (
     register_dataset_check,
 )
 from app.modules.user.projects.routes import members_router, router
+from app.modules.user.projects.schemas import CreatedProject
 from app.modules.user.projects.writers import create_project, remove_member_bindings
 
 access.register(access.Resource.PROJECT, owns_project)
@@ -18,6 +19,7 @@ authz_deps.register_project_exists(exists)
 tenant_members.register_member_removed(remove_member_bindings)
 
 __all__ = [
+    "CreatedProject",
     "create_project",
     "get_settings",
     "get_task_type",

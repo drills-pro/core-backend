@@ -8,10 +8,10 @@ import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
-
-from fastapi import HTTPException
+from http import HTTPStatus
 
 from app.core import task_types
+from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
 from app.modules.user.deployments.constants import (
@@ -20,6 +20,7 @@ from app.modules.user.deployments.constants import (
     SETTING_COMPUTE_TARGET,
     TARGET_CACHE_SIZE,
     TOO_MANY_REQUESTS_DETAIL,
+    ProblemCode,
 )
 from app.modules.user.projects import get_settings, get_task_type
 from app.modules.user.training import get_run_model
@@ -27,12 +28,12 @@ from app.modules.user.training import get_run_model
 _NO_MODEL = "the deployment's run has no servable model"
 
 
-class ServeFailed(HTTPException):
+class ServeFailed(Problem):
     """A call that reached Serve and failed: the status for its code, and what predict_calls logs about it."""
 
     def __init__(self, code: serve_client.ServeErrorCode, message: str, elapsed_ms: float):
-        super().__init__(status_code=SERVE_ERROR_STATUS[code], detail=f"{code}: {message}")
-        self.code, self.elapsed_ms = code, elapsed_ms
+        super().__init__(SERVE_ERROR_STATUS[code], code, f"{code}: {message}")
+        self.elapsed_ms = elapsed_ms
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ async def _target(tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUI
         info = None if task is None else await task_types.get(conn, task)
         settings_ = await get_settings(conn, project_id)
     if run is None or not run.servable or info is None or not info.servable:
-        raise HTTPException(status_code=409, detail=_NO_MODEL)
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_SERVABLE_MODEL, _NO_MODEL)
     model = await serve_client.served_model(info, run.mlflow_run_id, run.class_names, tenant_id, str(project_id))
     target = Target(serve_client.ComputeTarget(settings_.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)), run_id, model)
     _targets[(deployment_id, run_id)] = target
@@ -68,7 +69,7 @@ async def _target(tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUI
 @contextmanager
 def _slot(deployment_id: uuid.UUID, limit: int):
     if _inflight.get(deployment_id, 0) >= limit:
-        raise HTTPException(status_code=429, detail=TOO_MANY_REQUESTS_DETAIL)
+        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_INFLIGHT, TOO_MANY_REQUESTS_DETAIL)
     _inflight[deployment_id] = _inflight.get(deployment_id, 0) + 1
     try:
         yield
@@ -81,7 +82,7 @@ def _slot(deployment_id: uuid.UUID, limit: int):
 async def answer(
     tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUID, run_id: uuid.UUID, body: dict, max_inflight: int
 ) -> tuple[serve_client.Prediction, float]:
-    """(the prediction, milliseconds it took) for the run the deployment serves; `max_inflight` is the tenant plan's cap for this deployment. ServeFailed (an HTTPException) on a failed call, with the status SERVE_ERROR_STATUS gives its code."""
+    """(the prediction, milliseconds it took) for the run the deployment serves; `max_inflight` is the tenant plan's cap for this deployment. ServeFailed (a Problem) on a failed call, with the status SERVE_ERROR_STATUS gives its code."""
     target = await _target(tenant_id, project_id, deployment_id, run_id)
     with _slot(deployment_id, max_inflight):
         start = time.perf_counter()

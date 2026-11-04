@@ -1,13 +1,15 @@
 """Deployments HTTP surface: parse, authorize, call the service, shape the response."""
 import json
 import uuid
+from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Request
 
 from app.core.authz import Action, AuthzContext, public, require
+from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.deployments import lineage, service
-from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT
+from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT, ProblemCode
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
@@ -25,16 +27,16 @@ async def capped_body(request: Request) -> dict:
     limit = settings.serving.max_body_bytes
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > limit:
-        raise HTTPException(status_code=413, detail=f"the body is over {limit} bytes")
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limit} bytes")
     data = await request.body()
     if len(data) > limit:
-        raise HTTPException(status_code=413, detail=f"the body is over {limit} bytes")
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limit} bytes")
     try:
         body = json.loads(data)
     except ValueError:
-        raise HTTPException(status_code=422, detail="the body is not JSON") from None
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BODY_NOT_JSON, "the body is not JSON") from None
     if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail="the body must be a JSON object")
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BODY_NOT_OBJECT, "the body must be a JSON object")
     return body
 
 

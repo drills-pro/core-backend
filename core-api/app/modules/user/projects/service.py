@@ -1,7 +1,6 @@
 """Project lifecycle, settings and member bindings: the business rules and queries behind routes.py."""
 import uuid
-
-from fastapi import HTTPException
+from http import HTTPStatus
 
 from app.core import audit, task_types
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
@@ -69,7 +68,7 @@ async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team
             # the tenant's oldest (Default) team rather than requiring every caller to look it up.
             team_id = await get_default_team_id(conn)
             if team_id is None:
-                raise HTTPException(status_code=409, detail=NO_TEAM)
+                raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_TEAM, NO_TEAM)
         created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type, ctx.actor)
         # The creator administers what they create (planning/04: auto-bound project_admin).
         await conn.execute(
@@ -103,9 +102,9 @@ async def update_project(
 ) -> ProjectUpdated:
     # `status` covers archive/reactivate; delete is its own operation (grace period).
     if status is ProjectStatus.PENDING_DELETE:
-        raise HTTPException(status_code=400, detail=STATUS_NOT_SETTABLE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.STATUS_NOT_SETTABLE, STATUS_NOT_SETTABLE)
     if name is None and status is None and default_test_dataset_id is None:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
 
     async with TenantConn(ctx.tenant_id) as conn:
         if default_test_dataset_id is not None:
@@ -132,7 +131,7 @@ async def update_settings(ctx: AuthzContext, project_id: uuid.UUID, patch: Proje
     # Merged into the existing jsonb blob, not replaced.
     values = patch.model_dump(mode="json", exclude_none=True)
     if not values:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
     async with TenantConn(ctx.tenant_id) as conn:
         row = _live(
             await conn.fetchrow(
@@ -152,7 +151,7 @@ async def update_visibility(
     # Who can see the project (visibility) and what `internal` grants every tenant member
     # (default_access, planning/04) are both project_admin decisions.
     if visibility is None and default_access is None:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
     async with TenantConn(ctx.tenant_id) as conn:
         # A gallery project must stay internal (CHECK): refuse rather than silently unpublish it.
         if visibility is Visibility.PRIVATE and await conn.fetchval(

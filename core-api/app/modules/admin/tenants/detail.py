@@ -21,24 +21,33 @@ from app.core.auth import get_platform_admin
 from app.core.enums import TaskType
 from app.core.tenant_settings import TenantSettings
 from app.modules.admin.tenants import service
+from app.modules.admin.tenants.schemas import (
+    TenantDataset,
+    TenantDetail,
+    TenantMember,
+    TenantProject,
+    TenantSettingsOut,
+    TenantStatusOut,
+)
+from app.modules.user.projects import CreatedProject
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
 
-@router.get("/{tenant_id}", dependencies=[Depends(get_platform_admin)])
+@router.get("/{tenant_id}", dependencies=[Depends(get_platform_admin)], response_model=TenantDetail)
 async def get_tenant(tenant_id: uuid.UUID):
     """The header of the detail page: identity, owner, status, counts."""
     return await service.get_tenant(tenant_id)
 
 
-@router.get("/{tenant_id}/projects", dependencies=[Depends(get_platform_admin)])
+@router.get("/{tenant_id}/projects", dependencies=[Depends(get_platform_admin)], response_model=list[TenantProject])
 async def list_tenant_projects(tenant_id: uuid.UUID):
     """Every live project in the tenant, newest first, with what the card
     shows: its datasets, and the newest model registered against it."""
     return await service.list_projects(tenant_id)
 
 
-@router.get("/{tenant_id}/members", dependencies=[Depends(get_platform_admin)])
+@router.get("/{tenant_id}/members", dependencies=[Depends(get_platform_admin)], response_model=list[TenantMember])
 async def list_tenant_members(tenant_id: uuid.UUID):
     """One row per person with access to a project in this tenant.
 
@@ -49,12 +58,12 @@ async def list_tenant_members(tenant_id: uuid.UUID):
     return await service.list_members(tenant_id)
 
 
-@router.get("/{tenant_id}/datasets", dependencies=[Depends(get_platform_admin)])
+@router.get("/{tenant_id}/datasets", dependencies=[Depends(get_platform_admin)], response_model=list[TenantDataset])
 async def list_tenant_datasets(tenant_id: uuid.UUID):
     return await service.list_datasets(tenant_id)
 
 
-@router.post("/{tenant_id}/projects", status_code=201)
+@router.post("/{tenant_id}/projects", status_code=201, response_model=CreatedProject, response_model_exclude={"team_id"})
 async def create_tenant_project(
     tenant_id: uuid.UUID,
     name: str = Body(..., embed=True),
@@ -71,7 +80,7 @@ async def create_tenant_project(
     return await service.create_project(tenant_id, name, task_type, actor)
 
 
-@router.patch("/{tenant_id}/settings", dependencies=[Depends(get_platform_admin)])
+@router.patch("/{tenant_id}/settings", dependencies=[Depends(get_platform_admin)], response_model=TenantSettingsOut)
 async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings):
     """Merge a partial settings object into the tenant's, and return all of it.
 
@@ -79,7 +88,7 @@ async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings)
     return await service.update_settings(tenant_id, settings)
 
 
-@router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)])
+@router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)], response_model=TenantStatusOut)
 async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=True)):
     """Suspend or reactivate the tenant."""
     return await service.set_status(tenant_id, status)

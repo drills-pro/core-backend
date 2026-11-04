@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.authz import TenantRole
-from app.modules.user.teams import routes as teams
-from app.modules.user.usage import routes as usage
+from app.modules.user.teams import routes as teams, service as teams_service
+from app.modules.user.usage import routes as usage, service as usage_service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 TEAM = uuid.uuid4()
@@ -17,7 +17,7 @@ def serve(monkeypatch, dev_headers):
     client = make_client(teams.router, usage.router)
 
     def build(row, team_row=None):
-        patch_tenant_conn(monkeypatch, FakeConn(row, row=team_row), teams, usage)
+        patch_tenant_conn(monkeypatch, FakeConn(row, row=team_row), teams_service, usage_service)
         return client
 
     return build
@@ -25,7 +25,7 @@ def serve(monkeypatch, dev_headers):
 
 @pytest.mark.parametrize("path", ["/v1/teams", f"/v1/teams/{TEAM}"])
 def test_member_reads_teams(serve, path):
-    row = dict(id=TEAM, name="t", created_at=None)
+    row = dict(id=TEAM, name="t", created_at=datetime.now(timezone.utc))
     assert serve(access(), row).get(path).status_code == 200
 
 

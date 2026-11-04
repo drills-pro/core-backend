@@ -1,4 +1,6 @@
 """Named values for the model registry."""
+from enum import StrEnum
+
 from app.integrations.data_plane.mlflow import ModelStage
 
 # req/06 FR2: registry stages map to customer-facing states.
@@ -11,3 +13,8 @@ MODEL_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,60}$"  # a registered model's name as th
 
 NOTHING_TO_UPDATE_DETAIL = "nothing to update"
 BAD_STAGE_DETAIL = f"stage must be one of {sorted(ModelStage)}"
+
+
+class ProblemCode(StrEnum):
+    NOTHING_TO_UPDATE = "nothing_to_update"
+    INVALID_STAGE = "invalid_stage"

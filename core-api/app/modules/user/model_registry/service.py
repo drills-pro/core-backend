@@ -5,17 +5,17 @@ Registering is two steps with no pooled connection held across the first: `regis
 its row written once it is the compare-and-set winner.
 """
 import uuid
-
-from fastapi import HTTPException
+from http import HTTPStatus
 
 from app.core.authz import AuthzContext
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations.data_plane import mlflow
 from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.model_registry.constants import (
     CUSTOMER_STAGE_LABELS,
     NOTHING_TO_UPDATE_DETAIL,
+    ProblemCode,
 )
 from app.modules.user.model_registry.schemas import (
     ModelVersion,
@@ -124,7 +124,7 @@ async def set_publish(
     # FR7 (08-collaboration-visibility.md): metrics/config vs. the weights artifact are separate disclosures,
     # independently toggleable.
     if metadata is None and artifact is None:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE_DETAIL)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE_DETAIL)
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(_SET_PUBLISH, version_id, metadata, artifact, project_id)
     if row is None:

@@ -1,15 +1,14 @@
 """Training-run reads and cancel. Status transitions stay in service.py; cancel goes through service.cancel()."""
 import uuid
-
-from fastapi import HTTPException
+from http import HTTPStatus
 
 from app.core.authz import AuthzContext
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.modules.user.model_registry import ModelVersion, register_run
 from app.modules.user.training import service
-from app.modules.user.training.constants import CANCELLABLE, LOG_TAIL_CHARS, NOT_REGISTRABLE_DETAIL
+from app.modules.user.training.constants import CANCELLABLE, LOG_TAIL_CHARS, NOT_REGISTRABLE_DETAIL, ProblemCode
 from app.modules.user.training.readers import get_run_model
 from app.modules.user.training.schemas import (
     RunLogRef,
@@ -18,7 +17,6 @@ from app.modules.user.training.schemas import (
     TrainingRunSummary,
 )
 
-_NOT_FOUND = "training run not found"
 
 
 async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[TrainingRunSummary]:
@@ -38,7 +36,7 @@ async def get_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise not_found()
     return TrainingRun.model_validate(dict(row))
 
 
@@ -48,7 +46,7 @@ async def get_log_ref(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUI
             "SELECT ray_job_id, status FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
         )
     if row is None:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise not_found()
     return RunLogRef.model_validate(dict(row))
 
 
@@ -65,9 +63,9 @@ async def cancel_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise not_found()
     if row["status"] not in CANCELLABLE:
-        raise HTTPException(status_code=409, detail=f"run already {row['status']}")
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run already {row['status']}")
     await compute.stop(row["ray_job_id"])
     return TrainingRun.model_validate(await service.cancel(ctx.tenant_id, dict(row)))
 
@@ -79,5 +77,5 @@ async def register_model(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.
     if run is None:
         raise not_found()
     if not run.has_model:
-        raise HTTPException(status_code=409, detail=NOT_REGISTRABLE_DETAIL)
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_REGISTRABLE, NOT_REGISTRABLE_DETAIL)
     return await register_run(ctx, project_id, run_id, name, run.mlflow_run_id)

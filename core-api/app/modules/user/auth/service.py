@@ -1,15 +1,16 @@
 """Sign-in bookkeeping and tenant creation for /v1/me and POST /v1/tenants; routes.py only translates HTTP."""
 import uuid
+from http import HTTPStatus
 
 import asyncpg
-from fastapi import HTTPException
 
 from app.core.auth import Claims
 from app.core.authz import TenantRole
 from app.core.db import get_pool
+from app.core.problem import Problem
 from app.core.schemas import slugify
 from app.core.tenant_conn import TenantConn
-from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT
+from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT, ProblemCode
 from app.modules.user.auth.schemas import TenantCreate, TenantCreated
 from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 from app.modules.user.tenant_members import add_member, upsert_principal
@@ -60,6 +61,6 @@ async def create_tenant(claims: Claims, body: TenantCreate, idempotency_key: str
             await create_team(conn, tenant_id, DEFAULT_TEAM_NAME)
     except asyncpg.UniqueViolationError as error:
         if error.constraint_name == TENANT_SLUG_CONSTRAINT:
-            raise HTTPException(status_code=409, detail="slug already taken") from None
-        raise HTTPException(status_code=409, detail="request in progress, retry") from None  # same key in flight
+            raise Problem(HTTPStatus.CONFLICT, ProblemCode.SLUG_TAKEN, "slug already taken") from None
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.REQUEST_IN_PROGRESS, "request in progress, retry") from None  # same key in flight
     return TenantCreated(id=tenant_id, name=body.name, slug=created_slug)

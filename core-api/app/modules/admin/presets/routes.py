@@ -1,6 +1,7 @@
 """Platform-wide training presets. Rows are shared by every tenant, so these go through get_platform_admin and an
 unscoped connection; the user-facing read is GET /v1/projects/{id}/training-presets (app/modules/user/training)."""
 import logging
+from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Path
 
@@ -15,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin/training-presets", tags=["admin"])
 
+TASK_NOT_TRAINABLE = "task_type_not_trainable"
+
 
 async def _trainable(conn, task: TaskType) -> TaskType:
     info = await task_types.get(conn, task)
     if info is None or not info.trainable:
-        raise Problem(422, "task_type_not_trainable", f"task type '{task}' has no trainer, so it has no presets")
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, TASK_NOT_TRAINABLE, f"task type '{task}' has no trainer, so it has no presets")
     return task
 
 

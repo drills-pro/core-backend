@@ -25,24 +25,17 @@ a review). They reach the dashboard as absent, and it says so.
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.auth import get_platform_admin
-from app.core.authz import Visibility
 from app.core.enums import TaskType
-from app.core.db import get_pool
+from app.modules.admin.models import service
+from app.modules.admin.models.schemas import AdminModel, AdminModelVersion, ModelStats
 
 router = APIRouter(prefix="/v1/admin/models", tags=["admin"])
 
-# The statuses admin_models() derives. Validated here rather than passed through, so
-# a typo comes back as a 400 instead of as a convincing empty page.
-STATUSES = ("deployed", "deploying", "stopped", "not_deployed")
 
-# projects.visibility.
-VISIBILITIES = tuple(Visibility)
-
-
-@router.get("", dependencies=[Depends(get_platform_admin)])
+@router.get("", dependencies=[Depends(get_platform_admin)], response_model=list[AdminModel])
 async def list_models(
     response: Response,
     q: str | None = Query(default=None, description="matches model, project or organisation"),
@@ -57,28 +50,12 @@ async def list_models(
 
     `X-Total-Count` carries the size of the filtered set so a pager costs
     no second request — the same contract as the other admin listings."""
-    reject_unknown("status", status, STATUSES)
-    reject_unknown("visibility", visibility, VISIBILITIES)
-
-    async with (await get_pool()).acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM admin_models($1, $2, $3, $4, $5, $6, $7)",
-            limit,
-            offset,
-            tenant_id,
-            task_type,
-            visibility,
-            status,
-            q,
-        )
-    # count(*) OVER () has no row to ride on when the filter matches
-    # nothing, which is the one case the header has to be told about.
-    response.headers["X-Total-Count"] = str(rows[0]["total"] if rows else 0)
-    # `total` is an implementation detail of the pager, not part of a row.
-    return [{k: v for k, v in dict(row).items() if k != "total"} for row in rows]
+    rows, total = await service.list_models(q, tenant_id, task_type, visibility, status, limit, offset)
+    response.headers["X-Total-Count"] = str(total)
+    return rows
 
 
-@router.get("/{version_id}/versions", dependencies=[Depends(get_platform_admin)])
+@router.get("/{version_id}/versions", dependencies=[Depends(get_platform_admin)], response_model=list[AdminModelVersion])
 async def list_model_versions(
     response: Response,
     version_id: uuid.UUID,
@@ -91,27 +68,15 @@ async def list_model_versions(
     out — rather than by (project, name), so the caller has no second key
     to spell and nothing to escape. An id that names no version answers
     with an empty list, the same as a model whose project was deleted."""
-    async with (await get_pool()).acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM admin_model_versions($1, $2, $3)", version_id, limit, offset
-        )
-    response.headers["X-Total-Count"] = str(rows[0]["total"] if rows else 0)
-    return [{k: v for k, v in dict(row).items() if k != "total"} for row in rows]
+    rows, total = await service.list_versions(version_id, limit, offset)
+    response.headers["X-Total-Count"] = str(total)
+    return rows
 
 
-@router.get("/summary", dependencies=[Depends(get_platform_admin)])
+@router.get("/summary", dependencies=[Depends(get_platform_admin)], response_model=ModelStats)
 async def models_summary():
     """The totals behind the stat strip and the tabs.
 
     Counted across every tenant rather than over the page on screen, so
     they do not move when a filter does."""
-    async with (await get_pool()).acquire() as conn:
-        stats = await conn.fetchrow("SELECT * FROM admin_model_stats()")
-    return dict(stats)
-
-
-def reject_unknown(name: str, value: str | None, allowed: tuple[str, ...]) -> None:
-    if value is not None and value not in allowed:
-        raise HTTPException(
-            status_code=400, detail=f"{name} must be one of {', '.join(allowed)}"
-        )
+    return await service.summary()

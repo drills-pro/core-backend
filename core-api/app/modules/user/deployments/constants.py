@@ -13,6 +13,18 @@ class Serving(StrEnum):
     SHARED = "shared"  # a model the two long-lived predictor apps load by id
 
 
+class ProblemCode(StrEnum):
+    BODY_TOO_LARGE = "body_too_large"
+    BODY_NOT_JSON = "body_not_json"
+    BODY_NOT_OBJECT = "body_not_object"
+    NOT_DEPLOYABLE = "not_deployable"
+    NOT_ACTIVE = "deployment_not_active"
+    NO_SERVABLE_MODEL = "no_servable_model"
+    INVALID_PREDICT_KEY = "invalid_predict_key"
+    RATE_LIMITED = "rate_limited"
+    TOO_MANY_INFLIGHT = "too_many_inflight"
+
+
 class DeployStrategy(StrEnum):
     """Project setting `deploy_strategy`."""
 

@@ -1,12 +1,15 @@
 """Who am I, and make my first tenant. Login itself is Zitadel's hosted OIDC flow: the SPA sends the
 access token, core/auth.py verifies it, core/tenancy.py checks membership (ADR-021)."""
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from http import HTTPStatus
+
+from fastapi import APIRouter, Depends, Header, Request
 
 from app.core import rate_limit
 from app.core.auth import Claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
 from app.core.idempotency import IDEMPOTENCY_HEADER
+from app.core.problem import Problem
 from app.modules.user.auth import service
 from app.modules.user.auth.constants import (
     TENANT_KEY_MAX_LENGTH,
@@ -14,6 +17,7 @@ from app.modules.user.auth.constants import (
     TENANT_CREATE_IP_RATE_KEY,
     TENANT_CREATE_USER_LIMIT,
     TENANT_CREATE_USER_RATE_KEY,
+    ProblemCode,
 )
 from app.modules.user.auth.schemas import Me, TenantCreate, TenantCreated, TenantSummary
 
@@ -50,7 +54,7 @@ async def create_tenant(
 ):
     """Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo."""
     if not claims.email_verified:
-        raise HTTPException(status_code=403, detail="verify your email before creating a tenant")
+        raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.EMAIL_NOT_VERIFIED, "verify your email before creating a tenant")
     replay = await service.find_created(claims.subject, idempotency_key)  # costs no rate-limit budget
     if replay is not None:
         return replay
@@ -58,6 +62,6 @@ async def create_tenant(
         await rate_limit.check(TENANT_CREATE_USER_RATE_KEY.format(claims.subject), TENANT_CREATE_USER_LIMIT)
         and await rate_limit.check(TENANT_CREATE_IP_RATE_KEY.format(_client_ip(request)), TENANT_CREATE_IP_LIMIT)
     ):
-        raise HTTPException(status_code=429, detail="too many attempts")
+        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_ATTEMPTS, "too many attempts")
 
     return await service.create_tenant(claims, body, idempotency_key)

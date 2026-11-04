@@ -7,10 +7,48 @@ GPU-seconds, no synthetic unit, pending a real pricing decision. That's
 new version, so past invoices stay reproducible from the version that was
 active when the usage occurred.
 """
+import uuid
 
+from app.core.authz import AuthzContext
+from app.core.tenant_conn import TenantConn
 from app.modules.user.projects import get_team_id
+from app.modules.user.usage.schemas import UsageEvent, UsageTotal
 
 PRICING_VERSION = "v1-raw-gpu-seconds"
+
+_PROJECT_EVENTS = (
+    "SELECT id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version "
+    "FROM usage_events WHERE project_id = $1 ORDER BY occurred_at DESC LIMIT $2 OFFSET $3"
+)
+_ORG_TOTALS = (
+    "SELECT project_id, resource_type, unit, SUM(quantity) AS total_quantity "
+    "FROM usage_events GROUP BY project_id, resource_type, unit ORDER BY project_id, resource_type"
+)
+_TEAM_TOTALS = (
+    "SELECT project_id, resource_type, unit, SUM(quantity) AS total_quantity "
+    "FROM usage_events WHERE team_id = $1 GROUP BY project_id, resource_type, unit ORDER BY project_id, resource_type"
+)
+
+
+async def project_events(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[UsageEvent]:
+    """FR4: raw usage_events visible mid-period, not a month-end-only report."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        rows = await conn.fetch(_PROJECT_EVENTS, project_id, limit, offset)
+    return [UsageEvent.model_validate(dict(r)) for r in rows]
+
+
+async def org_totals(ctx: AuthzContext) -> list[UsageTotal]:
+    """req/01 FR3 + req/04: the tenant's usage by project and resource type."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        rows = await conn.fetch(_ORG_TOTALS)
+    return [UsageTotal.model_validate(dict(r)) for r in rows]
+
+
+async def team_totals(ctx: AuthzContext, team_id: uuid.UUID) -> list[UsageTotal]:
+    """FR1/FR3 (09-usage-billing-two-tier.md): the third rollup tier, the same shape as org_totals."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        rows = await conn.fetch(_TEAM_TOTALS, team_id)
+    return [UsageTotal.model_validate(dict(r)) for r in rows]
 
 
 async def record_usage(

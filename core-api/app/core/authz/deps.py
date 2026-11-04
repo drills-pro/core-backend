@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from http import HTTPStatus
 from typing import Any
 
 from fastapi import Depends, Request
@@ -27,7 +28,7 @@ from app.core.authz.policy import (
     Visibility,
     allowed_actions,
 )
-from app.core.problem import Problem, not_found
+from app.core.problem import Problem, ProblemCode, not_found
 from app.core.settings import settings
 from app.core.tenancy import get_actor, get_tenant_id
 from app.core.tenant_conn import TenantConn
@@ -128,7 +129,7 @@ def require(action: Action, *, allow_pending_delete: bool = False):
         if project_scoped and not actions & PROJECT_ACTIONS:
             raise not_found()  # private and unbound: do not reveal it exists
         if action not in actions:
-            raise Problem(403, "forbidden", f"missing action {action}", action=action.value)
+            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing action {action}", action=action.value)
         if project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS:
             if action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound):
                 async with TenantConn(tenant_id) as conn:  # the grant came from the tenant role alone

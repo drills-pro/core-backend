@@ -22,6 +22,7 @@ class ProblemCode(StrEnum):
     START_FAILED = "training_start_failed"
     UNKNOWN_PRESET = "unknown_preset"
     HYPERPARAMETER_OUT_OF_RANGE = "hyperparameter_out_of_range"
+    NOT_REGISTRABLE = "run_not_registrable"
 
 
 START_FAILED_DETAIL = "could not start the training run, try again shortly"

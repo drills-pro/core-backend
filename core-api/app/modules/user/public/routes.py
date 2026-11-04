@@ -11,30 +11,22 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from app.core.authz import public
-from app.core.db import get_pool
+from app.modules.user.public import service
+from app.modules.user.public.schemas import PublicDataset, PublicModel, PublicProject
 
 router = APIRouter(prefix="/v1/public", tags=["public"], dependencies=[Depends(public)])
 
 
-@router.get("/projects")
+@router.get("/projects", response_model=list[PublicProject])
 async def list_public_projects(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM list_public_projects($1, $2)", limit, offset)
-    return [dict(r) for r in rows]
+    return await service.list_projects(limit, offset)
 
 
-@router.get("/projects/{project_id}/datasets")
+@router.get("/projects/{project_id}/datasets", response_model=list[PublicDataset])
 async def list_public_project_datasets(project_id: uuid.UUID):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM list_public_project_datasets($1)", project_id)
-    return [dict(r) for r in rows]
+    return await service.list_datasets(project_id)
 
 
-@router.get("/projects/{project_id}/models")
+@router.get("/projects/{project_id}/models", response_model=list[PublicModel])
 async def list_public_project_models(project_id: uuid.UUID):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM list_public_project_models($1)", project_id)
-    return [dict(r) for r in rows]
+    return await service.list_models(project_id)

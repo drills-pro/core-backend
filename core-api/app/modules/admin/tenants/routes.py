@@ -12,11 +12,12 @@ from fastapi import APIRouter, Body, Depends, Query, Response
 
 from app.core.auth import get_platform_admin
 from app.modules.admin.tenants import service
+from app.modules.admin.tenants.schemas import CreatedTenant, TenantListItem, TenantsSummary
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
 
-@router.get("", dependencies=[Depends(get_platform_admin)])
+@router.get("", dependencies=[Depends(get_platform_admin)], response_model=list[TenantListItem])
 async def list_tenants(
     response: Response,
     q: str | None = Query(default=None, description="case-insensitive match on tenant name"),
@@ -31,12 +32,12 @@ async def list_tenants(
     `X-Status-Counts` its active/suspended/unknown breakdown, so a pager
     and status tabs cost no extra requests."""
     page = await service.list_page(q, plan_tier, status, limit, offset)
-    response.headers["X-Status-Counts"] = json.dumps(page.status_counts)
+    response.headers["X-Status-Counts"] = json.dumps(page.status_counts)  # StrEnum keys dump as their values
     response.headers["X-Total-Count"] = str(page.total)
     return page.rows
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=CreatedTenant)
 async def create_tenant(
     name: str = Body(..., embed=True),
     plan_tier: str = Body(default="free", embed=True),
@@ -57,7 +58,7 @@ async def create_tenant(
     return await service.create_tenant(name, plan_tier, zitadel_org_id)
 
 
-@router.get("/summary", dependencies=[Depends(get_platform_admin)])
+@router.get("/summary", dependencies=[Depends(get_platform_admin)], response_model=TenantsSummary)
 async def tenants_summary():
     """The platform-wide totals behind the back-office stat cards.
 

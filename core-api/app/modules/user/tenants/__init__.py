@@ -10,9 +10,13 @@ from app.modules.user.tenants.readers import (
     slug_taken,
 )
 from app.modules.user.tenants.routes import router
+from app.modules.user.tenants.schemas import AdminTenantCreated, AdminTenantFull, AdminTenantRow
 from app.modules.user.tenants.writers import insert_admin_tenant, insert_tenant, merge_settings, set_status
 
 __all__ = [
+    "AdminTenantCreated",
+    "AdminTenantFull",
+    "AdminTenantRow",
     "admin_detail",
     "admin_list",
     "admin_org_ids",

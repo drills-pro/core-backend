@@ -1,12 +1,14 @@
 """HTTP surface for model versions: parse, authorize, call service, shape the response."""
 import uuid
+from http import HTTPStatus
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends
 
 from app.core.authz import Action, AuthzContext, require
+from app.core.problem import Problem
 from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.model_registry import service
-from app.modules.user.model_registry.constants import BAD_STAGE_DETAIL
+from app.modules.user.model_registry.constants import BAD_STAGE_DETAIL, ProblemCode
 from app.modules.user.model_registry.schemas import ModelVersionItem, PromotedVersion, PublishState
 
 router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
@@ -28,7 +30,7 @@ async def promote_model(
     try:
         target = ModelStage(stage)
     except ValueError:
-        raise HTTPException(status_code=400, detail=BAD_STAGE_DETAIL) from None  # a 400, as before, not FastAPI's 422
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.INVALID_STAGE, BAD_STAGE_DETAIL) from None  # a 400, as before, not FastAPI's 422
     return await service.promote(ctx, project_id, model_version_id, target)
 
 
