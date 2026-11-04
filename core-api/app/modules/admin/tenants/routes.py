@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 async def list_tenants(
     response: Response,
     q: str | None = Query(default=None, description="case-insensitive match on tenant name"),
-    plan_tier: str | None = Query(default=None, description="free | pro | enterprise"),
+    plan_tier: str | None = Query(default=None, description="free | pro | enterprise | internal (left out unless asked for)"),
     status: str | None = Query(default=None, description="active | suspended | unknown"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -42,7 +42,7 @@ async def create_tenant(
     name: str = Body(..., embed=True),
     plan_tier: str = Body(default="free", embed=True),
     zitadel_org_id: str | None = Body(default=None, embed=True),
-    _actor: str = Depends(get_platform_admin),
+    actor: str = Depends(get_platform_admin),
 ):
     """Provision an organisation.
 
@@ -54,8 +54,11 @@ async def create_tenant(
     `zitadel_org_id` adopts an org that already exists rather than making
     a new one, which is the case the bootstrap script covers: the org came
     first and only the platform-side mapping is missing.
+
+    An `internal` tenant (staff testing on prod) gets the caller as its
+    owner, since nobody else could act in it; other staff join by invitation.
     """
-    return await service.create_tenant(name, plan_tier, zitadel_org_id)
+    return await service.create_tenant(name, plan_tier, zitadel_org_id, actor)
 
 
 @router.get("/summary", dependencies=[Depends(get_platform_admin)], response_model=TenantsSummary)

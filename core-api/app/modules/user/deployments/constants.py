@@ -33,7 +33,7 @@ class DeployStrategy(StrEnum):
 
 
 # req/04 FR4: rate limit "configurable per tenant plan tier."
-PLAN_TIER_RATE_LIMITS = {PlanTier.FREE: 10, PlanTier.PRO: 120, PlanTier.ENTERPRISE: 1000}
+PLAN_TIER_RATE_LIMITS = {PlanTier.FREE: 10, PlanTier.PRO: 120, PlanTier.ENTERPRISE: 1000, PlanTier.INTERNAL: 1000}
 
 DEFAULT_COMPUTE_TARGET = "cpu"
 SETTING_DEPLOY_STRATEGY = "deploy_strategy"

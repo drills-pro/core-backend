@@ -17,10 +17,11 @@ _ADMIN_LIST = (
     # not for every tenant on the platform.
     "JOIN LATERAL admin_tenant_stats(ARRAY[t.id]) s ON true "
     "WHERE ($1::text IS NULL OR t.name ILIKE '%' || $1 || '%') "
-    "AND ($2::text IS NULL OR t.plan_tier = $2) "
+    # Internal (staff test) tenants show only when that tier is asked for by name.
+    "AND (t.plan_tier = $2 OR ($2::text IS NULL AND t.plan_tier <> $4)) "
     "ORDER BY t.created_at, t.id LIMIT $3"
 )
-_ADMIN_ALL_ORG_IDS = "SELECT zitadel_org_id FROM tenants"
+_ADMIN_ALL_ORG_IDS = "SELECT zitadel_org_id FROM tenants WHERE plan_tier <> $1"
 _ADMIN_PLATFORM_STATS = "SELECT * FROM admin_platform_stats()"
 _ADMIN_DETAIL = (
     "SELECT t.id, t.name, t.zitadel_org_id, t.plan_tier, t.created_at, t.settings, "
@@ -53,14 +54,15 @@ async def get_org_ids(conn, tenant_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]
 
 
 async def admin_list(conn, q: str | None, plan_tier: str | None, limit: int) -> list[AdminTenantRow]:
-    """Back-office listing rows, oldest first, with the project and member counters."""
-    rows = await conn.fetch(_ADMIN_LIST, q, plan_tier, limit)
+    """Back-office listing rows, oldest first, with the project and member counters. No plan_tier leaves internal
+    tenants out."""
+    rows = await conn.fetch(_ADMIN_LIST, q, plan_tier, limit, PlanTier.INTERNAL)
     return [AdminTenantRow.model_validate(dict(row)) for row in rows]
 
 
 async def admin_org_ids(conn) -> list[str | None]:
-    """The zitadel_org_id of every tenant (None for one created without an org)."""
-    return [row["zitadel_org_id"] for row in await conn.fetch(_ADMIN_ALL_ORG_IDS)]
+    """The zitadel_org_id of every customer tenant, internal ones left out (None for one created without an org)."""
+    return [row["zitadel_org_id"] for row in await conn.fetch(_ADMIN_ALL_ORG_IDS, PlanTier.INTERNAL)]
 
 
 async def admin_platform_stats(conn) -> dict:

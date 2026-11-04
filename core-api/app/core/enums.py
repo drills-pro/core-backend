@@ -128,6 +128,7 @@ class PlanTier(StrEnum):
     FREE = "free"
     PRO = "pro"
     ENTERPRISE = "enterprise"
+    INTERNAL = "internal"  # a staff test tenant on prod: hidden from the back-office totals and listing
 
 
 class IdentityStatus(StrEnum):

@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import uuid
 
+from app.core.enums import PlanTier
 from app.modules.user.tenants import (
     admin_detail,
     admin_list,
@@ -23,7 +24,7 @@ def test_admin_list_rows_are_typed_and_filters_are_passed_through():
     conn = FakeConn(rowset=[{**BASE, **COUNTS}])
     [row] = asyncio.run(admin_list(conn, "ac", "pro", 10))
     assert (row.name, row.project_count, row.member_count) == ("Acme", 2, 3)
-    assert conn.calls[0][1] == ("ac", "pro", 10)
+    assert conn.calls[0][1] == ("ac", "pro", 10, PlanTier.INTERNAL)
 
 
 def test_org_ids_and_platform_stats():

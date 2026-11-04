@@ -26,7 +26,7 @@ import asyncpg
 import httpx
 
 from app.core import task_types
-from app.core.authz import TenantStatus
+from app.core.authz import TenantRole, TenantStatus
 from app.core.db import get_pool
 from app.core.enums import IdentityStatus, PlanTier, TaskType
 from app.core.problem import Problem, not_found
@@ -50,6 +50,7 @@ from app.modules.admin.tenants.schemas import (
 from app.modules.user import projects, teams
 from app.modules.user import tenants as tenants_ctx
 from app.modules.user.projects import CreatedProject
+from app.modules.user.tenant_members import add_member
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ async def list_page(q: str | None, plan_tier: str | None, status: str | None, li
     return TenantPage(rows=items, total=len(tenants), status_counts=status_counts)
 
 
-async def create_tenant(name: str, plan_tier: str, zitadel_org_id: str | None) -> CreatedTenant:
+async def create_tenant(name: str, plan_tier: str, zitadel_org_id: str | None, actor: str) -> CreatedTenant:
     """The Zitadel org (unless one is adopted), the tenant row that maps to it, and its Default team.
 
     Zitadel and Postgres cannot be written in one transaction. The org
@@ -136,7 +137,7 @@ async def create_tenant(name: str, plan_tier: str, zitadel_org_id: str | None) -
                 raise _zitadel_unreachable(error) from error
 
         try:
-            tenant = await _insert_tenant(zitadel_org_id, name, plan_tier)
+            tenant = await _insert_tenant(zitadel_org_id, name, plan_tier, actor)
         except Exception:
             if not adopted:
                 await _discard_org(client, zitadel_org_id)
@@ -148,7 +149,9 @@ async def create_tenant(name: str, plan_tier: str, zitadel_org_id: str | None) -
     return CreatedTenant(**tenant.model_dump(), status=IdentityStatus.UNKNOWN if adopted else IdentityStatus.ACTIVE)
 
 
-async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> tenants_ctx.AdminTenantCreated:
+async def _insert_tenant(
+    zitadel_org_id: str, name: str, plan_tier: str, actor: str
+) -> tenants_ctx.AdminTenantCreated:
     async with (await get_pool()).acquire() as conn:
         try:
             row = await tenants_ctx.insert_admin_tenant(conn, zitadel_org_id, name, plan_tier)
@@ -161,6 +164,8 @@ async def _insert_tenant(zitadel_org_id: str, name: str, plan_tier: str) -> tena
     # rather than around it — the same connection its own members get.
     async with TenantConn(str(row.id)) as conn:
         await teams.create_team(conn, row.id, teams.DEFAULT_TEAM_NAME)
+        if plan_tier == PlanTier.INTERNAL:
+            await add_member(conn, row.id, actor, TenantRole.OWNER)
     return row
 
 

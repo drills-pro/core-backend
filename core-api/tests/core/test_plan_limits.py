@@ -18,6 +18,7 @@ from tests.support import FakeConn
 MIGRATIONS = Path(__file__).parents[2] / "migrations"
 SQL = next(MIGRATIONS.glob("*_plan_limits.sql")).read_text()
 PREDICT_SQL = next(MIGRATIONS.glob("*_plan_limits_predict.sql")).read_text()
+INTERNAL_SQL = next(MIGRATIONS.glob("*_internal_plan_tier.sql")).read_text().split("-- migrate:down")[0]
 
 
 def groups(**over) -> dict:
@@ -36,8 +37,9 @@ def test_the_columns_and_the_tier_check_mirror_the_models_and_the_enum():
     columns = re.findall(r"^  (\w+) jsonb NOT NULL CHECK \(jsonb_typeof\(\1\) = 'object'\)", SQL, re.M)
     added = re.findall(r"ADD COLUMN (\w+) jsonb NOT NULL", PREDICT_SQL)
     assert columns + added == list(PlanLimitsBody.model_fields)
-    tiers = re.search(r"plan_tier text PRIMARY KEY CHECK \(plan_tier IN \(([^)]*)\)", SQL).group(1)
-    assert set(re.findall(r"'([^']+)'", tiers)) == {t.value for t in PlanTier}
+    for table in ("tenants", "plan_limits"):  # the latest CHECK on each table, which the internal tier migration rewrote
+        tiers = re.search(rf"ADD CONSTRAINT {table}_plan_tier_check\s+CHECK \(plan_tier IN \(([^)]*)\)", INTERNAL_SQL).group(1)
+        assert set(re.findall(r"'([^']+)'", tiers)) == {t.value for t in PlanTier}
 
 
 def test_every_tier_is_seeded_with_the_yaml_values():
@@ -46,7 +48,9 @@ def test_every_tier_is_seeded_with_the_yaml_values():
     assert seeded == {k: v for k, v in groups().items() if k != "predict"}
     predict_default = json.loads(re.search(r"DEFAULT '(\{.*\})'::jsonb", PREDICT_SQL).group(1))
     assert predict_default == groups()["predict"]  # the column default is the YAML fallback
-    assert set(re.findall(r"ARRAY\[([^\]]*)\]", SQL)[0].replace("'", "").split(", ")) == {t.value for t in PlanTier}
+    seeded_tiers = set(re.findall(r"ARRAY\[([^\]]*)\]", SQL)[0].replace("'", "").split(", "))
+    assert seeded_tiers | {PlanTier.INTERNAL} == {t.value for t in PlanTier}
+    assert "SELECT 'internal'" in INTERNAL_SQL  # seeded later, as a copy of enterprise
 
 
 def test_a_tenant_without_a_row_gets_the_yaml_limits():
