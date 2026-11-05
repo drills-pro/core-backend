@@ -25,6 +25,9 @@ class ProblemCode(StrEnum):
     INVALID_PREDICT_KEY = "invalid_predict_key"
     RATE_LIMITED = "rate_limited"
     TOO_MANY_INFLIGHT = "too_many_inflight"
+    TOO_MANY_DEPLOYMENTS = "too_many_deployments"
+    DEPLOYMENT_EXISTS = "deployment_exists"
+    IDEMPOTENCY_MISMATCH = "idempotency_mismatch"
 
 
 class AuditAction(StrEnum):
@@ -62,6 +65,9 @@ TEST_CALLS_MAX_LIMIT = 100
 TEST_CALL_STORED_MAX_BYTES = 65536  # a try-it request or response kept in the log; a bigger one is replaced by a marker
 TRUNCATED_FIELD = "truncated"
 TRUNCATED_BYTES_FIELD = "bytes"
+DEPLOYMENT_LOCK_PREFIX = "deployments:"  # advisory-lock key prefix: serialises the quota check and the write per tenant
+DEPLOYMENT_EXISTS_DETAIL = "this training run already has a deployment; use it (start it if it is stopped) or delete it first"
+TOO_MANY_DEPLOYMENTS_DETAIL = "too many active deployments for this plan, stop or delete one first"
 STOPPED_DETAIL = "the deployment is stopped; start it to serve again"
 TOO_MANY_REQUESTS_DETAIL = "too many concurrent requests for this deployment"
 TARGET_CACHE_SIZE = 1024  # (deployment, run) pairs whose model URLs core-api remembers

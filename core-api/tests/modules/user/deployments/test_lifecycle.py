@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.authz import Action, Role
+from app.core.settings import settings
 from app.modules.user.deployments import routes, service
 from app.modules.user.deployments.constants import AuditAction, DeployStrategy, EntityType, ProblemCode, Serving
 from app.modules.user.deployments.status import DeploymentStatus as S
@@ -30,7 +31,7 @@ def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
 @pytest.fixture
 def env(monkeypatch):
     class Env:
-        conn = FakeConn()
+        conn = FakeConn(vals={"count(*) FROM deployments": 0})
         removed, deployed, stopped_jobs = [], [], []
 
     e = Env()
@@ -231,3 +232,19 @@ def test_only_a_manager_may_change_a_deployments_state(call, method, path):
     assert (r.status_code, r.json()["action"]) == (403, Action.DEPLOYMENT_MANAGE)
     assert call(method, path, access(roles=[Role.EDITOR])).status_code == 403
     assert call(method, path, access(roles=[Role.DEPLOYER])).status_code == 404  # authorized; the fake database has no such row
+
+
+def test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full(env):
+    env.conn.rows = {UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
+    env.conn.vals["count(*) FROM deployments"] = settings.serving.max_active_deployments_per_tenant
+    with pytest.raises(HTTPException) as e:
+        run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
+    assert (e.value.status_code, e.value.code) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS) and moves(env) == []
+
+
+def test_stop_and_delete_do_not_check_the_quota(env):
+    env.conn.vals["count(*) FROM deployments"] = 10**6
+    env.conn.rows = {UPDATE: row(S.STOPPED)}
+    run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
+    env.conn.rows = {UPDATE: row(S.DELETED)}
+    run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
