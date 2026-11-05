@@ -105,6 +105,16 @@ def test_deploy_requires_a_succeeded_servable_run(deploy_env, row):
     assert e.value.status_code == 409 and not deploy_env.deployed
 
 
+def test_a_detection_run_deploys_with_the_class_names_its_report_lists(deploy_env):
+    deploy_env.conn.vals["SELECT task_type"] = TaskType.OBJECT_DETECTION
+    deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "class_names": ["person", "car"]}
+    deploy_env.conn.rows["INSERT INTO deployments"] = {
+        "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
+    }
+    asyncio.run(service.create_deployment(CTX, PROJECT, RUN))
+    assert deploy_env.deployed[-1]["class_names"] == ["person", "car"]
+
+
 @pytest.mark.parametrize("task", [None, TaskType.TABULAR_CLASSIFICATION, TaskType.TEXT_GENERATION])
 def test_deploy_requires_a_servable_task_whatever_the_report_carries(deploy_env, task):
     deploy_env.conn.vals["SELECT task_type"] = task  # a tabular classifier's report has labels too

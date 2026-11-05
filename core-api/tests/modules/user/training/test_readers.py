@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 
+from app.modules.user.training.readers import _RUN_MODEL
 from app.modules.user.training import RunModel, TrainingStatus, get_run_lineage, get_run_model
 from tests.support import PROJECT, FakeConn
 
@@ -24,6 +25,10 @@ def test_a_model_exists_for_a_succeeded_run_with_an_mlflow_run_and_serves_when_i
     assert not model(status=S.RUNNING).has_model and not model(status=S.FAILED).servable
     assert not model(mlflow_run_id=None).has_model
     assert model(class_names=[]).has_model and not model(class_names=[]).servable
+
+
+def test_the_reports_classes_are_the_class_names_with_the_confusion_labels_as_the_older_fallback():
+    assert "report -> 'classes'" in _RUN_MODEL and _RUN_MODEL.index("'classes'") < _RUN_MODEL.index("'confusion_matrix'")
 
 
 def test_get_run_model_reads_the_runs_facts_and_is_none_for_another_projects_run():

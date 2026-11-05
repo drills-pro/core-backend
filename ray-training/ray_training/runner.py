@@ -52,7 +52,7 @@ def upload(spec: TrainSpec, store, result) -> dict:
     store.put(MODEL_MANIFEST_KEY, json.dumps(manifest).encode())
     for name, path in result.extra_files.items():
         store.put(name, path.read_bytes())
-    return {**_base(spec), "metrics": result.metrics, "history": result.history, "confusion_matrix": result.confusion}
+    return {**_base(spec), "metrics": result.metrics, "history": result.history, "classes": result.classes, "confusion_matrix": result.confusion}
 
 
 def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None = None) -> dict:
