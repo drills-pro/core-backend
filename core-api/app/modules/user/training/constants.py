@@ -23,6 +23,8 @@ class ProblemCode(StrEnum):
     UNKNOWN_PRESET = "unknown_preset"
     HYPERPARAMETER_OUT_OF_RANGE = "hyperparameter_out_of_range"
     NOT_REGISTRABLE = "run_not_registrable"
+    EVENT_TOO_LARGE = "training_event_too_large"
+    INVALID_EVENT = "invalid_training_event"
 
 
 START_FAILED_DETAIL = "could not start the training run, try again shortly"
@@ -46,3 +48,17 @@ INFLIGHT_STATUSES = (S.SUBMITTED, S.RUNNING)  # mirrors training_runs_inflight_i
 CANCELLABLE = INFLIGHT_STATUSES
 
 LOG_TAIL_CHARS = 8000
+
+
+class EventType(StrEnum):
+    """Kinds of training_run_events.type. Mirrors its CHECK constraint."""
+
+    PROGRESS = "progress"
+
+
+EVENTS_TOKEN_ENV = "TRAINING_EVENTS_TOKEN"  # the job's env var that carries its events token (spec.reporting.token_env)
+EVENTS_TOKEN_BYTES = 32  # entropy of the per-run token
+EVENTS_PATH = "/internal/v1/training-runs/{run_id}/events"
+MAX_EVENT_BODY_BYTES = 8 * 1024  # a progress event is a few numbers; anything bigger is refused before it is parsed
+MAX_EVENT_METRICS = 32  # metric names in one event
+MAX_METRIC_NAME_LENGTH = 64

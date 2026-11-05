@@ -379,6 +379,25 @@
       "title": "Preprocessing",
       "type": "object"
     },
+    "Reporting": {
+      "description": "Where a trainer posts progress events (planning 06 \"Events\"). The token itself is never in the spec: the job finds it\nin the environment variable named by `token_env`.",
+      "properties": {
+        "events_url": {
+          "title": "Events Url",
+          "type": "string"
+        },
+        "token_env": {
+          "title": "Token Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "events_url",
+        "token_env"
+      ],
+      "title": "Reporting",
+      "type": "object"
+    },
     "Resample": {
       "description": "PIL resampling filter of the resize to a square `image_size` (the trainer mirrors this enum, contract-tested).",
       "enum": [
@@ -630,6 +649,17 @@
         },
         "payload": {
           "$ref": "#/$defs/TrainPayload"
+        },
+        "reporting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "resources": {
           "$ref": "#/$defs/Resources"
