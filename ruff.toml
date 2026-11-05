@@ -1,0 +1,6 @@
+# Lint only. The code base is not ruff-formatted (222 files would change), so formatting is not enforced.
+target-version = "py312"
+extend-exclude = [".venv", ".codegraph", ".local"]
+
+[lint]
+select = ["F", "E4", "E7", "E9"]

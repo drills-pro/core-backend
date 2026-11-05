@@ -1,24 +1,30 @@
 """Deployment rules and queries: deploy, read, try-it and the key-authenticated predict path."""
 import hashlib
+import json
 import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from http import HTTPStatus
 
 import httpx
-from fastapi import HTTPException
 
-from app.core import rate_limit
+from app.core import plan_limits, rate_limit
+from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
+from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
+from app.modules.user.deployments import calls, shared
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
     MAIN_ROUTE_SUFFIX,
     METADATA_FIELD,
+    PREDICTIONS_FIELD,
     NOT_DEPLOYABLE_DETAIL,
+    ProblemCode,
     PLAN_TIER_RATE_LIMITS,
     PREDICT_KEY_BYTES,
     SERVE_TIMEOUT_SECONDS,
@@ -26,6 +32,7 @@ from app.modules.user.deployments.constants import (
     SETTING_DEPLOY_STRATEGY,
     DeployStrategy,
     PlanTier,
+    Serving,
 )
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
@@ -35,10 +42,11 @@ from app.modules.user.deployments.schemas import (
     TestCallResult,
 )
 from app.modules.user.deployments.status import DeploymentStatus
-from app.modules.user.training import TrainingStatus
+from app.modules.user.projects import get_settings, get_task_type
+from app.modules.user.tenants import get_plan_tier
+from app.modules.user.training import get_run_model
 from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
-_NOT_FOUND = "deployment not found"
 
 
 def hash_key(key: str) -> str:
@@ -49,20 +57,24 @@ def rate_limit_for(plan_tier: str | None) -> int:
     return PLAN_TIER_RATE_LIMITS.get(plan_tier, PLAN_TIER_RATE_LIMITS[PlanTier.FREE])
 
 
+def _check_size(size: int, limits: plan_limits.Predict) -> None:
+    """The plan's body cap, which is at most the ceiling the route already refused above before parsing."""
+    if size > limits.max_body_bytes:
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limits.max_body_bytes} bytes (this plan's limit)")
+
+
 async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
-        run = await conn.fetchrow(
-            "SELECT status, model_artifact FROM training_runs WHERE id = $1 AND project_id = $2",
-            training_run_id,
-            project_id,
-        )
+        run = await get_run_model(conn, project_id, training_run_id)
         if run is None:
-            raise HTTPException(status_code=404, detail="training run not found")
-        if run["status"] != TrainingStatus.SUCCEEDED or run["model_artifact"] is None:
-            raise HTTPException(status_code=409, detail=NOT_DEPLOYABLE_DETAIL)
+            raise not_found()
+        task = await get_task_type(conn, project_id)
+        info = None if task is None else await task_types.get(conn, task)
+        if info is None or not info.enabled or not info.servable or not run.servable:
+            raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
 
-        settings = await conn.fetchval("SELECT settings FROM projects WHERE id = $1", project_id) or {}
+        settings = await get_settings(conn, project_id)
         deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
 
         # FR4/FR5 (06-project-settings-deployment.md): 'main' strategy has
@@ -78,27 +90,36 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
                 project_id,
                 f"/predict/{project_id}/{MAIN_ROUTE_SUFFIX}",
             )
-        plan_tier = await conn.fetchval("SELECT plan_tier FROM tenants WHERE id = $1", ctx.tenant_id)
+        plan_tier = await get_plan_tier(conn, ctx.tenant_id)
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
-    ray_job_id, route_prefix = await serve_client.deploy(
-        deployment_id=str(deployment_id),
-        weights=run["model_artifact"],
-        tenant_id=ctx.tenant_id,
-        project_id=str(project_id),
-        compute_target=settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET),
-        deploy_strategy=deploy_strategy,
-    )
+    if await serve_client.apps_declared():
+        # The predictor apps load the model on its first request: nothing to start, so the deployment is active at once.
+        ray_job_id, serving, status = None, Serving.SHARED, DeploymentStatus.ACTIVE
+        route_prefix = serve_client.route_prefix_for(str(deployment_id), str(project_id), deploy_strategy)
+    else:
+        ray_job_id, route_prefix = await serve_client.deploy(
+            deployment_id=str(deployment_id),
+            task=info,
+            mlflow_run_id=run.mlflow_run_id,
+            class_names=run.class_names,
+            tenant_id=ctx.tenant_id,
+            project_id=str(project_id),
+            compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
+            deploy_strategy=deploy_strategy,
+        )
+        serving, status = Serving.LEGACY, DeploymentStatus.DEPLOYING
 
     async with TenantConn(ctx.tenant_id) as conn:
         if existing_main:
             row = await conn.fetchrow(
-                "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4 "
+                "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5 "
                 "WHERE id = $1 RETURNING id, status, route_prefix, rate_limit_per_minute",
                 deployment_id,
                 training_run_id,
                 ray_job_id,
-                DeploymentStatus.DEPLOYING,
+                status,
+                serving,
             )
             return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
@@ -107,8 +128,8 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         # scope used everywhere else. Only the hash is stored.
         predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
         row = await conn.fetchrow(
-            "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, rate_limit_per_minute) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, status, route_prefix, rate_limit_per_minute",
+            "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, rate_limit_per_minute, serving, status) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, status, route_prefix, rate_limit_per_minute",
             deployment_id,
             ctx.tenant_id,
             project_id,
@@ -117,6 +138,8 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
             route_prefix,
             hash_key(predict_key),
             rate_limit_for(plan_tier),
+            serving,
+            status,
         )
     usage_metrics.deployments_created.add(1)
     return DeploymentCreated.model_validate({**dict(row), "predict_key": predict_key, "plan_tier": plan_tier})
@@ -143,14 +166,14 @@ async def get_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id
             project_id,
         )
     if row is None:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise not_found()
     return DeploymentDetail.model_validate(dict(row))
 
 
 async def _post_to_serve(route_prefix: str, body: dict) -> tuple[httpx.Response, float]:
     start = time.perf_counter()
     async with httpx.AsyncClient(timeout=SERVE_TIMEOUT_SECONDS) as client:
-        resp = await client.post(f"{serve_client.RAY_SERVE_HTTP}{route_prefix}", json=body)
+        resp = await client.post(f"{serve_client.serve_url()}{route_prefix}", json=body)
     return resp, (time.perf_counter() - start) * 1000
 
 
@@ -162,18 +185,26 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     # model does not hold a pooled connection.
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT status, route_prefix FROM deployments WHERE id = $1 AND project_id = $2",
+            "SELECT status, route_prefix, serving, training_run_id FROM deployments WHERE id = $1 AND project_id = $2",
             deployment_id,
             project_id,
         )
     if row is None:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        raise not_found()
     if row["status"] != DeploymentStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail=f"deployment is {row['status']}, not active")
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"deployment is {row['status']}, not active")
 
-    resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
-    resp.raise_for_status()
-    response_body = resp.json()
+    if row["serving"] == Serving.SHARED:
+        async with TenantConn(ctx.tenant_id) as conn:
+            limits = await plan_limits.predict_limits(conn, ctx.tenant_id)
+        _check_size(len(json.dumps(body)), limits)
+        prediction, elapsed_ms = await shared.answer(
+            ctx.tenant_id, project_id, deployment_id, row["training_run_id"], body, limits.max_inflight_per_deployment)
+        response_body = {PREDICTIONS_FIELD: prediction.predictions}
+    else:
+        resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
+        resp.raise_for_status()
+        response_body = resp.json()
 
     async with TenantConn(ctx.tenant_id) as conn:
         await conn.execute(
@@ -194,7 +225,7 @@ async def list_test_calls(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             "SELECT 1 FROM deployments WHERE id = $1 AND project_id = $2", deployment_id, project_id
         )
         if not owned:
-            raise HTTPException(status_code=404, detail=_NOT_FOUND)
+            raise not_found()
         rows = await conn.fetch(
             "SELECT id, request, response, latency_ms, created_at FROM deployment_test_calls "
             "WHERE deployment_id = $1 ORDER BY created_at DESC LIMIT $2",
@@ -215,12 +246,13 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM deployment_for_predict($1, $2)", deployment_id, hash_key(predict_key))
     if row is None:
-        raise HTTPException(status_code=401, detail="invalid deployment id or predict key")
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid deployment id or predict key")
     if row["status"] != DeploymentStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail=f"deployment is {row['status']}, not active")
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"deployment is {row['status']}, not active")
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
-        raise HTTPException(
-            status_code=429, detail=f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)"
+        raise Problem(
+            HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED,
+            f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)",
         )
 
     # FR6: an optional `metadata` passthrough field, popped before
@@ -228,9 +260,25 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
     # echoed back alongside the prediction.
     metadata = body.pop(METADATA_FIELD, None)
 
-    resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
-    inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
-    resp.raise_for_status()
+    async with TenantConn(str(row["tenant_id"])) as conn:
+        served = await conn.fetchrow("SELECT serving, training_run_id FROM deployments WHERE id = $1", deployment_id)
+        limits = await plan_limits.predict_limits(conn, str(row["tenant_id"]))
+    if served["serving"] == Serving.SHARED:
+        tenant_id, run_id, size = str(row["tenant_id"]), served["training_run_id"], len(json.dumps(body))
+        _check_size(size, limits)
+        try:
+            prediction, elapsed_ms = await shared.answer(tenant_id, row["project_id"], deployment_id, run_id, body, limits.max_inflight_per_deployment)
+        except shared.ServeFailed as e:
+            await calls.record(tenant_id, deployment_id, run_id, status=e.status_code, latency_ms=e.elapsed_ms, cold_load=None, error_code=e.code, request_bytes=size)
+            raise
+        inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": prediction.cold_load})
+        await calls.record(tenant_id, deployment_id, run_id, status=HTTPStatus.OK, latency_ms=elapsed_ms, cold_load=prediction.cold_load, error_code=None, request_bytes=size)
+        result = {PREDICTIONS_FIELD: prediction.predictions}
+    else:
+        resp, elapsed_ms = await _post_to_serve(row["route_prefix"], body)
+        inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
+        resp.raise_for_status()
+        result = resp.json()
 
     # FR2 (09-usage-billing-two-tier.md): meter inference — request id in
     # source_ref (not just deployment_id) so the existing
@@ -248,7 +296,6 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
             source_ref=f"{deployment_id}:{uuid.uuid4()}",
         )
 
-    result = resp.json()
     if metadata is not None:
         result[METADATA_FIELD] = metadata
     return result

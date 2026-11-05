@@ -86,6 +86,10 @@ uv run uvicorn app.main:app --reload
 uv run pytest tests/ -q
 ```
 
+CI (`.github/workflows/tests.yml`) runs that suite and `ruff check .` on every pull request, plus the `ray-jobs`
+tests and `./scripts/db-tests.sh` (row-level security as `core_app` on a real Postgres; Docker only). The image
+workflow (`docker-publish.yml`) builds nothing until all of them pass.
+
 ### Layout (modular monolith)
 
 One deployable, but the code inside is split into bounded contexts with a
@@ -555,7 +559,8 @@ applies pending migrations as `backend_admin`, and `core-api` starts only after 
 | Goal | Command |
 |---|---|
 | Status / roll back the last one | `docker compose run --rm dbmate status` / `... rollback` |
-| Prove a change from an empty PG18 as `backend_admin`, including rollback and re-up | `./scripts/migrations-check.sh` (Docker only; uses the compose services in a throwaway project; CI runs it before building the image) |
+| Prove a change from an empty PG18 as `backend_admin`, including rollback and re-up | `./scripts/migrations-check.sh` (Docker only; uses the compose services in a throwaway project; CI runs it on every pull request and before building the image) |
+| Prove tenant isolation: cross-tenant select, update and delete as `core_app` on every tenant table | `./scripts/db-tests.sh [pytest args]` (Docker only; a throwaway project like the check above; runs `core-api/tests/db`; CI runs it on every pull request) |
 | Lint for destructive SQL (DROP TABLE/COLUMN, TRUNCATE, ALTER COLUMN TYPE without USING, DELETE without WHERE) | `python3 scripts/lint-migrations.py core-api/migrations/*.sql`; opt out per statement with `-- migration-lint: allow-destructive (why)` |
 
 **Volumes from before dbmate.** Init scripts only run on an empty volume, so an existing `pgdata` has no

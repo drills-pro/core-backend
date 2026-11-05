@@ -1,20 +1,43 @@
 """Deployments HTTP surface: parse, authorize, call the service, shape the response."""
+import json
 import uuid
+from http import HTTPStatus
 
-from fastapi import APIRouter, Body, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 
 from app.core.authz import Action, AuthzContext, public, require
-from app.modules.user.deployments import service
-from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT
+from app.core.problem import Problem
+from app.core.settings import settings
+from app.modules.user.deployments import lineage, service
+from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT, ProblemCode
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
+    TrainingRunLineage,
     TestCall,
     TestCallResult,
 )
 
 router = APIRouter(tags=["deployments"])
+
+
+async def capped_body(request: Request) -> dict:
+    """The JSON object the caller sent, refused with 413 above serving.max_body_bytes (the declared length is checked before reading)."""
+    limit = settings.serving.max_body_bytes
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limit} bytes")
+    data = await request.body()
+    if len(data) > limit:
+        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limit} bytes")
+    try:
+        body = json.loads(data)
+    except ValueError:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BODY_NOT_JSON, "the body is not JSON") from None
+    if not isinstance(body, dict):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BODY_NOT_OBJECT, "the body must be a JSON object")
+    return body
 
 
 @router.post(
@@ -42,11 +65,19 @@ async def get_deployment(
     return await service.get_deployment(ctx, project_id, deployment_id)
 
 
+@router.get("/v1/projects/{project_id}/training-runs/{run_id}/lineage", response_model=TrainingRunLineage)
+async def get_training_run_lineage(
+    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
+):
+    """One endpoint joining dataset commit -> training run -> model registry entry -> active deployment."""
+    return await lineage.get_lineage(ctx, project_id, run_id)
+
+
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/test", response_model=TestCallResult)
 async def test_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
-    body: dict = Body(...),
+    body: dict = Depends(capped_body),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_TRY)),
 ):
     return await service.test_deployment(ctx, project_id, deployment_id, body)
@@ -66,7 +97,7 @@ async def list_test_calls(
 @router.post("/v1/predict/{deployment_id}", dependencies=[Depends(public)])
 async def predict(
     deployment_id: uuid.UUID,
-    body: dict = Body(...),
+    body: dict = Depends(capped_body),
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
 ):
     return await service.predict(deployment_id, x_predict_key, body)

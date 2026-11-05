@@ -23,8 +23,10 @@ import time
 
 import httpx
 import jwt
+from pydantic import BaseModel
 
 from app.core import secret_files
+from app.core.enums import IdentityStatus
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,10 @@ PAT_PATH = "/pat/zitadel-automation.pat"
 # Management/Auth APIs (not a placeholder — see Zitadel's "JWT Profile"
 # docs under Service Users).
 _MANAGEMENT_SCOPE = "openid urn:zitadel:iam:org:project:id:zitadel:aud"
+
+REQUEST_TIMEOUT_SECONDS = 10
+# The back-office fans out one call per org on a page (Zitadel has no cross-org search): this many at a time.
+FANOUT_CONCURRENCY = 8
 
 _pat_cache: str | None = None
 _token_cache: tuple[str, float] | None = None  # (access_token, expires_at monotonic)
@@ -77,7 +83,7 @@ def _fetch_jwt_profile_token() -> tuple[str, float]:
             "assertion": _build_assertion(),
             "scope": _MANAGEMENT_SCOPE,
         },
-        timeout=10,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -100,18 +106,40 @@ def auth_header() -> dict[str, str]:
 
 
 # --- Org-level reads for the back-office (app/modules/admin) ---------------
+
+
+def client() -> httpx.AsyncClient:
+    """The client the back-office passes to the calls below."""
+    return httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS)
+
+
+class OrgOwner(BaseModel):
+    user_id: str
+    display_name: str | None
+    login_name: str | None
+
+
+class OrgUser(BaseModel):
+    display_name: str | None
+    email: str | None
+    login_name: str | None
+    status: IdentityStatus
+
+
+# A member whose Zitadel user is gone, or whose org Zitadel won't answer for.
+UNKNOWN_USER = OrgUser(display_name=None, email=None, login_name=None, status=IdentityStatus.UNKNOWN)
 # Zitadel owns org state and org membership; core-api's `tenants` table only
 # holds the mapping to them (init migration: "org maps 1:1 to tenant"). Rather than
 # shadow-copying either into Postgres, the admin list reads them here.
 
-ORG_STATE_TO_STATUS = {"ORG_STATE_ACTIVE": "active", "ORG_STATE_INACTIVE": "suspended"}
+ORG_STATE_TO_STATUS = {"ORG_STATE_ACTIVE": IdentityStatus.ACTIVE, "ORG_STATE_INACTIVE": IdentityStatus.SUSPENDED}
 # Machine users are automation, not people: scripts/zitadel-bootstrap.sh's own
 # PAT user holds ORG_OWNER on every org it provisions, so it would otherwise
 # show up as the owner of everything.
 _HUMAN = "TYPE_HUMAN"
 
 
-async def list_org_states(client: httpx.AsyncClient) -> dict[str, str]:
+async def list_org_states(client: httpx.AsyncClient) -> dict[str, IdentityStatus]:
     """{zitadel_org_id: 'active' | 'suspended'} for every org on the instance.
 
     One instance-level call, not one per org — the admin list would
@@ -130,21 +158,21 @@ async def list_org_states(client: httpx.AsyncClient) -> dict[str, str]:
         logger.warning("zitadel org search failed; tenant statuses unknown", exc_info=True)
         return {}
     return {
-        org["id"]: ORG_STATE_TO_STATUS.get(org.get("state"), "unknown")
+        org["id"]: ORG_STATE_TO_STATUS.get(org.get("state"), IdentityStatus.UNKNOWN)
         for org in resp.json().get("result") or []
     }
 
 
 USER_STATE_TO_STATUS = {
-    "USER_STATE_ACTIVE": "active",
-    "USER_STATE_INACTIVE": "suspended",
-    "USER_STATE_LOCKED": "suspended",
+    "USER_STATE_ACTIVE": IdentityStatus.ACTIVE,
+    "USER_STATE_INACTIVE": IdentityStatus.SUSPENDED,
+    "USER_STATE_LOCKED": IdentityStatus.SUSPENDED,
     # Invited but never signed in: a real state of its own, not "active".
-    "USER_STATE_INITIAL": "pending",
+    "USER_STATE_INITIAL": IdentityStatus.PENDING,
 }
 
 
-async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, dict]:
+async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, OrgUser]:
     """{user_id: {display_name, email, login_name, status}} for one org.
 
     One call for the whole org rather than a lookup per member: the
@@ -169,13 +197,12 @@ async def list_org_users(client: httpx.AsyncClient, org_id: str) -> dict[str, di
     users = {}
     for user in resp.json().get("result") or []:
         human = user.get("human") or {}
-        users[user["id"]] = {
-            "display_name": (human.get("profile") or {}).get("displayName")
-            or user.get("preferredLoginName"),
-            "email": (human.get("email") or {}).get("email"),
-            "login_name": user.get("preferredLoginName"),
-            "status": USER_STATE_TO_STATUS.get(user.get("state"), "unknown"),
-        }
+        users[user["id"]] = OrgUser(
+            display_name=(human.get("profile") or {}).get("displayName") or user.get("preferredLoginName"),
+            email=(human.get("email") or {}).get("email"),
+            login_name=user.get("preferredLoginName"),
+            status=USER_STATE_TO_STATUS.get(user.get("state"), IdentityStatus.UNKNOWN),
+        )
     return users
 
 
@@ -224,7 +251,7 @@ async def set_org_state(client: httpx.AsyncClient, org_id: str, active: bool) ->
     resp.raise_for_status()
 
 
-async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> dict | None:
+async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> OrgOwner | None:
     """The human ORG_OWNER of one org, as {user_id, display_name, login_name}.
 
     Scoped with x-zitadel-orgid, which is how the management API acts on an
@@ -250,8 +277,8 @@ async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> dict | None:
     owner = human or next(iter(owners), None)
     if owner is None:
         return None
-    return {
-        "user_id": owner["userId"],
-        "display_name": owner.get("displayName") or owner.get("preferredLoginName"),
-        "login_name": owner.get("preferredLoginName"),
-    }
+    return OrgOwner(
+        user_id=owner["userId"],
+        display_name=owner.get("displayName") or owner.get("preferredLoginName"),
+        login_name=owner.get("preferredLoginName"),
+    )

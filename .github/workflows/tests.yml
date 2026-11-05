@@ -1,0 +1,67 @@
+name: Tests
+
+# The merge gate: the core-api suite and ruff, the ray-jobs suite, and the database-backed tenant isolation tests
+# (docs: planning/20-work-breakdown.md, "contract tests are a hard merge gate"). No path filter, so every pull
+# request reports every check below; mark them required in the repo's branch protection:
+#   core-api tests, ray-jobs tests, tenant isolation (Postgres)
+# docker-publish.yml calls this workflow before it builds an image (workflow_call), so a red test cannot ship one.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  core-api:
+    name: core-api tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          cache-dependency-glob: core-api/uv.lock
+      - name: Install
+        working-directory: core-api
+        run: uv sync --locked --group dev
+      - name: Tests
+        working-directory: core-api
+        run: .venv/bin/python -m pytest tests -q
+      - name: Lint
+        run: core-api/.venv/bin/ruff check .
+
+  ray-jobs:
+    name: ray-jobs tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.11"  # the Ray image runs 3.11 (ray-jobs/pyproject.toml)
+          cache-dependency-glob: ray-jobs/uv.lock
+      - name: Install
+        working-directory: ray-jobs
+        run: uv sync --locked --group dev
+      - name: Tests
+        working-directory: ray-jobs
+        run: .venv/bin/python -m pytest tests -q
+
+  # A real Postgres, migrated the way the cluster does it: RLS has to hold for core_app, which the fake connection
+  # in the other suites cannot show. scripts/db-tests.sh starts the compose postgres, runs dbmate, then tests/db.
+  isolation:
+    name: tenant isolation (Postgres)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          cache-dependency-glob: core-api/uv.lock
+      - name: Install
+        working-directory: core-api
+        run: uv sync --locked --group dev
+      - name: Isolation matrix
+        run: ./scripts/db-tests.sh

@@ -79,5 +79,18 @@ def test_tenant_owner_and_admin_may_remove_the_last_project_admin(monkeypatch, a
 
 
 def test_keeping_project_admin_in_the_new_roles_skips_the_guard(monkeypatch):
-    _patch(monkeypatch, c := _conn(last_admin=True))
+    _patch(monkeypatch, _conn(last_admin=True))
     asyncio.run(service.set_member_roles(PA_CTX, PA_CTX.project_id, "u", [Role.PROJECT_ADMIN]))
+
+
+def test_update_project_refuses_a_default_test_dataset_outside_the_project(monkeypatch):
+    from app.modules.user.projects import readers
+
+    async def not_in_project(conn, project_id, dataset_id):
+        return False
+
+    _patch(monkeypatch, _conn())
+    monkeypatch.setattr(readers, "_dataset_check", not_in_project)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(service.update_project(CTX, CTX.project_id, None, None, uuid.uuid4()))
+    assert e.value.status_code == 404

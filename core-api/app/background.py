@@ -11,8 +11,9 @@ import zlib
 
 from app.core import rate_limit
 from app.core.db import get_pool
+from app.integrations.serve_client import ensure_serving
 from app.modules.user.datasets import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
-from app.modules.user.deployments import reconcile_inflight_deployments
+from app.modules.user.deployments import purge_predict_calls, reconcile_inflight_deployments
 from app.modules.user.training import reconcile_inflight_runs
 
 logger = logging.getLogger(__name__)
@@ -20,18 +21,7 @@ logger = logging.getLogger(__name__)
 RECONCILE_INTERVAL_SECONDS = 10
 SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
-
-
-async def _poll_active_principals() -> None:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        counts = {
-            window: await conn.fetchval(
-                "SELECT count(*) FROM principals WHERE last_seen_at > now() - make_interval(days => $1)", days
-            )
-            for window, days in metrics.ACTIVE_PRINCIPAL_WINDOW_DAYS.items()
-        }
-    metrics.set_active_principals(counts)
+SERVING_ENSURE_INTERVAL_SECONDS = 60
 
 
 # (name, coroutine function, seconds between runs)
@@ -42,6 +32,8 @@ POLLERS = (
     ("import-expiry", expire_stale_imports, SWEEP_INTERVAL_SECONDS),
     ("dataset-purge", purge_deleted_datasets, PURGE_INTERVAL_SECONDS),
     ("rate-limit-purge", rate_limit.purge, SWEEP_INTERVAL_SECONDS),
+    ("serving-ensure", ensure_serving, SERVING_ENSURE_INTERVAL_SECONDS),
+    ("predict-calls-purge", purge_predict_calls, PURGE_INTERVAL_SECONDS),
 )
 
 
@@ -63,14 +55,15 @@ async def _run_as_leader(name: str, poll) -> None:
             await conn.execute("SELECT pg_advisory_unlock($1)", lock_id)
 
 
-# Gauges every replica must export itself; electing a leader would leave the others at 0.
-PER_REPLICA = {"pg-size", "gpu-quota"}
+# Pollers every replica runs: each claims rows of its own (app/integrations/job_lifecycle.py), so replicas share the work.
+# The rest sweep cheaply and elect one leader.
+CLAIMING = {"training-reconcile", "deployment-reconcile", "import-reconcile"}
 
 
 async def _run_forever(name: str, poll, interval: int) -> None:
     while True:
         try:
-            if name in PER_REPLICA:
+            if name in CLAIMING:
                 await poll()
             else:
                 await _run_as_leader(name, poll)

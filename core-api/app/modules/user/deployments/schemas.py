@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.modules.user.datasets import VersionRef
+from app.modules.user.training import LineageRun
 
 class DeploymentCreated(BaseModel):
     """predict_key is present only when a new deployment was minted (shown once); a 'main' re-deploy omits it."""
@@ -45,3 +47,23 @@ class TestCall(BaseModel):
     response: Any
     latency_ms: float | None
     created_at: datetime
+
+
+class RunDeployment(BaseModel):
+    id: uuid.UUID
+    status: str
+    route_prefix: str
+
+
+class LineageModel(BaseModel):
+    id: uuid.UUID
+    mlflow_model_name: str
+    mlflow_version: str
+    stage: str
+
+
+class TrainingRunLineage(BaseModel):
+    training_run: LineageRun
+    dataset_version: VersionRef | None
+    model_version: LineageModel | None
+    deployment: RunDeployment | None

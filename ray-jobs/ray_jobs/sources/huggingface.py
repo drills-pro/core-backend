@@ -63,6 +63,8 @@ def hf_candidates(task: str, features: list[dict]) -> list[str]:
 def verify_hf(task: str, card_categories: list[str], features: list[dict], column: str | None, report: Report) -> str | None:
     """Both the card's task_categories and the feature schema must agree with the project's task type.
     Returns the chosen target/label column (None on failure)."""
+    if task not in HF_CARD_CATEGORY:
+        raise ValueError(f"the Hugging Face import does not support {task}")
     if HF_CARD_CATEGORY[task] not in (card_categories or []):
         report.error(Code.HF_CARD_MISMATCH, f"card task_categories {card_categories} do not include {task}")
         return None

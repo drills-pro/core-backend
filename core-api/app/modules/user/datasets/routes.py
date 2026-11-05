@@ -1,12 +1,13 @@
 """Datasets HTTP surface: parse, authorize, call the service, shape the response."""
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.core.authz import Action, AuthzContext, require
+from app.core.idempotency import IdempotencyKey
 from app.core.pagination import Page, PageParams
 from app.modules.user.datasets import import_service, preview_service, service
-from app.modules.user.datasets.constants import IDEMPOTENCY_HEADER, PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT
+from app.modules.user.datasets.constants import PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT
 from app.modules.user.datasets.schemas import (
     DatasetCreate,
     DatasetImport,
@@ -85,7 +86,7 @@ async def create_import(
     project_id: uuid.UUID,
     dataset_id: uuid.UUID,
     body: ImportCreate,
-    idempotency_key: str = Header(alias=IDEMPOTENCY_HEADER, min_length=1, max_length=255),
+    idempotency_key: IdempotencyKey,
     ctx: AuthzContext = Depends(require(Action.DATASET_WRITE)),
 ):
     return await import_service.create_import(ctx, project_id, dataset_id, body, idempotency_key)

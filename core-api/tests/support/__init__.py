@@ -24,7 +24,7 @@ class FakeConn:
     """Stands in for an asyncpg connection.
 
     project_access answers `access`; any other fetchrow / fetchval answers the first `rows` / `vals` entry whose key
-    is a substring of the SQL, else `row` / `val`; fetch answers `rowset`. Every query lands in `calls` as (sql, args); the args of
+    is a substring of the SQL, else `row` / `val` (a task_types lookup answers the migration's seed); fetch answers `rowset`. Every query lands in `calls` as (sql, args); the args of
     each execute() also land in `executed` (pass a list to share it across connections).
     """
 
@@ -36,7 +36,16 @@ class FakeConn:
 
     async def fetchrow(self, sql, *args):
         self.calls.append((sql, args))
-        return self.access if "project_access" in sql else _canned(self.rows, sql, self.row)
+        if "project_access" in sql:
+            return self.access
+        default = self.row
+        if "FROM plan_limits" in sql:  # no row = the YAML limits, unless the test says otherwise (rows={"FROM plan_limits": ...})
+            default = None
+        if "FROM task_types WHERE slug" in sql:  # the seeded table, unless the test says otherwise (rows={"FROM task_types": ...})
+            from tests.support.task_types import seeded
+
+            default = seeded(args[0])
+        return _canned(self.rows, sql, default)
 
     async def fetchval(self, sql, *args):
         self.calls.append((sql, args))

@@ -60,3 +60,8 @@ def test_http_get_stops_reading_at_the_cap(monkeypatch):
     assert http_get("u", 50) == b"x" * 50
     with pytest.raises(LimitExceeded):
         http_get("u", 49)
+
+
+def test_stats_and_ingest_refuse_a_task_they_do_not_know():
+    with pytest.raises(KeyError):
+        compute_stats([], "image-segmentation", None, 0)

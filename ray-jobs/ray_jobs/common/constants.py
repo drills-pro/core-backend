@@ -4,6 +4,7 @@ import re
 # --- layout (mirrors app/integrations/data_plane/layout.py; tests/ingest_job asserts equality) ---
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
+SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 OUT_PREFIX = "out/"
 OBJECTS_PREFIX = "objects/"
 INDEX_KEY = "index.parquet"
@@ -18,6 +19,8 @@ IMAGE_CLASSIFICATION = "image-classification"
 OBJECT_DETECTION = "object-detection"
 TABULAR_CLASSIFICATION = "tabular-classification"
 TABULAR_REGRESSION = "tabular-regression"
+TEXT_CLASSIFICATION = "text-classification"
+TEXT_COLUMN = "text"  # a text dataset is a table with these two columns (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)
 IMAGE_TASKS = (IMAGE_CLASSIFICATION, OBJECT_DETECTION)
 TABULAR_TASKS = (TABULAR_CLASSIFICATION, TABULAR_REGRESSION)
 

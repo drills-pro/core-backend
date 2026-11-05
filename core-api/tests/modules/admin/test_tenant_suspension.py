@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 from app.core import problem
 from app.core.authz import Action, AuthzContext, TenantRole, TenantStatus, require
 from app.core.enums import TaskType
-from app.modules.admin.tenants import detail
+from app.modules.admin.tenants import detail, service
 from tests.support import FakeConn, TenantCtx, access, patch_tenant_conn
+from tests.support.task_types import seeded
 
 TENANT = uuid.uuid4()
 
@@ -29,7 +30,9 @@ class TenantsConn(FakeConn):
         self.state["status"] = status
         return self.org_id if self.org_id is not None else ""
 
-    async def fetchrow(self, sql, actor, tenant, project):
+    async def fetchrow(self, sql, actor, tenant=None, project=None):
+        if "FROM task_types" in sql:
+            return seeded(actor)
         return access(TenantRole.OWNER, None, None, None, self.state["status"])
 
 
@@ -46,8 +49,8 @@ def world(monkeypatch, dev_headers):
         async def get_pool():
             return SimpleNamespace(acquire=lambda: TenantCtx(conn))
 
-        monkeypatch.setattr(detail, "get_pool", get_pool)
-        monkeypatch.setattr(detail.zitadel, "set_org_state", set_org_state)
+        monkeypatch.setattr(service, "get_pool", get_pool)
+        monkeypatch.setattr(service.zitadel, "set_org_state", set_org_state)
         patch_tenant_conn(monkeypatch, conn)
         app = FastAPI()
         problem.install(app)
@@ -89,6 +92,6 @@ def test_admin_create_project_rejects_reserved_task_type(world):
     client, _ = world("org-1")
     r = client.post(
         f"/v1/admin/tenants/{TENANT}/projects",
-        json={"name": "x", "task_type": TaskType.TEXT_CLASSIFICATION},
+        json={"name": "x", "task_type": TaskType.TEXT_GENERATION},
     )
     assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")

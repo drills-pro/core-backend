@@ -9,6 +9,7 @@ on:
       - "docker-compose.yml"
       - "scripts/lint-migrations.py"
       - "scripts/migrations-check.sh"
+  pull_request:  # only the migrations job runs on a pull request: the tests have their own workflow (tests.yml)
   workflow_dispatch:
 
 env:
@@ -16,6 +17,7 @@ env:
 
 jobs:
   changes:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       core-api: ${{ steps.filter.outputs.core-api }}
@@ -46,9 +48,16 @@ jobs:
       - run: python3 scripts/lint-migrations.py core-api/migrations/*.sql
       - run: ./scripts/migrations-check.sh
 
+  # The suites a pull request has to pass (tests.yml), so a red test cannot become an image. Not on a pull request:
+  # tests.yml already runs there.
+  tests:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/tests.yml
+
   build-core-api:
-    needs: [changes, migrations]
-    if: needs.changes.outputs.core-api == 'true' || github.event_name == 'workflow_dispatch'
+    needs: [changes, migrations, tests]
+    # Never from a pull request: this job pushes to GHCR.
+    if: github.event_name != 'pull_request' && (needs.changes.outputs.core-api == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.push.outputs.digest }}

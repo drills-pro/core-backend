@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import DefaultAccess, Role, Visibility
 from app.core.enums import TaskType
-from app.modules.user.projects.constants import ComputeTarget, DeployStrategy, ProjectStatus
+from app.integrations.serve_client import ComputeTarget
+from app.modules.user.projects.constants import DeployStrategy, ProjectStatus
 
 
 class ProjectSummary(BaseModel):
@@ -16,6 +17,12 @@ class ProjectSummary(BaseModel):
     team_id: uuid.UUID | None
     task_type: TaskType
     created_at: datetime
+
+
+class CreatedProject(ProjectSummary):
+    visibility: Visibility
+    default_access: DefaultAccess
+    gallery_published: bool
 
 
 class ProjectUpdated(ProjectSummary):

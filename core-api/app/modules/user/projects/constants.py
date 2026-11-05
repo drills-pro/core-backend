@@ -23,11 +23,6 @@ class EntityType(StrEnum):
     PROJECT_MEMBER = "project_member"
 
 
-class ComputeTarget(StrEnum):
-    CPU = "cpu"
-    GPU = "gpu"
-
-
 class DeployStrategy(StrEnum):
     MAIN = "main"
     LATEST = "latest"
@@ -38,9 +33,11 @@ class ProblemCode(StrEnum):
     LAST_PROJECT_ADMIN = "last_project_admin"
     NOT_A_TENANT_MEMBER = "not_a_tenant_member"
     NOT_PENDING_DELETE = "not_pending_delete"
+    NO_TEAM = "no_team"
+    NOTHING_TO_UPDATE = "nothing_to_update"
+    STATUS_NOT_SETTABLE = "status_not_settable"
 
 
-# Details of plain HTTPExceptions (no machine-readable code).
 NOTHING_TO_UPDATE = "nothing to update"
 NO_TEAM = "tenant has no team; create one first"
 STATUS_NOT_SETTABLE = "status must be 'active' or 'archived'"

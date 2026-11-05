@@ -1,28 +1,42 @@
 """Background reconciliation for deployments — see app/background.py."""
-from app.integrations import job_follower
+import logging
+from datetime import timedelta
+
+from app.core.tenant_conn import TenantConn
+from app.integrations import job_lifecycle
 from app.modules.user.deployments.status import DeploymentStatus
 
-_INFLIGHT_TENANTS = "SELECT inflight_deploy_tenant_ids()"
-_INFLIGHT = "SELECT id, ray_job_id FROM deployments WHERE tenant_id = $1 AND status = $2"
-_SET_STATUS = "UPDATE deployments SET status = $2 WHERE id = $1"
-_PHASE_TO_STATUS = {job_follower.Phase.SUCCEEDED: DeploymentStatus.ACTIVE, job_follower.Phase.FAILED: DeploymentStatus.FAILED}
+logger = logging.getLogger(__name__)
+
+S, Phase = DeploymentStatus, job_lifecycle.Phase
+DEPLOY_DEADLINE_SECONDS = 1800  # from the deploy job's submission; a job Ray no longer answers for fails after this
+DEPLOYMENTS = job_lifecycle.JobTable(
+    name="deployment",
+    table="deployments",
+    tenants_fn="inflight_deploy_tenant_ids",
+    inflight=(S.DEPLOYING,),
+    transitions={S.DEPLOYING: frozenset({S.ACTIVE, S.FAILED})},
+    completed_col=None,  # the table has no completed_at
+    deadline=lambda row: row["deploying_since"] + timedelta(seconds=DEPLOY_DEADLINE_SECONDS),
+)
+# A job someone stopped never serves, so it fails like one that crashed.
+_PHASE_TO_STATUS = {Phase.SUCCEEDED: S.ACTIVE, Phase.FAILED: S.FAILED, Phase.STOPPED: S.FAILED}
 
 
-async def _select(conn, tenant_id):
-    return await conn.fetch(_INFLIGHT, tenant_id, DeploymentStatus.DEPLOYING)
-
-
-async def _settle(conn, row: dict) -> None:
-    ray_status = await job_follower.poll(row["ray_job_id"])
-    new_status = _PHASE_TO_STATUS.get(job_follower.phase(ray_status)) if ray_status else None
-    if new_status is not None:
-        await conn.execute(_SET_STATUS, row["id"], new_status)
+async def _settle(row: dict, verdict: job_lifecycle.Verdict) -> None:
+    to = S.FAILED if verdict.timed_out else _PHASE_TO_STATUS.get(verdict.phase)
+    if to is None:
+        return
+    async with TenantConn(str(row["tenant_id"])) as conn:
+        moved = await job_lifecycle.advance(conn, DEPLOYMENTS, row, to)
+    if moved is None:
+        logger.info("deployment %s was moved by someone else; nothing to settle", row["id"])
+    elif verdict.timed_out:
+        await job_lifecycle.stop_quietly(row["ray_job_id"])
 
 
 async def reconcile_inflight_deployments() -> None:
-    """Same bug class as training runs / dataset imports had: nothing
-    polled Ray for a deploy job's status unless the frontend GET'd that
-    exact deployment, so a deployment nobody individually re-fetched sat
-    at 'deploying' forever even after Ray Serve finished starting it —
-    not a GPU-contention issue, just a missing poller."""
-    await job_follower.follow(_INFLIGHT_TENANTS, _select, _settle)
+    """Follow every deploying deployment: active once Ray Serve finished starting it, failed when its job failed,
+    was stopped, or outran DEPLOY_DEADLINE_SECONDS (a job Ray garbage-collected would otherwise stay 'deploying'
+    forever). Nobody has to GET the deployment for this to happen."""
+    await job_lifecycle.sweep(DEPLOYMENTS, _settle)

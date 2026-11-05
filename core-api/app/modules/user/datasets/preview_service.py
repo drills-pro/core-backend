@@ -1,43 +1,41 @@
 """Preview and files, served from the parquet index plus presigned GETs; lakeFS is never listed."""
-import asyncio
 import uuid
 from http import HTTPStatus
 
+from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.enums import TaskType
 from app.core.problem import Problem, not_found
+from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
-from app.modules.user.datasets.constants import TABULAR_TASKS, ImportStatus, ProblemCode
+from app.integrations.data_plane.data_kinds import LAYOUTS
+from app.modules.user.datasets.constants import ImportStatus, ProblemCode
+from app.modules.user.datasets.readers import dataset_task
 from app.modules.user.datasets.schemas import DatasetPreview, FileLink, PreviewRow
 
-PRESIGN_CONCURRENCY = 5  # each presign checks ownership on a pooled connection: bound them so a page cannot take the pool
-_TASK = (
-    "SELECT p.task_type FROM datasets d JOIN projects p ON p.id = d.project_id "
-    "WHERE d.project_id = $1 AND d.id = $2 AND d.deleted_at IS NULL"
-)
 _VERSION_EXISTS = "SELECT 1 FROM dataset_versions WHERE id = $1 AND dataset_id = $2"
 _IMPORT_STATUS = "SELECT status FROM dataset_imports WHERE id = $1 AND dataset_id = $2"
 _NOT_IN_REVIEW = "only an import awaiting review has a staged preview"
 
 
-async def _task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID) -> TaskType:
-    task = await conn.fetchval(_TASK, project_id, dataset_id)
-    if task is None:  # RLS hides other tenants' rows: indistinguishable from a missing one
+async def _task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID) -> TaskInfo:
+    task = await dataset_task(conn, project_id, dataset_id)
+    if task is None:  # a project without a task type has no data to preview
         raise not_found()
-    return TaskType(task)
+    return await task_types.require_supported(conn, TaskType(task))
 
 
-async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, version_id: uuid.UUID) -> TaskType:
+async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, version_id: uuid.UUID) -> TaskInfo:
     task = await _task(conn, project_id, dataset_id)
     if await conn.fetchval(_VERSION_EXISTS, version_id, dataset_id) is None:
         raise not_found()
     return task
 
 
-def _key(task: TaskType) -> str:
-    return layout.DATA_KEY if task in TABULAR_TASKS else layout.INDEX_KEY
+def _key(task: TaskInfo) -> str:
+    return LAYOUTS[task.data_kind].data_key
 
 
 async def version_preview(
@@ -47,17 +45,11 @@ async def version_preview(
         task = await _version_task(conn, project_id, dataset_id, version_id)
     tenant, ds, ver = ctx.tenant_id, str(dataset_id), str(version_id)
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
-    if task in TABULAR_TASKS:
+    if not LAYOUTS[task.data_kind].has_objects:
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
-    # ponytail: one ownership query per URL, PRESIGN_CONCURRENCY at a time; add a batch presign op if previews grow past a page
-    gate = asyncio.Semaphore(PRESIGN_CONCURRENCY)
-
-    async def presign(row: dict) -> str:
-        async with gate:
-            return await data_plane.presign_get(tenant, ds, ver, layout.OBJECTS_PREFIX + row["path"])
-
-    urls = await asyncio.gather(*(presign(r) for r in rows))
-    return DatasetPreview(rows=[PreviewRow(data=r, url=u) for r, u in zip(rows, urls)])
+    paths = [layout.OBJECTS_PREFIX + r["path"] for r in rows]
+    urls = await data_plane.presign_gets(tenant, ds, ver, paths)
+    return DatasetPreview(rows=[PreviewRow(data=r, url=urls[p]) for r, p in zip(rows, paths)])
 
 
 async def import_preview(

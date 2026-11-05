@@ -132,6 +132,22 @@ def test_layer_boundaries_hold():
     assert not problems, "architecture boundary violations:\n  " + "\n  ".join(problems)
 
 
+def test_no_two_contexts_import_each_other():
+    """Imports between contexts go one way: if A imports B, B (even lazily) must not import A."""
+    contexts = _contexts()
+    edges = set()
+    for path in _iter_python_files():
+        own = _context_of(_dotted(path.parent), contexts)
+        if own is None:
+            continue
+        for target, _ in _imported_modules(path):
+            other = _context_of(target, contexts)
+            if other is not None and other != own:
+                edges.add((own, other))
+    cycles = sorted(f"{a} <-> {b}" for a, b in edges if a < b and (b, a) in edges)
+    assert not cycles, "contexts import each other:\n  " + "\n  ".join(cycles)
+
+
 def test_every_package_is_a_real_package():
     missing = [
         str(pkg.relative_to(APP.parent))
@@ -218,14 +234,57 @@ def test_the_backend_rule_catches_what_it_claims_to():
     assert not _reaches_backend("secret_files.problems(secret_files.DATA_PLANE)", "app/x.py")
 
 
+# Every error raised in app/ is a Problem with a named code (app/core/problem.py). A bare HTTPException would get a
+# code derived from its status, and a literal code is a magic string; app/core/problem.py itself is the one exception.
+_PROBLEM_MODULE = "app/core/problem.py"
+
+
+def _error_violations(source: str, rel: str) -> list[str]:
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+        if name == "HTTPException":
+            found.append(f"{rel}:{node.lineno} raises HTTPException; raise a Problem with a ProblemCode")
+        elif name == "Problem":
+            code = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "code"), None)
+            if isinstance(code, (ast.Constant, ast.JoinedStr)):
+                found.append(f"{rel}:{node.lineno} gives Problem a literal code; name it in a ProblemCode")
+    return found
+
+
+def test_every_error_is_a_problem_with_a_named_code():
+    offenders = [
+        v
+        for p in _iter_python_files()
+        if (rel := str(p.relative_to(APP.parent))) != _PROBLEM_MODULE
+        for v in _error_violations(p.read_text(encoding="utf-8"), rel)
+    ]
+    assert not offenders, "\n  ".join(["errors must be Problems with a ProblemCode:", *offenders])
+
+
+def test_the_error_rule_catches_what_it_claims_to():
+    assert _error_violations("raise HTTPException(status_code=404)", "app/x.py")
+    assert _error_violations("raise fastapi.HTTPException(404)", "app/x.py")
+    assert _error_violations('raise Problem(409, "conflict", "x")', "app/x.py")
+    assert _error_violations('raise Problem(409, code="conflict", detail="x")', "app/x.py")
+    assert _error_violations('raise Problem(409, f"{c}", "x")', "app/x.py")
+    assert not _error_violations("raise Problem(409, ProblemCode.LAST_OWNER, 'x')", "app/x.py")
+    assert not _error_violations("raise Problem(409, INVALID_PATH, 'x')", "app/x.py")  # a named module constant
+    assert not _error_violations("isinstance(e, HTTPException)", "app/x.py")
+
+
 if __name__ == "__main__":
     failures = 0
-    for check in (test_layer_boundaries_hold, test_every_package_is_a_real_package,
+    for check in (test_layer_boundaries_hold, test_no_two_contexts_import_each_other, test_every_package_is_a_real_package,
                   test_every_module_exports_a_router,
                   test_composition_root_registers_every_module,
                   test_removed_legacy_code_is_gone_and_unreferenced,
                   test_only_the_data_plane_reaches_lakefs_and_mlflow,
-                  test_the_backend_rule_catches_what_it_claims_to):
+                  test_the_backend_rule_catches_what_it_claims_to,
+                  test_every_error_is_a_problem_with_a_named_code,
+                  test_the_error_rule_catches_what_it_claims_to):
         try:
             check()
             print(f"PASS {check.__name__}")

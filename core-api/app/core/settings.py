@@ -109,6 +109,46 @@ class DatasetLimits(_Section):
     max_active_imports_per_tenant: int
 
 
+class Training(_Section):
+    """The driver and the deadline ceiling; the task's own cpu, memory and gpu are per preset (app/core/presets.py)."""
+
+    driver_cpus: float  # the CPU-pool driver that starts that task
+    max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
+
+
+class ServingApp(_Section):
+    """One shared predictor app (ray_serving), per compute target: its replicas and what each one holds."""
+
+    min_replicas: int
+    max_replicas: int
+    num_cpus: float
+    num_gpus: float
+    resources: dict[str, float]  # custom Ray resources each replica asks for: how an app is pinned to a worker pool
+
+
+class ServingApps(_Section):
+    cpu: ServingApp
+    gpu: ServingApp
+
+
+class Serving(_Section):
+    """The shared Serve apps every shared deployment is answered by (app/integrations/serve_client.py)."""
+
+    max_models_per_replica: int  # models a replica keeps loaded; the least recently used is dropped for another
+    max_ongoing_requests: int  # per replica; more wait in Serve's queue
+    health_check_period_seconds: int  # how often Serve probes a replica
+    health_check_timeout_seconds: int  # a replica that has not answered a probe in this long is replaced
+    graceful_shutdown_timeout_seconds: int  # a stopping replica gets this long to finish its requests
+    url: str  # the Serve proxy Service core-api calls (a ClusterIP Service in front of every node's proxy); "" = the Ray head's address
+    connect_retries: int  # a call that cannot connect is tried again this many times
+    request_timeout_seconds: int  # core-api's wait for an answer, which includes a cold load of the model
+    max_body_bytes: int  # the ceiling: a /predict or test body larger than this is refused with 413 before it is parsed; also the most a plan may allow
+    max_inflight_per_deployment: int  # fallback for a tier without a plan_limits row: concurrent requests to one deployment in one core-api process; more get 429
+    predict_calls_retention_days: int  # predict_calls rows older than this are purged
+    package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
+    apps: ServingApps
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
@@ -139,6 +179,8 @@ class Settings(BaseSettings):
     mlflow: Mlflow
     data_plane: DataPlane
     dataset_limits: DatasetLimits
+    training: Training
+    serving: Serving
     observability: Observability
     public: Public
     secrets: SecretPaths

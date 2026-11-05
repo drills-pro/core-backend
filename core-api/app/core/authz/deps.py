@@ -8,8 +8,11 @@ the caller is not in), then one `project_access` call decides the rest.
     visible but action not allowed              -> 403 forbidden, naming the action
 """
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from http import HTTPStatus
+from typing import Any
 
 from fastapi import Depends, Request
 
@@ -17,7 +20,6 @@ from app.core import audit
 from app.core.authz.policy import (
     MANAGER_ROLES,
     PROJECT_ACTIONS,
-    TENANT_ACTIONS,
     Action,
     DefaultAccess,
     Role,
@@ -26,7 +28,7 @@ from app.core.authz.policy import (
     Visibility,
     allowed_actions,
 )
-from app.core.problem import Problem, not_found
+from app.core.problem import Problem, ProblemCode, not_found
 from app.core.settings import settings
 from app.core.tenancy import get_actor, get_tenant_id
 from app.core.tenant_conn import TenantConn
@@ -62,6 +64,23 @@ class AuthzContext:
         return await conn.fetchval("SELECT array_agg(i) FROM accessible_project_ids($1, $2) i", self.actor, self.tenant_id) or []
 
 
+# Projects live in a context core cannot import: the projects package registers its existence check here when it is
+# imported, and an unregistered check fails closed.
+ProjectExists = Callable[[Any, uuid.UUID], Awaitable[bool]]
+_project_exists: ProjectExists | None = None
+
+
+def register_project_exists(check: ProjectExists) -> None:
+    global _project_exists
+    _project_exists = check
+
+
+async def _exists(conn, project_id: uuid.UUID) -> bool:
+    if _project_exists is None:
+        raise RuntimeError("no project existence check is registered")
+    return await _project_exists(conn, project_id)
+
+
 def _parse_uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
@@ -86,7 +105,7 @@ def require(action: Action, *, allow_pending_delete: bool = False):
             project_id = _parse_uuid(request.path_params["project_id"]) if project_scoped else None
             row = await conn.fetchrow("SELECT * FROM project_access($1, $2, $3)", actor, tenant_id, project_id)
             if row is None and project_scoped and settings.auth.dev_headers:
-                if await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id) is None:
+                if not await _exists(conn, project_id):
                     raise not_found()
 
         if row is None:
@@ -110,7 +129,7 @@ def require(action: Action, *, allow_pending_delete: bool = False):
         if project_scoped and not actions & PROJECT_ACTIONS:
             raise not_found()  # private and unbound: do not reveal it exists
         if action not in actions:
-            raise Problem(403, "forbidden", f"missing action {action}", action=action.value)
+            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing action {action}", action=action.value)
         if project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS:
             if action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound):
                 async with TenantConn(tenant_id) as conn:  # the grant came from the tenant role alone

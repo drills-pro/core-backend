@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "ConfusionMatrix": {
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        },
+        "matrix": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": "Matrix",
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "matrix"
+      ],
+      "title": "ConfusionMatrix",
+      "type": "object"
+    },
+    "FailureCode": {
+      "enum": [
+        "oom",
+        "bad_data",
+        "unsupported",
+        "timeout",
+        "internal"
+      ],
+      "title": "FailureCode",
+      "type": "string"
+    },
+    "TrainOutcome": {
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "title": "TrainOutcome",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/TrainOutcome"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "metrics": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "default": {},
+      "title": "Metrics",
+      "type": "object"
+    },
+    "history": {
+      "default": [],
+      "items": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "type": "object"
+      },
+      "maxItems": 500,
+      "title": "History",
+      "type": "array"
+    },
+    "confusion_matrix": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConfusionMatrix"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "TrainReport",
+  "type": "object"
+}

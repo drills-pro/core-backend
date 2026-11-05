@@ -11,6 +11,7 @@ import pytest
 from app.core.enums import BlockstoreScheme
 from app.core.problem import Problem
 from app.core.settings import settings
+from app.core.task_catalog import DataKind
 from app.integrations import data_plane
 from app.integrations.data_plane import access, layout, lakefs, mlflow
 from app.integrations.data_plane.mlflow import RunStatus
@@ -22,7 +23,8 @@ COMMIT = "c0ffee"
 ARGS = {
     "tenant_id": TENANT, "dataset_id": DATASET, "import_id": IMPORT, "dataset_version_id": VERSION,
     "version_id": VERSION, "project_id": PROJECT, "run_id": RUN, "path": "objects/a.jpg", "message": "m",
-    "spec": None, "kind": None, "key": layout.INDEX_KEY, "limit": 5, "model_name": "clf", "version": "1", "stage": "Staging", "status": RunStatus.FINISHED,
+    "spec": None, "kind": None, "limits": settings.dataset_limits, "column": "path", "paths": ["objects/a.jpg"], "ttl_seconds": 60, "mlflow_run_id": "mlflow-run",
+    "key": layout.INDEX_KEY, "limit": 5, "data_kind": DataKind.IMAGES, "model_name": "clf", "version": "1", "stage": "Staging", "package_sha256": "a" * 64, "status": RunStatus.FINISHED,
 }
 
 
@@ -170,7 +172,7 @@ def test_commit_staged_copies_each_object_into_the_repo_and_commits_once(owned, 
     copied, links, posted = [], [], []
     monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: _CopyingS3(copied))
     _lakefs_stub(monkeypatch, _commit_handler(posted, links=links))
-    assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import")) == "abc"
+    assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import", settings.dataset_limits)) == "abc"
     staged = layout.staging_prefix(TENANT, DATASET, IMPORT) + layout.OUT_PREFIX
     assert sorted(c["CopySource"]["Key"] for c in copied) == sorted(staged + rel for rel, _ in GOOD_OUT)
     assert {c["CopySource"]["Bucket"] for c in copied} == {settings.data_plane.staging_bucket}
@@ -185,7 +187,7 @@ def test_a_retried_commit_returns_the_commit_an_earlier_try_made(owned, monkeypa
     posted = []
     history = [{"id": "other", "metadata": {}}, {"id": "orphan", "metadata": {lakefs.IMPORT_ID_METADATA: IMPORT}}]
     _lakefs_stub(monkeypatch, _commit_handler(posted, history))
-    assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import")) == "orphan"
+    assert asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import", settings.dataset_limits)) == "orphan"
     assert posted == []  # no second commit
 
 
@@ -196,7 +198,7 @@ def test_a_failed_link_makes_no_commit(owned, monkeypatch):
     handler = _commit_handler(posted)
     _lakefs_stub(monkeypatch, lambda request: httpx.Response(500) if request.method == "PUT" else handler(request))
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
+        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import", settings.dataset_limits))
     assert posted == []
 
 
@@ -213,7 +215,7 @@ def test_a_commit_that_outlives_the_timeout_fails(owned, monkeypatch):
     monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: Slow([]))
     _lakefs_stub(monkeypatch, _commit_handler([]))
     with pytest.raises(TimeoutError):
-        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
+        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import", settings.dataset_limits))
 
 
 LIMITS = settings.dataset_limits
@@ -232,12 +234,12 @@ def test_commit_staged_refuses_output_outside_the_rules_before_touching_lakefs_d
     _staged(monkeypatch, entries)
     _lakefs_stub(monkeypatch, _commit_handler(posted))
     with pytest.raises(Problem) as err:
-        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import"))
+        asyncio.run(lakefs.commit_staged(TENANT, DATASET, IMPORT, "import", settings.dataset_limits))
     assert (err.value.status_code, err.value.code) == (422, lakefs.INVALID_STAGED_OUTPUT) and posted == []
 
 
 def test_tabular_output_is_allowed(owned, monkeypatch):
-    assert lakefs._staged_violation([(layout.DATA_KEY, 3), (layout.SCHEMA_KEY, 1)]) is None
+    assert lakefs._staged_violation([(layout.DATA_KEY, 3), (layout.SCHEMA_KEY, 1)], settings.dataset_limits) is None
 
 
 def test_delete_repo_tolerates_a_missing_repo_and_still_purges_the_namespace(owned, monkeypatch):

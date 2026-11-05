@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "DataKind": {
+      "enum": [
+        "images",
+        "tabular",
+        "text"
+      ],
+      "title": "DataKind",
+      "type": "string"
+    },
     "DatasetLimits": {
       "additionalProperties": false,
       "description": "Ceilings the API and the ingest job enforce (docs/datasets-plan.md decision 16). Static knobs.",
@@ -88,6 +97,34 @@
         "max_active_imports_per_tenant"
       ],
       "title": "DatasetLimits",
+      "type": "object"
+    },
+    "Hyperparameters": {
+      "description": "What a caller may tune; every field has the platform default, so a request names only what it changes.",
+      "properties": {
+        "batch_size": {
+          "default": 16,
+          "maximum": 512,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "epochs": {
+          "default": 30,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "image_size": {
+          "default": 224,
+          "maximum": 1536,
+          "minimum": 32,
+          "title": "Image Size",
+          "type": "integer"
+        }
+      },
+      "title": "Hyperparameters",
       "type": "object"
     },
     "ImportSource": {
@@ -248,6 +285,109 @@
       "title": "IngestPayload",
       "type": "object"
     },
+    "IngestSpec": {
+      "properties": {
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "ingest",
+          "default": "ingest",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/IngestPayload"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "tenant_id",
+        "resources",
+        "payload"
+      ],
+      "title": "IngestSpec",
+      "type": "object"
+    },
+    "Preprocessing": {
+      "description": "How an image becomes the model's input: resize (stretch, to a square `image_size`) with `resample`, multiply by\n`rescale`, then (x - mean) / std per RGB channel. Trained with, recorded in model.json, applied again when serving.",
+      "properties": {
+        "mean": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Mean",
+          "type": "array"
+        },
+        "resample": {
+          "$ref": "#/$defs/Resample"
+        },
+        "rescale": {
+          "exclusiveMinimum": 0,
+          "title": "Rescale",
+          "type": "number"
+        },
+        "std": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Std",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean",
+        "std",
+        "rescale",
+        "resample"
+      ],
+      "title": "Preprocessing",
+      "type": "object"
+    },
+    "Resample": {
+      "description": "PIL resampling filter of the resize to a square `image_size` (the trainer mirrors this enum, contract-tested).",
+      "enum": [
+        "bilinear",
+        "bicubic"
+      ],
+      "title": "Resample",
+      "type": "string"
+    },
     "Resources": {
       "description": "Declared, never inferred (planning 06): the scheduler and quotas act on these.",
       "properties": {
@@ -292,7 +432,7 @@
       "type": "string"
     },
     "TaskType": {
-      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today.",
+      "description": "Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole\ntaxonomy is accepted by the schema; the task_types table is what the platform can do today.",
       "enum": [
         "image-classification",
         "object-detection",
@@ -311,43 +451,224 @@
       ],
       "title": "TaskType",
       "type": "string"
+    },
+    "TextPreprocessing": {
+      "additionalProperties": false,
+      "description": "How text becomes the model's input: the base model's tokenizer, truncated and padded to `max_length` tokens.\nTrained with, recorded in model.json (with tokenizer.json), applied again when serving.",
+      "properties": {
+        "max_length": {
+          "exclusiveMinimum": 0,
+          "title": "Max Length",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_length"
+      ],
+      "title": "TextPreprocessing",
+      "type": "object"
+    },
+    "TrainBaseModel": {
+      "description": "A pretrained checkpoint on the Hugging Face Hub, pinned to a commit.",
+      "properties": {
+        "repo_id": {
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_id",
+        "revision"
+      ],
+      "title": "TrainBaseModel",
+      "type": "object"
+    },
+    "TrainData": {
+      "description": "Presigned reads of one dataset version, valid past `resources.max_runtime_s`. The trainer holds no lakeFS credential.",
+      "properties": {
+        "data_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Url"
+        },
+        "index_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Url"
+        },
+        "lakefs_commit": {
+          "title": "Lakefs Commit",
+          "type": "string"
+        },
+        "manifest_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Url"
+        },
+        "version_id": {
+          "format": "uuid",
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id",
+        "lakefs_commit"
+      ],
+      "title": "TrainData",
+      "type": "object"
+    },
+    "TrainPayload": {
+      "description": "What the train driver reads. It writes `model.onnx`, `model.json` and `report.json` under `prefix` in `bucket`.",
+      "properties": {
+        "base_model": {
+          "$ref": "#/$defs/TrainBaseModel"
+        },
+        "bucket": {
+          "title": "Bucket",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/TrainData"
+        },
+        "data_kind": {
+          "$ref": "#/$defs/DataKind"
+        },
+        "hyperparameters": {
+          "$ref": "#/$defs/Hyperparameters"
+        },
+        "learning_rate": {
+          "exclusiveMinimum": 0,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "prefix": {
+          "title": "Prefix",
+          "type": "string"
+        },
+        "preprocessing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Preprocessing"
+            },
+            {
+              "$ref": "#/$defs/TextPreprocessing"
+            }
+          ],
+          "title": "Preprocessing"
+        },
+        "preset": {
+          "title": "Preset",
+          "type": "string"
+        },
+        "seed": {
+          "default": 42,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskType"
+        },
+        "trainer": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Trainer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bucket",
+        "prefix",
+        "task",
+        "trainer",
+        "data_kind",
+        "preset",
+        "base_model",
+        "learning_rate",
+        "preprocessing",
+        "data",
+        "hyperparameters"
+      ],
+      "title": "TrainPayload",
+      "type": "object"
+    },
+    "TrainSpec": {
+      "properties": {
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "train",
+          "default": "train",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TrainPayload"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "tenant_id",
+        "resources",
+        "payload"
+      ],
+      "title": "TrainSpec",
+      "type": "object"
     }
   },
-  "properties": {
-    "job_id": {
-      "title": "Job Id",
-      "type": "string"
+  "discriminator": {
+    "mapping": {
+      "ingest": "#/$defs/IngestSpec",
+      "train": "#/$defs/TrainSpec"
     },
-    "kind": {
-      "const": "ingest",
-      "default": "ingest",
-      "title": "Kind",
-      "type": "string"
-    },
-    "payload": {
-      "$ref": "#/$defs/IngestPayload"
-    },
-    "resources": {
-      "$ref": "#/$defs/Resources"
-    },
-    "spec_version": {
-      "const": 1,
-      "default": 1,
-      "title": "Spec Version",
-      "type": "integer"
-    },
-    "tenant_id": {
-      "format": "uuid",
-      "title": "Tenant Id",
-      "type": "string"
-    }
+    "propertyName": "kind"
   },
-  "required": [
-    "job_id",
-    "tenant_id",
-    "resources",
-    "payload"
-  ],
-  "title": "IngestSpec",
-  "type": "object"
+  "oneOf": [
+    {
+      "$ref": "#/$defs/IngestSpec"
+    },
+    {
+      "$ref": "#/$defs/TrainSpec"
+    }
+  ]
 }

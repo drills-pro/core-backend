@@ -5,7 +5,8 @@ Run from core-api/ with its venv: APP_ENV=test PYTHONPATH=. .venv/bin/python ../
 import json
 from pathlib import Path
 
-from app.integrations.job_spec import IngestSpec
+import app.integrations.data_plane  # noqa: F401 - loads the gateway first: job_spec and data_plane import each other
+from app.integrations.job_spec import SPEC_ADAPTER
 
 OUT = Path(__file__).parents[1] / "contracts" / "job-spec.v1.json"
-OUT.write_text(json.dumps(IngestSpec.model_json_schema(), indent=2, sort_keys=True) + "\n")
+OUT.write_text(json.dumps(SPEC_ADAPTER.json_schema(), indent=2, sort_keys=True) + "\n")

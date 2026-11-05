@@ -1,15 +1,18 @@
 """Project lifecycle, settings and member bindings: the business rules and queries behind routes.py."""
 import uuid
+from http import HTTPStatus
 
-from fastapi import HTTPException
-
-from app.core import audit
+from app.core import audit, task_types
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
-from app.core.enums import TaskType, require_supported_task_type
+from app.core.enums import TaskType
 from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
+from app.modules.user.teams import get_default_team_id
+from app.modules.user.tenant_members import is_member
+from app.modules.user.projects import readers
+from app.modules.user.projects.writers import create_project as insert_project
 from app.modules.user.projects.constants import (
     NO_TEAM,
     NOTHING_TO_UPDATE,
@@ -43,11 +46,6 @@ def _live(row):
     return row
 
 
-async def _record(conn, ctx: AuthzContext, project_id: uuid.UUID, action: AuditAction, entity_type: EntityType, entity_id) -> None:
-    await audit.record(conn, tenant_id=ctx.tenant_id, project_id=project_id, actor=ctx.actor,
-                       action=action, entity_type=entity_type, entity_id=entity_id)
-
-
 async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSummary]:
     async with TenantConn(ctx.tenant_id) as conn:
         ids = await ctx.accessible_project_ids(conn)
@@ -63,32 +61,25 @@ async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSumm
 
 
 async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team_id: uuid.UUID | None) -> ProjectSummary:
-    require_supported_task_type(task_type)
     async with TenantConn(ctx.tenant_id) as conn:
+        await task_types.require_supported(conn, task_type)
         if team_id is None:
             # Every org has >=1 team (seeded at provisioning); a project with no team_id given lands in
             # the tenant's oldest (Default) team rather than requiring every caller to look it up.
-            team_id = await conn.fetchval("SELECT id FROM teams ORDER BY created_at LIMIT 1")
+            team_id = await get_default_team_id(conn)
             if team_id is None:
-                raise HTTPException(status_code=409, detail=NO_TEAM)
-        row = await conn.fetchrow(
-            f"INSERT INTO projects (tenant_id, name, team_id, task_type) VALUES ($1, $2, $3, $4) RETURNING {_SUMMARY}",
-            ctx.tenant_id,
-            name,
-            team_id,
-            task_type,
-        )
-        await _record(conn, ctx, row["id"], AuditAction.CREATE, EntityType.PROJECT, row["id"])
+                raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_TEAM, NO_TEAM)
+        created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type, ctx.actor)
         # The creator administers what they create (planning/04: auto-bound project_admin).
         await conn.execute(
             "INSERT INTO project_members (tenant_id, project_id, user_sub, role) VALUES ($1, $2, $3, $4)",
             ctx.tenant_id,
-            row["id"],
+            created.id,
             ctx.actor,
             Role.PROJECT_ADMIN,
         )
     usage_metrics.projects_created.add(1, {"task_type": task_type})
-    return ProjectSummary.model_validate(dict(row))
+    return ProjectSummary.model_validate(created.model_dump())
 
 
 async def get_project(ctx: AuthzContext, project_id: uuid.UUID) -> ProjectDetail:
@@ -111,16 +102,13 @@ async def update_project(
 ) -> ProjectUpdated:
     # `status` covers archive/reactivate; delete is its own operation (grace period).
     if status is ProjectStatus.PENDING_DELETE:
-        raise HTTPException(status_code=400, detail=STATUS_NOT_SETTABLE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.STATUS_NOT_SETTABLE, STATUS_NOT_SETTABLE)
     if name is None and status is None and default_test_dataset_id is None:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
 
     async with TenantConn(ctx.tenant_id) as conn:
         if default_test_dataset_id is not None:
-            owned = await conn.fetchval(
-                "SELECT 1 FROM datasets WHERE id = $1 AND project_id = $2", default_test_dataset_id, project_id
-            )
-            if not owned:
+            if not await readers.has_dataset(conn, project_id, default_test_dataset_id):
                 raise not_found()
         row = _live(
             await conn.fetchrow(
@@ -135,7 +123,7 @@ async def update_project(
                 ProjectStatus.PENDING_DELETE,
             )
         )
-        await _record(conn, ctx, project_id, AuditAction.UPDATE, EntityType.PROJECT, project_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.UPDATE, EntityType.PROJECT, project_id)
     return ProjectUpdated.model_validate(dict(row))
 
 
@@ -143,7 +131,7 @@ async def update_settings(ctx: AuthzContext, project_id: uuid.UUID, patch: Proje
     # Merged into the existing jsonb blob, not replaced.
     values = patch.model_dump(mode="json", exclude_none=True)
     if not values:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
     async with TenantConn(ctx.tenant_id) as conn:
         row = _live(
             await conn.fetchrow(
@@ -163,7 +151,7 @@ async def update_visibility(
     # Who can see the project (visibility) and what `internal` grants every tenant member
     # (default_access, planning/04) are both project_admin decisions.
     if visibility is None and default_access is None:
-        raise HTTPException(status_code=400, detail=NOTHING_TO_UPDATE)
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
     async with TenantConn(ctx.tenant_id) as conn:
         # A gallery project must stay internal (CHECK): refuse rather than silently unpublish it.
         if visibility is Visibility.PRIVATE and await conn.fetchval(
@@ -211,7 +199,7 @@ async def delete_project(ctx: AuthzContext, project_id: uuid.UUID) -> DeleteResu
                 ProjectStatus.PENDING_DELETE,
             )
         )
-        await _record(conn, ctx, project_id, AuditAction.DELETE, EntityType.PROJECT, project_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.DELETE, EntityType.PROJECT, project_id)
     return DeleteResult(id=row["id"], status=ProjectStatus.PENDING_DELETE)
 
 
@@ -227,7 +215,7 @@ async def restore_project(ctx: AuthzContext, project_id: uuid.UUID) -> ProjectSu
         )
         if row is None:  # authz already proved the project exists, so it is simply not deleted
             raise Problem(409, ProblemCode.NOT_PENDING_DELETE, "this project is not pending deletion")
-        await _record(conn, ctx, project_id, AuditAction.RESTORE, EntityType.PROJECT, project_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.RESTORE, EntityType.PROJECT, project_id)
     return ProjectSummary.model_validate(dict(row))
 
 
@@ -261,7 +249,7 @@ async def set_member_roles(ctx: AuthzContext, project_id: uuid.UUID, user_sub: s
     """Replace the person's bindings with exactly these roles. Targets must be tenant members."""
     roles = sorted({r.value for r in new_roles})
     async with TenantConn(ctx.tenant_id) as conn:
-        if not await conn.fetchval("SELECT 1 FROM tenant_members WHERE user_sub = $1", user_sub):
+        if not await is_member(conn, user_sub):
             raise Problem(400, ProblemCode.NOT_A_TENANT_MEMBER, "only tenant members can be bound to a project")
         if Role.PROJECT_ADMIN not in roles:
             await _keep_an_admin(conn, ctx, project_id, user_sub)
@@ -279,7 +267,7 @@ async def set_member_roles(ctx: AuthzContext, project_id: uuid.UUID, user_sub: s
             user_sub,
             roles,
         )
-        await _record(conn, ctx, project_id, AuditAction.SET_MEMBER_ROLES, EntityType.PROJECT_MEMBER, user_sub)
+        await audit.record_for(conn, ctx, project_id, AuditAction.SET_MEMBER_ROLES, EntityType.PROJECT_MEMBER, user_sub)
     return MemberRoles(project_id=project_id, user_sub=user_sub, roles=roles)
 
 
@@ -292,7 +280,7 @@ async def remove_member(ctx: AuthzContext, project_id: uuid.UUID, user_sub: str)
         )
         if result == "DELETE 0":
             raise not_found()
-        await _record(conn, ctx, project_id, AuditAction.REMOVE_MEMBER, EntityType.PROJECT_MEMBER, user_sub)
+        await audit.record_for(conn, ctx, project_id, AuditAction.REMOVE_MEMBER, EntityType.PROJECT_MEMBER, user_sub)
 
 
 async def audit_log(ctx: AuthzContext, project_id: uuid.UUID, page: PageParams) -> Page[AuditEntry]:

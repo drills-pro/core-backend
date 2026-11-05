@@ -43,7 +43,8 @@ def call(monkeypatch, dev_headers):
     client = make_client(datasets)
 
     def send(acc, method="GET", path="", body=None, *, row=None, missing=False, rowset=(), val=DS, qs="", executed=None):
-        conn = FakeConn(acc, row=None if missing else row or ds_row(), rowset=rowset, val=val, executed=executed)
+        conn = FakeConn(acc, row=None if missing else row or ds_row(), rowset=rowset, val=val, executed=executed,
+                        vals={"FROM projects": TaskType.IMAGE_CLASSIFICATION})  # projects.get_task_type
         patch_tenant_conn(monkeypatch, conn, service)
         r = client.request(method, f"/v1/projects/{PROJECT}/datasets{path}{qs}", json=body)
         r.conn = conn
@@ -84,8 +85,9 @@ def test_foreign_tenant_dataset_id_is_404(call, method, path):
 def test_create_takes_task_type_from_the_project(call):
     r = call(access(roles=["editor"]), "POST", "", {"name": "x"})
     assert (r.status_code, r.json()["task_type"]) == (201, "image-classification")
-    sql, args = r.conn.calls[-1]
-    assert "FROM projects" in sql and str(PROJECT) in map(str, args) and len(args) == 3  # no task type is passed in
+    insert, read = r.conn.calls[-2:]
+    assert "FROM projects" not in insert[0] and len(insert[1]) == 3  # no task type is stored or passed in
+    assert "FROM projects" in read[0] and read[1] == (PROJECT,)
 
 
 def test_create_needs_a_name(call):
@@ -99,7 +101,7 @@ def test_list_pages_with_a_cursor(call):
     assert len(body["items"]) == 2 and body["next_page_token"] == encode_token(rows[1]["created_at"], rows[1]["id"])
     r2 = call(access(), rowset=rows[2:], qs=f"?page_size=2&page_token={body['next_page_token']}")
     assert (len(r2.json()["items"]), r2.json()["next_page_token"]) == (1, None)
-    assert "(created_at, id) <" in r2.conn.calls[-1][0]
+    assert "(created_at, id) <" in queries(r2)[-1][0]
 
 
 def test_invalid_page_token_is_400(call):
@@ -109,13 +111,18 @@ def test_invalid_page_token_is_400(call):
 
 
 def test_offset_paging_is_gone(call):
-    sql = call(access(), qs="?offset=5").conn.calls[-1][0]
+    sql = queries(call(access(), qs="?offset=5"))[-1][0]
     assert "OFFSET" not in sql
 
 
 def test_versions_page(call):
     r = call(access(), path=f"/{DS}/versions", rowset=[VERSION])
     assert r.json()["items"][0]["number"] == 1 and "lakefs_commit" not in r.json()["items"][0]
+
+
+def queries(r):
+    """The dataset's own queries: the project task-type read (projects.get_task_type) is not under test here."""
+    return [c for c in r.conn.calls if "FROM projects" not in c[0]]
 
 
 def audited(executed):
@@ -157,7 +164,7 @@ def test_delete_cancels_the_running_imports_after_the_delete_committed(call, mon
 
 def test_deleted_datasets_are_hidden_from_reads(call):
     for path in ("", f"/{DS}", f"/{DS}/versions"):
-        assert "deleted_at IS NULL" in call(access(), path=path).conn.calls[-1 if path != f"/{DS}/versions" else -2][0]
+        assert "deleted_at IS NULL" in queries(call(access(), path=path))[-1 if path != f"/{DS}/versions" else -2][0]
 
 
 def test_publish_sets_the_version_scoped_to_the_dataset_and_audits(call):
@@ -165,7 +172,7 @@ def test_publish_sets_the_version_scoped_to_the_dataset_and_audits(call):
     r = call(access(roles=["editor"]), "PUT", f"/{DS}/published", {"version_id": str(VERSION["id"])},
              row=ds_row(published_version_id=VERSION["id"]), executed=executed)
     assert (r.status_code, r.json()["published_version_id"]) == (200, str(VERSION["id"]))
-    sql = r.conn.calls[-2][0]
+    sql = queries(r)[-2][0]
     assert "dataset_versions WHERE id = $3 AND dataset_id = $2" in sql  # another dataset's version matches nothing
     assert audited(executed) == [(AuditAction.PUBLISH, EntityType.DATASET, str(DS))]
 
@@ -174,7 +181,7 @@ def test_unpublish_clears_it_and_audits(call):
     executed = []
     r = call(access(roles=["editor"]), "DELETE", f"/{DS}/published", executed=executed)
     assert (r.status_code, r.json()["published_version_id"]) == (200, None)
-    assert "published_version_id = NULL" in r.conn.calls[-2][0]
+    assert "published_version_id = NULL" in queries(r)[-2][0]
     assert audited(executed) == [(AuditAction.UNPUBLISH, EntityType.DATASET, str(DS))]
 
 

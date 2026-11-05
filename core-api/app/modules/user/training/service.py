@@ -1,134 +1,80 @@
-"""Training-run domain logic: the status transition every caller funnels
-through, and the sweep that applies it to runs nobody is watching.
+"""Training-run lifecycle: settle a run whose job ended (or ran out of time), cancel one, and the sweep that applies
+settle to runs nobody is watching (app/background.py).
 
-Kept out of routes.py because both an HTTP GET and the background poller
-drive the same transition — see app/background.py.
+settle is decide -> effects -> persist (decide.py, effects.py, persist.py): the decision is pure, the effects run with
+no pooled connection, and the write is one short transaction in which only the compare-and-set winner records the
+model and the usage.
 """
 import logging
-from datetime import datetime, timezone
-
+import uuid
 from http import HTTPStatus
-
-import httpx
 
 from app.core.metrics import usage as usage_metrics
 from app.core.problem import Problem
-from app.integrations import compute, job_follower
-from app.integrations.compute import JobStatus
-from app.integrations.data_plane import mlflow
-from app.modules.user.training import log_parsing
-from app.modules.user.training.constants import INFLIGHT_STATUSES, TRANSITIONS, ProblemCode, TrainingStatus
-from app.modules.user.usage import UsageResource, UsageUnit, record_usage
+from app.core.tenant_conn import TenantConn
+from app.integrations import job_lifecycle
+from app.integrations.data_plane.train_report import FailureCode
+from app.modules.user.training import decide, effects, persist
+from app.modules.user.training.constants import TRANSITIONS, ProblemCode, TrainingStatus
 
 logger = logging.getLogger(__name__)
 
-RAY_TO_STATUS = {
-    JobStatus.PENDING: TrainingStatus.SUBMITTED,
-    JobStatus.RUNNING: TrainingStatus.RUNNING,
-    JobStatus.SUCCEEDED: TrainingStatus.SUCCEEDED,
-    JobStatus.FAILED: TrainingStatus.FAILED,
-    JobStatus.STOPPED: TrainingStatus.CANCELLED,
-}
-_INFLIGHT_TENANTS = "SELECT inflight_training_tenant_ids()"
-_INFLIGHT = "SELECT * FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
-_FINISHED = (TrainingStatus.SUCCEEDED, TrainingStatus.FAILED)
+_BY_ID = "SELECT * FROM training_runs WHERE id = $1"
 
 
-async def transition(conn, row: dict, new_status: TrainingStatus, tenant_id: str) -> dict:
-    """Handle a training run reaching (or moving toward) a terminal state:
-    FR1 (06-ml-training): log to MLflow. FR1 (09-usage-metering): bill it,
-    idempotently — this can run more than once for the same job across
-    polls, record_usage's UNIQUE(resource_type, source_ref) absorbs that."""
-    # Serialize with any other caller (GET handler, poller on another replica): the second one
-    # blocks here until the first commits, then finds the row already moved and stops, instead
-    # of logging the run to MLflow twice.
-    locked = dict(await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 FOR UPDATE", row["id"]))
-    if locked["status"] != row["status"]:
-        return locked
-    frm = TrainingStatus(row["status"])
-    if new_status not in TRANSITIONS[frm]:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is {frm}, it cannot become {new_status}")
-    completed_at = datetime.now(timezone.utc) if not TRANSITIONS[new_status] else None  # any end state
-
-    model_artifact = None  # only set below when freshly parsed; COALESCE in the UPDATE preserves any existing value
-    metrics = None
-    mlflow_run_id = row["mlflow_run_id"]
-    if new_status == TrainingStatus.CANCELLED and mlflow_run_id:
-        try:  # best effort: a tracking hiccup must not block a cancel
-            await mlflow.finish_run(tenant_id, str(row["project_id"]), mlflow_run_id, mlflow.RunStatus.KILLED)
-        except httpx.HTTPError:
-            logger.warning("could not close MLflow run %s as killed", mlflow_run_id, exc_info=True)
-    if new_status in _FINISHED:
-        logs = await compute.logs(row["ray_job_id"])
-        scalar_metrics = log_parsing.parse_metrics(logs)
-        # epoch_history/confusion_matrix are structured, not floats — MLflow's
-        # log-metric API only accepts scalars, so they're stored on our own
-        # row (below) but never sent to MLflow.
-        metrics = {**scalar_metrics, **log_parsing.parse_extra_metrics(logs)}
-        model_artifact = log_parsing.parse_model_artifact(logs)
-        if mlflow_run_id is not None:
-            await mlflow.finish_run(
-                tenant_id,
-                str(row["project_id"]),
-                mlflow_run_id,
-                mlflow.RunStatus.FINISHED if new_status == TrainingStatus.SUCCEEDED else mlflow.RunStatus.FAILED,
-                scalar_metrics,
-            )
-        if new_status == TrainingStatus.SUCCEEDED:
-            elapsed = (completed_at - row["created_at"]).total_seconds()
-            await record_usage(
-                conn,
-                tenant_id=tenant_id,
-                project_id=row["project_id"],
-                resource_type=UsageResource.TRAINING,
-                quantity=elapsed,
-                unit=UsageUnit.GPU_SECONDS,
-                occurred_at=completed_at,
-                source_ref=row["ray_job_id"],
-            )
-
-    if not TRANSITIONS[new_status]:
-        usage_metrics.training_runs.add(1, {"status": new_status})
-
-    updated = await conn.fetchrow(
-        "UPDATE training_runs SET status = $2, mlflow_run_id = $3, "
-        "completed_at = COALESCE(completed_at, $4), model_artifact = COALESCE(model_artifact, $5), "
-        "metrics = COALESCE(metrics, $6) "
-        "WHERE id = $1 AND status = $7 RETURNING *",
-        row["id"],
-        new_status,
-        mlflow_run_id,
-        completed_at,
-        model_artifact,
-        metrics,
-        frm,
-    )
-    if updated is None:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is no longer {frm}")
-    return dict(updated)
-
-
-async def _select(conn, tenant_id):
-    return await conn.fetch(_INFLIGHT, tenant_id, [str(s) for s in INFLIGHT_STATUSES])
-
-
-async def _settle(conn, row: dict) -> None:
-    ray_status = await job_follower.poll(row["ray_job_id"])
-    if ray_status is None:
+async def settle(row: dict, verdict: job_lifecycle.Verdict) -> None:
+    to = decide.target(row, verdict)
+    if to is None:
         return
-    new_status = RAY_TO_STATUS[ray_status]
-    if new_status in TRANSITIONS[TrainingStatus(row["status"])]:  # not e.g. running -> submitted
-        try:
-            await transition(conn, row, new_status, str(row["tenant_id"]))
-        except Problem as exc:
-            if exc.code != ProblemCode.INVALID_STATE:
-                raise
-            logger.info("run %s was moved by someone else; nothing to settle", row["id"])  # a cancel or another replica won
+    tenant_id = str(row["tenant_id"])
+    report = await effects.final_report(tenant_id, row) if decide.needs_report(to, verdict.timed_out) else None
+    outcome = decide.resolve(to, report, verdict.timed_out)
+    await effects.close_mlflow(tenant_id, row, outcome)
+    registered = None
+    if outcome.status is TrainingStatus.SUCCEEDED:
+        await effects.publish_model(tenant_id, row)
+        registered = await effects.register_model(tenant_id, row)
+    async with TenantConn(tenant_id) as conn:
+        moved = await persist.apply(conn, row, outcome, registered)
+    if moved is None:
+        logger.info("run %s was moved by someone else; nothing to settle", row["id"])  # a cancel or another replica won
+        return
+    if not TRANSITIONS[outcome.status]:
+        usage_metrics.training_runs.add(1, {"status": outcome.status})
+    if verdict.timed_out:
+        await job_lifecycle.stop_quietly(row["ray_job_id"])
+
+
+async def cancel(tenant_id: str, row: dict) -> dict:
+    """Close the run's MLflow run and move it to cancelled; the caller has stopped the job. When someone else moved
+    it first (the sweep saw the stopped job), that is a success if it landed on cancelled, a 409 otherwise."""
+    outcome = decide.Outcome(status=TrainingStatus.CANCELLED)
+    await effects.close_mlflow(tenant_id, row, outcome)
+    async with TenantConn(tenant_id) as conn:
+        moved = await persist.apply(conn, row, outcome)
+        if moved is None:
+            current = await conn.fetchrow(_BY_ID, row["id"])
+    if moved is None:
+        if current is not None and current["status"] == TrainingStatus.CANCELLED:
+            return dict(current)
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is no longer {row['status']}")
+    usage_metrics.training_runs.add(1, {"status": TrainingStatus.CANCELLED})
+    return moved
+
+
+async def fail_unstarted(tenant_id: str, run_id: uuid.UUID, mlflow_run_id: str, project_id: uuid.UUID) -> None:
+    """The job never started: end the run as failed so it stops counting against the quota."""
+    row = {"id": run_id, "status": TrainingStatus.SUBMITTED, "project_id": project_id, "mlflow_run_id": mlflow_run_id}
+    report = decide.failed_report(FailureCode.INTERNAL, "the training job could not be started")
+    outcome = decide.Outcome(status=TrainingStatus.FAILED, report=report)
+    async with TenantConn(tenant_id) as conn:
+        moved = await persist.apply(conn, row, outcome)
+    if moved is not None:
+        usage_metrics.training_runs.add(1, {"status": TrainingStatus.FAILED})
+    await effects.close_mlflow(tenant_id, row, outcome)
 
 
 async def reconcile_inflight_runs() -> None:
-    """Poll Ray for every submitted/running run across all tenants, so a run
-    nobody ever GETs individually still transitions out of 'submitted' —
-    otherwise it sits there forever and keeps counting against the tenant's
-    MAX_CONCURRENT_TRAINING_RUNS quota (see create_training_run)."""
-    await job_follower.follow(_INFLIGHT_TENANTS, _select, _settle)
+    """Follow every submitted/running run across all tenants, so a run nobody ever GETs individually still leaves
+    'submitted' — otherwise it keeps counting against the tenant's MAX_CONCURRENT_TRAINING_RUNS quota."""
+    await job_lifecycle.sweep(persist.TRAINING, settle)

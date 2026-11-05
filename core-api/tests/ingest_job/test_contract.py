@@ -5,8 +5,10 @@ from importlib import import_module
 
 from app.core.enums import TaskType
 from app.core.settings import DatasetLimits, settings
+from app.core.task_catalog import DataKind
 from app.integrations import job_spec
 from app.integrations.data_plane import job_catalog, layout, report as report_model
+from app.integrations.data_plane.data_kinds import ingest_job_type
 from app.integrations.job_spec import IngestBase, IngestHf, IngestPayload, IngestSpec, Resources
 from app.modules.user.datasets.constants import ImportSource
 from ray_jobs.common import constants as job
@@ -71,7 +73,7 @@ def test_the_job_reads_the_spec_core_api_writes():
         bucket="b", prefix="p/", source=ImportSource.UPLOAD, task=TaskType.IMAGE_CLASSIFICATION, limits=settings.dataset_limits))
     params = parse_spec(spec.model_dump_json())
     assert params["prefix"] == "p/" and Limits.from_dict(params["limits"])
-    assert (SPEC_VERSION, set(JobKind)) == (job_spec.SPEC_VERSION, set(job_spec.JobKind))
+    assert (SPEC_VERSION, {k.value for k in JobKind}) == (job_spec.SPEC_VERSION, {job_spec.JobKind.INGEST.value})  # ray_jobs runs ingest only; `train` is ray_training's
     assert JobKind.INGEST == job_spec.JobKind.INGEST
 
 
@@ -81,8 +83,8 @@ def test_every_job_type_has_an_entrypoint_module_that_runs_as_main():
 
 
 def test_every_source_and_task_picks_a_job_type():
-    picked = {(s, t): job_catalog.ingest_job_type(s, t) for s in ImportSource for t in TaskType}
+    picked = {(s, kind): ingest_job_type(s, kind) for s in ImportSource for kind in DataKind}
     assert set(picked.values()) == set(job_catalog.JobType)
-    assert picked[(ImportSource.UPLOAD, TaskType.OBJECT_DETECTION)] == job_catalog.JobType.UPLOAD_IMAGES
-    assert picked[(ImportSource.UPLOAD, TaskType.TABULAR_REGRESSION)] == job_catalog.JobType.UPLOAD_CSV
-    assert picked[(ImportSource.HUGGINGFACE, TaskType.IMAGE_CLASSIFICATION)] == job_catalog.JobType.HUGGINGFACE
+    assert picked[(ImportSource.UPLOAD, DataKind.IMAGES)] == job_catalog.JobType.UPLOAD_IMAGES
+    assert picked[(ImportSource.UPLOAD, DataKind.TEXT)] == job_catalog.JobType.UPLOAD_CSV == picked[(ImportSource.UPLOAD, DataKind.TABULAR)]
+    assert picked[(ImportSource.HUGGINGFACE, DataKind.IMAGES)] == job_catalog.JobType.HUGGINGFACE

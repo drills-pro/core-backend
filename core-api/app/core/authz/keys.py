@@ -10,13 +10,14 @@ import hashlib
 import secrets
 import uuid
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import NamedTuple
 
 from fastapi import Header
 
 from app.core.authz.policy import Scope
 from app.core.db import get_pool
-from app.core.problem import Problem
+from app.core.problem import Problem, ProblemCode
 
 KEY_PREFIX = "drl_"
 DISPLAY_PREFIX_LEN = len(KEY_PREFIX) + 8
@@ -55,7 +56,7 @@ class KeyContext:
 
 
 def invalid_api_key() -> Problem:
-    return Problem(401, "invalid_api_key", "missing or invalid API key")
+    return Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_API_KEY, "missing or invalid API key")
 
 
 def require_key(scope: Scope):
@@ -79,9 +80,9 @@ def require_key(scope: Scope):
             frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]),
         )
         if scope not in ctx.scopes:
-            raise Problem(403, "forbidden", f"missing scope {scope}", scope=scope.value)
+            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing scope {scope}", scope=scope.value)
         if not ctx.allows_model(x_model_id):
-            raise Problem(403, "forbidden", "this key may not use that model")
+            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, "this key may not use that model")
         return ctx
 
     dependency.authz_scope = scope  # read by tests/core/authz/test_matrix.py

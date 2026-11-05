@@ -11,6 +11,10 @@ COPY core-api/config ./config
 # The Ray job package: app/integrations/data_plane/job_package.py zips it, stages it and the ingest job downloads it.
 # job_package.py finds it four levels up from /app/app/integrations/data_plane, the same relative path as in the checkout. Not installed here.
 COPY ray-jobs/ray_jobs /ray-jobs/ray_jobs
+# The train driver and trainer (docs/trainer-plan.md), staged the same way for training runs.
+COPY ray-training/ray_training /ray-training/ray_training
+# The shared Serve apps (ray_serving), staged the same way.
+COPY ray-serving/ray_serving /ray-serving/ray_serving
 # Read by the cluster's backend-migrate Job: an init container runs `cp -R /migrations/. /work/` and
 # dbmate (its own image) applies them. This image ships no migration runner.
 COPY core-api/migrations /migrations

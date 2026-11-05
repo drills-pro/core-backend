@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.modules.user.api_keys import routes
+from app.modules.user.api_keys import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 BASE = f"/v1/projects/{PROJECT}/api-keys"
 KEY_ID = uuid.uuid4()
 NOW = datetime.now(timezone.utc)
-KEY_LIST = [{"id": KEY_ID, "name": "k", "prefix": "drl_abcdefgh", "scopes": ["predict"], "model_ids": []}]
+KEY_LIST = [{"id": KEY_ID, "name": "k", "prefix": "drl_abcdefgh", "scopes": ["predict"], "model_ids": [], "created_by": "u1",
+             "created_at": NOW, "expires_at": None, "revoked_at": None}]
 
 
 @pytest.fixture
@@ -19,7 +20,7 @@ def call(monkeypatch, dev_headers):
 
     def go(method, path, row, **kw):
         conn = FakeConn(row, row={"id": KEY_ID, "created_at": NOW}, val=KEY_ID, rowset=KEY_LIST)
-        patch_tenant_conn(monkeypatch, conn, routes)
+        patch_tenant_conn(monkeypatch, conn, service)
         go.log = conn.calls
         return client.request(method, BASE + path, **kw)
 

@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError
 from app.core import secret_files
 from app.core.enums import BlockstoreScheme
 from app.core.problem import Problem
-from app.core.settings import settings
+from app.core.settings import DatasetLimits, settings
 from app.integrations.data_plane import access, layout
 from app.integrations.data_plane.report import ImportReport
 
@@ -120,21 +120,49 @@ async def _physical_object(repo: str, commit: str, path: str) -> tuple[str, str]
     return address.netloc, address.path.lstrip("/")
 
 
-async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: str) -> str:
-    """URL for one object of a committed version: through the lakeFS S3 gateway at the version's commit, or, when
-    lakeFS keeps its data on GCS and has no public gateway, straight from the bucket it stores the object in."""
+async def _presign_version(
+    tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int, *, public: bool
+) -> dict[str, str]:
+    """Presigned reads of objects of one committed version, as {path: url}, after one ownership check: through the
+    lakeFS S3 gateway at the version's commit, or, when lakeFS keeps its data on GCS and has no public gateway,
+    straight from the bucket it stores each object in. `public` signs for the browser-facing endpoints, otherwise
+    for the in-network ones a job reaches."""
     commit = await access.version_commit(tenant_id, dataset_id, version_id)
-    repo, path = layout.repo_name(dataset_id), _checked_path(path)
-    if settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS:
-        # ponytail: one stat call per URL; add a batch presign op if previews grow past a page
-        bucket, key = await _physical_object(repo, commit, path)
-        client = _s3(secret_files.STAGING, settings.public.staging_endpoint)  # its credentials must cover this bucket (docs/runtime-contract.md)
+    repo, paths = layout.repo_name(dataset_id), [_checked_path(p) for p in paths]
+    on_gcs = settings.data_plane.lakefs_blockstore_scheme == BlockstoreScheme.GS
+    if on_gcs:  # the staging credentials must cover the bucket lakeFS writes to (docs/runtime-contract.md)
+        secret, endpoint = secret_files.STAGING, settings.public.staging_endpoint
     else:
-        bucket, key = repo, f"{commit}/{path}"
-        client = _s3(secret_files.LAKEFS, settings.public.lakefs_endpoint)
-    return client.generate_presigned_url(
-        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=settings.data_plane.presign_ttl_seconds
+        secret, endpoint = secret_files.LAKEFS, settings.public.lakefs_endpoint
+    client = _s3(secret, endpoint if public else None)
+    gate = asyncio.Semaphore(LINK_CONCURRENCY)
+
+    async def one(path: str) -> tuple[str, str]:
+        async with gate:
+            bucket, key = await _physical_object(repo, commit, path) if on_gcs else (repo, f"{commit}/{path}")
+        url = client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=ttl_seconds)
+        return path, url
+
+    return dict(await asyncio.gather(*(one(p) for p in paths)))
+
+
+async def presign_get(tenant_id: str, dataset_id: str, version_id: str, path: str) -> str:
+    """Browser URL for one object of a committed version."""
+    urls = await presign_gets(tenant_id, dataset_id, version_id, [path])
+    return urls[path]
+
+
+async def presign_gets(tenant_id: str, dataset_id: str, version_id: str, paths: list[str]) -> dict[str, str]:
+    """Browser URLs for many objects of one committed version (a preview page), as {path: url}."""
+    return await _presign_version(
+        tenant_id, dataset_id, version_id, paths, settings.data_plane.presign_ttl_seconds, public=True
     )
+
+
+async def presign_version_objects(tenant_id: str, dataset_id: str, version_id: str, paths: list[str], ttl_seconds: int) -> dict[str, str]:
+    """Presigned reads of many objects of one version, as {path: url}, for a job that reaches the stores at their
+    in-network addresses (the credentials' own endpoints, not the browser-facing ones of presign_gets)."""
+    return await _presign_version(tenant_id, dataset_id, version_id, paths, ttl_seconds, public=False)
 
 
 class _S3Object(io.RawIOBase):
@@ -186,6 +214,21 @@ async def read_version_sample(tenant_id: str, dataset_id: str, version_id: str, 
     return await asyncio.to_thread(_parquet_head, secret_files.LAKEFS, location, limit)
 
 
+def _parquet_column(secret: str, location: str, column: str) -> list:
+    from pyarrow.parquet import ParquetFile  # noqa: PLC0415 - imported lazily, like _parquet_head
+
+    bucket, _, key = location.partition("/")
+    with io.BufferedReader(_S3Object(_s3(secret), bucket, key), _PARQUET_READ_BUFFER) as f:
+        return ParquetFile(f).read(columns=[column]).column(column).to_pylist()
+
+
+async def read_version_column(tenant_id: str, dataset_id: str, version_id: str, key: str, column: str) -> list:
+    """Every value of one column of `key` (index.parquet or data.parquet) in a committed version."""
+    commit = await access.version_commit(tenant_id, dataset_id, version_id)
+    location = f"{layout.repo_name(dataset_id)}/{commit}/{_checked_path(key)}"
+    return await asyncio.to_thread(_parquet_column, secret_files.LAKEFS, location, column)
+
+
 async def read_staged_sample(tenant_id: str, dataset_id: str, import_id: str, key: str, limit: int) -> list[dict]:
     """First rows of `key` in the import's staged `out/` tree (the review preview)."""
     await access.dataset_import(tenant_id, dataset_id, import_id)
@@ -214,9 +257,8 @@ def _list_staged(prefix: str) -> list[tuple[str, int]]:
     return found
 
 
-def _staged_violation(entries: list[tuple[str, int]]) -> str | None:
+def _staged_violation(entries: list[tuple[str, int]], limits: DatasetLimits) -> str | None:
     """Why `out/` may not be imported, or None. The job is untrusted input: what it wrote is checked here, not believed."""
-    limits = settings.dataset_limits
     top = {k for k, _ in entries if not k.startswith(layout.OBJECTS_PREFIX)}
     objects = [size for k, size in entries if k.startswith(layout.OBJECTS_PREFIX)]
     if any(k.startswith("/") or posixpath.normpath(k) != k for k, _ in entries):
@@ -268,10 +310,10 @@ async def _link_staged(client: httpx.AsyncClient, s3, repo: str, staged_prefix: 
     await asyncio.gather(*(link(rel, size) for rel, size in entries))
 
 
-async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str) -> str:
+async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message: str, limits: DatasetLimits) -> str:
     """Put the staged `out/` tree on the repo's main branch as one commit; returns the commit id.
 
-    What is staged is checked first (limits, allowed file names), then copied inside the object store into the
+    What is staged is checked first (the tenant's plan `limits`, allowed file names), then copied inside the object store into the
     repo's own storage and linked, so the version outlives staging. The commit carries the import id, so calling
     this again for the same import after a failure returns the commit already made instead of making a second one.
     """
@@ -282,7 +324,7 @@ async def commit_staged(tenant_id: str, dataset_id: str, import_id: str, message
         if (done := await _existing_commit(client, repo, import_id)) is not None:
             return done
         entries = await asyncio.to_thread(_list_staged, prefix + layout.OUT_PREFIX)
-        if violation := _staged_violation(entries):
+        if violation := _staged_violation(entries, limits):
             raise Problem(_HTTP_UNPROCESSABLE, INVALID_STAGED_OUTPUT, violation)
         async with asyncio.timeout(settings.data_plane.commit_timeout_seconds):
             await _link_staged(client, _s3(secret_files.STAGING), repo, prefix + layout.OUT_PREFIX, entries)

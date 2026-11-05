@@ -4,7 +4,7 @@ Adding one = the module and a JobType member.
 """
 from enum import StrEnum
 
-from app.core.enums import TABULAR_TASKS, ImportSource, TaskType
+from app.core.enums import JobPackageName
 
 
 class JobType(StrEnum):
@@ -16,10 +16,9 @@ class JobType(StrEnum):
 
 
 ENTRYPOINTS = "ray_jobs.entrypoints"  # one module per JobType, run as `python -m`
-
-
-def ingest_job_type(source: str, task_type: str) -> JobType:
-    """Which catalog entry imports this source for this task."""
-    if source == ImportSource.HUGGINGFACE:
-        return JobType.HUGGINGFACE
-    return JobType.UPLOAD_CSV if TaskType(task_type) in TABULAR_TASKS else JobType.UPLOAD_IMAGES
+TRAIN_ENTRYPOINT = "ray_training.entrypoints.train"  # the train driver (top-level ray-training/); not an ingest JobType
+SMOKE_ENTRYPOINTS = {  # one per package: a tiny run through the package's own entrypoints, run before it can be promoted
+    JobPackageName.RAY_JOBS: "ray_jobs.entrypoints.smoke",
+    JobPackageName.RAY_TRAINING: "ray_training.entrypoints.smoke",
+    JobPackageName.RAY_SERVING: "ray_serving.entrypoints.smoke",
+}

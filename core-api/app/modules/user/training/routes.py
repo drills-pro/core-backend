@@ -6,25 +6,48 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from app.core.authz import Action, AuthzContext, require
-from app.core.problem import Problem
-from app.integrations import compute
-from app.modules.user.training import log_parsing, run_service
-from app.modules.user.training.constants import LOG_TAIL_CHARS
-from app.modules.user.training.schemas import TrainingRun, TrainingRunLineage, TrainingRunLogs, TrainingRunSummary
-
-NOT_IMPLEMENTED = "not_implemented"
+from app.core.idempotency import IdempotencyKey
+from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
+from app.modules.user.training import create_service, preset_service, run_service
+from app.modules.user.training.schemas import (
+    PresetSummary,
+    TrainingRun,
+    TrainingRunCreate,
+    TrainingRunLogs,
+    TrainingRunSummary,
+)
 
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
+presets_router = APIRouter(prefix="/v1/projects/{project_id}/training-presets", tags=["training"])
+# Registering a run's model is training's endpoint (it reads the run) under the registry's URL space.
+models_router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
 
-@router.post("", status_code=202)
+@models_router.post("/{run_id}/register", status_code=201, response_model=ModelVersion)
+async def register_model(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    name: str = Query(pattern=MODEL_NAME_PATTERN),
+    ctx: AuthzContext = Depends(require(Action.MODEL_WRITE)),
+):
+    return await run_service.register_model(ctx, project_id, run_id, name)
+
+
+@presets_router.get("", response_model=list[PresetSummary])
+async def list_training_presets(project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))):
+    """The presets this project's task type can train with: the names a run's `preset` takes, and their bounds."""
+    return await preset_service.list_for_project(ctx, project_id)
+
+
+@router.post("", status_code=202, response_model=TrainingRun)
 async def create_training_run(
     project_id: uuid.UUID,
+    body: TrainingRunCreate,
+    idempotency_key: IdempotencyKey,
     ctx: AuthzContext = Depends(require(Action.JOB_CREATE)),
 ):
-    # ponytail: data access is stubbed until the trainer slice rewires training to dataset version ids
-    # (docs/datasets-plan.md, Deferred); authz above still applies.
-    raise Problem(501, NOT_IMPLEMENTED, "training is not available until the trainer slice")
+    """Train on one version of one of this project's datasets. Sending the same Idempotency-Key and body again returns the same run."""
+    return await create_service.create_run(ctx, project_id, body, idempotency_key)
 
 
 @router.get("", response_model=list[TrainingRunSummary])
@@ -49,30 +72,8 @@ async def get_training_run(
 async def get_training_run_logs(
     project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
 ):
-    """Live progress while a run is still submitted/running — not just the
-    final result. Ray's job-logs endpoint returns whatever a still-running
-    job has printed so far, and parse_metrics/parse_extra_metrics are plain
-    line scanners that already work fine on a partial log (Ultralytics'
-    own per-epoch console output shows up here as the job progresses, no
-    change needed in the training templates)."""
-    ref = await run_service.get_log_ref(ctx, project_id, run_id)
-    logs = await compute.logs(ref.ray_job_id)
-    return {
-        "status": ref.status,
-        "logs": logs[-LOG_TAIL_CHARS:],
-        "metrics": log_parsing.parse_metrics(logs),
-        "extra_metrics": log_parsing.parse_extra_metrics(logs),
-    }
-
-
-@router.get("/{run_id}/lineage", response_model=TrainingRunLineage)
-async def get_training_run_lineage(
-    project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
-):
-    """FR1 (05-reproducibility-lineage.md): one endpoint joining dataset
-    commit -> training run -> model registry entry -> active deployment,
-    instead of four separate lookups a user has to correlate by hand."""
-    return await run_service.get_lineage(ctx, project_id, run_id)
+    """The end of the job's raw output, for debugging. Results come from the job's report (the run's `report`), not from here."""
+    return await run_service.get_logs(ctx, project_id, run_id)
 
 
 @router.post("/{run_id}/cancel", response_model=TrainingRun)

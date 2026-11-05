@@ -57,6 +57,7 @@
         "csv_row_too_long",
         "target_missing",
         "target_type_mismatch",
+        "text_column_missing",
         "schema_mismatch",
         "merge_conflict",
         "duplicate_skipped",

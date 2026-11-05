@@ -1,7 +1,7 @@
 """A typed table read from a CSV or a Hugging Face data file."""
 from dataclasses import dataclass
 
-from ray_jobs.common.enums import ColumnType, Col
+from ray_jobs.common.enums import ColumnType
 
 
 @dataclass

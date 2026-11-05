@@ -8,7 +8,7 @@ from app.modules.user.projects import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "image-classification", "created_at": datetime.now(),
-               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False}
+               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "publish_project_metadata": False, "gallery_published": False}
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def test_unknown_task_type_is_422(call):
 
 
 def test_reserved_task_type_is_422_not_supported_yet(call):
-    r = call(access(), "POST", "?name=x&task_type=text-classification", on_project=False)
+    r = call(access(), "POST", "?name=x&task_type=text-generation", on_project=False)
     assert (r.status_code, r.json()["code"]) == (422, "task_type_not_supported")
     assert "not supported yet" in r.json()["detail"]
 

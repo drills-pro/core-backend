@@ -5,7 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from ray_jobs.common.constants import BOOL_TOKENS, INT_RE, TABULAR_REGRESSION
+from ray_jobs.common.constants import BOOL_TOKENS, INT_RE, TABULAR_REGRESSION, TEXT_CLASSIFICATION, TEXT_COLUMN
 from ray_jobs.common.enums import Code, Col, ColumnType
 from ray_jobs.common.limits import Limits
 from ray_jobs.common.report import Report
@@ -69,6 +69,9 @@ def build_table(header: list[str], rows: list[list[str]], task: str, target: str
         target_type in (ColumnType.INT64, ColumnType.FLOAT64) if task == TABULAR_REGRESSION else target_type != ColumnType.FLOAT64)
     if not ok:
         report.error(Code.TARGET_TYPE_MISMATCH, f"a {target_type} target does not fit {task}", target)
+        return None
+    if task == TEXT_CLASSIFICATION and (TEXT_COLUMN not in header or types[header.index(TEXT_COLUMN)] != ColumnType.STRING):
+        report.error(Code.TEXT_COLUMN_MISSING, f"a text dataset needs a string column named '{TEXT_COLUMN}'", TEXT_COLUMN)
         return None
     ti = header.index(target)
     if any(r[ti] == "" for r in padded):

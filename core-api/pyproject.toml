@@ -21,9 +21,13 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "cryptography>=42"]
+dev = [
+    "pytest>=8.0",
+    "cryptography>=42",
+    "ruff>=0.17.3",
+]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "../ray-jobs"]  # ray_jobs: the contract tests import the job package
+pythonpath = [".", "../ray-jobs", "../ray-training"]  # ray_jobs, ray_training: the contract tests import the job packages (ray_training without torch)
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"

@@ -1,7 +1,5 @@
 from enum import StrEnum
 
-from app.core.problem import Problem
-
 
 class BlockstoreScheme(StrEnum):
     """URI scheme of lakeFS's storage namespaces; matches the blockstore type lakeFS runs with (`s3` also covers MinIO)."""
@@ -12,7 +10,7 @@ class BlockstoreScheme(StrEnum):
 
 class TaskType(StrEnum):
     """Hugging Face task slugs, verbatim. Mirrors the projects.task_type CHECK constraint. The whole
-    taxonomy is accepted by the schema; SUPPORTED_TASK_TYPES is what the platform can do today."""
+    taxonomy is accepted by the schema; the task_types table is what the platform can do today."""
 
     # image
     IMAGE_CLASSIFICATION = "image-classification"
@@ -34,17 +32,12 @@ class TaskType(StrEnum):
     TEXT_TO_SPEECH = "text-to-speech"
 
 
-SUPPORTED_TASK_TYPES = frozenset(
-    {
-        TaskType.IMAGE_CLASSIFICATION,
-        TaskType.OBJECT_DETECTION,
-        TaskType.TABULAR_CLASSIFICATION,
-        TaskType.TABULAR_REGRESSION,
-    }
-)
+class Split(StrEnum):
+    """Values of the nullable `split` column. Datasets never invent one (plan decision 9)."""
 
-
-TABULAR_TASKS = frozenset({TaskType.TABULAR_CLASSIFICATION, TaskType.TABULAR_REGRESSION})
+    TRAIN = "train"
+    VALIDATION = "validation"
+    TEST = "test"
 
 
 class ImportSource(StrEnum):
@@ -54,9 +47,28 @@ class ImportSource(StrEnum):
     HUGGINGFACE = "huggingface"
 
 
-def require_supported_task_type(task_type: TaskType) -> None:
-    if task_type not in SUPPORTED_TASK_TYPES:
-        raise Problem(422, "task_type_not_supported", f"task type '{task_type}' is not supported yet")
+class JobPackageName(StrEnum):
+    """The job packages the platform ships. Mirrors the job_packages_name_check constraint."""
+
+    RAY_JOBS = "ray_jobs"
+    RAY_TRAINING = "ray_training"
+    RAY_SERVING = "ray_serving"
+
+
+class PackageStatus(StrEnum):
+    """Mirrors the job_packages_status_check constraint. Runs use `stable` packages only."""
+
+    CANDIDATE = "candidate"
+    STABLE = "stable"
+    RETIRED = "retired"
+
+
+class SmokeStatus(StrEnum):
+    """Mirrors the job_packages_smoke_status_check constraint: how a package's smoke job went."""
+
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
 
 
 class AuthResult(StrEnum):
@@ -108,3 +120,21 @@ class AuthSpan(StrEnum):
     UPSERT_PRINCIPAL = "auth.upsert_principal"
 
 
+
+
+class PlanTier(StrEnum):
+    """Mirrors the tenants.plan_tier CHECK constraint."""
+
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+    INTERNAL = "internal"  # a staff test tenant on prod: hidden from the back-office totals and listing
+
+
+class IdentityStatus(StrEnum):
+    """An org's or a user's state as the back-office shows it, mapped from Zitadel's (integrations/zitadel.py)."""
+
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    PENDING = "pending"  # a user invited who never signed in; orgs are never pending
+    UNKNOWN = "unknown"  # Zitadel did not say: unreachable, or the org or user is gone

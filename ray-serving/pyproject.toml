@@ -1,0 +1,22 @@
+[project]
+name = "ray-serving"
+version = "0.1.0"
+description = "The shared Ray Serve apps of the drills.pro platform: one Predictor per compute target that loads each deployment's ONNX model by id (ray_serving.app:build)"
+requires-python = ">=3.11"  # the Ray image runs 3.11
+dependencies = [
+    "onnxruntime>=1.18",  # onnxruntime-gpu in the GPU image
+    "numpy",
+    "pillow>=10",
+    "tokenizers",  # text models
+]
+
+[dependency-groups]
+# ray is in the cluster image (2.60.0, not on PyPI yet; 2.59 is the closest for local tests); onnx builds the smoke job's model
+dev = ["pytest>=8.0", "onnx>=1.16", "ray[serve]>=2.59,<2.61"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ray_serving"]

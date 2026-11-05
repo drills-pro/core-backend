@@ -1,11 +1,13 @@
 import uuid
+from http import HTTPStatus
 
-from fastapi import Header, HTTPException
+from fastapi import Header
 from starlette.concurrency import run_in_threadpool
 
 from app.core.settings import settings
 from app.core.auth import Claims, verify_token
 from app.core.db import get_pool
+from app.core.problem import Problem, ProblemCode, not_found
 from app.core.tracing import tag_current_span
 
 
@@ -19,16 +21,16 @@ async def _member_tenant(sub: str, requested: str | None) -> str:
             try:
                 tenant_id = uuid.UUID(requested)
             except ValueError:
-                raise HTTPException(status_code=404, detail="tenant not found") from None
+                raise not_found() from None
             if await conn.fetchval("SELECT member_role($1, $2)", sub, tenant_id) is None:
-                raise HTTPException(status_code=404, detail="tenant not found")
+                raise not_found()
             return str(tenant_id)
         # No header: a user with exactly one tenant needs none, which keeps the common case seamless.
         mine = await conn.fetch("SELECT id FROM my_tenants($1)", sub)
     if not mine:
-        raise HTTPException(status_code=403, detail="no tenant yet: POST /v1/tenants")
+        raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.NO_TENANT, "no tenant yet: POST /v1/tenants")
     if len(mine) > 1:
-        raise HTTPException(status_code=400, detail="X-Tenant-Id is required: you belong to several tenants")
+        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.TENANT_REQUIRED, "X-Tenant-Id is required: you belong to several tenants")
     return str(mine[0]["id"])
 
 
@@ -55,7 +57,7 @@ async def get_tenant_id(
         return tenant_id
 
     if not settings.auth.dev_headers or not x_tenant_id:
-        raise HTTPException(status_code=401, detail="missing Authorization bearer token or X-Tenant-Id")
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token or X-Tenant-Id")
     tag_current_span(tenant_id=x_tenant_id)
     return x_tenant_id
 
@@ -68,5 +70,5 @@ async def get_actor(
     if claims is not None:
         return claims.subject
     if not settings.auth.dev_headers:
-        raise HTTPException(status_code=401, detail="missing Authorization bearer token")
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token")
     return x_user_id or "dev-user"

@@ -1,4 +1,4 @@
-from ray_jobs.common.constants import IMAGE_CLASSIFICATION, OBJECT_DETECTION
+from ray_jobs.common.constants import OBJECT_DETECTION
 from ray_jobs.common.enums import Code
 from ray_jobs.common.report import Report
 from ray_jobs.common.rows import image_row

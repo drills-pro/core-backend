@@ -20,8 +20,10 @@ from app.core.enums import TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.datasets import import_service as svc
-from app.modules.user.datasets import lifecycle
+from app.modules.user.datasets import lifecycle, readers
 from app.modules.user.datasets import router as datasets
+from app.modules.user.datasets.job_table import IMPORTS
+from app.modules.user.projects import readers as project_readers
 from app.modules.user.datasets.constants import (
     ACTIVE_STATUSES,
     TRANSITIONS,
@@ -31,10 +33,13 @@ from app.modules.user.datasets.constants import (
     ImportStatus,
     ProblemCode,
 )
+from app.integrations import compute
 from app.integrations.data_plane.report import Stats
 from app.modules.user.datasets.schemas import ImportCreate, ImportParams
 from app.core.pagination import PageParams
-from tests.support import PROJECT, TENANT, FakeConn, access, make_client, patch_tenant_conn
+from tests.support import PROJECT, TENANT, access, make_client, patch_tenant_conn
+from tests.support.job_table import apply_advance
+from tests.support.task_types import seeded
 
 DS, KEY = uuid.uuid4(), "key-1"
 STATS = {"file_count": 1, "total_bytes": 7, "row_count": 1}
@@ -97,8 +102,10 @@ class _Conn:
         db = self.db
         if "project_access" in sql:
             return db.access
-        if sql == svc._DATASET_TASK:
-            return {"task_type": db.task_type}
+        if "FROM task_types" in sql:
+            return seeded(a[0])
+        if "FROM plan_limits" in sql:
+            return None  # the YAML limits
         if sql == svc._IMPORT:
             row = db.imports.get(a[0])
             return row and dict(row)
@@ -111,13 +118,9 @@ class _Conn:
             keys = "id tenant_id project_id dataset_id source base_version_id params staging_key expires_at idempotency_key".split()
             row = db.seed(S.AWAITING_UPLOAD, report=None, **dict(zip(keys, a)))
             return dict(row)
-        if sql == svc._TRANSITION:
+        if sql.startswith(f"UPDATE {IMPORTS.table} SET status"):  # job_lifecycle.advance, via cas
             self.tx.mutating()
-            row = db.imports[a[0]]
-            if row["status"] != a[1]:
-                return None
-            row.update(status=a[2], expires_at=a[3], completed_at=a[4])
-            return dict(row)
+            return apply_advance(IMPORTS, db.imports, sql, a)
         if sql == svc._NEW_VERSION:
             if db.fail_version:
                 raise RuntimeError("connection lost")
@@ -163,8 +166,10 @@ class _Conn:
             count = sum(r["status"] in a[1] for r in db.imports.values())
             await asyncio.sleep(0)  # the answer takes time to arrive: without the tenant lock a concurrent create slips in here
             return count
-        if sql == svc._DATASET_EXISTS:
+        if sql in (svc._DATASET_EXISTS, readers._LIVE_DATASET):
             return 1
+        if sql == project_readers._TASK_TYPE:  # projects.get_task_type, through readers.dataset_task
+            return db.task_type
         if sql == svc._TENANT_LOCK:  # pg_advisory_xact_lock: held until the transaction ends
             await db.tenant_lock.acquire()
             self.tx.tenant_locked = True
@@ -221,7 +226,7 @@ def env(monkeypatch):
     monkeypatch.setattr(svc, "TenantConn", db)
     monkeypatch.setattr(svc, "data_plane", gw)
     monkeypatch.setattr(lifecycle, "data_plane", gw)
-    monkeypatch.setattr(lifecycle.compute, "stop", stop_job)
+    monkeypatch.setattr(compute, "stop", stop_job)
     for counter in ("dataset_imports", "dataset_import_bytes"):
         monkeypatch.setattr(getattr(svc.usage, counter), "add", lambda n, attrs=None, c=counter: added.append((c, n)))
     db.usage = added
@@ -321,7 +326,7 @@ def test_wrong_task_type_for_the_project_is_422(env):
 
 
 def test_unsupported_task_type_is_422(env):
-    env.db.task_type = TaskType.TEXT_CLASSIFICATION
+    env.db.task_type = TaskType.TEXT_GENERATION
     problem(create(), 422, "task_type_not_supported")
 
 

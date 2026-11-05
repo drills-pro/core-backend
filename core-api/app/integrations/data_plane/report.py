@@ -58,6 +58,7 @@ class IssueCode(StrEnum):
     CSV_ROW_TOO_LONG = "csv_row_too_long"  # more cells than the header has columns
     TARGET_MISSING = "target_missing"
     TARGET_TYPE_MISMATCH = "target_type_mismatch"
+    TEXT_COLUMN_MISSING = "text_column_missing"  # a text task needs a string column named text
     # merge against the base version
     SCHEMA_MISMATCH = "schema_mismatch"
     MERGE_CONFLICT = "merge_conflict"

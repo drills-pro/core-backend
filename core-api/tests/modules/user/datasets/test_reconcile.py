@@ -14,11 +14,9 @@ import pytest
 
 from app import background
 from app.core.settings import settings
-from app.integrations import job_follower
-from app.integrations import compute
+from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane.report import ImportReport, IssueCode, Outcome, Stats
-from app.modules.user.datasets import import_service as svc
 from app.modules.user.datasets import lifecycle
 from app.modules.user.datasets import reconcile as rec
 from app.modules.user.datasets.constants import (
@@ -28,7 +26,9 @@ from app.modules.user.datasets.constants import (
     AuditAction,
     ImportStatus,
 )
+from app.modules.user.datasets.job_table import IMPORTS
 from tests.support import PROJECT, TENANT
+from tests.support.job_table import FakeJobConn, FakeJobTable
 
 S, R = ImportStatus, JobStatus
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -38,13 +38,12 @@ BAD = ImportReport.model_validate({"outcome": "failed", "issues": [{"code": "cor
 
 class FakeDb:
     def __init__(self):
-        self.imports, self.datasets, self.audits, self.purged_rows = {}, {}, [], []
+        self.table = FakeJobTable(IMPORTS, tenant_id=uuid.UUID(TENANT))  # claim, advance and release run against it
+        self.imports, self.datasets, self.audits, self.purged_rows = self.table.rows, {}, [], []
 
     def seed(self, status, **kw):
-        row = {"id": uuid.uuid4(), "tenant_id": uuid.UUID(TENANT), "project_id": PROJECT, "dataset_id": uuid.uuid4(),
-               "status": status, "report": None, "ray_job_id": "job", "expires_at": None, "created_at": T0, "completed_at": None, **kw}
-        self.imports[row["id"]] = row
-        return row
+        defaults = {"project_id": PROJECT, "dataset_id": uuid.uuid4(), "report": None, "expires_at": None, "created_at": T0}
+        return self.table.seed(status, **{**defaults, **kw})
 
     def dataset(self, deleted_at):
         ds = uuid.uuid4()
@@ -61,8 +60,8 @@ class FakeDb:
         return False
 
     async def fetch_cross(self, sql, *a):
-        if sql == rec._RUNNING_TENANTS:
-            return [(i["tenant_id"],) for i in self.imports.values() if i["status"] in rec._RUNNING_STATUSES][:1]
+        if sql == job_lifecycle.tenants_sql(IMPORTS):
+            return await self.table.fetch_cross(sql, *a)
         if sql == rec._EXPIRED_TENANTS:
             return [(i["tenant_id"],) for i in self.imports.values() if self._due(i, a[0])][:1]
         if sql == rec._PURGEABLE:
@@ -74,8 +73,9 @@ class FakeDb:
         return i["status"] in rec._EXPIRABLE_STATUSES and i["expires_at"] and i["expires_at"] < now
 
 
-class _Conn:
+class _Conn(FakeJobConn):
     def __init__(self, db):
+        super().__init__(db.table)
         self.db = db
 
     async def __aenter__(self):
@@ -86,21 +86,11 @@ class _Conn:
 
     async def fetch(self, sql, *a):
         db = self.db
-        if sql == rec._RUNNING:
-            return [dict(i) for i in db.imports.values() if i["status"] in a[1]]
         if sql == rec._DATASET_IMPORTS:
             return [{"id": i["id"]} for i in db.imports.values() if i["dataset_id"] == a[0]]
         if sql == rec._EXPIRED:
             return [dict(i) for i in db.imports.values() if i["status"] in a[1] and db._due(i, a[2])]
-        raise AssertionError(sql)
-
-    async def fetchrow(self, sql, *a):
-        assert sql == svc._TRANSITION
-        row = self.db.imports[a[0]]
-        if row["status"] != a[1]:
-            return None
-        row.update(status=a[2], expires_at=a[3], completed_at=a[4])
-        return dict(row)
+        return await super().fetch(sql, *a)
 
     async def fetchval(self, sql, *a):
         db = self.db
@@ -112,10 +102,9 @@ class _Conn:
         db.purged_rows.append(a[0])
 
     async def execute(self, sql, *a):
-        if sql == rec._STORE_REPORT:
-            self.db.imports[a[0]]["report"] = a[1]
-        else:  # audit.record: tenant, project, actor, action, entity_type, entity_id
-            self.db.audits.append((a[2], a[3], a[5]))
+        if sql == job_lifecycle.release_sql(IMPORTS):
+            return await super().execute(sql, *a)
+        self.db.audits.append((a[2], a[3], a[5]))  # audit.record: tenant, project, actor, action, entity_type, entity_id
 
 
 class Gateway:
@@ -150,8 +139,8 @@ def env(monkeypatch):
     monkeypatch.setattr(rec, "TenantConn", db)
     monkeypatch.setattr(rec, "data_plane", gw)
     monkeypatch.setattr(lifecycle, "data_plane", gw)  # purge_staging_quietly
-    monkeypatch.setattr(job_follower, "TenantConn", db)
-    monkeypatch.setattr(job_follower, "fetch", fetch)
+    monkeypatch.setattr(job_lifecycle, "TenantConn", db)
+    monkeypatch.setattr(job_lifecycle, "fetch", fetch)
     monkeypatch.setattr(compute, "status", get_status)
     monkeypatch.setattr(compute, "stop", stop_job)
     return SimpleNamespace(db=db, gw=gw, ray=ray)
@@ -260,8 +249,35 @@ def test_the_deadline_still_ends_an_import_when_ray_gives_no_usable_status(env, 
     assert row["status"] == S.FAILED and row["report"]["issues"][0]["code"] == IssueCode.JOB_TIMEOUT
 
 
+def test_a_cancel_that_lands_while_the_report_is_read_wins_quietly(env, caplog):
+    row = env.db.seed(S.RUNNING)
+    env.ray.status = R.FAILED
+    original = env.gw.read_report
+
+    async def read_then_cancel(*ids):
+        row["status"] = S.CANCELLED  # the user cancelled between the poll and the write
+        return await original(*ids)
+
+    env.gw.read_report = read_then_cancel
+    run(rec.reconcile_inflight_imports(T0))
+    assert row["status"] == S.CANCELLED and row["report"] is None
+    assert env.gw.purged_staging == [] and not [r for r in caplog.records if r.levelname == "ERROR"]  # not a logged 409
+
+
+def test_two_replicas_reconciling_at_once_settle_a_finished_import_once(env):
+    rows = [env.db.seed(S.RUNNING) for _ in range(4)]
+    env.ray.status = R.FAILED
+
+    async def both():
+        await asyncio.gather(rec.reconcile_inflight_imports(T0), rec.reconcile_inflight_imports(T0))
+
+    run(both())
+    assert {r["status"] for r in rows} == {S.FAILED}
+    assert sorted(env.gw.purged_staging) == sorted(str(r["id"]) for r in rows)  # each wound down once
+
+
 def test_expiry_purges_staging_only_after_the_row_change_succeeded(env, monkeypatch):
-    row = env.db.seed(S.AWAITING_REVIEW, expires_at=T0)
+    env.db.seed(S.AWAITING_REVIEW, expires_at=T0)
 
     async def broken_audit(*a, **kw):
         raise RuntimeError("audit failed")
@@ -336,7 +352,7 @@ def test_purge_skips_a_dataset_restored_after_the_listing(env, monkeypatch):
         env.db.datasets[ds] = None  # restore lands between the listing and the lock
         return rows
 
-    monkeypatch.setattr(job_follower, "fetch", list_then_restore)
+    monkeypatch.setattr(job_lifecycle, "fetch", list_then_restore)
     run(rec.purge_deleted_datasets(T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)))
     assert env.gw.deleted_repos == [] and ds in env.db.datasets
 
@@ -370,7 +386,7 @@ def test_migration_defines_every_function_the_sweeps_call():
     for call in (rec._EXPIRED_TENANTS, rec._PURGEABLE, rec._PURGE_ROWS):
         name = re.search(r"(\w+)\(", call.split("FROM ")[-1] if "FROM" in call else call.removeprefix("SELECT ")).group(1)
         assert f"CREATE FUNCTION {name}(" in sql
-    assert "inflight_import_tenant_ids" in rec._RUNNING_TENANTS
+    assert "inflight_import_tenant_ids" in job_lifecycle.tenants_sql(IMPORTS)
 
 
 def test_sweeps_are_registered_as_pollers():

@@ -3,11 +3,13 @@ import asyncio
 import json
 import shlex
 import uuid
+from types import SimpleNamespace
 
 from app.core.enums import TaskType
 from app.core.settings import settings
+from app.core.task_catalog import DataKind
 from app.integrations import compute
-from app.integrations.data_plane import access, ingest, layout
+from app.integrations.data_plane import access, ingest, job_submit, layout
 from app.modules.user.datasets import ingest_spec
 from tests.support import FakeConn, TenantCtx
 
@@ -18,23 +20,27 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     row = {"tenant_id": TENANT, "dataset_id": DATASET, "id": IMPORT, "source": "upload", "params": {"target": "y"}, "base_version_id": None}
     monkeypatch.setattr(access, "TenantConn", lambda t: TenantCtx(FakeConn(val=1)))
     asked = []
-    monkeypatch.setattr(ingest.secret_files, "get", lambda name: asked.append(name) or {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
+    monkeypatch.setattr(job_submit.secret_files, "get", lambda name: asked.append(name) or {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
     sent = {}
 
     async def submit(spec):
         sent.update(spec.model_dump())
         return "job-1"
 
-    async def package_url():
+    async def resolve_stable(name):
+        return SimpleNamespace(name=name, sha256="a" * 64)
+
+    async def package_url(name, sha256):
         return "http://ray-side/jobs/ray-jobs-x.zip"
 
+    monkeypatch.setattr(ingest.job_package, "resolve_stable", resolve_stable)
     monkeypatch.setattr(ingest.job_package, "presigned_url", package_url)
-    monkeypatch.setattr(ingest.compute, "submit", submit)
-    spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, "ingest-1"))
+    monkeypatch.setattr(compute, "submit", submit)
+    spec, kind = asyncio.run(ingest_spec.build(row, TaskType.TABULAR_REGRESSION, DataKind.TABULAR, settings.dataset_limits, "ingest-1"))
     assert asyncio.run(ingest.submit_ingest(TENANT, DATASET, IMPORT, spec, kind)) == "job-1"
     argv = shlex.split(sent["entrypoint"])
-    assert argv[:2] == ["python", "-c"] and argv[3:5] == ["http://ray-side/jobs/ray-jobs-x.zip", "ray_jobs.entrypoints.upload_csv"]
-    spec = json.loads(argv[5])
+    assert argv[:3] == ["python", "-m", "ray_jobs.entrypoints.upload_csv"] and sent["py_modules"] == ["http://ray-side/jobs/ray-jobs-x.zip"]
+    spec = json.loads(argv[3])
     job = spec["payload"]
     assert spec["kind"] == "ingest" and spec["spec_version"] == 1 and spec["job_id"] == "ingest-1"
     assert job["prefix"] == layout.staging_prefix(TENANT, DATASET, IMPORT) and job["task"] == "tabular-regression"

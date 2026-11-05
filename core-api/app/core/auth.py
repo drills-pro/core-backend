@@ -7,11 +7,12 @@ moves to a platform_admins table.
 """
 import logging
 import time
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 import httpx
 import jwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header
 from jwt import PyJWKClient
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -20,6 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core import auth_log
 from app.core.metrics import auth as auth_metrics
 from app.core.enums import AuthAttribute, AuthResult, AuthSpan, UserinfoResult
+from app.core.problem import Problem, ProblemCode
 from app.core.settings import settings
 from app.core.tracing import tag_current_span, tracer
 
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 ZITADEL_ISSUER = settings.zitadel.issuer
 ROLES_CLAIM = "urn:zitadel:iam:org:project:roles"
+PROJECT_ROLES_CLAIM = "urn:zitadel:iam:org:project:{project_id}:roles"  # Zitadel's claim when the token asks for the project's audience
 
 # NFR2: cache JWKS, don't fetch on every request. PyJWKClient caches by
 # default (lifespan=300s); one client for the process is enough.
@@ -64,7 +67,7 @@ def project_id() -> str:
     # Fail closed: without an audience to check, any token the instance signed would pass.
     pid = settings.zitadel.project_id
     if not pid:
-        raise HTTPException(status_code=500, detail="ZITADEL_PROJECT_ID is not configured")
+        raise Problem(HTTPStatus.INTERNAL_SERVER_ERROR, ProblemCode.AUTH_NOT_CONFIGURED, "ZITADEL_PROJECT_ID is not configured")
     return pid
 
 
@@ -78,7 +81,8 @@ class Claims:
         self.email: str | None = raw.get("email")
         self.email_verified: bool = raw.get("email_verified") is True
         self.display_name: str | None = raw.get("name")
-        self.roles: set[str] = set(raw.get(ROLES_CLAIM, {}).keys())
+        project_roles = raw.get(PROJECT_ROLES_CLAIM.format(project_id=settings.zitadel.project_id), {})
+        self.roles: set[str] = set(raw.get(ROLES_CLAIM, {})) | set(project_roles)
 
 
 # Most specific first: InvalidSignatureError is a DecodeError and PyJWKClientConnectionError a
@@ -122,7 +126,7 @@ def verify_token(token: str) -> Claims:
             )
         except jwt.PyJWTError as e:
             _count_verification(next((r for cls, r in _FAILURE_RESULTS if isinstance(e, cls)), AuthResult.MALFORMED))
-            raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
+            raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_TOKEN, f"invalid token: {e}") from e
         _count_verification(AuthResult.OK)
         claims = Claims(raw, token)
         span.set_attribute(AuthAttribute.USER, claims.subject)
@@ -136,7 +140,7 @@ async def get_claims(authorization: str = Header(...)) -> Claims:
     if not authorization.startswith("Bearer "):
         with _verify_span():
             _count_verification(AuthResult.NOT_BEARER)
-        raise HTTPException(status_code=401, detail="expected 'Bearer <token>'")
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.BEARER_REQUIRED, "expected 'Bearer <token>'")
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
 
@@ -206,11 +210,9 @@ async def get_platform_admin(
     if authorization and authorization.startswith("Bearer "):
         claims = await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
         if PLATFORM_ADMIN_ROLE not in claims.roles:
-            raise HTTPException(status_code=403, detail=f"requires the {PLATFORM_ADMIN_ROLE} role")
+            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.PLATFORM_ADMIN_REQUIRED, f"requires the {PLATFORM_ADMIN_ROLE} role")
         return claims.subject
 
     if not settings.auth.dev_headers or not x_admin_user:
-        raise HTTPException(
-            status_code=401, detail="missing Authorization bearer token or X-Admin-User"
-        )
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token or X-Admin-User")
     return x_admin_user

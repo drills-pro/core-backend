@@ -1,7 +1,6 @@
 """Business rules and queries for tenant membership; routes.py only translates HTTP to these calls."""
 import hashlib
 import secrets
-import uuid
 from datetime import datetime, timezone
 
 import asyncpg
@@ -12,6 +11,7 @@ from app.core.authz import Action, AuthzContext, TenantRole
 from app.core.db import get_pool
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
+from app.modules.user.tenant_members.hooks import member_removed
 from app.modules.user.tenant_members.constants import (
     INVITATION_TTL,
     OWNERSHIP_OFFER_TTL,
@@ -76,8 +76,7 @@ async def set_role(ctx: AuthzContext, user_sub: str, role: TenantRole) -> Member
         if current is TenantRole.OWNER and role is not TenantRole.OWNER and owners == [user_sub]:
             raise _last_owner()
         await conn.execute("UPDATE tenant_members SET role = $3 WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, user_sub, role)
-        await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                           action=AuditAction.SET_ROLE, entity_type=EntityType.TENANT_MEMBER, entity_id=user_sub)
+        await audit.record_for(conn, ctx, None, AuditAction.SET_ROLE, EntityType.TENANT_MEMBER, user_sub)
     return MemberRole(user_sub=user_sub, role=role)
 
 
@@ -88,10 +87,9 @@ async def _delete_member(conn, ctx: AuthzContext, user_sub: str, action: AuditAc
     if owners == [user_sub]:
         raise _last_owner()
     # Bindings go too, so re-adding the person later does not resurrect old project access.
-    await conn.execute("DELETE FROM project_members WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, user_sub)
+    await member_removed(conn, ctx.tenant_id, user_sub)
     await conn.execute("DELETE FROM tenant_members WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, user_sub)
-    await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                       action=action, entity_type=EntityType.TENANT_MEMBER, entity_id=user_sub)
+    await audit.record_for(conn, ctx, None, action, EntityType.TENANT_MEMBER, user_sub)
 
 
 async def remove(ctx: AuthzContext, user_sub: str) -> None:
@@ -114,8 +112,7 @@ async def invite(ctx: AuthzContext, body: InvitationBody) -> InvitationCreated:
             "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, role, expires_at",
             ctx.tenant_id, body.email.strip(), body.role, hash_token(token), ctx.actor, datetime.now(timezone.utc) + INVITATION_TTL,
         )
-        await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                           action=AuditAction.INVITE, entity_type=EntityType.TENANT_INVITATION, entity_id=row["id"])
+        await audit.record_for(conn, ctx, None, AuditAction.INVITE, EntityType.TENANT_INVITATION, row["id"])
     return InvitationCreated.model_validate({**dict(row), "token": token})
 
 
@@ -171,8 +168,7 @@ async def offer_ownership(ctx: AuthzContext, to_sub: str, step_down: bool) -> Ow
             )
         except asyncpg.UniqueViolationError:
             raise Problem(409, ProblemCode.OFFER_PENDING, "cancel the open ownership offer first") from None
-        await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                           action=AuditAction.OFFER_OWNERSHIP, entity_type=EntityType.OWNERSHIP_OFFER, entity_id=to_sub)
+        await audit.record_for(conn, ctx, None, AuditAction.OFFER_OWNERSHIP, EntityType.OWNERSHIP_OFFER, to_sub)
     return OwnershipOffer.model_validate(dict(row))
 
 
@@ -181,8 +177,7 @@ async def cancel_offer(ctx: AuthzContext) -> None:
     async with TenantConn(ctx.tenant_id) as conn:
         offer = await _current_offer(conn, ctx)
         await conn.execute("DELETE FROM ownership_offers WHERE tenant_id = $1", ctx.tenant_id)
-        await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                           action=AuditAction.CANCEL_OWNERSHIP_OFFER, entity_type=EntityType.OWNERSHIP_OFFER, entity_id=offer.to_sub)
+        await audit.record_for(conn, ctx, None, AuditAction.CANCEL_OWNERSHIP_OFFER, EntityType.OWNERSHIP_OFFER, offer.to_sub)
 
 
 async def accept_offer(ctx: AuthzContext) -> MemberRole:
@@ -200,6 +195,5 @@ async def accept_offer(ctx: AuthzContext) -> MemberRole:
         await conn.execute("UPDATE tenant_members SET role = $3 WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, ctx.actor, TenantRole.OWNER)
         if offer["step_down"]:
             await conn.execute("UPDATE tenant_members SET role = $3 WHERE tenant_id = $1 AND user_sub = $2", ctx.tenant_id, offer["from_sub"], TenantRole.ADMIN)
-        await audit.record(conn, tenant_id=ctx.tenant_id, project_id=None, actor=ctx.actor,
-                           action=AuditAction.ACCEPT_OWNERSHIP, entity_type=EntityType.OWNERSHIP_OFFER, entity_id=ctx.actor)
+        await audit.record_for(conn, ctx, None, AuditAction.ACCEPT_OWNERSHIP, EntityType.OWNERSHIP_OFFER, ctx.actor)
     return MemberRole(user_sub=ctx.actor, role=TenantRole.OWNER)
