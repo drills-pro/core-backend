@@ -45,6 +45,11 @@ class RaySession(loop.Session):
         with checkpoint.as_directory() as d:
             return torch.load(Path(d) / STATE_FILE, map_location="cpu")
 
+    def agree(self, stop):
+        flag = torch.tensor([float(stop and self.rank == ROOT_RANK)], device=loop.device())
+        torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
+        return bool(flag.item())
+
     def report(self, metrics, state):
         if self.rank != ROOT_RANK:
             ray.train.report({})

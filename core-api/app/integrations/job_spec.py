@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
 from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
-from app.core.task_catalog import DataKind, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.task_catalog import Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
 from app.core.task_types import TRAINER_PATTERN
 
 SPEC_VERSION = 1
@@ -103,6 +103,10 @@ class TrainPayload(BaseModel):
     base_model: TrainBaseModel
     learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
     preprocessing: Preprocessing | TextPreprocessing  # likewise; the trainer applies it and records it in model.json
+    lr_schedule: LrSchedule = LrSchedule.CONSTANT  # the preset's recipe, copied here so a past run never changes
+    warmup_fraction: float = Field(default=0, ge=0, lt=1)
+    augmentation: Augmentation = Augmentation.NONE  # train split only
+    early_stopping_patience: int = Field(default=0, ge=0)  # 0 = off
     data: TrainData
     hyperparameters: Hyperparameters
     seed: int = DEFAULT_SEED

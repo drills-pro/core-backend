@@ -5,7 +5,7 @@ import jsonschema
 import pytest
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, FailCode, Outcome, Resample)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, Augmentation, FailCode, LrSchedule, Outcome, Resample)
 from ray_training.spec import parse_spec
 from tests.support import LEARNING_RATE, PREPROCESSING, VERSION_ID, classification_rows, spec_doc
 
@@ -61,6 +61,8 @@ def test_a_spec_validates_against_the_committed_contract():
 def test_the_contract_enums_equal_the_trainers():
     defs = json.loads(CONTRACT.read_text())["$defs"]
     assert set(defs["Resample"]["enum"]) == {r.value for r in Resample}
+    assert set(defs["LrSchedule"]["enum"]) == {s.value for s in LrSchedule}
+    assert set(defs["Augmentation"]["enum"]) == {a.value for a in Augmentation}
     hp = defs["Hyperparameters"]["properties"]
     assert (hp["epochs"]["default"], hp["batch_size"]["default"], hp["image_size"]["default"]) == (
         DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE)

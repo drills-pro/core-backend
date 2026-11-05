@@ -55,6 +55,25 @@ class Resample(StrEnum):
     BICUBIC = "bicubic"
 
 
+class LrSchedule(StrEnum):
+    """Mirrors app.core.task_catalog.LrSchedule (contract-tested)."""
+
+    CONSTANT = "constant"
+    COSINE = "cosine"
+
+
+class Augmentation(StrEnum):
+    """Mirrors app.core.task_catalog.Augmentation (contract-tested). Applied to the train split only."""
+
+    NONE = "none"
+    FLIP_CROP = "flip_crop"
+    FLIP = "flip"
+
+
+FLIP_PROBABILITY = 0.5
+CROP_PAD_DIVISOR = 8  # flip_crop pads each side by image_size / 8 before cropping back
+
+
 class Split(StrEnum):
     TRAIN = "train"
     VALIDATION = "validation"
