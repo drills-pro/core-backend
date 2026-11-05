@@ -1,18 +1,21 @@
 """Deployment rules and queries: deploy, read, try-it and the key-authenticated predict path."""
 import hashlib
 import json
+import logging
 import secrets
 import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 
+import asyncpg
 import httpx
 
 from app.core import audit, plan_limits, rate_limit
 from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
+from app.core.idempotency import insert_once, replay
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
@@ -20,6 +23,8 @@ from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import calls, shared
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
+    DEPLOYMENT_EXISTS_DETAIL,
+    DEPLOYMENT_LOCK_PREFIX,
     AuditAction,
     EntityType,
     MAIN_ROUTE_SUFFIX,
@@ -31,8 +36,12 @@ from app.modules.user.deployments.constants import (
     PREDICT_KEY_BYTES,
     SERVE_TIMEOUT_SECONDS,
     STOPPED_DETAIL,
+    TOO_MANY_DEPLOYMENTS_DETAIL,
     SETTING_COMPUTE_TARGET,
     SETTING_DEPLOY_STRATEGY,
+    TEST_CALL_STORED_MAX_BYTES,
+    TRUNCATED_BYTES_FIELD,
+    TRUNCATED_FIELD,
     DeployStrategy,
     PlanTier,
     Serving,
@@ -44,12 +53,14 @@ from app.modules.user.deployments.schemas import (
     TestCall,
     TestCallResult,
 )
-from app.modules.user.deployments.status import DeploymentStatus
+from app.modules.user.deployments.status import QUOTA_STATUSES, DeploymentStatus
 from app.modules.user.projects import get_settings, get_task_type
 from app.modules.user.tenants import get_plan_tier
 from app.modules.user.training import get_run_model
 from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
+
+logger = logging.getLogger(__name__)
 
 
 def hash_key(key: str) -> str:
@@ -80,9 +91,49 @@ async def _deploy_legacy(ctx, project_id, deployment_id, run, info, settings, de
     )
 
 
-async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
+_LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
+_ACTIVE_COUNT = "SELECT count(*) FROM deployments WHERE tenant_id = $1 AND id <> $2 AND status = ANY($3::text[])"
+_BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key = $2"
+_INSERT = (
+    "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
+    "rate_limit_per_minute, serving, status, idempotency_key) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+    "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
+    "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id"
+)
+_QUOTA_STATUSES = [str(s) for s in QUOTA_STATUSES]
+
+
+async def _check_quota(conn, tenant_id: str, deployment_id: uuid.UUID, *, lock: bool = False) -> None:
+    """429 when the tenant's other active or deploying deployments already fill the plan's slots. `lock` serialises tenants'
+    writes on an advisory lock first, so two concurrent creates cannot both take the last slot."""
+    if lock:
+        await conn.fetchval(_LOCK_TENANT, f"{DEPLOYMENT_LOCK_PREFIX}{tenant_id}")
+    if await conn.fetchval(_ACTIVE_COUNT, tenant_id, deployment_id, _QUOTA_STATUSES) >= await plan_limits.max_active_deployments(conn, tenant_id):
+        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL)
+
+
+def _replay(row, training_run_id: uuid.UUID) -> DeploymentCreated:
+    """The deployment an earlier request with this key made. Only a hash of its predict key is stored, so it is not shown again."""
+    same = replay(row, lambda r: r["training_run_id"] == training_run_id, ProblemCode.IDEMPOTENCY_MISMATCH)
+    return DeploymentCreated.model_validate({**dict(same), "plan_tier": None})
+
+
+async def _drop_stray_app(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, serving: Serving, strategy: DeployStrategy) -> None:
+    """A create that lost a race after starting its own legacy Serve app removes it (a `main` app is shared by the winner, so it stays)."""
+    if serving == Serving.LEGACY and strategy == DeployStrategy.LATEST:
+        try:
+            await serve_client.remove(deployment_id=str(deployment_id), project_id=str(project_id), tenant_id=ctx.tenant_id, deploy_strategy=strategy)
+        except Exception:  # noqa: BLE001 - best effort, the app is unreferenced either way
+            logger.warning("could not remove the Serve app of deployment %s", deployment_id)
+
+
+async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
+        existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
+        if existing is not None:
+            return _replay(existing, training_run_id)
         run = await get_run_model(conn, project_id, training_run_id)
         if run is None:
             raise not_found()
@@ -111,6 +162,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
             if existing_main and existing_main["status"] == DeploymentStatus.STOPPED:
                 raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
+        await _check_quota(conn, ctx.tenant_id, existing_main["id"] if existing_main else uuid.uuid4())  # cheap early answer; the one that counts is under the lock below
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
     if await serve_client.apps_declared():
@@ -121,40 +173,55 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         ray_job_id, route_prefix = await _deploy_legacy(ctx, project_id, deployment_id, run, info, settings, deploy_strategy)
         serving, status = Serving.LEGACY, DeploymentStatus.DEPLOYING
 
-    async with TenantConn(ctx.tenant_id) as conn:
-        if existing_main:
-            row = await conn.fetchrow(
-                "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5 "
-                "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
-                deployment_id,
-                training_run_id,
-                ray_job_id,
-                status,
-                serving,
-                DeploymentStatus.STOPPED,  # stopped since the read: a deploy never resurrects it
-            )
-            if row is None:
-                raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
-            return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
+    try:
+        return await _write_deployment(
+            ctx, project_id, training_run_id, idempotency_key, deployment_id, existing_main is not None,
+            ray_job_id, route_prefix, serving, status, plan_tier)
+    except Exception:  # ponytail: a create that loses an Idempotency-Key race returns normally and leaves its legacy app to the winner's reconcile
+        if existing_main is None:
+            await _drop_stray_app(ctx, project_id, deployment_id, serving, deploy_strategy)
+        raise
 
-        # Shown once — this is the credential a customer's downstream
-        # system uses to call /predict, separate from the tenant/JWT
-        # scope used everywhere else. Only the hash is stored.
-        predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
-        row = await conn.fetchrow(
-            "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, rate_limit_per_minute, serving, status) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, status, route_prefix, rate_limit_per_minute",
-            deployment_id,
-            ctx.tenant_id,
-            project_id,
-            training_run_id,
-            ray_job_id,
-            route_prefix,
-            hash_key(predict_key),
-            rate_limit_for(plan_tier),
-            serving,
-            status,
-        )
+
+async def _write_deployment(
+    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, deployment_id: uuid.UUID,
+    in_place: bool, ray_job_id, route_prefix, serving, status, plan_tier,
+) -> DeploymentCreated:
+    """The write half of a deploy, under the tenant's deployments lock. One live deployment per run is the unique index's rule:
+    a violation is 409. A `main` re-deploy moves the one row to the new run (and takes the new key)."""
+    try:
+        async with TenantConn(ctx.tenant_id) as conn:
+            await _check_quota(conn, ctx.tenant_id, deployment_id, lock=True)
+            if in_place:
+                row = await conn.fetchrow(
+                    "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5, idempotency_key = $7 "
+                    "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
+                    deployment_id,
+                    training_run_id,
+                    ray_job_id,
+                    status,
+                    serving,
+                    DeploymentStatus.STOPPED,  # stopped since the read: a deploy never resurrects it
+                    idempotency_key,
+                )
+                if row is None:
+                    raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
+                return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
+
+            # Shown once — this is the credential a customer's downstream
+            # system uses to call /predict, separate from the tenant/JWT
+            # scope used everywhere else. Only the hash is stored.
+            predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
+            row, created = await insert_once(
+                conn, _INSERT,
+                (deployment_id, ctx.tenant_id, project_id, training_run_id, ray_job_id, route_prefix, hash_key(predict_key),
+                 rate_limit_for(plan_tier), serving, status, idempotency_key),
+                _BY_KEY, (project_id, idempotency_key),
+            )
+            if not created:  # lost a race with the same key: that one is the deployment
+                return _replay(row, training_run_id)
+    except asyncpg.UniqueViolationError:  # only deployments_one_live_per_run is left: the idempotency key conflict is DO NOTHING above
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
     return DeploymentCreated.model_validate({**dict(row), "predict_key": predict_key, "plan_tier": plan_tier})
 
@@ -201,6 +268,12 @@ async def _post_to_serve(route_prefix: str, body: dict) -> tuple[httpx.Response,
     return resp, (time.perf_counter() - start) * 1000
 
 
+def _stored(payload):
+    """What the try-it log keeps of a request or response: itself, or a marker with its size when it is over the cap."""
+    size = len(json.dumps(payload))
+    return payload if size <= TEST_CALL_STORED_MAX_BYTES else {TRUNCATED_FIELD: True, TRUNCATED_BYTES_FIELD: size}
+
+
 async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, body: dict) -> TestCallResult:
     # FR7 (06-project-settings-deployment.md): same auth as the management
     # API, for the in-app "try it" panel — no predict key needed. Logs to
@@ -236,8 +309,8 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             "VALUES ($1, $2, $3, $4, $5)",
             ctx.tenant_id,
             deployment_id,
-            body,
-            response_body,
+            _stored(body),
+            _stored(response_body),
             elapsed_ms,
         )
     return TestCallResult(response=response_body, latency_ms=elapsed_ms)
@@ -343,6 +416,8 @@ async def _move(
     """Compare-and-set the status from one of `frm` to `to`, audited in the same transaction. Returns (row, moved): a row
     already at `to` comes back with moved False (a repeat is not an error); any other status is 409, a missing or deleted row 404."""
     async with TenantConn(ctx.tenant_id) as conn:
+        if to in QUOTA_STATUSES:  # starting takes a slot back: stopped freed it
+            await _check_quota(conn, ctx.tenant_id, deployment_id, lock=True)
         row = await conn.fetchrow(
             "UPDATE deployments SET status = $3, ray_job_id = COALESCE($5, ray_job_id), "
             "predict_key_hash = CASE WHEN $6 THEN NULL ELSE predict_key_hash END "

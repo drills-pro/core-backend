@@ -75,7 +75,9 @@ serving:                     # app/integrations/serve_client.py: the two shared 
   request_timeout_seconds: 60          # includes a cold load of the model
   max_body_bytes: 10485760             # 10 MiB: a base64 image
   max_inflight_per_deployment: 8       # per core-api replica, not global
+  max_active_deployments_per_tenant: 3 # fallback for a tier without a plan_limits row
   predict_calls_retention_days: 30
+  test_calls_retention_days: 7         # "try it" requests and responses older than this are purged
   package_url_ttl_seconds: 604800      # 7 days, S3's maximum; the apps are re-declared (new URL) after half of it
   apps:
     cpu: {min_replicas: 2, max_replicas: 4, num_cpus: 1, num_gpus: 0, resources: {cpu_pool: 0.01}}   # on the CPU pool, two replicas so one can fail
