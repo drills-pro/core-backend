@@ -863,7 +863,11 @@ export interface paths {
         /** List Deployments */
         get: operations["list_deployments_v1_projects__project_id__deployments_get"];
         put?: never;
-        /** Create Deployment */
+        /**
+         * Create Deployment
+         * @description Deploy a training run. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
+         *     the predict key, which is shown once); the same key with another run is 409.
+         */
         post: operations["create_deployment_v1_projects__project_id__deployments_post"];
         delete?: never;
         options?: never;
@@ -882,6 +886,50 @@ export interface paths {
         get: operations["get_deployment_v1_projects__project_id__deployments__deployment_id__get"];
         put?: never;
         post?: never;
+        /**
+         * Delete Deployment
+         * @description Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list.
+         */
+        delete: operations["delete_deployment_v1_projects__project_id__deployments__deployment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Deployment
+         * @description Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine.
+         */
+        post: operations["stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Deployment
+         * @description Serve a stopped deployment again: same row, same predict key.
+         */
+        post: operations["start_deployment_v1_projects__project_id__deployments__deployment_id__start_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1456,6 +1504,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/training-runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Training Run Event
+         * @description A trainer's progress after an epoch. Authenticated by the run's token; only a running run takes events. A `seq` the
+         *     run already has answers 200 and changes nothing.
+         */
+        post: operations["post_training_run_event_internal_v1_training_runs__run_id__events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/training-presets": {
         parameters: {
             query?: never;
@@ -1772,6 +1841,12 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * Augmentation
+         * @description Train-split-only image recipe. Mirrors task_presets_augmentation_check; the trainer mirrors it (contract-tested).
+         * @enum {string}
+         */
+        Augmentation: "none" | "flip_crop" | "flip";
         /** Body_create_tenant_project_v1_admin_tenants__tenant_id__projects_post */
         Body_create_tenant_project_v1_admin_tenants__tenant_id__projects_post: {
             /** Name */
@@ -2061,6 +2136,18 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** Deployments */
+        Deployments: {
+            /** Max Active Deployments */
+            max_active_deployments: number;
+        };
+        /** EventAck */
+        EventAck: {
+            /** Seq */
+            seq: number;
+            /** Duplicate */
+            duplicate: boolean;
         };
         /**
          * ExecutionProvider
@@ -2356,6 +2443,12 @@ export interface components {
             /** Revoked At */
             revoked_at: string | null;
         };
+        /**
+         * LrSchedule
+         * @description Learning rate over a run's steps, after a linear warmup: held, or cosine-decayed to zero. Mirrors task_presets_lr_schedule_check.
+         * @enum {string}
+         */
+        LrSchedule: "constant" | "cosine";
         /** Me */
         Me: {
             /** Sub */
@@ -2567,6 +2660,7 @@ export interface components {
             tables: components["schemas"]["Tables"];
             huggingface: components["schemas"]["HuggingFace"];
             predict: components["schemas"]["Predict"];
+            deployments: components["schemas"]["Deployments"];
             plan_tier: components["schemas"]["PlanTier"];
             /** Updated By */
             updated_by: string;
@@ -2587,6 +2681,7 @@ export interface components {
             tables: components["schemas"]["Tables"];
             huggingface: components["schemas"]["HuggingFace"];
             predict: components["schemas"]["Predict"];
+            deployments: components["schemas"]["Deployments"];
         };
         /**
          * PlanTier
@@ -2642,6 +2737,20 @@ export interface components {
             /** Max Runtime S */
             max_runtime_s: number;
             hyperparameters: components["schemas"]["HyperparameterLimits"];
+            /** @default constant */
+            lr_schedule: components["schemas"]["LrSchedule"];
+            /**
+             * Warmup Fraction
+             * @default 0
+             */
+            warmup_fraction: number;
+            /** @default none */
+            augmentation: components["schemas"]["Augmentation"];
+            /**
+             * Early Stopping Patience
+             * @default 0
+             */
+            early_stopping_patience: number;
         };
         /** PresetSummary */
         PresetSummary: {
@@ -2659,6 +2768,12 @@ export interface components {
             /** Max Runtime S */
             max_runtime_s: number;
             hyperparameters: components["schemas"]["HyperparameterLimits"];
+            lr_schedule: components["schemas"]["LrSchedule"];
+            /** Warmup Fraction */
+            warmup_fraction: number;
+            augmentation: components["schemas"]["Augmentation"];
+            /** Early Stopping Patience */
+            early_stopping_patience: number;
         };
         /**
          * PreviewRow
@@ -2671,6 +2786,24 @@ export interface components {
             };
             /** Url */
             url?: string | null;
+        };
+        /** ProgressPoint */
+        ProgressPoint: {
+            /** Epoch */
+            epoch: number;
+            /** Epochs */
+            epochs: number;
+            /** Metrics */
+            metrics: {
+                [key: string]: number;
+            };
+            /** Seq */
+            seq: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ProjectDetail */
         ProjectDetail: {
@@ -2907,6 +3040,15 @@ export interface components {
             route_prefix: string;
         };
         /**
+         * RunProgress
+         * @description What the run has reported so far; kept after the run ends.
+         */
+        RunProgress: {
+            latest: components["schemas"]["ProgressPoint"];
+            /** History */
+            history: components["schemas"]["ProgressPoint"][];
+        };
+        /**
          * Scope
          * @description What an API key may do (mirrored by api_key_scopes_scope_check). Separate from Action: a key is
          *     not a person, and require_key checks a scope where require checks an action.
@@ -3049,6 +3191,20 @@ export interface components {
             /** Max Runtime S */
             max_runtime_s: number;
             hyperparameters: components["schemas"]["HyperparameterLimits"];
+            /** @default constant */
+            lr_schedule: components["schemas"]["LrSchedule"];
+            /**
+             * Warmup Fraction
+             * @default 0
+             */
+            warmup_fraction: number;
+            /** @default none */
+            augmentation: components["schemas"]["Augmentation"];
+            /**
+             * Early Stopping Patience
+             * @default 0
+             */
+            early_stopping_patience: number;
             task: components["schemas"]["TaskType"];
             /** Name */
             name: string;
@@ -3460,6 +3616,7 @@ export interface components {
             reproduction_group_id: string | null;
             /** Dataset Id */
             dataset_id: string | null;
+            progress?: components["schemas"]["RunProgress"] | null;
         };
         /**
          * TrainingRunCreate
@@ -5640,7 +5797,8 @@ export interface operations {
             query: {
                 training_run_id: string;
             };
-            header?: {
+            header: {
+                "Idempotency-Key": string;
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
             };
@@ -5672,6 +5830,109 @@ export interface operations {
         };
     };
     get_deployment_v1_projects__project_id__deployments__deployment_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_deployment_v1_projects__project_id__deployments__deployment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_deployment_v1_projects__project_id__deployments__deployment_id__start_post: {
         parameters: {
             query?: never;
             header?: {
@@ -7121,6 +7382,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TenantAuditEntry_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_training_run_event_internal_v1_training_runs__run_id__events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Epoch */
+                    epoch: number;
+                    /** Epochs */
+                    epochs: number;
+                    /** Metrics */
+                    metrics: {
+                        [key: string]: number;
+                    };
+                    /**
+                     * Type
+                     * @constant
+                     */
+                    type: "progress";
+                    /** Seq */
+                    seq: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventAck"];
                 };
             };
             /** @description Validation Error */
