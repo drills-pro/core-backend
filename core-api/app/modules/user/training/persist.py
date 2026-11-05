@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from app.integrations import job_lifecycle
+from app.integrations.compute import JobStatus
 from app.integrations.job_spec import Resources
 from app.modules.user.model_registry import RegisteredVersion, record_version
 from app.modules.user.training.constants import (
@@ -29,6 +30,9 @@ TRAINING = job_lifecycle.JobTable(
 )
 
 
+RAN_TO_THE_END = (JobStatus.SUCCEEDED, JobStatus.FAILED)  # Ray ended these on their own, so they ran; a stop or timeout may not have
+
+
 def gpu_seconds(run: dict) -> float:
     """Billable GPU-seconds of an ended run (planning 14): seconds from the move to running to the end, times the
     GPU fraction its spec declared. 0 for a run never seen running (queue time is not billed) and for a CPU run."""
@@ -39,15 +43,19 @@ def gpu_seconds(run: dict) -> float:
     return max((completed_at - started_at).total_seconds(), 0.0) * gpu
 
 
-async def apply(conn, row: dict, outcome: Outcome, registered: RegisteredVersion | None = None) -> dict | None:
+async def apply(conn, row: dict, outcome: Outcome, registered: RegisteredVersion | None = None,
+                started_at: datetime | None = None) -> dict | None:
     """Move the run to the outcome; None when someone else moved it first, in which case nothing else is written.
     Only the writer that wins the move records the model version (already created in MLflow) and bills, so a double
-    settle does neither twice. Every end of a run that had started is billed, whatever its status."""
+    settle does neither twice. `started_at` is Ray's start time for a run that was never seen running: it is stamped by
+    the same compare-and-set, only when the run has none, and never earlier than the run was created. Every end of a run that had started is billed, whatever its status."""
     cols = {}
     if outcome.report is not None:
         cols = {"metrics": outcome.report.metrics, "report": outcome.report.model_dump(mode="json")}
     if outcome.status is TrainingStatus.RUNNING:
         cols["started_at"] = datetime.now(UTC)
+    elif started_at is not None and row.get("started_at") is None:
+        cols["started_at"] = max(started_at, row["created_at"])
     moved = await job_lifecycle.advance(conn, TRAINING, row, outcome.status, **cols)
     if moved is None or TRANSITIONS[outcome.status]:
         return moved

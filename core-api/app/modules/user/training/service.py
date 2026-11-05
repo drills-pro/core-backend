@@ -34,8 +34,11 @@ async def settle(row: dict, verdict: job_lifecycle.Verdict) -> None:
     if outcome.status is TrainingStatus.SUCCEEDED:
         await effects.publish_model(tenant_id, row)
         registered = await effects.register_model(tenant_id, row)
+    started_at = None
+    if row.get("started_at") is None and verdict.ray in persist.RAN_TO_THE_END and not verdict.timed_out:
+        started_at = await effects.ray_started_at(row)  # a job faster than the sweep was never seen running
     async with TenantConn(tenant_id) as conn:
-        moved = await persist.apply(conn, row, outcome, registered)
+        moved = await persist.apply(conn, row, outcome, registered, started_at)
     if moved is None:
         logger.info("run %s was moved by someone else; nothing to settle", row["id"])  # a cancel or another replica won
         return

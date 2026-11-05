@@ -371,6 +371,12 @@ class Fx:
 
         monkeypatch.setattr(compute, "status", status)
         monkeypatch.setattr(compute, "stop", stop)
+        self.ray_start = None  # what Ray's own record says about when the job started
+
+        async def job_state(job_id):
+            return compute.JobState(status=self.ray, started_at=self.ray_start)
+
+        monkeypatch.setattr(compute, "job_state", job_state)
         monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
         monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
@@ -532,6 +538,40 @@ def test_a_job_that_finished_wins_over_the_horizon(monkeypatch):
     fx.ray = JobStatus.SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.SUCCEEDED and not fx.stopped
+
+
+def test_a_fast_job_never_seen_running_is_billed_from_rays_start_time(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))  # queued for an hour
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == fx.ray_start
+    assert fx.usage[0]["quantity"] == pytest.approx(40, abs=2)  # 1 GPU, the 40 s Ray ran, not the hour in the queue
+
+
+def test_a_fast_job_ray_cannot_date_is_not_billed_and_not_from_created_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))
+    fx.ray = JobStatus.SUCCEEDED  # ray_start stays None
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] is None and not fx.usage
+
+
+def test_rays_start_time_does_not_override_a_stamped_started_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    stamped = row["started_at"]
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(hours=1)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == stamped
+
+
+def test_a_stopped_job_never_seen_running_is_not_dated_by_ray(monkeypatch):
+    fx = Fx(monkeypatch)
+    row = fx.seed("submitted", started_at=None)
+    fx.ray, fx.ray_start = JobStatus.STOPPED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.CANCELLED and not fx.usage
 
 
 # ---- the enums and the database agree ----
