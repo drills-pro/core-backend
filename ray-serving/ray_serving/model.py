@@ -3,14 +3,17 @@
 No Ray in here, so it runs (and is tested) anywhere onnxruntime does. app.py decides when a model is loaded and kept.
 """
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from ray_serving import inputs, postprocess
 
 FETCH_TIMEOUT_SECONDS = 120
+MAX_FETCH_BYTES = 2 * 1024**3  # the most one model, manifest or tokenizer download may be
 DEFAULT_RESAMPLE = "bicubic"  # a model trained before model.json named its filter used this one (core-api task_catalog.IMAGENET_PREPROCESSING)
 
 
@@ -56,9 +59,33 @@ class Loaded:
     spec: ModelSpec
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # a redirect would leave the allow-listed base: the 3xx surfaces as an HTTPError
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def check_url(url: str, base: str) -> None:
+    """Refuse a model URL that is not under `base` (the artifact store core-api is configured with): the request body is not
+    trusted to say where the replica connects. Same scheme and host, path inside the base's, no `..`."""
+    u, b = urlsplit(url), urlsplit(base)
+    prefix = b.path.rstrip("/") + "/"
+    if (u.scheme, u.netloc) != (b.scheme, b.netloc) or not u.path.startswith(prefix) or ".." in u.path.split("/"):
+        raise ServeError(ErrorCode.MODEL_LOAD_FAILED, "model url is outside the allowed artifact store")
+
+
 def _fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as resp:  # noqa: S310 - a URL core-api presigned for this deployment
-        return resp.read()
+    with _opener.open(url, timeout=FETCH_TIMEOUT_SECONDS) as resp:  # noqa: S310 - checked against the allowed base by check_url
+        return _read_capped(resp)
+
+
+def _read_capped(resp) -> bytes:
+    data = resp.read(MAX_FETCH_BYTES + 1)
+    if len(data) > MAX_FETCH_BYTES:
+        raise ValueError(f"artifact is larger than {MAX_FETCH_BYTES} bytes")
+    return data
 
 
 def _function(module, name: str) -> Callable:
@@ -68,7 +95,9 @@ def _function(module, name: str) -> Callable:
     return found
 
 
-def load(spec: ModelSpec) -> Loaded:
+def load(spec: ModelSpec, allowed_base: str) -> Loaded:
+    for url in filter(None, (spec.model_url, spec.manifest_url, spec.tokenizer_url)):  # image models have no tokenizer
+        check_url(url, allowed_base)
     make_encoder, _ = _function(inputs, spec.encoder), _function(postprocess, spec.postprocess)
     try:
         import onnxruntime as ort

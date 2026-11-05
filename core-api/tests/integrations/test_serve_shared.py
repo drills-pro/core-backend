@@ -46,7 +46,7 @@ def test_both_apps_are_rendered_with_the_package_the_pool_pin_and_the_failure_se
     assert gpu_dep["ray_actor_options"] == {"num_cpus": 1, "num_gpus": 1}
     assert cpu_dep["autoscaling_config"]["min_replicas"] >= 2  # one replica may fail without taking the app down
     assert {"health_check_period_s", "health_check_timeout_s", "graceful_shutdown_timeout_s", "max_ongoing_requests"} <= set(cpu_dep)
-    assert cpu["args"] == {"max_models_per_replica": serve_client.settings.serving.max_models_per_replica}
+    assert cpu["args"] == {"max_models_per_replica": serve_client.settings.serving.max_models_per_replica, "model_base_url": serve_client.mlflow.artifact_url("")}
     assert cfg["proxy_location"] == "EveryNode" and cfg["http_options"]["port"] == serve_config.SERVE_HTTP_PORT
 
 

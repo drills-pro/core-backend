@@ -18,7 +18,7 @@ ERROR_STATUS = {ErrorCode.BAD_INPUT: 422, ErrorCode.UNKNOWN_FUNCTION: 500, Error
 
 
 def build(args: dict):
-    """The application builder named by the Serve config's import_path; args: {"max_models_per_replica": int}."""
+    """The application builder named by the Serve config's import_path; args: {"max_models_per_replica": int, "model_base_url": str} (model URLs outside it are refused)."""
 
     @serve.deployment
     class Predictor:
@@ -29,7 +29,7 @@ def build(args: dict):
         @serve.multiplexed(max_num_models_per_replica=args["max_models_per_replica"])
         async def get_model(self, model_id: str) -> model.Loaded:
             spec = self.specs.pop(model_id)
-            loaded = await asyncio.to_thread(model.load, spec)
+            loaded = await asyncio.to_thread(model.load, spec, args["model_base_url"])
             self.cold.add(model_id)
             return loaded
 
