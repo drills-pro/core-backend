@@ -28,7 +28,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
          (SELECT count(*) FROM projects
            WHERE deleted_at IS NULL AND created_at >= now() - interval '30 days'
              AND tenant_id IN (SELECT id FROM customer)),
-         (SELECT count(DISTINCT user_id) FROM project_members WHERE tenant_id IN (SELECT id FROM customer));
+         (SELECT count(DISTINCT user_sub) FROM project_members WHERE tenant_id IN (SELECT id FROM customer));
 $$;
 
 -- migrate:down
@@ -46,7 +46,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
          (SELECT count(*) FROM projects WHERE deleted_at IS NULL),
          (SELECT count(*) FROM projects
            WHERE deleted_at IS NULL AND created_at >= now() - interval '30 days'),
-         (SELECT count(DISTINCT user_id) FROM project_members);
+         (SELECT count(DISTINCT user_sub) FROM project_members);
 $$;
 
 DELETE FROM plan_limits WHERE plan_tier = 'internal';
