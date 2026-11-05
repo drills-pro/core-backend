@@ -194,6 +194,7 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     assert (p.task, p.preset, p.base_model.repo_id, p.base_model.revision) == (TaskType.IMAGE_CLASSIFICATION, "small", row["base_model_repo"], row["base_model_revision"])
     assert (p.learning_rate, p.preprocessing.max_length if hasattr(p.preprocessing, "max_length") else p.preprocessing.rescale) == (row["learning_rate"], row["preprocessing"]["rescale"])
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
+    assert (p.lr_schedule, p.warmup_fraction, p.augmentation, p.early_stopping_patience) == (row["lr_schedule"], row["warmup_fraction"], row["augmentation"], row["early_stopping_patience"])
     assert (spec.resources.cpu, spec.resources.memory_bytes, spec.resources.gpu, spec.resources.max_runtime_s) == (
         row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
     assert (gw.package_name, gw.package_sha) == (JobPackageName.RAY_TRAINING, PACKAGE_SHA)  # pinned for the run, and what the job runs

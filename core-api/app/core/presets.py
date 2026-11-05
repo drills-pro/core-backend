@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import TaskType
 from app.core.settings import settings
-from app.core.task_catalog import Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.task_catalog import TASK_AUGMENTATIONS, Augmentation, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
 
 NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"  # mirrors task_presets_name_check
 _REVISION = re.compile(r"^[0-9a-f]{40}$")  # a commit sha, never a branch that moves
@@ -48,6 +48,15 @@ class PresetBody(BaseModel):
     gpu: float = Field(ge=0)
     max_runtime_s: int = Field(gt=0)
     hyperparameters: HyperparameterLimits
+    lr_schedule: LrSchedule = LrSchedule.CONSTANT
+    warmup_fraction: float = Field(default=0, ge=0, lt=1)  # of the run's steps, linear from 0 to learning_rate
+    augmentation: Augmentation = Augmentation.NONE
+    early_stopping_patience: int = Field(default=0, ge=0)  # epochs without a better metric before stopping; 0 = off
+
+    def check_task(self, task: TaskType) -> None:
+        """The recipe must be one the task's trainer implements."""
+        if self.augmentation not in TASK_AUGMENTATIONS.get(task, frozenset({Augmentation.NONE})):
+            raise ValueError(f"augmentation {self.augmentation} is not available for {task}")
 
     @model_validator(mode="after")
     def _pinned_and_within_the_ceiling(self):
@@ -68,12 +77,14 @@ class TaskPreset(PresetBody):
 _SELECT = "SELECT * FROM task_presets"
 _UPSERT = (
     "INSERT INTO task_presets (task, name, base_model_repo, base_model_revision, learning_rate, preprocessing, cpu, "
-    "memory_bytes, gpu, max_runtime_s, hyperparameters, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+    "memory_bytes, gpu, max_runtime_s, hyperparameters, updated_by, lr_schedule, warmup_fraction, augmentation, "
+    "early_stopping_patience) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) "
     "ON CONFLICT (task, name) DO UPDATE SET base_model_repo = EXCLUDED.base_model_repo, "
     "base_model_revision = EXCLUDED.base_model_revision, learning_rate = EXCLUDED.learning_rate, "
     "preprocessing = EXCLUDED.preprocessing, cpu = EXCLUDED.cpu, memory_bytes = EXCLUDED.memory_bytes, gpu = EXCLUDED.gpu, "
     "max_runtime_s = EXCLUDED.max_runtime_s, hyperparameters = EXCLUDED.hyperparameters, "
-    "updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+    "lr_schedule = EXCLUDED.lr_schedule, warmup_fraction = EXCLUDED.warmup_fraction, augmentation = EXCLUDED.augmentation, "
+    "early_stopping_patience = EXCLUDED.early_stopping_patience, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
 )
 
 
@@ -96,7 +107,8 @@ async def put(conn, task: TaskType, name: str, body: PresetBody, actor: str) -> 
     row = await conn.fetchrow(
         _UPSERT, task, name, body.base_model.repo_id, body.base_model.revision, body.learning_rate,
         body.preprocessing.model_dump(mode="json"), body.cpu, body.memory_bytes, body.gpu, body.max_runtime_s,
-        body.hyperparameters.model_dump(mode="json"), actor)
+        body.hyperparameters.model_dump(mode="json"), actor,
+        body.lr_schedule, body.warmup_fraction, body.augmentation, body.early_stopping_patience)
     return _model(row)
 
 

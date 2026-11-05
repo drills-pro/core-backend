@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.core.enums import TaskType
 from app.core.presets import NAME_PATTERN, HyperparameterLimits
-from app.core.task_catalog import TrainBaseModel
+from app.core.task_catalog import Augmentation, LrSchedule, TrainBaseModel
 from app.integrations.job_spec import DEFAULT_SEED, MAX_EPOCHS
 from app.modules.user.training.constants import (
     MAX_EVENT_METRICS,
@@ -46,6 +46,10 @@ class PresetSummary(BaseModel):
     gpu: float
     max_runtime_s: int
     hyperparameters: HyperparameterLimits
+    lr_schedule: LrSchedule
+    warmup_fraction: float
+    augmentation: Augmentation
+    early_stopping_patience: int
 
 
 class TrainingRunSummary(BaseModel):
