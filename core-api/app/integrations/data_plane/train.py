@@ -74,3 +74,16 @@ async def read_train_report(tenant_id: str, project_id: str, run_id: str) -> Tra
             return None
         raise
     return TrainReport.model_validate_json(await asyncio.to_thread(obj["Body"].read))
+
+
+async def read_model_meta(tenant_id: str, project_id: str, run_id: str) -> dict | None:
+    """The job's model.json (what publish_run_model copies into MLflow), or None when the run has none."""
+    await access.training_run(tenant_id, project_id, run_id)
+    key = layout.train_prefix(tenant_id, project_id, run_id) + layout.MODEL_META_KEY
+    try:
+        obj = await asyncio.to_thread(lakefs.s3_client(secret_files.STAGING).get_object, Bucket=settings.data_plane.staging_bucket, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == _S3_NO_SUCH_KEY:
+            return None
+        raise
+    return json.loads(await asyncio.to_thread(obj["Body"].read))
