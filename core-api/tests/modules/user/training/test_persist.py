@@ -13,6 +13,7 @@ from tests.support.job_table import FakeJobTable
 
 OK = TrainReport(status=TrainOutcome.SUCCEEDED, metrics={"top1": 0.9})
 SUCCEEDED = decide.Outcome(status=S.SUCCEEDED, report=OK)
+RESOURCES = {"cpu": 1, "memory_bytes": 1}
 REGISTERED = RegisteredVersion(mlflow_model_name="t/p/model", mlflow_version="3")
 
 
@@ -24,7 +25,8 @@ def env(monkeypatch):
 
         def seed(self, status=S.RUNNING, **kw):
             base = {"project_id": uuid.uuid4(), "mlflow_run_id": "mlflow-1", "ray_job_id": "train-1", "metrics": None, "report": None,
-                    "created_at": datetime.now(UTC) - timedelta(seconds=90)}
+                    "created_at": datetime.now(UTC) - timedelta(seconds=90),
+                    "started_at": datetime.now(UTC) - timedelta(seconds=60), "spec": {"resources": {**RESOURCES, "gpu": 0.5}}}
             return self.table.seed(status, **{**base, **kw})
 
         def apply(self, row, outcome, registered=REGISTERED):
@@ -47,14 +49,14 @@ def env(monkeypatch):
     return e
 
 
-def test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_runtime(env):
+def test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_gpu_runtime(env):
     row = env.seed()
     moved = env.apply(dict(row), SUCCEEDED)
     assert moved["status"] == S.SUCCEEDED and moved["metrics"] == {"top1": 0.9} and moved["report"]["status"] == "succeeded"
     assert env.registered == [(str(row["tenant_id"]), row["project_id"], row["id"], REGISTERED)]
     bill = env.usage[0]
     assert bill["occurred_at"] == moved["completed_at"] and bill["source_ref"] == "train-1" and bill["project_id"] == row["project_id"]
-    assert bill["quantity"] == pytest.approx((moved["completed_at"] - row["created_at"]).total_seconds())
+    assert bill["quantity"] == pytest.approx((moved["completed_at"] - row["started_at"]).total_seconds() * 0.5)  # run time, not queue time, times the fraction
 
 
 def test_the_loser_of_the_race_writes_nothing_else(env):
@@ -71,15 +73,39 @@ def test_a_run_moved_by_someone_else_is_left_alone(env):
     assert row["status"] == S.CANCELLED and not env.registered and not env.usage
 
 
-@pytest.mark.parametrize("outcome", [
-    decide.Outcome(status=S.FAILED, report=decide.failed_report(FailureCode.OOM, "oom")),
-    decide.Outcome(status=S.CANCELLED),
-    decide.Outcome(status=S.RUNNING),
-])
-def test_only_a_succeeded_run_registers_and_bills(env, outcome):
-    row = env.seed(S.SUBMITTED if outcome.status is S.RUNNING else S.RUNNING)
+FAILED = decide.Outcome(status=S.FAILED, report=decide.failed_report(FailureCode.OOM, "oom"))
+
+
+@pytest.mark.parametrize("outcome", [FAILED, decide.Outcome(status=S.CANCELLED)])
+def test_a_failed_or_cancelled_run_that_started_is_billed_but_registers_no_model(env, outcome):
+    row = env.seed()
     assert env.apply(dict(row), outcome)["status"] == outcome.status
-    assert not env.registered and not env.usage
+    assert not env.registered and len(env.usage) == 1 and env.usage[0]["quantity"] > 0
+
+
+@pytest.mark.parametrize("outcome", [SUCCEEDED, FAILED, decide.Outcome(status=S.CANCELLED)])
+def test_a_run_never_seen_running_is_not_billed(env, outcome):
+    row = env.seed(S.SUBMITTED, started_at=None)
+    assert env.apply(dict(row), outcome)["status"] == outcome.status
+    assert not env.usage
+
+
+def test_a_cpu_run_is_not_billed_gpu_seconds(env):
+    row = env.seed(spec={"resources": RESOURCES})
+    env.apply(dict(row), SUCCEEDED)
+    assert not env.usage
+
+
+def test_a_whole_gpu_for_a_known_time_bills_that_many_gpu_seconds(env):
+    t = datetime(2026, 1, 1, tzinfo=UTC)
+    run = {"started_at": t, "completed_at": t + timedelta(seconds=100), "spec": {"resources": {**RESOURCES, "gpu": 2}}}
+    assert persist.gpu_seconds(run) == 200
+
+
+def test_moving_to_running_stamps_started_at_and_bills_nothing(env):
+    row = env.seed(S.SUBMITTED, started_at=None)
+    moved = env.apply(dict(row), decide.Outcome(status=S.RUNNING))
+    assert moved["started_at"] is not None and not env.usage
 
 
 def test_a_run_without_an_mlflow_run_is_billed_but_records_no_model(env):

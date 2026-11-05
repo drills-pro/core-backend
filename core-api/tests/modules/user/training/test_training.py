@@ -371,6 +371,12 @@ class Fx:
 
         monkeypatch.setattr(compute, "status", status)
         monkeypatch.setattr(compute, "stop", stop)
+        self.ray_start = None  # what Ray's own record says about when the job started
+
+        async def job_state(job_id):
+            return compute.JobState(status=self.ray, started_at=self.ray_start)
+
+        monkeypatch.setattr(compute, "job_state", job_state)
         monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
         monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
@@ -381,6 +387,7 @@ class Fx:
 
     def seed(self, status="running", **kw):
         base = {"project_id": PROJECT, "mlflow_run_id": "mlflow-1", "ray_job_id": f"train-{RUN}", "created_at": datetime.now(UTC),
+                "started_at": datetime.now(UTC) - timedelta(seconds=60), "spec": {"resources": {"cpu": 1, "memory_bytes": 1, "gpu": 1}},
                 "metrics": None, "report": None}
         return self.table.seed(status, **{**base, **kw})
 
@@ -417,14 +424,14 @@ def _unreadable():
     None,  # the job ended without writing one
     _unreadable(),  # it wrote one core-api cannot read
 ], ids=["failed", "missing", "unreadable"])
-def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_not_billed(monkeypatch, report):
+def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_billed_for_its_runtime(monkeypatch, report):
     fx = Fx(monkeypatch, report)
     row = fx.seed()
     fx.ray = JobStatus.SUCCEEDED  # Ray said SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.FAILED and row["report"]["status"] == "failed"
     assert row["report"]["code"] == (report.code if isinstance(report, TrainReport) else FailureCode.INTERNAL)
-    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and not fx.usage
+    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and len(fx.usage) == 1
     assert fx.metrics == [TrainingStatus.FAILED]
 
 
@@ -433,7 +440,7 @@ def test_a_report_that_says_succeeded_does_not_save_a_job_ray_failed(monkeypatch
     row = fx.seed()
     fx.ray = JobStatus.FAILED
     fx.sweep()
-    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and not fx.usage
+    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and len(fx.usage) == 1
 
 
 def test_a_stopped_job_cancels_the_run_and_kills_the_mlflow_run(monkeypatch):
@@ -531,6 +538,40 @@ def test_a_job_that_finished_wins_over_the_horizon(monkeypatch):
     fx.ray = JobStatus.SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.SUCCEEDED and not fx.stopped
+
+
+def test_a_fast_job_never_seen_running_is_billed_from_rays_start_time(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))  # queued for an hour
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == fx.ray_start
+    assert fx.usage[0]["quantity"] == pytest.approx(40, abs=2)  # 1 GPU, the 40 s Ray ran, not the hour in the queue
+
+
+def test_a_fast_job_ray_cannot_date_is_not_billed_and_not_from_created_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))
+    fx.ray = JobStatus.SUCCEEDED  # ray_start stays None
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] is None and not fx.usage
+
+
+def test_rays_start_time_does_not_override_a_stamped_started_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    stamped = row["started_at"]
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(hours=1)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == stamped
+
+
+def test_a_stopped_job_never_seen_running_is_not_dated_by_ray(monkeypatch):
+    fx = Fx(monkeypatch)
+    row = fx.seed("submitted", started_at=None)
+    fx.ray, fx.ray_start = JobStatus.STOPPED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.CANCELLED and not fx.usage
 
 
 # ---- the enums and the database agree ----

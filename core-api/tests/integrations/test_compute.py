@@ -151,6 +151,24 @@ def test_dashboard_backend_logs_come_from_the_job_api(monkeypatch):
     assert asyncio.run(compute.logs("ray-1")) == "log of /api/jobs/ray-1/logs"
 
 
+def test_rayjob_state_carries_the_cr_start_time(kube):
+    asyncio.run(compute.submit(SPEC))
+    kube.crs["ingest-1"]["status"] = {"jobStatus": "SUCCEEDED", "startTime": "2026-11-05T10:00:00Z"}
+    state = asyncio.run(compute.job_state("ingest-1"))
+    assert state.status == compute.JobStatus.SUCCEEDED and state.started_at.isoformat() == "2026-11-05T10:00:00+00:00"
+    kube.crs["ingest-1"]["status"] = {"jobStatus": "SUCCEEDED"}
+    assert asyncio.run(compute.job_state("ingest-1")).started_at is None
+
+
+def test_dashboard_state_carries_the_start_time_in_epoch_milliseconds(monkeypatch):
+    info = {"status": "SUCCEEDED", "start_time": 1_762_336_800_000}
+    _dashboard(monkeypatch, lambda request: httpx.Response(200, json=info))
+    assert asyncio.run(compute.job_state("ray-1")).started_at.isoformat() == "2025-11-05T10:00:00+00:00"
+    info.pop("start_time")
+    assert asyncio.run(compute.job_state("ray-1")).started_at is None
+    assert asyncio.run(compute.status("ray-1")) == compute.JobStatus.SUCCEEDED
+
+
 def test_dashboard_url_is_read_per_call(monkeypatch):
     monkeypatch.setattr(settings.ray, "dashboard", "http://elsewhere:1")
     assert str(compute._dashboard().base_url) == "http://elsewhere:1"

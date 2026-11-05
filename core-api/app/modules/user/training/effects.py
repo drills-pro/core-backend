@@ -1,10 +1,11 @@
 """What a settling training run does outside Postgres: the object store, MLflow, Ray. Takes ids, never a connection."""
 import logging
+from datetime import datetime
 
 import httpx
 from pydantic import ValidationError
 
-from app.integrations import data_plane
+from app.integrations import compute, data_plane
 from app.integrations.data_plane import mlflow
 from app.integrations.data_plane.train_report import FailureCode, TrainReport
 from app.modules.user.model_registry import RegisteredVersion, register_in_mlflow
@@ -22,6 +23,16 @@ async def final_report(tenant_id: str, row: dict) -> TrainReport | None:
     except ValidationError:
         logger.warning("run %s wrote a report core-api cannot read", row["id"], exc_info=True)
         return decide.failed_report(FailureCode.INTERNAL, "the training job wrote a report that could not be read")
+
+
+async def ray_started_at(row: dict) -> datetime | None:
+    """When Ray started a job that ended on its own before the sweep saw it running (so the run has no started_at).
+    Ray's own record, never the job's report (untrusted). None when Ray cannot say: the run is then not billed."""
+    try:
+        return (await compute.job_state(row["ray_job_id"])).started_at
+    except Exception:  # noqa: BLE001 - an unanswered question must not block the settle; the run just bills nothing
+        logger.warning("no start time from ray for run %s", row["id"], exc_info=True)
+        return None
 
 
 async def close_mlflow(tenant_id: str, row: dict, outcome: decide.Outcome) -> None:
