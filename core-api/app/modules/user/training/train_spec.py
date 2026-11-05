@@ -9,7 +9,7 @@ from app.core.settings import settings
 from app.core.task_types import TaskInfo
 from app.integrations import data_plane
 from app.integrations.data_plane import layout
-from app.integrations.job_spec import Hyperparameters, Resources, TrainPayload, TrainSpec
+from app.integrations.job_spec import Hyperparameters, Reporting, Resources, TrainPayload, TrainSpec
 from app.modules.user.training.constants import (
     JOB_ID_PREFIX,
     LOST_JOB_GRACE_SECONDS,
@@ -50,7 +50,7 @@ def resolve_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides) 
 
 async def build(
     tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskInfo, body: TrainingRunCreate,
-    preset: TaskPreset, hyperparameters: Hyperparameters,
+    preset: TaskPreset, hyperparameters: Hyperparameters, reporting: Reporting | None = None,
 ) -> TrainSpec:
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
@@ -60,6 +60,7 @@ async def build(
     return TrainSpec(
         job_id=submission_id(run_id),
         tenant_id=tenant_id,
+        reporting=reporting,
         payload=TrainPayload(
             bucket=settings.data_plane.staging_bucket,
             prefix=layout.train_prefix(*ids, str(run_id)),
@@ -70,6 +71,10 @@ async def build(
             base_model=preset.base_model,
             learning_rate=preset.learning_rate,
             preprocessing=preset.preprocessing,
+            lr_schedule=preset.lr_schedule,
+            warmup_fraction=preset.warmup_fraction,
+            augmentation=preset.augmentation,
+            early_stopping_patience=preset.early_stopping_patience,
             data=data,
             hyperparameters=hyperparameters,
             seed=body.seed,

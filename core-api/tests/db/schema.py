@@ -5,6 +5,7 @@ table adds a line to SEEDS; test_every_tenant_table_is_seeded fails until it doe
 """
 from app.core.authz import InviteRole, Role, Scope, TenantRole
 from app.core.enums import ImportSource
+from app.modules.user.training.constants import EventType
 from app.modules.user.usage.constants import UsageResource, UsageUnit
 
 APP_ROLE = "core_app"  # the runtime role (compose/postgres/core-api.sql): RLS binds it, not its owner backend_admin
@@ -30,6 +31,9 @@ SEEDS = (
     ("training_runs",
      "INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, dataset_ref) "
      "SELECT tenant_id, id, 'k', 'r', 'x' FROM projects WHERE tenant_id = $1"),
+    ("training_run_events",
+     f"INSERT INTO training_run_events (run_id, seq, tenant_id, type, epoch, epochs, metrics) "
+     f"SELECT id, 0, tenant_id, '{EventType.PROGRESS}', 1, 2, '{{}}' FROM training_runs WHERE tenant_id = $1"),
     ("deployments",
      "INSERT INTO deployments (tenant_id, project_id, training_run_id, route_prefix) "
      "SELECT tenant_id, project_id, id, 'p-' || tenant_id::text FROM training_runs WHERE tenant_id = $1"),

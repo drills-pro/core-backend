@@ -100,6 +100,14 @@
       "title": "History",
       "type": "array"
     },
+    "classes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Classes",
+      "type": "array"
+    },
     "confusion_matrix": {
       "anyOf": [
         {

@@ -35,7 +35,7 @@ def test_put_writes_the_row_as_the_actor_and_returns_it(call):
     res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
     sql, args = conn.calls[-1]
     assert res.status_code == 200 and res.json()["updated_by"] == "ops" and sql.startswith("INSERT INTO task_presets")
-    assert args[:2] == ("image-classification", "tiny") and args[-1] == "ops"
+    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0)
 
 
 def test_list_returns_the_tasks_presets(call):
@@ -55,3 +55,8 @@ def test_a_task_without_a_trainer_has_no_presets(call):
 
 def test_a_bad_body_is_422(call):
     assert call("PUT", f"{URL}/image-classification/x", FakeConn(), json={**BODY, "learning_rate": 0}).status_code == 422
+
+
+def test_an_augmentation_the_task_has_no_trainer_for_is_422(call):
+    res = call("PUT", f"{URL}/image-classification/x", FakeConn(), json={**BODY, "augmentation": "flip"})
+    assert res.status_code == 422 and res.json()["code"] == routes.INVALID_RECIPE

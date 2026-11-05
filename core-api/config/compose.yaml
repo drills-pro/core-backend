@@ -15,5 +15,7 @@ ray:
   dashboard: http://ray-head:8265
 mlflow:
   url: http://mlflow:5000
+training:
+  events_base_url: http://core-api:8090
 observability:
   otlp_endpoint: http://lgtm:4317

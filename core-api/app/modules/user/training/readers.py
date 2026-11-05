@@ -7,9 +7,10 @@ from pydantic import BaseModel, Field
 from app.modules.user.training.constants import TrainingStatus
 from app.modules.user.training.schemas import LineageRun
 
-# The classification report's confusion-matrix labels are the model's class names (detection reports have none).
+# The report's `classes` are the model's class names (every task); a run reported before that field has only the
+# classification confusion-matrix labels, which are the same names.
 _RUN_MODEL = (
-    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names "
+    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'classes', report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names "
     "FROM training_runs WHERE id = $1 AND project_id = $2"
 )
 _OWNED = "SELECT 1 FROM training_runs WHERE id = $1 AND project_id = $2 AND tenant_id = $3"
@@ -30,7 +31,7 @@ class RunModel(BaseModel):
 
     @property
     def servable(self) -> bool:
-        """The serving script classifies images, so it needs the class names a classification report carries."""
+        """Both served postprocesses (classify, detect) name their results from the class names, so a model without them cannot be served."""
         return self.has_model and bool(self.class_names)
 
 

@@ -46,9 +46,12 @@ async def prepare_train_data(
     return TrainData(index_url=index_url, manifest_url=manifest, version_id=version_id, lakefs_commit=commit)
 
 
-async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str) -> str:
+async def submit_train(
+    tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str, events_token: str | None = None
+) -> str:
     """Submit the driver under the spec's job_id (the caller's submission id), running the ray_training package the run
-    was created with; returns the Ray job id."""
+    was created with; returns the Ray job id. `events_token` goes into the job's environment under the name
+    spec.reporting.token_env, never into the spec."""
     await access.training_run(tenant_id, project_id, run_id)
     package_url = await job_package.presigned_url(JobPackageName.RAY_TRAINING, package_sha256)
     # num_gpus stays 0: the driver must not hold a GPU, the Ray Train workers it starts ask for them (spec.resources.gpu)
@@ -56,6 +59,7 @@ async def submit_train(tenant_id: str, project_id: str, run_id: str, spec: Train
         package_url=package_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "training_run_id": run_id},
         num_cpus=settings.training.driver_cpus, timeout_seconds=spec.resources.max_runtime_s,
+        extra_env={spec.reporting.token_env: events_token} if spec.reporting and events_token else None,
     )
 
 
@@ -70,3 +74,16 @@ async def read_train_report(tenant_id: str, project_id: str, run_id: str) -> Tra
             return None
         raise
     return TrainReport.model_validate_json(await asyncio.to_thread(obj["Body"].read))
+
+
+async def read_model_meta(tenant_id: str, project_id: str, run_id: str) -> dict | None:
+    """The job's model.json (what publish_run_model copies into MLflow), or None when the run has none."""
+    await access.training_run(tenant_id, project_id, run_id)
+    key = layout.train_prefix(tenant_id, project_id, run_id) + layout.MODEL_META_KEY
+    try:
+        obj = await asyncio.to_thread(lakefs.s3_client(secret_files.STAGING).get_object, Bucket=settings.data_plane.staging_bucket, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == _S3_NO_SUCH_KEY:
+            return None
+        raise
+    return json.loads(await asyncio.to_thread(obj["Body"].read))

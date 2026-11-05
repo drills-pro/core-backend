@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.settings import Serving, settings
+from app.integrations.data_plane import mlflow
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on every node
 PREDICTOR_IMPORT_PATH = "ray_serving.app:build"
@@ -40,7 +41,7 @@ def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = 
             actor["resources"] = size.resources  # pins the replicas to a worker pool (the CPU pool's custom resource)
         return {
             "name": predictor_app(target), "route_prefix": f"/{predictor_app(target)}", "import_path": PREDICTOR_IMPORT_PATH,
-            "args": {"max_models_per_replica": cfg.max_models_per_replica},
+            "args": {"max_models_per_replica": cfg.max_models_per_replica, "model_base_url": mlflow.artifact_url("")},
             "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)}},
             "deployments": [{
                 "name": PREDICTOR_DEPLOYMENT, "max_ongoing_requests": cfg.max_ongoing_requests,

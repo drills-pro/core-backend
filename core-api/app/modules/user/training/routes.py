@@ -2,15 +2,21 @@
 Domain transitions live in app/modules/user/training/service.py, which the background poller shares.
 """
 import uuid
+from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from pydantic import ValidationError
 
-from app.core.authz import Action, AuthzContext, require
+from app.core.authz import Action, AuthzContext, public, require
+from app.core.problem import Problem
 from app.core.idempotency import IdempotencyKey
 from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
-from app.modules.user.training import create_service, preset_service, run_service
+from app.modules.user.training import create_service, events_service, preset_service, run_service
+from app.modules.user.training.constants import MAX_EVENT_BODY_BYTES, ProblemCode
 from app.modules.user.training.schemas import (
+    EventAck,
     PresetSummary,
+    ProgressEvent,
     TrainingRun,
     TrainingRunCreate,
     TrainingRunLogs,
@@ -19,6 +25,8 @@ from app.modules.user.training.schemas import (
 
 router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["training"])
 presets_router = APIRouter(prefix="/v1/projects/{project_id}/training-presets", tags=["training"])
+# The trainer's channel: public() because no user session is involved; the per-run token is checked by `run_tenant`.
+events_router = APIRouter(prefix="/internal/v1/training-runs", tags=["training-internal"], dependencies=[Depends(public)])
 # Registering a run's model is training's endpoint (it reads the run) under the registry's URL space.
 models_router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
 
@@ -81,3 +89,37 @@ async def cancel_training_run(
     project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_CANCEL))
 ):
     return await run_service.cancel_run(ctx, project_id, run_id)
+
+
+async def run_tenant(run_id: uuid.UUID, authorization: str | None = Header(default=None)) -> str:
+    return await events_service.authenticate(run_id, authorization)
+
+
+async def event_body(request: Request) -> ProgressEvent:
+    """The request body, read up to MAX_EVENT_BODY_BYTES and no further, then validated. Parsed here and not by FastAPI because
+    its 422 echoes the offending value, and a NaN or inf cannot be serialised back."""
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_EVENT_BODY_BYTES:
+            raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.EVENT_TOO_LARGE, "event too large")
+    try:
+        return ProgressEvent.model_validate_json(raw)
+    except ValidationError as e:
+        detail = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors(include_url=False, include_context=False, include_input=False))
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_EVENT, detail) from None
+
+
+@events_router.post(
+    "/{run_id}/events", status_code=201, response_model=EventAck,
+    openapi_extra={"requestBody": {"required": True, "content": {"application/json": {"schema": ProgressEvent.model_json_schema()}}}},
+)
+async def post_training_run_event(
+    run_id: uuid.UUID, response: Response, tenant_id: str = Depends(run_tenant), body: ProgressEvent = Depends(event_body)
+):
+    """A trainer's progress after an epoch. Authenticated by the run's token; only a running run takes events. A `seq` the
+    run already has answers 200 and changes nothing."""
+    ack = await events_service.record(tenant_id, run_id, body)
+    if ack.duplicate:
+        response.status_code = HTTPStatus.OK
+    return ack

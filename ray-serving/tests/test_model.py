@@ -13,8 +13,13 @@ from ray_serving import model
 from ray_serving.entrypoints import smoke
 
 
+BASE = ""
+
+
 @pytest.fixture
 def spec(tmp_path):
+    global BASE
+    BASE = tmp_path.as_uri()
     smoke.tiny_model(tmp_path / "model.onnx")
     (tmp_path / "model.json").write_text(json.dumps({"preprocessing": {
         "resize": [smoke.SIZE, smoke.SIZE], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}}))
@@ -32,22 +37,22 @@ def body():
 
 
 def test_a_loaded_model_ranks_the_classes(spec):
-    answer = model.predict(model.load(spec), body())
+    answer = model.predict(model.load(spec, BASE), body())
     assert [p["class"] for p in answer] in (["a", "b"], ["b", "a"]) and sum(p["probability"] for p in answer) == pytest.approx(1)
 
 
 def test_a_missing_model_is_model_load_failed_and_an_unknown_function_is_its_own_code(spec):
     with pytest.raises(model.ServeError) as err:
-        model.load(model.ModelSpec(**{**spec.__dict__, "model_url": "file:///nope.onnx"}))
+        model.load(model.ModelSpec(**{**spec.__dict__, "model_url": spec.model_url + ".nope"}), BASE)
     assert err.value.code == model.ErrorCode.MODEL_LOAD_FAILED
     with pytest.raises(model.ServeError) as err:
-        model.load(model.ModelSpec(**{**spec.__dict__, "postprocess": "nope"}))
+        model.load(model.ModelSpec(**{**spec.__dict__, "postprocess": "nope"}), BASE)
     assert err.value.code == model.ErrorCode.UNKNOWN_FUNCTION
 
 
 def test_a_body_the_encoder_cannot_read_is_bad_input(spec):
     with pytest.raises(model.ServeError) as err:
-        model.predict(model.load(spec), {"image_base64": "not an image"})
+        model.predict(model.load(spec, BASE), {"image_base64": "not an image"})
     assert err.value.code == model.ErrorCode.BAD_INPUT
 
 
@@ -63,3 +68,50 @@ def test_the_smoke_check_passes_and_writes_its_verdict():
     pytest.importorskip("ray.serve")
     assert smoke.main(["", json.dumps({"job_id": "j", "bucket": "b", "prefix": "p/"})], store) == 0
     assert json.loads(puts["smoke.json"]) == {"ok": True}
+
+
+@pytest.mark.parametrize("url", [
+    "http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8265/api/jobs/", "http://kubernetes.default.svc/api",
+    "http://mlflow.internal@evil.local/api/2.0/mlflow-artifacts/a", "http://mlflow.internal:5000/api/2.0/mlflow-artifacts/../../admin",
+    "https://mlflow.internal:5000/api/2.0/mlflow-artifacts/a", "file:///etc/passwd"])
+def test_a_url_outside_the_artifact_store_is_refused(url):
+    with pytest.raises(model.ServeError) as err:
+        model.check_url(url, "http://mlflow.internal:5000/api/2.0/mlflow-artifacts")
+    assert err.value.code == model.ErrorCode.MODEL_LOAD_FAILED
+
+
+def test_a_url_under_the_artifact_store_is_allowed():
+    model.check_url("http://mlflow.internal:5000/api/2.0/mlflow-artifacts/artifacts/1/model.onnx", "http://mlflow.internal:5000")
+
+
+def test_a_redirect_is_not_followed():
+    import http.server
+    import threading
+    import urllib.error
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "http://169.254.169.254/")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(urllib.error.HTTPError) as err:
+            model._fetch(f"http://127.0.0.1:{server.server_port}/x")
+        assert err.value.code == 302
+    finally:
+        server.shutdown()
+
+
+def test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded(spec, monkeypatch):
+    from ray_serving import inputs
+
+    monkeypatch.setattr(inputs, "MAX_IMAGE_PIXELS", 63)  # the 8x8 test image has 64
+    with pytest.raises(model.ServeError) as err:
+        model.predict(model.load(spec, BASE), body())
+    assert err.value.code == model.ErrorCode.BAD_INPUT and "pixels" in str(err.value)

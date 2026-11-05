@@ -75,6 +75,7 @@ ROUTERS = (
     teams.router,
     tenant_members.router,
     tenants.router,
+    training.events_router,
     training.presets_router,
     training.router,
     usage.router,

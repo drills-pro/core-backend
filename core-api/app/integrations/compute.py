@@ -11,6 +11,7 @@ Callers pass a JobSpec and keep the returned job id (also the handle for `logs`)
 import json
 import shlex
 import uuid
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -47,6 +48,14 @@ class JobStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     STOPPED = "STOPPED"
+
+
+class JobState(BaseModel):
+    """Ray's answer for a job: its state and, when the backend knows it, when Ray started it (None = unknown).
+    This is the trusted start time for billing; a job's own report is untrusted."""
+
+    status: JobStatus
+    started_at: datetime | None = None
 
 
 class JobSpec(BaseModel):
@@ -99,6 +108,18 @@ def rayjob_manifest(spec: JobSpec, name: str) -> dict:
         "metadata": {"name": name, "labels": {k: v for k, v in spec.metadata.items() if v}},
         "spec": body,
     }
+
+
+def rayjob_started_at(cr: dict) -> datetime | None:
+    """`status.startTime` of a RayJob CR (RFC 3339), None until the job has started."""
+    start = (cr.get("status") or {}).get("startTime")
+    return datetime.fromisoformat(start) if start else None
+
+
+def dashboard_started_at(info: dict) -> datetime | None:
+    """`start_time` of a Ray job-API record: epoch milliseconds."""
+    ms = info.get("start_time")
+    return datetime.fromtimestamp(ms / 1000, UTC) if ms else None
 
 
 def rayjob_status(cr: dict) -> JobStatus:
@@ -155,11 +176,12 @@ class _DashboardBackend:
             resp.raise_for_status()
             return resp.json()["submission_id"]
 
-    async def status(self, job_id: str) -> JobStatus:
+    async def state(self, job_id: str) -> JobState:
         async with _dashboard() as client:
             resp = await client.get(f"{DASHBOARD_JOBS_PATH}{job_id}")
             resp.raise_for_status()
-            return JobStatus(resp.json()["status"])
+            info = resp.json()
+            return JobState(status=JobStatus(info["status"]), started_at=dashboard_started_at(info))
 
     async def stop(self, job_id: str) -> None:
         async with _dashboard() as client:
@@ -181,11 +203,12 @@ class _RayJobBackend:
             resp.raise_for_status()
         return name
 
-    async def status(self, job_id: str) -> JobStatus:
+    async def state(self, job_id: str) -> JobState:
         async with _kube() as client:
             resp = await client.get(f"{_rayjobs()}/{job_id}")
             resp.raise_for_status()
-            return rayjob_status(resp.json())
+            cr = resp.json()
+            return JobState(status=rayjob_status(cr), started_at=rayjob_started_at(cr))
 
     async def stop(self, job_id: str) -> None:
         """Idempotent: a job that is already gone is stopped."""
@@ -214,7 +237,7 @@ class _RayJobBackend:
 
 class _Backend(Protocol):
     async def submit(self, spec: JobSpec) -> str: ...
-    async def status(self, job_id: str) -> JobStatus: ...
+    async def state(self, job_id: str) -> JobState: ...
     async def stop(self, job_id: str) -> None: ...
     async def logs(self, job_id: str) -> str: ...
 
@@ -229,8 +252,12 @@ async def submit(spec: JobSpec) -> str:
     return await _backend().submit(spec)
 
 
+async def job_state(job_id: str) -> JobState:
+    return await _backend().state(job_id)
+
+
 async def status(job_id: str) -> JobStatus:
-    return await _backend().status(job_id)
+    return (await job_state(job_id)).status
 
 
 async def stop(job_id: str) -> None:

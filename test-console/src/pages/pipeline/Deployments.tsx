@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Code, HStack, Stack, Table, Text, Textarea } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { client, unwrap } from '@/api/client';
+import { client, newKey, unwrap } from '@/api/client';
 import { DEPLOY_DONE, POLL_MS, RunStatus } from '@/constants';
 import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
 import { runsQuery } from './Training';
@@ -20,7 +20,7 @@ export function Deployments({ projectId }: { projectId: string }) {
   const [body, setBody] = useState('{\n  "inputs": []\n}');
 
   const deploy = useMutation({
-    mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/deployments', { params: { path, query: { training_run_id: runId } } })),
+    mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/deployments', { params: { path, query: { training_run_id: runId }, header: { 'Idempotency-Key': newKey() } } })),
     onSuccess: (d) => setDeploymentId(d.id),
     onSettled: () => qc.invalidateQueries({ queryKey: ['deployments', projectId] }),
   });

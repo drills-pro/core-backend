@@ -25,6 +25,7 @@ from tests.support.counted_conn import patch_counted_conn
 
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()))
 PROJECT, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+KEY = "k"
 SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat", "dog"]}
 
 
@@ -37,8 +38,8 @@ def fresh_state():
 @pytest.fixture
 def shared_env(monkeypatch):
     conn = FakeConn(
-        rows={"FROM training_runs": SERVABLE, "INSERT INTO deployments": None},
-        vals={"SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
+        rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": None},
+        vals={"count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_counted_conn(monkeypatch, conn, service)
 
     async def apps_declared():
@@ -58,19 +59,19 @@ def inserted(conn):
 
 def test_a_shared_deployment_is_active_at_once_with_no_ray_job(shared_env):
     shared_env.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 120}
-    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN))
+    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     args = inserted(shared_env)
-    assert args[4] is None and args[8:] == (Serving.SHARED, "active") and out.status == "active" and out.predict_key
+    assert args[4] is None and args[8:] == (Serving.SHARED, "active", KEY) and out.status == "active" and out.predict_key
 
 
 def test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared(shared_env):
     main_id = uuid.uuid4()
     shared_env.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN, SETTING_COMPUTE_TARGET: "gpu"}
-    shared_env.rows["FROM deployments"] = {"id": main_id, "predict_key_hash": "h", "rate_limit_per_minute": 10}
+    shared_env.rows["FROM deployments"] = {"id": main_id, "status": "active", "predict_key_hash": "h", "rate_limit_per_minute": 10}
     shared_env.rows["UPDATE deployments"] = {"id": main_id, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
-    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN))
+    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     sql, args = next(c for c in shared_env.calls if c[0].startswith("UPDATE deployments"))
-    assert "serving = $5" in sql and args == (main_id, RUN, None, "active", Serving.SHARED) and out.predict_key is None
+    assert "serving = $5" in sql and args == (main_id, RUN, None, "active", Serving.SHARED, "stopped", KEY) and out.predict_key is None
 
 
 @pytest.fixture

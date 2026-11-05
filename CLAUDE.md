@@ -38,7 +38,10 @@ and `docker-publish.yml` builds no image until they pass. A new tenant table nee
 - Migrations are dbmate files in `core-api/migrations/` named `<UTC YYYYMMDDHHMMSS>_<name>.sql`
   (`-- migrate:up` / `-- migrate:down`). Take the timestamp from `date -u +%Y%m%d%H%M%S` when you create the
   file, never a round number; it must sort after the newest existing version (if the clock is behind it, use
-  newest + a few seconds). A migration that is pushed is frozen: never edit, rename or delete it, add a new one.
+  newest + a few seconds). Never type a version by hand or reuse one you saw; run `date -u` at the moment you
+  create the file, in every branch and every parallel agent. After merging branches, check for duplicates with
+  `python3 scripts/lint-migrations.py core-api/migrations/*.sql` (it needs the file paths; with none it checks
+  nothing) and rename the unpushed one. A migration that is pushed is frozen: never edit, rename or delete it, add a new one.
   Only an unpushed migration may be amended or renamed. They run as `backend_admin` (database owner, no superuser, no
   BYPASSRLS) with no default privileges: grant `core_app` every new table, sequence and function, ENABLE
   (not FORCE) RLS, pin `search_path` on SECURITY DEFINER, never create roles. `docker compose up` applies

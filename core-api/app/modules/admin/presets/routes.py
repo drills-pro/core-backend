@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/admin/training-presets", tags=["admin"])
 
 TASK_NOT_TRAINABLE = "task_type_not_trainable"
+INVALID_RECIPE = "invalid_training_recipe"
 
 
 async def _trainable(conn, task: TaskType) -> TaskType:
@@ -35,6 +36,10 @@ async def list_presets(task: TaskType, actor: str = Depends(get_platform_admin))
 @router.put("/{task}/{name}", response_model=TaskPreset)
 async def put_preset(task: TaskType, body: PresetBody, name: str = Path(pattern=NAME_PATTERN), actor: str = Depends(get_platform_admin)):
     """Create or replace one preset. Runs already started keep the values they were given."""
+    try:
+        body.check_task(task)
+    except ValueError as e:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_RECIPE, str(e))
     async with (await get_pool()).acquire() as conn:
         row = await presets.put(conn, await _trainable(conn, task), name, body, actor)
     logger.info("training preset %s/%s set by %s", task, name, actor)

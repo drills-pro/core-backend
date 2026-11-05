@@ -7,7 +7,7 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.core.problem import Problem, not_found
 from app.modules.user.model_registry import ModelVersion, register_run
-from app.modules.user.training import service
+from app.modules.user.training import events_service, service
 from app.modules.user.training.constants import CANCELLABLE, LOG_TAIL_CHARS, NOT_REGISTRABLE_DETAIL, ProblemCode
 from app.modules.user.training.readers import get_run_model
 from app.modules.user.training.schemas import (
@@ -35,9 +35,10 @@ async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset
 async def get_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> TrainingRun:
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow("SELECT * FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id)
-    if row is None:
-        raise not_found()
-    return TrainingRun.model_validate(dict(row))
+        if row is None:
+            raise not_found()
+        progress = await events_service.progress_of(conn, run_id)
+    return TrainingRun.model_validate({**dict(row), "progress": progress})
 
 
 async def get_log_ref(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> RunLogRef:

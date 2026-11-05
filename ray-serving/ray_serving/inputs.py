@@ -8,6 +8,9 @@ sent (0, 0 for text).
 """
 
 
+MAX_IMAGE_PIXELS = 25_000_000  # width * height of the image a caller sends; larger is refused before it is decoded (bad_input)
+
+
 def image_encoder(pre, tokenizer_url, input_name):
     """Body {"image_base64": ...}. What the trainer did to every training image, read from model.json
     (ray_training.result.load_image)."""
@@ -18,7 +21,10 @@ def image_encoder(pre, tokenizer_url, input_name):
     from PIL import Image
 
     def encode(body):
-        sent = Image.open(io.BytesIO(base64.b64decode(body["image_base64"]))).convert("RGB")
+        opened = Image.open(io.BytesIO(base64.b64decode(body["image_base64"])))  # reads the header only
+        if opened.width * opened.height > MAX_IMAGE_PIXELS:
+            raise ValueError(f"image is {opened.width}x{opened.height}, more than {MAX_IMAGE_PIXELS} pixels")
+        sent = opened.convert("RGB")
         width, height = pre["resize"]
         img = sent.resize((width, height), getattr(Image, pre["resample"].upper()))
         arr = (np.asarray(img, dtype=np.float32) * pre["rescale"] - np.array(pre["mean"], dtype=np.float32)) / np.array(pre["std"], dtype=np.float32)

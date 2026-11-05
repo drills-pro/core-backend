@@ -40,9 +40,9 @@ def check() -> None:
 
     from ray_serving import app
 
-    app.build({"max_models_per_replica": 1})
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
+        app.build({"max_models_per_replica": 1, "model_base_url": work.as_uri()})
         tiny_model(work / "model.onnx")
         (work / "model.json").write_text(json.dumps({"preprocessing": {
             "resize": [SIZE, SIZE], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}}))
@@ -51,7 +51,7 @@ def check() -> None:
             params={}, providers=["CPUExecutionProvider"], encoder=ENCODER, postprocess=POSTPROCESS)
         png = io.BytesIO()
         Image.new("RGB", (8, 8), (200, 20, 20)).save(png, "PNG")
-        answer = model.predict(model.load(spec), {"image_base64": base64.b64encode(png.getvalue()).decode()})
+        answer = model.predict(model.load(spec, work.as_uri()), {"image_base64": base64.b64encode(png.getvalue()).decode()})
     assert sorted(p["class"] for p in answer) == CLASSES, answer
 
 

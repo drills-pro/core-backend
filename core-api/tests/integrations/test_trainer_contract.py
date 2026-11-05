@@ -43,13 +43,14 @@ def spec_of(task, preset) -> TrainSpec:
         {"data_url": "http://d"} if kind != DataKind.IMAGES else {"index_url": "http://i", "manifest_url": "http://m"}))
     payload = TrainPayload(
         bucket="b", prefix="p/", task=task, trainer=trainer_name, data_kind=kind, preset=info.name, base_model=info.base_model, learning_rate=info.learning_rate,
-        preprocessing=info.preprocessing, data=data, hyperparameters={})
+        preprocessing=info.preprocessing, lr_schedule=info.lr_schedule, warmup_fraction=info.warmup_fraction, augmentation=info.augmentation,
+        early_stopping_patience=info.early_stopping_patience, data=data, hyperparameters={})
     return TrainSpec(job_id="j", tenant_id=uuid.uuid4(), payload=payload, resources=Resources(cpu=1, memory_bytes=1, gpu=1))
 
 
 def preset_of(task):
     text = SEEDED[task][0] == DataKind.TEXT
-    return preset(task, preprocessing={"max_length": 256} if text else IMAGENET)
+    return preset(task, preprocessing={"max_length": 256} if text else IMAGENET, lr_schedule="cosine", warmup_fraction=0.1, early_stopping_patience=3)
 
 
 @pytest.mark.parametrize("task", TRAINABLE)
@@ -58,6 +59,8 @@ def test_the_trainer_reads_what_a_preset_says(task):
     spec = parse_spec(spec_of(task, info).model_dump_json())
     assert (spec.task, spec.preset) == (task.value, info.name)
     assert (spec.base_model, spec.base_revision, spec.learning_rate) == (info.base_model.repo_id, info.base_model.revision, info.learning_rate)
+    assert (spec.lr_schedule, spec.warmup_fraction, spec.augmentation, spec.early_stopping_patience) == (
+        info.lr_schedule, info.warmup_fraction, info.augmentation, info.early_stopping_patience)
     pre = spec.preprocessing
     if isinstance(info.preprocessing, TextPreprocessing):
         assert pre.max_length == info.preprocessing.max_length and spec.data_url == "http://d"
