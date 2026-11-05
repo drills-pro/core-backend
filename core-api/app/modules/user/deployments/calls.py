@@ -1,4 +1,4 @@
-"""The predict_calls log: one metadata row per key-authenticated call that reached the shared predictor apps, and its purge."""
+"""The predict_calls log: one metadata row per key-authenticated call that reached the shared predictor apps, and its purge; the purge of try-it payloads."""
 import logging
 import uuid
 
@@ -25,6 +25,14 @@ async def record(
             await conn.execute(_INSERT, tenant_id, deployment_id, run_id, status, latency_ms, cold_load, error_code, request_bytes)
     except Exception:  # noqa: BLE001
         logger.exception("predict call of deployment %s not logged", deployment_id)
+
+
+async def purge_test_calls() -> None:
+    """Poller: drop try-it payloads older than serving.test_calls_retention_days."""
+    async with (await get_pool()).acquire() as conn:
+        dropped = await conn.fetchval("SELECT purge_test_calls($1)", settings.serving.test_calls_retention_days)
+    if dropped:
+        logger.info("purged %s test calls", dropped)
 
 
 async def purge_predict_calls() -> None:

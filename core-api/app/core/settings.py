@@ -145,6 +145,7 @@ class Serving(_Section):
     max_body_bytes: int  # the ceiling: a /predict or test body larger than this is refused with 413 before it is parsed; also the most a plan may allow
     max_inflight_per_deployment: int  # fallback for a tier without a plan_limits row: concurrent requests to one deployment in one core-api process; more get 429
     predict_calls_retention_days: int  # predict_calls rows older than this are purged
+    test_calls_retention_days: int  # deployment_test_calls rows (the try-it payloads) older than this are purged
     package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
     apps: ServingApps
 

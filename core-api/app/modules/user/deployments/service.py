@@ -33,6 +33,9 @@ from app.modules.user.deployments.constants import (
     STOPPED_DETAIL,
     SETTING_COMPUTE_TARGET,
     SETTING_DEPLOY_STRATEGY,
+    TEST_CALL_STORED_MAX_BYTES,
+    TRUNCATED_BYTES_FIELD,
+    TRUNCATED_FIELD,
     DeployStrategy,
     PlanTier,
     Serving,
@@ -201,6 +204,12 @@ async def _post_to_serve(route_prefix: str, body: dict) -> tuple[httpx.Response,
     return resp, (time.perf_counter() - start) * 1000
 
 
+def _stored(payload):
+    """What the try-it log keeps of a request or response: itself, or a marker with its size when it is over the cap."""
+    size = len(json.dumps(payload))
+    return payload if size <= TEST_CALL_STORED_MAX_BYTES else {TRUNCATED_FIELD: True, TRUNCATED_BYTES_FIELD: size}
+
+
 async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, body: dict) -> TestCallResult:
     # FR7 (06-project-settings-deployment.md): same auth as the management
     # API, for the in-app "try it" panel — no predict key needed. Logs to
@@ -236,8 +245,8 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             "VALUES ($1, $2, $3, $4, $5)",
             ctx.tenant_id,
             deployment_id,
-            body,
-            response_body,
+            _stored(body),
+            _stored(response_body),
             elapsed_ms,
         )
     return TestCallResult(response=response_body, latency_ms=elapsed_ms)

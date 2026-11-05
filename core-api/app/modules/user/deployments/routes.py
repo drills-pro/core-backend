@@ -3,13 +3,19 @@ import json
 import uuid
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.core.authz import Action, AuthzContext, public, require
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.deployments import lineage, service
-from app.modules.user.deployments.constants import PREDICT_KEY_HEADER, TEST_CALLS_DEFAULT_LIMIT, ProblemCode
+from app.modules.user.deployments.constants import (
+    PREDICT_KEY_HEADER,
+    TEST_CALLS_DEFAULT_LIMIT,
+    TEST_CALLS_MAX_LIMIT,
+    TEST_CALLS_MIN_LIMIT,
+    ProblemCode,
+)
 from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
@@ -118,7 +124,7 @@ async def list_test_calls(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
-    limit: int = TEST_CALLS_DEFAULT_LIMIT,
+    limit: int = Query(TEST_CALLS_DEFAULT_LIMIT, ge=TEST_CALLS_MIN_LIMIT, le=TEST_CALLS_MAX_LIMIT),
 ):
     return await service.list_test_calls(ctx, project_id, deployment_id, limit)
 
