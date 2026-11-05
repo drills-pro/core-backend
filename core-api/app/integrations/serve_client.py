@@ -109,6 +109,21 @@ def route_prefix_for(deployment_id: str, project_id: str, deploy_strategy: str) 
     return f"/predict/{project_id}/main" if deploy_strategy == "main" else f"/predict/{deployment_id}"
 
 
+def app_name(deployment_id: str, project_id: str, deploy_strategy: str) -> str:
+    """The legacy Serve app of a deployment: one per project under `main`, else one per deployment."""
+    return f"deploy-project-{project_id}-main" if deploy_strategy == "main" else f"deploy-{deployment_id}"
+
+
+async def remove(*, deployment_id: str, project_id: str, tenant_id: str, deploy_strategy: str) -> str:
+    """Delete a legacy deployment's Serve app (a Ray job, like deploy: Serve is only driven from inside the cluster).
+    Idempotent: serve.delete of an app that is gone does nothing. Returns the job id."""
+    name = app_name(deployment_id, project_id, deploy_strategy)
+    return await compute.submit(compute.JobSpec(
+        entrypoint=f"python -c \"from ray import serve; serve.delete({name!r})\"",
+        metadata={"tenant_id": tenant_id, "project_id": project_id, "job_type": "serve-remove"},
+    ))
+
+
 async def deploy(
     *,
     deployment_id: str,
@@ -125,7 +140,7 @@ async def deploy(
     # updates the running replica in place); 'latest' keeps Phase 1's
     # behavior of a permanent per-deployment route.
     route_prefix = route_prefix_for(deployment_id, project_id, deploy_strategy)
-    name = f"deploy-project-{project_id}-main" if deploy_strategy == "main" else f"deploy-{deployment_id}"
+    name = app_name(deployment_id, project_id, deploy_strategy)
 
     model_url = await mlflow.run_model_url(tenant_id, project_id, mlflow_run_id)
     params = task.serving.model_dump(mode="json")

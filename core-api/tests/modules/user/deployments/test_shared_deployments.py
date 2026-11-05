@@ -66,11 +66,11 @@ def test_a_shared_deployment_is_active_at_once_with_no_ray_job(shared_env):
 def test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared(shared_env):
     main_id = uuid.uuid4()
     shared_env.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN, SETTING_COMPUTE_TARGET: "gpu"}
-    shared_env.rows["FROM deployments"] = {"id": main_id, "predict_key_hash": "h", "rate_limit_per_minute": 10}
+    shared_env.rows["FROM deployments"] = {"id": main_id, "status": "active", "predict_key_hash": "h", "rate_limit_per_minute": 10}
     shared_env.rows["UPDATE deployments"] = {"id": main_id, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
     out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN))
     sql, args = next(c for c in shared_env.calls if c[0].startswith("UPDATE deployments"))
-    assert "serving = $5" in sql and args == (main_id, RUN, None, "active", Serving.SHARED) and out.predict_key is None
+    assert "serving = $5" in sql and args == (main_id, RUN, None, "active", Serving.SHARED, "stopped") and out.predict_key is None
 
 
 @pytest.fixture

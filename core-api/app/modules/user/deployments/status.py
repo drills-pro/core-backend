@@ -6,5 +6,6 @@ class DeploymentStatus(StrEnum):
 
     DEPLOYING = "deploying"
     ACTIVE = "active"
+    STOPPED = "stopped"
     FAILED = "failed"
     DELETED = "deleted"

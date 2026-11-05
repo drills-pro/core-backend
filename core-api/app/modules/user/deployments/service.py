@@ -9,17 +9,19 @@ from http import HTTPStatus
 
 import httpx
 
-from app.core import plan_limits, rate_limit
+from app.core import audit, plan_limits, rate_limit
 from app.core import task_types
 from app.core.authz import AuthzContext
 from app.core.db import get_pool
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
-from app.integrations import serve_client
+from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import calls, shared
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
+    AuditAction,
+    EntityType,
     MAIN_ROUTE_SUFFIX,
     METADATA_FIELD,
     PREDICTIONS_FIELD,
@@ -28,6 +30,7 @@ from app.modules.user.deployments.constants import (
     PLAN_TIER_RATE_LIMITS,
     PREDICT_KEY_BYTES,
     SERVE_TIMEOUT_SECONDS,
+    STOPPED_DETAIL,
     SETTING_COMPUTE_TARGET,
     SETTING_DEPLOY_STRATEGY,
     DeployStrategy,
@@ -63,6 +66,20 @@ def _check_size(size: int, limits: plan_limits.Predict) -> None:
         raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, ProblemCode.BODY_TOO_LARGE, f"the body is over {limits.max_body_bytes} bytes (this plan's limit)")
 
 
+async def _deploy_legacy(ctx, project_id, deployment_id, run, info, settings, deploy_strategy) -> tuple[str, str]:
+    """Start the deployment's own Serve app: (ray_job_id, route_prefix)."""
+    return await serve_client.deploy(
+        deployment_id=str(deployment_id),
+        task=info,
+        mlflow_run_id=run.mlflow_run_id,
+        class_names=run.class_names,
+        tenant_id=ctx.tenant_id,
+        project_id=str(project_id),
+        compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
+        deploy_strategy=deploy_strategy,
+    )
+
+
 async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
@@ -85,11 +102,14 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         existing_main = None
         if deploy_strategy == DeployStrategy.MAIN:
             existing_main = await conn.fetchrow(
-                "SELECT id, predict_key_hash, rate_limit_per_minute FROM deployments "
-                "WHERE project_id = $1 AND route_prefix = $2",
+                "SELECT id, status, predict_key_hash, rate_limit_per_minute FROM deployments "
+                "WHERE project_id = $1 AND route_prefix = $2 AND status <> $3",
                 project_id,
                 f"/predict/{project_id}/{MAIN_ROUTE_SUFFIX}",
+                DeploymentStatus.DELETED,  # a deleted row has no key: the next deploy mints a new one
             )
+            if existing_main and existing_main["status"] == DeploymentStatus.STOPPED:
+                raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
 
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
@@ -98,29 +118,23 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         ray_job_id, serving, status = None, Serving.SHARED, DeploymentStatus.ACTIVE
         route_prefix = serve_client.route_prefix_for(str(deployment_id), str(project_id), deploy_strategy)
     else:
-        ray_job_id, route_prefix = await serve_client.deploy(
-            deployment_id=str(deployment_id),
-            task=info,
-            mlflow_run_id=run.mlflow_run_id,
-            class_names=run.class_names,
-            tenant_id=ctx.tenant_id,
-            project_id=str(project_id),
-            compute_target=serve_client.ComputeTarget(settings.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)),
-            deploy_strategy=deploy_strategy,
-        )
+        ray_job_id, route_prefix = await _deploy_legacy(ctx, project_id, deployment_id, run, info, settings, deploy_strategy)
         serving, status = Serving.LEGACY, DeploymentStatus.DEPLOYING
 
     async with TenantConn(ctx.tenant_id) as conn:
         if existing_main:
             row = await conn.fetchrow(
                 "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5 "
-                "WHERE id = $1 RETURNING id, status, route_prefix, rate_limit_per_minute",
+                "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
                 deployment_id,
                 training_run_id,
                 ray_job_id,
                 status,
                 serving,
+                DeploymentStatus.STOPPED,  # stopped since the read: a deploy never resurrects it
             )
+            if row is None:
+                raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
             return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
         # Shown once — this is the credential a customer's downstream
@@ -149,8 +163,9 @@ async def list_deployments(ctx: AuthzContext, project_id: uuid.UUID) -> list[Dep
     async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(
             "SELECT id, status, route_prefix, created_at FROM deployments "
-            "WHERE project_id = $1 ORDER BY created_at DESC",
+            "WHERE project_id = $1 AND status <> $2 ORDER BY created_at DESC",
             project_id,
+            DeploymentStatus.DELETED,
         )
     return [DeploymentListItem.model_validate(dict(r)) for r in rows]
 
@@ -161,13 +176,22 @@ async def get_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id
         # deploying -> active/failed sync is the background reconciler's job.
         row = await conn.fetchrow(
             "SELECT id, project_id, training_run_id, status, route_prefix, rate_limit_per_minute, created_at "
-            "FROM deployments WHERE id = $1 AND project_id = $2",
+            "FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",
             deployment_id,
             project_id,
+            DeploymentStatus.DELETED,
         )
     if row is None:
         raise not_found()
     return DeploymentDetail.model_validate(dict(row))
+
+
+def _require_active(status: str) -> None:
+    """409 unless the deployment serves; a stopped one says so by its own code (its predict key stays valid)."""
+    if status == DeploymentStatus.STOPPED:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
+    if status != DeploymentStatus.ACTIVE:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"deployment is {status}, not active")
 
 
 async def _post_to_serve(route_prefix: str, body: dict) -> tuple[httpx.Response, float]:
@@ -185,14 +209,14 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     # model does not hold a pooled connection.
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT status, route_prefix, serving, training_run_id FROM deployments WHERE id = $1 AND project_id = $2",
+            "SELECT status, route_prefix, serving, training_run_id FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",
             deployment_id,
             project_id,
+            DeploymentStatus.DELETED,
         )
     if row is None:
         raise not_found()
-    if row["status"] != DeploymentStatus.ACTIVE:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"deployment is {row['status']}, not active")
+    _require_active(row["status"])
 
     if row["serving"] == Serving.SHARED:
         async with TenantConn(ctx.tenant_id) as conn:
@@ -222,7 +246,8 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
 async def list_test_calls(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, limit: int) -> list[TestCall]:
     async with TenantConn(ctx.tenant_id) as conn:
         owned = await conn.fetchval(
-            "SELECT 1 FROM deployments WHERE id = $1 AND project_id = $2", deployment_id, project_id
+            "SELECT 1 FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",
+            deployment_id, project_id, DeploymentStatus.DELETED,
         )
         if not owned:
             raise not_found()
@@ -247,8 +272,7 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         row = await conn.fetchrow("SELECT * FROM deployment_for_predict($1, $2)", deployment_id, hash_key(predict_key))
     if row is None:
         raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid deployment id or predict key")
-    if row["status"] != DeploymentStatus.ACTIVE:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"deployment is {row['status']}, not active")
+    _require_active(row["status"])
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
         raise Problem(
             HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED,
@@ -299,3 +323,94 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
     if metadata is not None:
         result[METADATA_FIELD] = metadata
     return result
+
+
+# ---- lifecycle: stop, start, delete ----
+
+_STATE_COLUMNS = "id, project_id, training_run_id, status, route_prefix, rate_limit_per_minute, created_at, serving"
+
+
+def _strategy_of(row) -> DeployStrategy:
+    """A `main` deployment is the one on the project's stable route."""
+    main = serve_client.route_prefix_for(str(row["id"]), str(row["project_id"]), DeployStrategy.MAIN)
+    return DeployStrategy.MAIN if row["route_prefix"] == main else DeployStrategy.LATEST
+
+
+async def _move(
+    ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, *,
+    frm: tuple[DeploymentStatus, ...], to: DeploymentStatus, action: AuditAction, ray_job_id: str | None = None,
+) -> tuple[dict, bool]:
+    """Compare-and-set the status from one of `frm` to `to`, audited in the same transaction. Returns (row, moved): a row
+    already at `to` comes back with moved False (a repeat is not an error); any other status is 409, a missing or deleted row 404."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            "UPDATE deployments SET status = $3, ray_job_id = COALESCE($5, ray_job_id), "
+            "predict_key_hash = CASE WHEN $6 THEN NULL ELSE predict_key_hash END "
+            f"WHERE id = $1 AND project_id = $2 AND status = ANY($4::text[]) RETURNING {_STATE_COLUMNS}",  # noqa: S608
+            deployment_id, project_id, to, [str(s) for s in frm], ray_job_id, to == DeploymentStatus.DELETED,
+        )
+        if row is not None:
+            await audit.record_for(conn, ctx, project_id, action, EntityType.DEPLOYMENT, deployment_id)
+            return dict(row), True
+        row = await conn.fetchrow(
+            f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",  # noqa: S608
+            deployment_id, project_id, DeploymentStatus.DELETED,
+        )
+    if row is None:
+        raise not_found()
+    if row["status"] == to:
+        return dict(row), False
+    raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_TRANSITION, f"a {row['status']} deployment cannot {action}")
+
+
+async def _remove_serve_app(ctx: AuthzContext, row: dict) -> None:
+    if row["serving"] == Serving.LEGACY:  # a shared deployment has no Serve app of its own
+        await serve_client.remove(
+            deployment_id=str(row["id"]), project_id=str(row["project_id"]), tenant_id=ctx.tenant_id, deploy_strategy=_strategy_of(row))
+
+
+async def stop_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID) -> DeploymentDetail:
+    """active -> stopped. Predict and try-it answer 409 until it starts again; the predict key is kept. A repeat retries
+    removing the Serve app, so a removal that failed after the status moved can be finished."""
+    row, _ = await _move(ctx, project_id, deployment_id, frm=(DeploymentStatus.ACTIVE,), to=DeploymentStatus.STOPPED, action=AuditAction.STOP)
+    await _remove_serve_app(ctx, row)
+    return DeploymentDetail.model_validate(row)
+
+
+async def delete_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID) -> None:
+    """Soft delete from active, stopped or failed: the row stays for lineage, its predict key can never match again."""
+    row, _ = await _move(
+        ctx, project_id, deployment_id,
+        frm=(DeploymentStatus.ACTIVE, DeploymentStatus.STOPPED, DeploymentStatus.FAILED), to=DeploymentStatus.DELETED, action=AuditAction.DELETE)
+    await _remove_serve_app(ctx, row)
+
+
+async def _restart_legacy(ctx: AuthzContext, project_id: uuid.UUID, row: dict) -> str:
+    """Deploy the stopped deployment's Serve app again from its own run; returns the job id."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        run = await get_run_model(conn, project_id, row["training_run_id"])
+        task = await get_task_type(conn, project_id)
+        info = None if task is None else await task_types.get(conn, task)
+        settings = await get_settings(conn, project_id)
+    if run is None or info is None or not info.enabled or not info.servable or not run.servable:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
+    ray_job_id, _ = await _deploy_legacy(ctx, project_id, row["id"], run, info, settings, _strategy_of(row))
+    return ray_job_id
+
+
+async def start_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID) -> DeploymentDetail:
+    """stopped -> active (shared) or deploying (legacy: redeployed, the reconciler makes it active). Same row, same key."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",  # noqa: S608
+            deployment_id, project_id, DeploymentStatus.DELETED,
+        )
+    if row is None:
+        raise not_found()
+    legacy = row["serving"] == Serving.LEGACY
+    to = DeploymentStatus.DEPLOYING if legacy else DeploymentStatus.ACTIVE
+    ray_job_id = await _restart_legacy(ctx, project_id, dict(row)) if legacy and row["status"] == DeploymentStatus.STOPPED else None
+    moved, changed = await _move(ctx, project_id, deployment_id, frm=(DeploymentStatus.STOPPED,), to=to, action=AuditAction.START, ray_job_id=ray_job_id)
+    if ray_job_id is not None and not changed:  # someone else started it first: this job is a duplicate
+        await job_lifecycle.stop_quietly(ray_job_id)
+    return DeploymentDetail.model_validate(moved)

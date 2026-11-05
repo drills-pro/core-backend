@@ -65,6 +65,36 @@ async def get_deployment(
     return await service.get_deployment(ctx, project_id, deployment_id)
 
 
+@router.post("/v1/projects/{project_id}/deployments/{deployment_id}/stop", response_model=DeploymentDetail)
+async def stop_deployment(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
+):
+    """Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine."""
+    return await service.stop_deployment(ctx, project_id, deployment_id)
+
+
+@router.post("/v1/projects/{project_id}/deployments/{deployment_id}/start", response_model=DeploymentDetail)
+async def start_deployment(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
+):
+    """Serve a stopped deployment again: same row, same predict key."""
+    return await service.start_deployment(ctx, project_id, deployment_id)
+
+
+@router.delete("/v1/projects/{project_id}/deployments/{deployment_id}", status_code=204)
+async def delete_deployment(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
+):
+    """Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list."""
+    await service.delete_deployment(ctx, project_id, deployment_id)
+
+
 @router.get("/v1/projects/{project_id}/training-runs/{run_id}/lineage", response_model=TrainingRunLineage)
 async def get_training_run_lineage(
     project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
