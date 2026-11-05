@@ -51,6 +51,8 @@ class TrainSpec:
     learning_rate: float
     preprocessing: Preprocessing | TextPreprocessing
     seed: int
+    events_url: str | None = None  # reporting.events_url: where to post progress; None = post nothing
+    events_token_env: str | None = None  # reporting.token_env: the environment variable that holds the token (never in the spec)
 
 
 def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
@@ -69,6 +71,7 @@ def parse_spec(text: str) -> TrainSpec:
     task, preset = p["task"], p["preset"]
     base, hp = p["base_model"], p.get("hyperparameters") or {}
     pre = p["preprocessing"]
+    reporting = doc.get("reporting") or {}
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
@@ -81,4 +84,5 @@ def parse_spec(text: str) -> TrainSpec:
         image_size=hp.get("image_size", DEFAULT_IMAGE_SIZE), learning_rate=p["learning_rate"],
         preprocessing=parse_preprocessing(pre),
         seed=p.get("seed", DEFAULT_SEED),
+        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"),
     )

@@ -14,7 +14,7 @@ import ray.train.torch
 import torch
 from ray.train import Checkpoint
 
-from ray_training import loop
+from ray_training import loop, reporting
 from ray_training.constants import ROOT_RANK, STATE_FILE
 from ray_training.data import load_dataset
 from ray_training.registry import trainer_for
@@ -27,7 +27,8 @@ REPORT_FILE = "final.json"  # marks the last checkpoint, which holds no state
 
 
 class RaySession(loop.Session):
-    def __init__(self):
+    def __init__(self, spec):
+        self.spec = spec
         ctx = ray.train.get_context()
         self.rank, self.world_size = ctx.get_world_rank(), ctx.get_world_size()
 
@@ -51,12 +52,13 @@ class RaySession(loop.Session):
         with tempfile.TemporaryDirectory() as d:
             torch.save(state(), Path(d) / STATE_FILE)
             ray.train.report(metrics, checkpoint=Checkpoint.from_directory(d))
+        reporting.post_progress(self.spec, metrics)  # best effort: after the checkpoint, never raises
 
 
 def train_loop(config: dict) -> None:
     """The `train_loop_per_worker` of the driver's TorchTrainer; config["spec"] is the job spec JSON."""
     spec = parse_spec(config["spec"])
-    session = RaySession()
+    session = RaySession(spec)
     loop.use(session)
     report = None
     with tempfile.TemporaryDirectory() as tmp:

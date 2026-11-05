@@ -62,6 +62,7 @@ dataset_limits:
 training:                    # app/modules/user/training; a task's cpu and memory are per preset (task_presets)
   driver_cpus: 1
   max_runtime_seconds: 14400            # 4 h
+  events_base_url: ""                   # origin the trainer posts progress to; "" = off (compose and local set it, prod needs the k8s side first)
 
 serving:                     # app/integrations/serve_client.py: the two shared predictor apps
   max_models_per_replica: 8

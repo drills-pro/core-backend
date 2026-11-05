@@ -130,8 +130,17 @@ class IngestSpec(_Envelope):
     payload: IngestPayload
 
 
+class Reporting(BaseModel):
+    """Where a trainer posts progress events (planning 06 "Events"). The token itself is never in the spec: the job finds it
+    in the environment variable named by `token_env`."""
+
+    events_url: str
+    token_env: str
+
+
 class TrainSpec(_Envelope):
     kind: Literal[JobKind.TRAIN] = JobKind.TRAIN
+    reporting: Reporting | None = None  # absent: the trainer sends nothing
     payload: TrainPayload  # resources.gpu = Ray Train workers, one GPU each (a fraction: one worker on that share); the driver holds none
 
 

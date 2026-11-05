@@ -20,7 +20,7 @@ from app.integrations import compute, data_plane
 from app.integrations.data_plane import mlflow
 from app.modules.user.datasets import get_version_source
 from app.modules.user.projects import get_task_type
-from app.modules.user.training import service, train_spec
+from app.modules.user.training import events_service, service, train_spec
 from app.modules.user.training.constants import (
     INFLIGHT_STATUSES,
     START_FAILED_DETAIL,
@@ -36,8 +36,8 @@ _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
 _INSERT = (
     "INSERT INTO training_runs (id, tenant_id, project_id, idempotency_key, ray_job_id, mlflow_run_id, dataset_ref, "
-    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) "
+    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
 )
 
@@ -99,10 +99,11 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
+    token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
     try:
         package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters)
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters, token and token.reporting)
     except Exception as e:
         raise _start_failed(e, run_id) from e
 
@@ -113,14 +114,14 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
              hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-             task, preset.name, spec.model_dump(mode="json"), package.sha256),
+             task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash),
             _BY_KEY, (project_id, idempotency_key),
         )
         if not created:  # lost a race with the same key: that one is the run
             return _replay(row, body)
 
     try:
-        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256)
+        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret)
     except Exception as e:
         try:
             await compute.stop(spec.job_id)  # Ray may have accepted it

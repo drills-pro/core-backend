@@ -114,6 +114,7 @@ class Training(_Section):
 
     driver_cpus: float  # the CPU-pool driver that starts that task
     max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
+    events_base_url: str  # where a trainer reaches this API to post progress (no trailing path); "" = runs report no progress
 
 
 class ServingApp(_Section):

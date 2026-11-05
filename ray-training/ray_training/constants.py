@@ -7,6 +7,7 @@ TRAINER_VERSION = "0.1.0"
 DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE, DEFAULT_SEED = 30, 16, 224, 42  # core-api job_spec.py defaults
 NO_ALARM = 0  # signal.alarm(0) cancels
 HTTP_TIMEOUT_SECONDS = 60
+EVENTS_TIMEOUT_SECONDS = 5  # a progress post that takes longer is dropped: it must never hold up an epoch
 ROOT_RANK = 0  # the Ray Train worker that evaluates, exports and uploads
 LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; production leaves it unset (= 1)
 DEFAULT_TASK_GPUS = 1
@@ -31,6 +32,12 @@ TOKENIZER_KEY = "tokenizer.json"  # a text model is served with the tokenizer it
 
 TEXT_COLUMN = "text"  # the columns of a text dataset's data.parquet (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)
 LABEL_COLUMN = "label"
+
+
+class EventType(StrEnum):
+    """The events core-api takes (app.modules.user.training.constants.EventType)."""
+
+    PROGRESS = "progress"
 
 
 class Task(StrEnum):

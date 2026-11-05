@@ -143,8 +143,8 @@ class Gateway:
             self.package_name = name
             return SimpleNamespace(sha256=PACKAGE_SHA)
 
-        async def submit(tenant_id, project_id, run_id, spec, package_sha256):
-            self.spec, self.package_sha = spec, package_sha256
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None):
+            self.spec, self.package_sha, self.events_token = spec, package_sha256, events_token
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -198,7 +198,7 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
         row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
     assert (gw.package_name, gw.package_sha) == (JobPackageName.RAY_TRAINING, PACKAGE_SHA)  # pinned for the run, and what the job runs
     (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert insert[-1] == PACKAGE_SHA
+    assert insert[-2] == PACKAGE_SHA
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
     insert = next(args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs"))
     assert insert[4] == spec.job_id and insert[5] == "mlflow-1" and insert[8] == DATASET and insert[10] == VERSION  # job id, MLflow run, dataset, version

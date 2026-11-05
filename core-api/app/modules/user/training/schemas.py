@@ -1,15 +1,20 @@
 """Response shapes for the training-run routes."""
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.core.enums import TaskType
 from app.core.presets import NAME_PATTERN, HyperparameterLimits
 from app.core.task_catalog import TrainBaseModel
-from app.integrations.job_spec import DEFAULT_SEED
-from app.modules.user.training.constants import SEED_MAX
+from app.integrations.job_spec import DEFAULT_SEED, MAX_EPOCHS
+from app.modules.user.training.constants import (
+    MAX_EVENT_METRICS,
+    MAX_METRIC_NAME_LENGTH,
+    SEED_MAX,
+    EventType,
+)
 
 
 class HyperparameterOverrides(BaseModel):
@@ -57,6 +62,51 @@ class TrainingRunSummary(BaseModel):
     completed_at: datetime | None
 
 
+MetricName = Annotated[str, StringConstraints(min_length=1, max_length=MAX_METRIC_NAME_LENGTH)]
+MetricValue = Annotated[float, Field(allow_inf_nan=False)]
+
+
+class ProgressMetrics(BaseModel):
+    """What a trainer reports after an epoch, as stored and as shown."""
+
+    epoch: int = Field(ge=1, le=MAX_EPOCHS)
+    epochs: int = Field(ge=1, le=MAX_EPOCHS)
+    metrics: dict[MetricName, MetricValue] = Field(max_length=MAX_EVENT_METRICS)
+
+    @model_validator(mode="after")
+    def _epoch_within_epochs(self):
+        if self.epoch > self.epochs:
+            raise ValueError("epoch is past epochs")
+        return self
+
+
+class ProgressEvent(ProgressMetrics):
+    """The body of POST /internal/v1/training-runs/{run_id}/events. Untrusted: every field is bounded. `seq` is unique per
+    run (a repeat is a no-op) and below MAX_EPOCHS, which is also the most rows a run can have."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal[EventType.PROGRESS]
+    seq: int = Field(ge=0, lt=MAX_EPOCHS)
+
+
+class EventAck(BaseModel):
+    seq: int
+    duplicate: bool
+
+
+class ProgressPoint(ProgressMetrics):
+    seq: int
+    created_at: datetime
+
+
+class RunProgress(BaseModel):
+    """What the run has reported so far; kept after the run ends."""
+
+    latest: ProgressPoint
+    history: list[ProgressPoint]  # one per reported epoch, oldest first
+
+
 class TrainingRun(TrainingRunSummary):
     """Every training_runs column (the detail and cancel responses)."""
 
@@ -71,6 +121,7 @@ class TrainingRun(TrainingRunSummary):
     test_dataset_version: str | None
     reproduction_group_id: uuid.UUID | None
     dataset_id: uuid.UUID | None
+    progress: RunProgress | None = None  # filled by the detail read only; null until the trainer reports an epoch
 
 
 class RunLogRef(BaseModel):
