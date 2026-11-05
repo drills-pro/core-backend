@@ -381,6 +381,7 @@ class Fx:
 
     def seed(self, status="running", **kw):
         base = {"project_id": PROJECT, "mlflow_run_id": "mlflow-1", "ray_job_id": f"train-{RUN}", "created_at": datetime.now(UTC),
+                "started_at": datetime.now(UTC) - timedelta(seconds=60), "spec": {"resources": {"cpu": 1, "memory_bytes": 1, "gpu": 1}},
                 "metrics": None, "report": None}
         return self.table.seed(status, **{**base, **kw})
 
@@ -417,14 +418,14 @@ def _unreadable():
     None,  # the job ended without writing one
     _unreadable(),  # it wrote one core-api cannot read
 ], ids=["failed", "missing", "unreadable"])
-def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_not_billed(monkeypatch, report):
+def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_billed_for_its_runtime(monkeypatch, report):
     fx = Fx(monkeypatch, report)
     row = fx.seed()
     fx.ray = JobStatus.SUCCEEDED  # Ray said SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.FAILED and row["report"]["status"] == "failed"
     assert row["report"]["code"] == (report.code if isinstance(report, TrainReport) else FailureCode.INTERNAL)
-    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and not fx.usage
+    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and len(fx.usage) == 1
     assert fx.metrics == [TrainingStatus.FAILED]
 
 
@@ -433,7 +434,7 @@ def test_a_report_that_says_succeeded_does_not_save_a_job_ray_failed(monkeypatch
     row = fx.seed()
     fx.ray = JobStatus.FAILED
     fx.sweep()
-    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and not fx.usage
+    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and len(fx.usage) == 1
 
 
 def test_a_stopped_job_cancels_the_run_and_kills_the_mlflow_run(monkeypatch):
