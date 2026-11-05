@@ -19,10 +19,22 @@ class ProblemCode(StrEnum):
     BODY_NOT_OBJECT = "body_not_object"
     NOT_DEPLOYABLE = "not_deployable"
     NOT_ACTIVE = "deployment_not_active"
+    STOPPED = "deployment_stopped"
+    INVALID_TRANSITION = "invalid_deployment_transition"
     NO_SERVABLE_MODEL = "no_servable_model"
     INVALID_PREDICT_KEY = "invalid_predict_key"
     RATE_LIMITED = "rate_limited"
     TOO_MANY_INFLIGHT = "too_many_inflight"
+
+
+class AuditAction(StrEnum):
+    STOP = "stop"
+    START = "start"
+    DELETE = "delete"
+
+
+class EntityType(StrEnum):
+    DEPLOYMENT = "deployment"
 
 
 class DeployStrategy(StrEnum):
@@ -45,6 +57,7 @@ METADATA_FIELD = "metadata"
 PREDICTIONS_FIELD = "predictions"
 SERVE_TIMEOUT_SECONDS = 10
 TEST_CALLS_DEFAULT_LIMIT = 20
+STOPPED_DETAIL = "the deployment is stopped; start it to serve again"
 TOO_MANY_REQUESTS_DETAIL = "too many concurrent requests for this deployment"
 TARGET_CACHE_SIZE = 1024  # (deployment, run) pairs whose model URLs core-api remembers
 
