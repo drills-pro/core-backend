@@ -46,6 +46,7 @@ def test_detection_trains_exports_and_reports(tiny_rtdetr):
     jsonschema.validate(report, REPORT_SCHEMA)
     assert "artifacts" not in report
     assert set(report["metrics"]) == {"map50", "map50_95"} and report["confusion_matrix"] is None
+    assert report["classes"] and report["classes"] == json.loads(store.puts[MODEL_MANIFEST_KEY])["classes"]  # serving names detections with these
     logits, boxes = session(store, 3)
     assert logits.shape == (3, 10, 2) and boxes.shape == (3, 10, 4)
     assert [o["name"] for o in json.loads(store.puts[MODEL_MANIFEST_KEY])["outputs"]] == ["logits", "pred_boxes"]
