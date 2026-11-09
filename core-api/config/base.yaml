@@ -93,6 +93,7 @@ predict:                     # app/modules/user/deployments: stored predictions 
   background_retention_days: 7
   sync_retention_hours: 24
   in_progress_wait_seconds: 10
+  legacy_sunset: 2026-12-31T23:59:59Z  # Sunset header of the old POST /v1/predict/{deployment_id} (planning/24, migration phase 1)
 
 observability:
 
