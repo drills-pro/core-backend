@@ -76,6 +76,7 @@ curl -s 127.0.0.1:8090/v1/projects -H 'X-Tenant-Id: 11111111-1111-1111-1111-1111
 | Goal | Command |
 |---|---|
 | Unit tests (no services, no network) | `cd core-api && .venv/bin/python -m pytest tests -q` |
+| Whole journey on a running stack (image import, train, deploy, predict, delete; slow) | `./scripts/e2e-journey.sh` |
 | Migration status / roll back the last one | `docker compose run --rm dbmate status` / `... rollback` |
 | Migrations from an empty PG18 as `backend_admin`, with rollback and re-up (Docker only, own throwaway project) | `./scripts/migrations-check.sh` |
 | Lint migrations for destructive SQL | `python3 scripts/lint-migrations.py core-api/migrations/*.sql` |
