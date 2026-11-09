@@ -9,6 +9,7 @@ Secrets are not here. `secrets:` holds the *path* of each JSON file; app/core/se
 reads them.
 """
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -163,6 +164,7 @@ class Predict(_Section):
     lease_seconds: int  # how long a claimed (or sync idempotent) prediction belongs to its worker before it is taken back
     background_retention_days: int  # a finished background prediction keeps its input and output this long
     sync_retention_hours: int  # a sync prediction sent with an Idempotency-Key is replayable this long
+    legacy_sunset: datetime  # the Sunset header of the deprecated POST /v1/predict/{deployment_id}: when it may stop answering (timezone required)
     in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
 
 
