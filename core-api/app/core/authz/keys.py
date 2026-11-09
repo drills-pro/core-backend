@@ -46,6 +46,7 @@ class KeyContext:
     project_id: uuid.UUID
     scopes: frozenset[Scope]
     model_ids: frozenset[uuid.UUID]  # empty = every model in the project
+    rate_limit_per_minute: int | None = None  # the key's own limit for POST /v1/predict; None = only the plan's
 
     def allows_model(self, model_id: str | None) -> bool:
         if not self.model_ids:
@@ -78,7 +79,7 @@ def require_key(scope: Scope):
             raise invalid_api_key()
         ctx = KeyContext(
             row["key_id"], str(row["tenant_id"]), row["project_id"],
-            frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]),
+            frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]), row["rate_limit_per_minute"],
         )
         if row["tenant_status"] != TenantStatus.ACTIVE:
             raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.TENANT_SUSPENDED, "this tenant is not active")
