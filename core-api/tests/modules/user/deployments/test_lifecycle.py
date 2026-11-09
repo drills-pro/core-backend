@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.core.authz import Action, Role
+from app.core.authz import Action, Role, TenantStatus
+from app.core.problem import ProblemCode as KernelProblemCode
 from app.core.settings import settings
 from app.modules.user.deployments import routes, service
 from app.modules.user.deployments.constants import AuditAction, DeployStrategy, EntityType, ProblemCode, Serving
@@ -190,7 +191,7 @@ def test_try_it_on_a_stopped_deployment_is_409_and_on_a_deleted_one_404(env):
 
 
 def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(monkeypatch):
-    conn = FakeConn(row={"route_prefix": "/p", "status": S.STOPPED, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT})
+    conn = FakeConn(row={"route_prefix": "/p", "status": S.STOPPED, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT, "tenant_status": TenantStatus.ACTIVE})
 
     async def pool():
         return SimpleNamespace(acquire=lambda: TenantCtx(conn))
@@ -200,6 +201,23 @@ def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(m
         run(service.predict(DEPLOYMENT, "key", {}))
     assert (e.value.status_code, e.value.code) == (409, ProblemCode.STOPPED)
     assert conn.calls[0][1][1] == service.hash_key("key")  # the stored hash is untouched, so the same key matches
+
+
+@pytest.mark.parametrize("tenant_status", [TenantStatus.SUSPENDED, TenantStatus.PENDING_DELETE])
+def test_predict_for_a_tenant_that_is_not_active_is_503_before_serve(monkeypatch, tenant_status):
+    conn = FakeConn(row={"route_prefix": "/p", "status": S.ACTIVE, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT, "tenant_status": tenant_status})
+
+    async def pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(conn))
+
+    async def serve_must_not_run(*_):
+        raise AssertionError("Serve was called")
+
+    monkeypatch.setattr(service, "get_pool", pool)
+    monkeypatch.setattr(service, "_post_to_serve", serve_must_not_run)
+    with pytest.raises(HTTPException) as e:
+        run(service.predict(DEPLOYMENT, "key", {}))
+    assert (e.value.status_code, e.value.code) == (503, KernelProblemCode.TENANT_SUSPENDED)
 
 
 def test_list_get_and_test_calls_leave_deleted_rows_out(env):

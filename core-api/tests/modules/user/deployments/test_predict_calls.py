@@ -27,7 +27,7 @@ def test_the_error_codes_mirror_the_check():
 @pytest.fixture
 def predicting(monkeypatch):
     """service.predict for a shared deployment: the key lookup, rate limit, tenant reads and usage are faked; `log` is the predict_calls conn."""
-    lookup = FakeConn(row={"route_prefix": "/p", "status": DeploymentStatus.ACTIVE, "rate_limit_per_minute": 60, "tenant_id": TENANT, "project_id": PROJECT})
+    lookup = FakeConn(row={"route_prefix": "/p", "status": DeploymentStatus.ACTIVE, "rate_limit_per_minute": 60, "tenant_id": TENANT, "project_id": PROJECT, "tenant_status": "active"})
 
     async def check(*_):
         return True

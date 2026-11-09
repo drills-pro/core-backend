@@ -28,6 +28,7 @@ class ProblemCode(StrEnum):
     BEARER_REQUIRED = "bearer_required"
     INVALID_TOKEN = "invalid_token"
     INVALID_API_KEY = "invalid_api_key"
+    TENANT_SUSPENDED = "tenant_suspended"  # key-authenticated calls: 503, so a suspended tenant costs nothing
     PLATFORM_ADMIN_REQUIRED = "platform_admin_required"
     AUTH_NOT_CONFIGURED = "auth_not_configured"
     NO_TENANT = "no_tenant"
