@@ -1,95 +1,18 @@
 """POST /v1/predict: every status of the error table through the real route and require_key, database and Serve faked."""
 import uuid
-from types import SimpleNamespace
 
 import pytest
 
-from app.core import plan_limits
-from app.core.authz import TenantStatus, generate_key, keys
-from app.integrations import serve_client
+from app.core.authz import TenantStatus
 from app.integrations.serve_client import ServeErrorCode
-from app.modules.user.deployments import calls, model_predict, routes, shared
-from app.modules.user.deployments.constants import METADATA_MAX_BYTES, PREDICTION_ID_PREFIX, Serving
+from app.modules.user.deployments import routes, shared
+from app.modules.user.deployments.constants import METADATA_MAX_BYTES, PREDICTION_ID_PREFIX
 from app.modules.user.deployments.status import DeploymentStatus
-from tests.support import FakeConn, make_client
-from tests.support.counted_conn import patch_counted_conn
-
-TENANT, PROJECT, MODEL, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-BODY = {"input": {"text": "hello", "n": 1.0}, "metadata": {"trace": "t1"}}
-RESOLVED = {
-    "id": DEPLOYMENT, "status": DeploymentStatus.ACTIVE, "serving": Serving.SHARED, "route_prefix": "/p", "training_run_id": RUN,
-    "rate_limit_per_minute": 60, "mlflow_version": "3",
-}
-
-
-class Pool:
-    def __init__(self):
-        self.rows = {}
-
-    def acquire(self):
-        return self
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def fetchrow(self, sql, key_hash):
-        return self.rows.get(key_hash)
-
+from tests.support.predict_env import BODY, MODEL, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
 
 @pytest.fixture
 def env(monkeypatch):
-    pool = Pool()
-
-    async def get_pool():
-        return pool
-
-    monkeypatch.setattr(keys, "get_pool", get_pool)
-    conn = FakeConn(row=RESOLVED)
-    patch_counted_conn(monkeypatch, conn, model_predict, calls)
-    state = SimpleNamespace(conn=conn, pool=pool, served=[], usage=[], limited=False, answer=None, key=None)
-
-    def add_key(models=(), tenant_status=TenantStatus.ACTIVE, project=PROJECT):
-        key = generate_key()
-        pool.rows[key.key_hash] = dict(
-            key_id=uuid.uuid4(), tenant_id=TENANT, project_id=project, scopes=["predict"], model_ids=list(models), tenant_status=tenant_status)
-        return key.secret
-
-    state.add_key = add_key
-    state.key = add_key()
-
-    async def predict_limits(conn, tenant_id):
-        return plan_limits.Predict(max_body_bytes=200, max_inflight_per_deployment=3)
-
-    async def check(*_):
-        return not state.limited
-
-    async def record_usage(conn, **kw):
-        state.usage.append(kw)
-
-    async def answer(*args):
-        state.served.append(args)
-        return state.answer(*args)
-
-    state.answer = lambda *a: (serve_client.Prediction(predictions=[{"label": "cat"}], cold_load=False), 12.5)
-    monkeypatch.setattr(model_predict.plan_limits, "predict_limits", predict_limits)
-    monkeypatch.setattr(model_predict.rate_limit, "check", check)
-    monkeypatch.setattr(model_predict, "record_usage", record_usage)
-    monkeypatch.setattr(model_predict.shared, "answer", answer)
-    client = make_client(routes.router, headers=None)
-
-    def post(body=BODY, *, secret=None, model=MODEL, revision=None, project=PROJECT, **kw):
-        headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project)}
-        if model is not None:
-            headers["X-Model-Id"] = str(model)
-        if revision is not None:
-            headers["X-Model-Revision"] = revision
-        return client.post("/v1/predict", json=body, headers=headers, **kw)
-
-    state.post = post
-    return state
+    return build(monkeypatch)
 
 
 def test_200_returns_the_envelope_and_forwards_input_unchanged(env):

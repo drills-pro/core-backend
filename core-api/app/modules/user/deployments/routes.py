@@ -4,17 +4,23 @@ import uuid
 from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
-from app.core.idempotency import IdempotencyKey
+from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH, IdempotencyKey
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import lineage, model_predict, service
+from app.modules.user.deployments import lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
     MODEL_ID_HEADER,
+    IDEMPOTENCY_KEY_PATTERN,
+    LAST_EVENT_ID_HEADER,
     MODEL_REVISION_HEADER,
     PREDICT_KEY_HEADER,
+    PREFER_HEADER,
+    PREFER_RESPOND_ASYNC,
+    SSE_MEDIA_TYPE,
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
     TEST_CALLS_MIN_LIMIT,
@@ -148,6 +154,11 @@ async def predict(
     return await service.predict(deployment_id, x_predict_key, body)
 
 
+def _wants_async(prefer: str | None) -> bool:
+    """`Prefer: respond-async` among the comma-separated preferences (their parameters ignored)."""
+    return any(token.split(";")[0].strip().lower() == PREFER_RESPOND_ASYNC for token in (prefer or "").split(","))
+
+
 # Key-authenticated (a drl_ project key with the predict scope): the model is named by X-Model-Id [+ X-Model-Revision].
 @router.post("/v1/predict", response_model=PredictionEnvelope)
 async def predict_model(
@@ -155,10 +166,35 @@ async def predict_model(
     body: dict = Depends(capped_body),
     x_model_id: str = Header(..., alias=MODEL_ID_HEADER),
     x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
+    idempotency_key: str | None = Header(None, alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH, pattern=IDEMPOTENCY_KEY_PATTERN),
+    prefer: str | None = Header(None, alias=PREFER_HEADER),
 ):
     try:
         request = PredictRequest.model_validate(body)
     except ValidationError as e:
         detail = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, detail) from None
-    return await model_predict.predict(ctx, x_model_id, x_model_revision, request)
+    outcome = await model_predict.predict(ctx, x_model_id, x_model_revision, request, idempotency_key=idempotency_key, background=_wants_async(prefer))
+    return JSONResponse(outcome.envelope.model_dump(mode="json"), outcome.status_code, outcome.headers)
+
+
+# What a key reads of a prediction it made (a restricted key still sends X-Model-Id, as on POST: require_key checks the allowlist).
+@router.get("/v1/predict/{prediction_id}", response_model=PredictionEnvelope)
+async def get_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
+    return await prediction_service.get(ctx, prediction_id)
+
+
+@router.post("/v1/predict/{prediction_id}/cancel", response_model=PredictionEnvelope)
+async def cancel_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
+    return await prediction_service.cancel(ctx, prediction_id)
+
+
+@router.get("/v1/predict/{prediction_id}/events", response_class=StreamingResponse)
+async def prediction_events(
+    prediction_id: str,
+    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    last_event_id: str | None = Header(None, alias=LAST_EVENT_ID_HEADER),
+):
+    """Server-sent events: each status change (id = its seq, replayed after Last-Event-ID), the envelope in the terminal one."""
+    stream = await prediction_service.events(ctx, prediction_id, last_event_id)
+    return StreamingResponse(stream, media_type=SSE_MEDIA_TYPE, headers={"Cache-Control": "no-cache"})
