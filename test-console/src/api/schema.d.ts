@@ -1007,6 +1007,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/predict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Predict Model */
+        post: operations["predict_model_v1_predict_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -2546,6 +2563,11 @@ export interface components {
             created_at: string;
             /** Customer Label */
             customer_label: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
         };
         /** NewApiKey */
         NewApiKey: {
@@ -2695,6 +2717,43 @@ export interface components {
             max_body_bytes: number;
             /** Max Inflight Per Deployment */
             max_inflight_per_deployment: number;
+        };
+        /** PredictModelRef */
+        PredictModelRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Revision */
+            revision: string;
+        };
+        /** PredictUsage */
+        PredictUsage: {
+            /** Latency Ms */
+            latency_ms: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PredictionEnvelope */
+        PredictionEnvelope: {
+            /** Id */
+            id: string;
+            model: components["schemas"]["PredictModelRef"];
+            /** Output */
+            output: unknown;
+            usage: components["schemas"]["PredictUsage"];
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Error */
+            error?: null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * Preprocessing
@@ -6094,6 +6153,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    predict_model_v1_predict_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Model-Id": string;
+                "X-Model-Revision"?: string | null;
+                "x-project-id"?: string | null;
+                "x-model-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
                 };
             };
             /** @description Validation Error */
