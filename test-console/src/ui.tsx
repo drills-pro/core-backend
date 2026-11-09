@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Alert, Badge, Card, Heading, HStack, NativeSelect } from '@chakra-ui/react';
-import { statusColor } from '@/constants';
+import { DeployStatus, statusColor } from '@/constants';
 
-export const StatusBadge = ({ status }: { status: string }) => <Badge colorPalette={statusColor(status)}>{status}</Badge>;
+export const StatusBadge = ({ status }: { status: string }) => <Badge colorPalette={statusColor(status)} variant={status === DeployStatus.DELETED ? 'outline' : undefined}>{status}</Badge>;
 
 /** Shows the API's own error text: this is a staff tool, the detail is the useful part. */
 export function ErrorAlert({ error }: { error: unknown }) {
