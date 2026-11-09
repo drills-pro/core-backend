@@ -24,6 +24,7 @@ from app.modules.user.deployments import calls, prediction_store as store, servi
 from app.modules.user.deployments.constants import (
     ABANDONED_DETAIL,
     IDEMPOTENCY_KEY_REQUIRED_DETAIL,
+    JSON_ACCEPTABLE,
     IDEMPOTENCY_REUSE_DETAIL,
     IN_PROGRESS_DETAIL,
     IN_PROGRESS_POLL_SECONDS,
@@ -31,6 +32,7 @@ from app.modules.user.deployments.constants import (
     KEY_RATE_LIMIT_KEY,
     LOCATION_HEADER,
     MODEL_REJECTED_DETAIL_MAX_CHARS,
+    NOT_STREAMABLE_DETAIL,
     PREDICT_PATH,
     PREDICTION_ID_PREFIX,
     PLAN_RATE_LIMIT_KEY,
@@ -38,6 +40,7 @@ from app.modules.user.deployments.constants import (
     PREFERENCE_APPLIED_HEADER,
     RATE_LIMIT_WINDOW_SECONDS,
     RETRY_AFTER_HEADER,
+    SSE_MEDIA_TYPE,
     STORED_ERROR_STATUS,
     TERMINAL_STATUSES,
     UPSTREAM_ERROR_DETAIL,
@@ -70,6 +73,13 @@ _RESOLVE = (
     "WHERE m.id = $1 AND m.project_id = $2 AND ($3::text IS NULL OR mv.mlflow_version = $3) "
     "ORDER BY (d.status = $5) DESC, (mv.stage = $6) DESC, mv.created_at DESC, d.created_at DESC LIMIT 1"
 )
+
+
+def refuse_stream(accept: str | None) -> None:
+    """`Accept: text/event-stream` and nothing that takes JSON: 406 until a serve adapter declares streaming (planning/24, Q4). The answer does not depend on the model, so it needs no lookup."""
+    wanted = {part.split(";")[0].strip().lower() for part in (accept or "").split(",")}
+    if SSE_MEDIA_TYPE in wanted and not wanted.intersection(JSON_ACCEPTABLE):
+        raise Problem(HTTPStatus.NOT_ACCEPTABLE, ProblemCode.NOT_ACCEPTABLE, NOT_STREAMABLE_DETAIL)
 
 
 def serve_problem(e: shared.ServeFailed) -> Problem:

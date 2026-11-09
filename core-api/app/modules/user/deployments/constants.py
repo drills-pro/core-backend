@@ -33,6 +33,7 @@ class ProblemCode(StrEnum):
     UPSTREAM_TIMEOUT = "upstream_timeout"
     IDEMPOTENCY_KEY_REUSE = "idempotency_key_reuse"
     REQUEST_IN_PROGRESS = "request_in_progress"
+    NOT_ACCEPTABLE = "not_acceptable"
 
 
 class PredictionStatus(StrEnum):
@@ -157,4 +158,7 @@ CANCEL_CHECK_SECONDS = 2  # how often a worker waiting on Serve asks whether the
 SSE_POLL_SECONDS = 1  # GET /v1/predict/{id}/events looks for new events this often (LISTEN/NOTIFY would replace the poll)
 SSE_HEARTBEAT_SECONDS = 15  # a quiet event stream sends a comment this often so proxies keep it open
 SSE_MEDIA_TYPE = "text/event-stream"
+ACCEPT_HEADER = "Accept"
+JSON_ACCEPTABLE = ("application/json", "application/*", "*/*")  # an Accept entry that lets the sync JSON answer through
+NOT_STREAMABLE_DETAIL = "no model can stream yet (no serve adapter declares streaming); send Accept: application/json, or Prefer: respond-async"
 LAST_EVENT_ID_HEADER = "Last-Event-ID"

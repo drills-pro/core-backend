@@ -16,6 +16,7 @@ from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
 from app.modules.user.deployments import lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
+    ACCEPT_HEADER,
     DEPRECATION_ACTIVE,
     DEPRECATION_HEADER,
     MODEL_ID_HEADER,
@@ -186,7 +187,9 @@ async def predict_model(
     x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
     idempotency_key: str | None = Header(None, alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH, pattern=IDEMPOTENCY_KEY_PATTERN),
     prefer: str | None = Header(None, alias=PREFER_HEADER),
+    accept: str | None = Header(None, alias=ACCEPT_HEADER),
 ):
+    model_predict.refuse_stream(accept)
     try:
         request = PredictRequest.model_validate(body)
     except ValidationError as e:
