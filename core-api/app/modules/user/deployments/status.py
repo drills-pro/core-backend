@@ -15,3 +15,5 @@ class DeploymentStatus(StrEnum):
 LIVE_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE, DeploymentStatus.STOPPED)
 # What counts against the plan's max_active_deployments; stopped and deleted free the slot.
 QUOTA_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE)
+# Mirrored by the partial unique index deployments_one_active_per_version: the statuses that hold a model version.
+VERSION_LIVE_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE)
