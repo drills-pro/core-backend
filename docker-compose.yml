@@ -116,6 +116,9 @@ services:
   ray-head:
     build:
       context: ./ray-jobs
+      dockerfile: ../compose/ray-head/Dockerfile  # ingest + trainer dependencies on CPU; the cluster uses two images instead
+      additional_contexts:
+        training: ./ray-training
       args:
         BASE: rayproject/ray:2.60.0.8f2cbc-py311-cpu-aarch64  # local only; the amd64 digest crashes Ray's agents under emulation on arm64
     command: >
@@ -137,7 +140,7 @@ services:
       AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
       AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow,mlflow:5000,localhost,localhost:5001,127.0.0.1,127.0.0.1:5001"
+      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow,mlflow:5000,localhost,localhost:5001,127.0.0.1,127.0.0.1:5001,*.orb.local,*.orb.local:5000"
     command: >
       sh -c "python -c \"import boto3; c = boto3.client('s3', endpoint_url='http://minio:9000'); b = [x['Name'] for x in c.list_buckets()['Buckets']]; c.create_bucket(Bucket='mlflow-artifacts') if 'mlflow-artifacts' not in b else None\" &&
       mlflow server --host 0.0.0.0 --port 5000

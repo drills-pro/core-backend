@@ -41,6 +41,9 @@ step "zitadel SPA client config and project id"
 step "lakefs: admin, bucket, repository"
 ./scripts/steps/lakefs.sh
 
+step "local training preset without a GPU"
+./scripts/steps/cpu-preset.sh
+
 step "host copies of the secret files, for core-api run natively (config/local.yaml)"
 # Compose service names (http://lakefs:8000) do not resolve on the Mac. OrbStack's
 # <service>.<project>.orb.local names resolve on the Mac and inside containers alike, which matters:
@@ -55,7 +58,8 @@ echo "wrote .local/secrets-host/ (*.$project.orb.local)"
 # core-api in compose picks up the new credential on restart; run natively it re-reads db.json itself.
 if [ -z "$(docker compose ps -q --status running core-api)" ]; then
   printf '\ncore-api is not running in compose. Natively (from core-api/):\n'
-  printf '  APP_ENV=local uv run uvicorn app.main:app --reload --port 8090\n'
+  # MLflow's URL goes on to Ray (model downloads), where 127.0.0.1 is the container itself: use the name both sides resolve.
+  printf '  APP_ENV=local CORE_MLFLOW__URL=http://mlflow.%s.orb.local:5000 uv run uvicorn app.main:app --reload --port 8090\n' "$project"
   exit 0
 fi
 step "restarting core-api"

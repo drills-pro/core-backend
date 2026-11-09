@@ -12,6 +12,8 @@ ray:
   dashboard: http://127.0.0.1:8265
 mlflow:
   url: http://127.0.0.1:5001
+serving:
+  url: http://127.0.0.1:8100  # the compose Ray head's Serve proxy as published on the host; its own port 8000 is lakeFS here
 training:
   events_base_url: http://host.docker.internal:8090  # Ray runs in docker, core-api on the host
 observability:
