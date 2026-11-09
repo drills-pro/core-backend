@@ -17,7 +17,8 @@ def preset_row(task=TaskType.IMAGE_CLASSIFICATION, name="small", **over):
     return {
         "task": task, "name": name, "base_model_repo": "facebook/convnext-tiny-224", "base_model_revision": REVISION,
         "learning_rate": 1e-4, "preprocessing": IMAGENET, "cpu": 8, "memory_bytes": 25769803776, "gpu": 1,
-        "max_runtime_s": 14400, "hyperparameters": LIMITS, "updated_by": "migration", "updated_at": datetime.now(UTC), **over,
+        "max_runtime_s": 14400, "hyperparameters": LIMITS, "updated_by": "migration",
+        "lr_schedule": "constant", "warmup_fraction": 0.0, "augmentation": "none", "early_stopping_patience": 0, "updated_at": datetime.now(UTC), **over,
     }
 
 

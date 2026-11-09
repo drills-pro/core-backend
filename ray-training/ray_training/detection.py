@@ -9,18 +9,21 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from transformers import RTDetrV2ForObjectDetection
 
+from ray_training.constants import Augmentation
 from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.loop import Kit, fit
 from ray_training.metrics import detection_metrics
+from ray_training.recipe import flip_with_boxes
 from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
 from ray_training.spec import Preprocessing, TrainSpec
 
 MAX_DETECTIONS = 100  # kept per image when scoring
+MONITOR = "map50_95"  # what early stopping watches
 
 
 class Images(TorchDataset):
-    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing):
-        self.samples, self.size, self.pre = samples, size, pre
+    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing, augment: Augmentation = Augmentation.NONE):
+        self.samples, self.size, self.pre, self.augment = samples, size, pre, augment
 
     def __len__(self):
         return len(self.samples)
@@ -29,7 +32,10 @@ class Images(TorchDataset):
         image, w, h = load_image(self.samples[i].file, self.size, self.pre)
         boxes = [[(x + bw / 2) / w, (y + bh / 2) / h, bw / w, bh / h] for _, x, y, bw, bh in self.samples[i].boxes]
         classes = [c for c, *_ in self.samples[i].boxes]
-        return image, {"class_labels": torch.tensor(classes, dtype=torch.long), "boxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4)}
+        boxes = torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4)
+        if self.augment == Augmentation.FLIP:
+            image, boxes = flip_with_boxes(image, boxes)
+        return image, {"class_labels": torch.tensor(classes, dtype=torch.long), "boxes": boxes}
 
 
 def collate(batch):
@@ -80,7 +86,7 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
     model = RTDetrV2ForObjectDetection.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
-    done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing), Images(held_out, spec.image_size, spec.preprocessing), collate, loss, evaluate), spec)
+    done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), collate, loss, evaluate, MONITOR), spec)
     if done is None:
         return None
     onnx = work / "model.onnx"

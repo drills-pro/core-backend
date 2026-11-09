@@ -14,6 +14,9 @@ from app.core.settings import DatasetLimits, settings
 LIMIT_ABOVE_CEILING = "limit_above_ceiling"
 
 
+NOT_DATASET_GROUPS = ("predict", "deployments")  # groups whose keys are not DatasetLimits fields
+
+
 class _Group(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -48,6 +51,10 @@ class Predict(_Group):
     max_inflight_per_deployment: int = Field(gt=0)
 
 
+class Deployments(_Group):
+    max_active_deployments: int = Field(gt=0)
+
+
 class PlanLimitsBody(_Group):
     """What an admin writes for one tier; each field is a jsonb column of plan_limits, its keys named like DatasetLimits's."""
 
@@ -57,10 +64,11 @@ class PlanLimitsBody(_Group):
     tables: Tables
     huggingface: HuggingFace
     predict: Predict
+    deployments: Deployments
 
     def dataset_overrides(self) -> dict[str, int]:
         """The values that replace DatasetLimits fields (training concurrency is not one of them)."""
-        flat = {k: v for name in PlanLimitsBody.model_fields if name != "predict" for k, v in getattr(self, name).model_dump().items()}
+        flat = {k: v for name in PlanLimitsBody.model_fields if name not in NOT_DATASET_GROUPS for k, v in getattr(self, name).model_dump().items()}
         flat.pop("max_concurrent_training_runs")
         return flat
 
@@ -104,6 +112,11 @@ async def predict_limits(conn, tenant_id: str) -> Predict:
     if plan is not None:
         return plan.predict
     return Predict(max_body_bytes=settings.serving.max_body_bytes, max_inflight_per_deployment=settings.serving.max_inflight_per_deployment)
+
+
+async def max_active_deployments(conn, tenant_id: str) -> int:
+    plan = await for_tenant(conn, tenant_id)
+    return settings.serving.max_active_deployments_per_tenant if plan is None else plan.deployments.max_active_deployments
 
 
 async def list_all(conn) -> list[PlanLimits]:

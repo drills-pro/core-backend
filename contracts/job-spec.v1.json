@@ -1,5 +1,15 @@
 {
   "$defs": {
+    "Augmentation": {
+      "description": "Train-split-only image recipe. Mirrors task_presets_augmentation_check; the trainer mirrors it (contract-tested).",
+      "enum": [
+        "none",
+        "flip_crop",
+        "flip"
+      ],
+      "title": "Augmentation",
+      "type": "string"
+    },
     "DataKind": {
       "enum": [
         "images",
@@ -324,6 +334,15 @@
       "title": "IngestSpec",
       "type": "object"
     },
+    "LrSchedule": {
+      "description": "Learning rate over a run's steps, after a linear warmup: held, or cosine-decayed to zero. Mirrors task_presets_lr_schedule_check.",
+      "enum": [
+        "constant",
+        "cosine"
+      ],
+      "title": "LrSchedule",
+      "type": "string"
+    },
     "Preprocessing": {
       "description": "How an image becomes the model's input: resize (stretch, to a square `image_size`) with `resample`, multiply by\n`rescale`, then (x - mean) / std per RGB channel. Trained with, recorded in model.json, applied again when serving.",
       "properties": {
@@ -377,6 +396,25 @@
         "resample"
       ],
       "title": "Preprocessing",
+      "type": "object"
+    },
+    "Reporting": {
+      "description": "Where a trainer posts progress events (planning 06 \"Events\"). The token itself is never in the spec: the job finds it\nin the environment variable named by `token_env`.",
+      "properties": {
+        "events_url": {
+          "title": "Events Url",
+          "type": "string"
+        },
+        "token_env": {
+          "title": "Token Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "events_url",
+        "token_env"
+      ],
+      "title": "Reporting",
       "type": "object"
     },
     "Resample": {
@@ -546,6 +584,10 @@
     "TrainPayload": {
       "description": "What the train driver reads. It writes `model.onnx`, `model.json` and `report.json` under `prefix` in `bucket`.",
       "properties": {
+        "augmentation": {
+          "$ref": "#/$defs/Augmentation",
+          "default": "none"
+        },
         "base_model": {
           "$ref": "#/$defs/TrainBaseModel"
         },
@@ -559,6 +601,12 @@
         "data_kind": {
           "$ref": "#/$defs/DataKind"
         },
+        "early_stopping_patience": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Early Stopping Patience",
+          "type": "integer"
+        },
         "hyperparameters": {
           "$ref": "#/$defs/Hyperparameters"
         },
@@ -566,6 +614,10 @@
           "exclusiveMinimum": 0,
           "title": "Learning Rate",
           "type": "number"
+        },
+        "lr_schedule": {
+          "$ref": "#/$defs/LrSchedule",
+          "default": "constant"
         },
         "prefix": {
           "title": "Prefix",
@@ -598,6 +650,13 @@
           "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
           "title": "Trainer",
           "type": "string"
+        },
+        "warmup_fraction": {
+          "default": 0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Warmup Fraction",
+          "type": "number"
         }
       },
       "required": [
@@ -630,6 +689,17 @@
         },
         "payload": {
           "$ref": "#/$defs/TrainPayload"
+        },
+        "reporting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "resources": {
           "$ref": "#/$defs/Resources"

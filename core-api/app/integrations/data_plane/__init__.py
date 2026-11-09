@@ -26,7 +26,7 @@ from app.integrations.data_plane.lakefs import (
     read_version_column,
     read_version_sample,
 )
-from app.integrations.data_plane.train import prepare_train_data, read_train_report, submit_train
+from app.integrations.data_plane.train import prepare_train_data, read_model_meta, read_train_report, submit_train
 
 OPERATIONS = (
     create_dataset_repo,
@@ -45,6 +45,7 @@ OPERATIONS = (
     prepare_train_data,
     submit_train,
     read_train_report,
+    read_model_meta,
     mlflow.start_run,
     mlflow.finish_run,
     mlflow.publish_run_model,

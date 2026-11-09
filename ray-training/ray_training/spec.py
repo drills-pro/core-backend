@@ -5,7 +5,8 @@ import json
 from dataclasses import dataclass
 
 from ray_training.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, JobKind, Resample)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, Augmentation, JobKind, LrSchedule,
+    Resample)
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,12 @@ class TrainSpec:
     learning_rate: float
     preprocessing: Preprocessing | TextPreprocessing
     seed: int
+    lr_schedule: LrSchedule = LrSchedule.CONSTANT  # the preset's recipe, as the spec carries it; the defaults are the old behaviour
+    warmup_fraction: float = 0.0
+    augmentation: Augmentation = Augmentation.NONE
+    early_stopping_patience: int = 0  # 0 = off
+    events_url: str | None = None  # reporting.events_url: where to post progress; None = post nothing
+    events_token_env: str | None = None  # reporting.token_env: the environment variable that holds the token (never in the spec)
 
 
 def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
@@ -69,6 +76,7 @@ def parse_spec(text: str) -> TrainSpec:
     task, preset = p["task"], p["preset"]
     base, hp = p["base_model"], p.get("hyperparameters") or {}
     pre = p["preprocessing"]
+    reporting = doc.get("reporting") or {}
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
@@ -81,4 +89,8 @@ def parse_spec(text: str) -> TrainSpec:
         image_size=hp.get("image_size", DEFAULT_IMAGE_SIZE), learning_rate=p["learning_rate"],
         preprocessing=parse_preprocessing(pre),
         seed=p.get("seed", DEFAULT_SEED),
+        lr_schedule=LrSchedule(p.get("lr_schedule", LrSchedule.CONSTANT)), warmup_fraction=p.get("warmup_fraction", 0.0),
+        augmentation=Augmentation(p.get("augmentation", Augmentation.NONE)),
+        early_stopping_patience=p.get("early_stopping_patience", 0),
+        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"),
     )

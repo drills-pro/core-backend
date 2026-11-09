@@ -7,6 +7,7 @@ TRAINER_VERSION = "0.1.0"
 DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE, DEFAULT_SEED = 30, 16, 224, 42  # core-api job_spec.py defaults
 NO_ALARM = 0  # signal.alarm(0) cancels
 HTTP_TIMEOUT_SECONDS = 60
+EVENTS_TIMEOUT_SECONDS = 5  # a progress post that takes longer is dropped: it must never hold up an epoch
 ROOT_RANK = 0  # the Ray Train worker that evaluates, exports and uploads
 LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; production leaves it unset (= 1)
 DEFAULT_TASK_GPUS = 1
@@ -33,6 +34,12 @@ TEXT_COLUMN = "text"  # the columns of a text dataset's data.parquet (core-api t
 LABEL_COLUMN = "label"
 
 
+class EventType(StrEnum):
+    """The events core-api takes (app.modules.user.training.constants.EventType)."""
+
+    PROGRESS = "progress"
+
+
 class Task(StrEnum):
     """The task slugs the data loader reads differently (core-api TaskType); which trainer runs a task comes from the spec."""
 
@@ -46,6 +53,25 @@ class Resample(StrEnum):
 
     BILINEAR = "bilinear"
     BICUBIC = "bicubic"
+
+
+class LrSchedule(StrEnum):
+    """Mirrors app.core.task_catalog.LrSchedule (contract-tested)."""
+
+    CONSTANT = "constant"
+    COSINE = "cosine"
+
+
+class Augmentation(StrEnum):
+    """Mirrors app.core.task_catalog.Augmentation (contract-tested). Applied to the train split only."""
+
+    NONE = "none"
+    FLIP_CROP = "flip_crop"
+    FLIP = "flip"
+
+
+FLIP_PROBABILITY = 0.5
+CROP_PAD_DIVISOR = 8  # flip_crop pads each side by image_size / 8 before cropping back
 
 
 class Split(StrEnum):

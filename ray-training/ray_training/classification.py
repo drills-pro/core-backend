@@ -9,23 +9,25 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoModelForImageClassification
 
-from ray_training.constants import CONFUSION_TOP_K
+from ray_training.constants import CONFUSION_TOP_K, Augmentation
 from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.loop import Kit, fit
 from ray_training.metrics import classification_metrics
+from ray_training.recipe import flip_crop
 from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
 from ray_training.spec import Preprocessing, TrainSpec
 
 
 class Images(TorchDataset):
-    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing):
-        self.samples, self.size, self.pre = samples, size, pre
+    def __init__(self, samples: list[Sample], size: int, pre: Preprocessing, augment: Augmentation = Augmentation.NONE):
+        self.samples, self.size, self.pre, self.augment = samples, size, pre, augment
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, i):
-        return load_image(self.samples[i].file, self.size, self.pre)[0], self.samples[i].label
+        image = load_image(self.samples[i].file, self.size, self.pre)[0]
+        return (flip_crop(image) if self.augment == Augmentation.FLIP_CROP else image), self.samples[i].label
 
 
 class Logits(torch.nn.Module):
@@ -63,7 +65,7 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
     model = model or AutoModelForImageClassification.from_pretrained(  # a model is passed by the smoke job only
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
-    done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing), Images(held_out, spec.image_size, spec.preprocessing), None, loss, evaluate), spec)
+    done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), None, loss, evaluate), spec)
     if done is None:
         return None
     onnx = work / "model.onnx"

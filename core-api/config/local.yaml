@@ -12,6 +12,8 @@ ray:
   dashboard: http://127.0.0.1:8265
 mlflow:
   url: http://127.0.0.1:5001
+training:
+  events_base_url: http://host.docker.internal:8090  # Ray runs in docker, core-api on the host
 observability:
   otlp_endpoint: http://127.0.0.1:4317
 # Relative paths resolve against core-api/. These are bootstrap.sh's host copies of .local/secrets/,

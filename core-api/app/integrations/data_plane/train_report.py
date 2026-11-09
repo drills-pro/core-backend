@@ -41,6 +41,7 @@ class TrainReport(BaseModel):
     message: str | None = None
     metrics: dict[str, Metric] = {}  # scalars, logged to MLflow: classification top1/top5, detection map50/map50_95
     history: list[dict[str, Metric]] = Field(default=[], max_length=MAX_EPOCH_HISTORY)  # one entry per epoch, e.g. {"epoch": 1, "loss": 0.7}
+    classes: list[str] = []  # the model's class names in output order; serving names its answers with them
     confusion_matrix: ConfusionMatrix | None = None  # classification only
 
     @model_validator(mode="after")

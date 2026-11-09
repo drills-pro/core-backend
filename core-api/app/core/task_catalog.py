@@ -8,6 +8,8 @@ preprocessing is `TextPreprocessing`.
 """
 from enum import StrEnum
 
+from app.core.enums import TaskType
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -34,6 +36,29 @@ class Resample(StrEnum):
 
     BILINEAR = "bilinear"
     BICUBIC = "bicubic"
+
+
+class LrSchedule(StrEnum):
+    """Learning rate over a run's steps, after a linear warmup: held, or cosine-decayed to zero. Mirrors task_presets_lr_schedule_check."""
+
+    CONSTANT = "constant"
+    COSINE = "cosine"
+
+
+class Augmentation(StrEnum):
+    """Train-split-only image recipe. Mirrors task_presets_augmentation_check; the trainer mirrors it (contract-tested)."""
+
+    NONE = "none"
+    FLIP_CROP = "flip_crop"  # classification: random horizontal flip and a reflect-padded random crop
+    FLIP = "flip"  # detection: random horizontal flip, boxes mirrored with it
+
+
+# What each task's trainer implements; text has no recipe.
+TASK_AUGMENTATIONS: dict[TaskType, frozenset[Augmentation]] = {
+    TaskType.IMAGE_CLASSIFICATION: frozenset({Augmentation.NONE, Augmentation.FLIP_CROP}),
+    TaskType.OBJECT_DETECTION: frozenset({Augmentation.NONE, Augmentation.FLIP}),
+    TaskType.TEXT_CLASSIFICATION: frozenset({Augmentation.NONE}),
+}
 
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)

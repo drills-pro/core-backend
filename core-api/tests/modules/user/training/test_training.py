@@ -143,8 +143,8 @@ class Gateway:
             self.package_name = name
             return SimpleNamespace(sha256=PACKAGE_SHA)
 
-        async def submit(tenant_id, project_id, run_id, spec, package_sha256):
-            self.spec, self.package_sha = spec, package_sha256
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None):
+            self.spec, self.package_sha, self.events_token = spec, package_sha256, events_token
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -194,11 +194,12 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
     assert (p.task, p.preset, p.base_model.repo_id, p.base_model.revision) == (TaskType.IMAGE_CLASSIFICATION, "small", row["base_model_repo"], row["base_model_revision"])
     assert (p.learning_rate, p.preprocessing.max_length if hasattr(p.preprocessing, "max_length") else p.preprocessing.rescale) == (row["learning_rate"], row["preprocessing"]["rescale"])
     assert (p.hyperparameters.epochs, p.seed, p.data.lakefs_commit) == (30, 42, "c0ffee")
+    assert (p.lr_schedule, p.warmup_fraction, p.augmentation, p.early_stopping_patience) == (row["lr_schedule"], row["warmup_fraction"], row["augmentation"], row["early_stopping_patience"])
     assert (spec.resources.cpu, spec.resources.memory_bytes, spec.resources.gpu, spec.resources.max_runtime_s) == (
         row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
     assert (gw.package_name, gw.package_sha) == (JobPackageName.RAY_TRAINING, PACKAGE_SHA)  # pinned for the run, and what the job runs
     (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert insert[-1] == PACKAGE_SHA
+    assert insert[-2] == PACKAGE_SHA
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
     insert = next(args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs"))
     assert insert[4] == spec.job_id and insert[5] == "mlflow-1" and insert[8] == DATASET and insert[10] == VERSION  # job id, MLflow run, dataset, version
@@ -371,6 +372,12 @@ class Fx:
 
         monkeypatch.setattr(compute, "status", status)
         monkeypatch.setattr(compute, "stop", stop)
+        self.ray_start = None  # what Ray's own record says about when the job started
+
+        async def job_state(job_id):
+            return compute.JobState(status=self.ray, started_at=self.ray_start)
+
+        monkeypatch.setattr(compute, "job_state", job_state)
         monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
         monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
@@ -381,6 +388,7 @@ class Fx:
 
     def seed(self, status="running", **kw):
         base = {"project_id": PROJECT, "mlflow_run_id": "mlflow-1", "ray_job_id": f"train-{RUN}", "created_at": datetime.now(UTC),
+                "started_at": datetime.now(UTC) - timedelta(seconds=60), "spec": {"resources": {"cpu": 1, "memory_bytes": 1, "gpu": 1}},
                 "metrics": None, "report": None}
         return self.table.seed(status, **{**base, **kw})
 
@@ -417,14 +425,14 @@ def _unreadable():
     None,  # the job ended without writing one
     _unreadable(),  # it wrote one core-api cannot read
 ], ids=["failed", "missing", "unreadable"])
-def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_not_billed(monkeypatch, report):
+def test_a_job_that_ends_ok_but_reports_failure_or_nothing_is_failed_and_billed_for_its_runtime(monkeypatch, report):
     fx = Fx(monkeypatch, report)
     row = fx.seed()
     fx.ray = JobStatus.SUCCEEDED  # Ray said SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.FAILED and row["report"]["status"] == "failed"
     assert row["report"]["code"] == (report.code if isinstance(report, TrainReport) else FailureCode.INTERNAL)
-    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and not fx.usage
+    assert fx.mlflow[0][0] == "FAILED" and not fx.published and not fx.registered and len(fx.usage) == 1
     assert fx.metrics == [TrainingStatus.FAILED]
 
 
@@ -433,7 +441,7 @@ def test_a_report_that_says_succeeded_does_not_save_a_job_ray_failed(monkeypatch
     row = fx.seed()
     fx.ray = JobStatus.FAILED
     fx.sweep()
-    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and not fx.usage
+    assert row["status"] == TrainingStatus.FAILED and not fx.published and not fx.registered and len(fx.usage) == 1
 
 
 def test_a_stopped_job_cancels_the_run_and_kills_the_mlflow_run(monkeypatch):
@@ -531,6 +539,40 @@ def test_a_job_that_finished_wins_over_the_horizon(monkeypatch):
     fx.ray = JobStatus.SUCCEEDED
     fx.sweep()
     assert row["status"] == TrainingStatus.SUCCEEDED and not fx.stopped
+
+
+def test_a_fast_job_never_seen_running_is_billed_from_rays_start_time(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))  # queued for an hour
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == fx.ray_start
+    assert fx.usage[0]["quantity"] == pytest.approx(40, abs=2)  # 1 GPU, the 40 s Ray ran, not the hour in the queue
+
+
+def test_a_fast_job_ray_cannot_date_is_not_billed_and_not_from_created_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed("submitted", started_at=None, created_at=datetime.now(UTC) - timedelta(hours=1))
+    fx.ray = JobStatus.SUCCEEDED  # ray_start stays None
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] is None and not fx.usage
+
+
+def test_rays_start_time_does_not_override_a_stamped_started_at(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    stamped = row["started_at"]
+    fx.ray, fx.ray_start = JobStatus.SUCCEEDED, datetime.now(UTC) - timedelta(hours=1)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED and row["started_at"] == stamped
+
+
+def test_a_stopped_job_never_seen_running_is_not_dated_by_ray(monkeypatch):
+    fx = Fx(monkeypatch)
+    row = fx.seed("submitted", started_at=None)
+    fx.ray, fx.ray_start = JobStatus.STOPPED, datetime.now(UTC) - timedelta(seconds=40)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.CANCELLED and not fx.usage
 
 
 # ---- the enums and the database agree ----

@@ -114,6 +114,7 @@ class Training(_Section):
 
     driver_cpus: float  # the CPU-pool driver that starts that task
     max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
+    events_base_url: str  # where a trainer reaches this API to post progress (no trailing path); "" = runs report no progress
 
 
 class ServingApp(_Section):
@@ -144,7 +145,9 @@ class Serving(_Section):
     request_timeout_seconds: int  # core-api's wait for an answer, which includes a cold load of the model
     max_body_bytes: int  # the ceiling: a /predict or test body larger than this is refused with 413 before it is parsed; also the most a plan may allow
     max_inflight_per_deployment: int  # fallback for a tier without a plan_limits row: concurrent requests to one deployment in one core-api process; more get 429
+    max_active_deployments_per_tenant: int  # fallback for a tier without a plan_limits row: deployments a tenant may have active or deploying
     predict_calls_retention_days: int  # predict_calls rows older than this are purged
+    test_calls_retention_days: int  # deployment_test_calls rows (the try-it payloads) older than this are purged
     package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
     apps: ServingApps
 

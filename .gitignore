@@ -301,3 +301,6 @@ readme-setupproject.md
 
 # IDE settings
 .idea/
+
+# Local audit reports
+docs/audit-report-*.html

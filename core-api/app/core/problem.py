@@ -10,6 +10,7 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -31,6 +32,7 @@ class ProblemCode(StrEnum):
     AUTH_NOT_CONFIGURED = "auth_not_configured"
     NO_TENANT = "no_tenant"
     TENANT_REQUIRED = "tenant_required"  # the caller belongs to several tenants and named none
+    VALIDATION_ERROR = "validation_error"  # FastAPI rejected the shape of the request
 
 
 class Problem(HTTPException):
@@ -63,7 +65,17 @@ def _problem(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     return JSONResponse(body, status.value, headers=exc.headers, media_type=MEDIA_TYPE)
 
 
+def _validation_problem(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI's own 422 echoes each offending `input`, and a NaN or Infinity in it cannot be serialised (a 500). So only
+    where (`loc`), what (`msg`) and which rule (`type`) go back, as a problem."""
+    errors = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+    detail = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in errors)
+    problem = Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.VALIDATION_ERROR, detail, errors=errors)
+    return _problem(request, problem)
+
+
 def install(app: FastAPI) -> None:
+    app.add_exception_handler(RequestValidationError, _validation_problem)
     app.add_exception_handler(StarletteHTTPException, _problem)  # also the router's own 404/405
 
     @app.middleware("http")

@@ -14,7 +14,7 @@ def command(module: str, spec_json: str) -> str:
 
 async def submit(
     *, package_url: str, module: str, spec_json: str, job_id: str, metadata: dict[str, str], num_cpus: float,
-    timeout_seconds: int, memory: int = 0,
+    timeout_seconds: int, memory: int = 0, extra_env: dict[str, str] | None = None,
 ) -> str:
     """Submit the package's module under `job_id` (the caller's submission id, so it can stop the job even when the
     answer is lost); returns the Ray job id. CPU-only: pinned to the CPU worker group, never holds the GPU."""
@@ -32,5 +32,6 @@ async def submit(
             "STAGING_ENDPOINT": creds["endpoint"],
             "STAGING_ACCESS_KEY": creds["access_key"],
             "STAGING_SECRET_KEY": creds["secret_key"],
+            **(extra_env or {}),
         },
     ))
