@@ -5,6 +5,7 @@ table adds a line to SEEDS; test_every_tenant_table_is_seeded fails until it doe
 """
 from app.core.authz import InviteRole, Role, Scope, TenantRole
 from app.core.enums import ImportSource
+from app.modules.user.deployments.constants import PredictionMode, PredictionStatus
 from app.modules.user.training.constants import EventType
 from app.modules.user.usage.constants import UsageResource, UsageUnit
 
@@ -62,4 +63,11 @@ SEEDS = (
     ("api_key_models",
      "INSERT INTO api_key_models (key_id, tenant_id, model_id) "
      "SELECT k.id, k.tenant_id, m.id FROM api_keys k JOIN models m ON m.project_id = k.project_id WHERE k.tenant_id = $1"),
+    ("predictions",
+     f"INSERT INTO predictions (tenant_id, project_id, api_key_id, deployment_id, model_id, model_revision, mode, status, max_attempts) "
+     f"SELECT d.tenant_id, d.project_id, k.id, d.id, m.id, '1', '{PredictionMode.BACKGROUND}', '{PredictionStatus.QUEUED}', 3 "
+     f"FROM deployments d JOIN api_keys k ON k.project_id = d.project_id JOIN models m ON m.project_id = d.project_id WHERE d.tenant_id = $1"),
+    ("prediction_events",
+     f"INSERT INTO prediction_events (prediction_id, seq, tenant_id, status) "
+     f"SELECT id, 1, tenant_id, '{PredictionStatus.QUEUED}' FROM predictions WHERE tenant_id = $1"),
 )

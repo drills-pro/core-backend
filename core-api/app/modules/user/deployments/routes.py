@@ -4,15 +4,17 @@ import uuid
 from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
-from app.core.idempotency import IdempotencyKey
+from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH, IdempotencyKey
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
 from app.modules.user.deployments import lineage, model_predict, service
 from app.modules.user.deployments.constants import (
     MODEL_ID_HEADER,
+    IDEMPOTENCY_KEY_PATTERN,
     MODEL_REVISION_HEADER,
     PREDICT_KEY_HEADER,
     TEST_CALLS_DEFAULT_LIMIT,
@@ -155,10 +157,12 @@ async def predict_model(
     body: dict = Depends(capped_body),
     x_model_id: str = Header(..., alias=MODEL_ID_HEADER),
     x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
+    idempotency_key: str | None = Header(None, alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH, pattern=IDEMPOTENCY_KEY_PATTERN),
 ):
     try:
         request = PredictRequest.model_validate(body)
     except ValidationError as e:
         detail = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, detail) from None
-    return await model_predict.predict(ctx, x_model_id, x_model_revision, request)
+    outcome = await model_predict.predict(ctx, x_model_id, x_model_revision, request, idempotency_key=idempotency_key)
+    return JSONResponse(outcome.envelope.model_dump(mode="json"), outcome.status_code, outcome.headers)

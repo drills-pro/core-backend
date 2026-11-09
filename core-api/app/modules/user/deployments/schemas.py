@@ -2,12 +2,13 @@
 import json
 import uuid
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.user.datasets import VersionRef
-from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_TOO_LARGE_DETAIL
+from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_TOO_LARGE_DETAIL, PredictionStatus
 from app.modules.user.training import LineageRun
 
 class DeploymentCreated(BaseModel):
@@ -95,14 +96,29 @@ class PredictModelRef(BaseModel):
 class PredictUsage(BaseModel):
     model_config = ConfigDict(extra="allow")  # token or compute counts later
 
-    latency_ms: float
+    latency_ms: float | None = None  # None until a call finished
+
+
+class PredictionError(BaseModel):
+    code: str
+    detail: str
 
 
 class PredictionEnvelope(BaseModel):
     id: str
+    status: PredictionStatus = PredictionStatus.COMPLETED  # a sync answer is always completed
     model: PredictModelRef
-    output: Any
+    output: Any = None
     usage: PredictUsage
     metadata: dict[str, Any]
-    error: None = None
+    error: PredictionError | None = None
+    expired: bool = False  # the retention purge dropped input and output
     created_at: datetime
+
+
+class PredictOutcome(BaseModel):
+    """What the predict service hands the route: the envelope, the status it travels with and its extra headers."""
+
+    envelope: PredictionEnvelope
+    status_code: int = HTTPStatus.OK
+    headers: dict[str, str] = Field(default_factory=dict)
