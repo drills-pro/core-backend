@@ -4,13 +4,16 @@ import uuid
 from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from pydantic import ValidationError
 
-from app.core.authz import Action, AuthzContext, public, require
+from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
 from app.core.idempotency import IdempotencyKey
-from app.core.problem import Problem
+from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import lineage, service
+from app.modules.user.deployments import lineage, model_predict, service
 from app.modules.user.deployments.constants import (
+    MODEL_ID_HEADER,
+    MODEL_REVISION_HEADER,
     PREDICT_KEY_HEADER,
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
@@ -21,6 +24,8 @@ from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
+    PredictionEnvelope,
+    PredictRequest,
     TrainingRunLineage,
     TestCall,
     TestCallResult,
@@ -141,3 +146,19 @@ async def predict(
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
 ):
     return await service.predict(deployment_id, x_predict_key, body)
+
+
+# Key-authenticated (a drl_ project key with the predict scope): the model is named by X-Model-Id [+ X-Model-Revision].
+@router.post("/v1/predict", response_model=PredictionEnvelope)
+async def predict_model(
+    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    body: dict = Depends(capped_body),
+    x_model_id: str = Header(..., alias=MODEL_ID_HEADER),
+    x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
+):
+    try:
+        request = PredictRequest.model_validate(body)
+    except ValidationError as e:
+        detail = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, detail) from None
+    return await model_predict.predict(ctx, x_model_id, x_model_revision, request)
