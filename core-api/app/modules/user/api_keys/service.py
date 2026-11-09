@@ -1,10 +1,11 @@
 import uuid
+from http import HTTPStatus
 
 from app.core import audit
 from app.core.authz import AuthzContext, generate_key
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
-from app.modules.user.api_keys.constants import AuditAction, EntityType
+from app.modules.user.api_keys.constants import UNKNOWN_MODEL_DETAIL, AuditAction, EntityType, ProblemCode
 from app.modules.user.api_keys.schemas import CreatedApiKey, ListedApiKey, NewApiKey
 
 _INSERT_KEY = (
@@ -12,7 +13,11 @@ _INSERT_KEY = (
     "VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at"
 )
 _INSERT_SCOPES = "INSERT INTO api_key_scopes (key_id, tenant_id, scope) SELECT $1, $2, unnest($3::text[])"
-_INSERT_MODELS = "INSERT INTO api_key_models (key_id, tenant_id, model_id) SELECT $1, $2, unnest($3::uuid[])"
+# Only models of this project: an id from another project or tenant is counted out and refused below.
+_INSERT_MODELS = (
+    "WITH i AS (INSERT INTO api_key_models (key_id, tenant_id, model_id) "
+    "SELECT $1, $2, m.id FROM models m WHERE m.project_id = $4 AND m.id = ANY($3::uuid[]) RETURNING 1) SELECT count(*) FROM i"
+)
 _LIST = (
     "SELECT k.id, k.name, k.prefix, k.created_by, k.created_at, k.expires_at, k.revoked_at, "
     "COALESCE((SELECT array_agg(scope ORDER BY scope) FROM api_key_scopes WHERE key_id = k.id), '{}') AS scopes, "
@@ -31,7 +36,8 @@ async def create(ctx: AuthzContext, project_id: uuid.UUID, body: NewApiKey) -> C
             _INSERT_KEY, ctx.tenant_id, project_id, body.name, key.prefix, key.key_hash, ctx.actor, body.expires_at
         )
         await conn.execute(_INSERT_SCOPES, row["id"], ctx.tenant_id, scopes)
-        await conn.execute(_INSERT_MODELS, row["id"], ctx.tenant_id, model_ids)
+        if model_ids and await conn.fetchval(_INSERT_MODELS, row["id"], ctx.tenant_id, model_ids, project_id) != len(model_ids):
+            raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.UNKNOWN_MODEL, UNKNOWN_MODEL_DETAIL)  # rolls the key back
         await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.API_KEY, row["id"])
     return CreatedApiKey(
         id=row["id"], name=body.name, prefix=key.prefix, scopes=scopes, model_ids=model_ids,

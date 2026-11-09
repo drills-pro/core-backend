@@ -37,9 +37,11 @@ SEEDS = (
     ("deployments",
      "INSERT INTO deployments (tenant_id, project_id, training_run_id, route_prefix) "
      "SELECT tenant_id, project_id, id, 'p-' || tenant_id::text FROM training_runs WHERE tenant_id = $1"),
+    ("models", "INSERT INTO models (tenant_id, project_id, name) SELECT tenant_id, id, 'm' FROM projects WHERE tenant_id = $1"),
     ("model_versions",
-     "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version) "
-     "SELECT tenant_id, project_id, id, 'm', '1' FROM training_runs WHERE tenant_id = $1"),
+     "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version, model_id) "
+     "SELECT r.tenant_id, r.project_id, r.id, 'm', '1', m.id FROM training_runs r JOIN models m ON m.project_id = r.project_id "
+     "WHERE r.tenant_id = $1"),
     ("deployment_test_calls",
      "INSERT INTO deployment_test_calls (tenant_id, deployment_id, request) "
      "SELECT tenant_id, id, '{}'::jsonb FROM deployments WHERE tenant_id = $1"),
@@ -58,5 +60,6 @@ SEEDS = (
     ("api_key_scopes",
      f"INSERT INTO api_key_scopes (key_id, tenant_id, scope) SELECT id, tenant_id, '{Scope.PREDICT}' FROM api_keys WHERE tenant_id = $1"),
     ("api_key_models",
-     "INSERT INTO api_key_models (key_id, tenant_id, model_id) SELECT id, tenant_id, gen_random_uuid() FROM api_keys WHERE tenant_id = $1"),
+     "INSERT INTO api_key_models (key_id, tenant_id, model_id) "
+     "SELECT k.id, k.tenant_id, m.id FROM api_keys k JOIN models m ON m.project_id = k.project_id WHERE k.tenant_id = $1"),
 )
