@@ -1,6 +1,7 @@
 """The predictions and prediction_events tables as core_app on a real Postgres: the SQL of prediction_store.py (Idempotency-Key scope and
 race, the attempt-fenced write-back, events, usage in the same transaction), the CHECKs that mirror the enums, and RLS."""
 import json
+from datetime import datetime, timezone
 
 import asyncpg
 import pytest
@@ -9,7 +10,7 @@ from app.core.authz import KeyContext
 from app.modules.user.deployments import prediction_store as store
 from app.modules.user.deployments.constants import PredictionMode, PredictionStatus
 from app.modules.user.deployments.schemas import PredictionError, PredictRequest
-from app.modules.user.usage import UsageResource
+from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 REQUEST = PredictRequest(input={"x": 1}, metadata={"m": 1})
 HASH = "h" * 64
@@ -127,6 +128,22 @@ def test_only_a_sync_row_past_its_lease_is_abandoned(two_tenants):
             background, _ = await begin(conn, r, PredictionMode.BACKGROUND, "b")
             await conn.execute("UPDATE predictions SET status = $2, lease_expires_at = now() - interval '1 second' WHERE id = $1", background["id"], PredictionStatus.IN_PROGRESS)
             assert await store.abandon_if_expired(conn, background, error) is None  # the worker's rows are reaped by the worker
+
+    t.run(go())
+
+
+def test_a_repeat_usage_write_for_one_prediction_id_is_absorbed(two_tenants):
+    t = two_tenants
+
+    async def go():
+        r = await refs(t, t.a)
+        async with t.as_tenant(t.a) as conn:
+            row, _ = await begin(conn, r, PredictionMode.SYNC, "k")
+            await store.finish(conn, row, PredictionStatus.COMPLETED, output={}, latency_ms=1.0)
+            again = await record_usage(
+                conn, tenant_id=str(t.a), project_id=row["project_id"], resource_type=UsageResource.INFERENCE, quantity=1,
+                unit=UsageUnit.REQUESTS, occurred_at=datetime.now(timezone.utc), source_ref=str(row["id"]))
+            assert again is False and await conn.fetchval(USAGE, UsageResource.INFERENCE, str(row["id"])) == 1
 
     t.run(go())
 
