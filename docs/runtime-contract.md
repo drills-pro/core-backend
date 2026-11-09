@@ -66,6 +66,11 @@ until the `staging` file exists):
 - Set in `prod.yaml` once the hostnames exist: `public.staging_endpoint` (the address browsers reach the
   staging store at; the default `http://localhost:9000` is local MinIO only) and `public.lakefs_endpoint`.
 - Seed a second secret, `ingest`, for the Ray ingest job: read, write and list on `data_plane.staging_bucket` only, never the lakeFS blockstore bucket (the job parses hostile input and its env is visible in the Ray job API). Per-import prefix scoping needs STS (plan risk). A matching k8s change is needed (`k8s-contract`).
+- Prediction payloads: core-api keeps a stored prediction's input or output larger than `predict.inline_max_bytes` under
+  `predictions/<tenant>/<project>/<prediction id>/` in the staging bucket, with the `staging` credential (read, write, list
+  and delete, which it already holds). The `ingest` credential never touches that prefix. The knobs are in `base.yaml`
+  (`predict.*`), so no k8s change is needed; a bucket lifecycle rule on `predictions/` (older than the background retention)
+  would also catch the rare object a purge cannot see.
 - Egress: core-api to the staging store (if not lakeFS's own S3), Ray to the staging store.
 - The ingest job is the `ray_jobs` package (`ray-jobs/`, its own `pyproject.toml`), one entrypoint per job type: `python -m ray_jobs.entrypoints.<upload_images|upload_csv|huggingface>`. It runs in the **Ray image**, not core-api's: that image must have Python >= 3.11, `pyarrow`, `Pillow` and `boto3`. The cluster's image is the stock `rayproject/ray:2.60.0…-py311-cu128`, which does not carry them, so `ray-jobs/Dockerfile` builds the same base plus these dependencies (workflow `.github/workflows/ray-jobs-image.yml` pushes `ghcr.io/drills-pro/core-backend/ray-jobs:<sha>`). Put its digest in k8s `apps/ray/app/raycluster.yaml` for head and worker by hand (that restarts the head and the GPU worker, and the `ray` namespace needs an `imagePullSecret` for ghcr). Job code still ships as the zip; only dependencies are baked in.
 - **What it reads:** the job spec, see [job-spec.md](job-spec.md), as one JSON argv.
