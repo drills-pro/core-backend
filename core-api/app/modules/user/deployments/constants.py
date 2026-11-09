@@ -28,6 +28,9 @@ class ProblemCode(StrEnum):
     TOO_MANY_DEPLOYMENTS = "too_many_deployments"
     DEPLOYMENT_EXISTS = "deployment_exists"
     IDEMPOTENCY_MISMATCH = "idempotency_mismatch"
+    MODEL_REJECTED_INPUT = "model_rejected_input"
+    UPSTREAM_ERROR = "upstream_error"
+    UPSTREAM_TIMEOUT = "upstream_timeout"
 
 
 class AuditAction(StrEnum):
@@ -85,3 +88,14 @@ SERVE_ERROR_STATUS = {
     ServeErrorCode.UNREACHABLE: HTTPStatus.SERVICE_UNAVAILABLE,
     ServeErrorCode.TIMEOUT: HTTPStatus.GATEWAY_TIMEOUT,
 }
+
+# POST /v1/predict (planning/24): the model is addressed by headers, the caller's data is `input`.
+MODEL_ID_HEADER = "X-Model-Id"
+MODEL_REVISION_HEADER = "X-Model-Revision"
+PREDICTION_ID_PREFIX = "pred_"
+METADATA_MAX_BYTES = 4096
+MODEL_REJECTED_DETAIL_MAX_CHARS = 500
+RATE_LIMIT_WINDOW_SECONDS = 60  # rate_limit.check counts fixed one-minute windows
+UPSTREAM_ERROR_DETAIL = "the model could not answer; try again"
+UPSTREAM_TIMEOUT_DETAIL = "the model did not answer in time"
+METADATA_TOO_LARGE_DETAIL = f"metadata is over {METADATA_MAX_BYTES} bytes"
