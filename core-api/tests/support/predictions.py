@@ -40,9 +40,23 @@ class PredictionsConn(FakeConn):
             return self._keyed(*a)
         if sql == store._BY_ID:
             return self.preds.get(a[0])
-        if sql == prediction_service._OWNED:
+        if sql in (prediction_service._OWNED, prediction_service._OWNED_LOCKED):
             row = self.preds.get(a[0])
             return row if row is not None and row["api_key_id"] == a[1] and row["project_id"] == a[2] else None
+        if sql == store._CANCEL_QUEUED:
+            prediction_id, status, retention, expected = a
+            row = self.preds[prediction_id]
+            if row["status"] != expected:
+                return None
+            row.update(status=status, finished_at=now(), expires_at=now() + timedelta(seconds=retention), lease_owner=None, lease_expires_at=None)
+            return row
+        if sql == store._REQUEST_CANCEL:
+            prediction_id, mode, expected = a
+            row = self.preds[prediction_id]
+            if row["mode"] != mode or row["status"] != expected:
+                return None
+            row["cancel_requested"] = True
+            return row
         if sql == store._REQUEUE:
             prediction_id, attempt, status, delay, expected = a
             row = self.preds[prediction_id]
@@ -68,7 +82,19 @@ class PredictionsConn(FakeConn):
             return row
         return await super().fetchrow(sql, *a)
 
+    async def fetchval(self, sql, *a):
+        if sql in (store._FLAG, store._FLAG_LOCKED):
+            row = self.preds.get(a[0])
+            return row["cancel_requested"] if row is not None and row["attempt"] == a[1] and row["status"] == a[2] else None
+        if sql == store._STATUS:
+            return self.preds[a[0]]["status"] if a[0] in self.preds else None
+        return await super().fetchval(sql, *a)
+
     async def fetch(self, sql, *a):
+        if sql == store._EVENTS_AFTER:
+            prediction_id, after = a
+            own = [e for e in self.events if e[0] == prediction_id]
+            return [{"seq": i, "status": status, "data": data} for i, (_, status, data) in enumerate(own, start=1) if i > after]
         if sql == store._CLAIM:
             tenant, mode, status, limit, new_status, owner, lease = a
             due = [r for r in self.preds.values() if str(r["tenant_id"]) == str(tenant) and r["mode"] == mode and r["status"] == status and r["next_attempt_at"] <= now()]

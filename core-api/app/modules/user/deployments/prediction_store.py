@@ -63,6 +63,19 @@ _REQUEUE = (
 )
 
 
+# Cancel (the caller holds the row lock, see prediction_service.owned): a queued row ends at once; an in_progress one is flagged and its worker ends it.
+_CANCEL_QUEUED = (
+    "UPDATE predictions SET status = $2, finished_at = now(), expires_at = now() + make_interval(secs => $3::float8), "
+    "lease_owner = NULL, lease_expires_at = NULL WHERE id = $1 AND status = $4 RETURNING *"
+)
+_REQUEST_CANCEL = "UPDATE predictions SET cancel_requested = true WHERE id = $1 AND mode = $2 AND status = $3 RETURNING *"
+# What a worker asks before it writes back: did the key cancel the attempt it holds? (The locked read makes the cancel endpoint wait for the write-back.)
+_FLAG = "SELECT cancel_requested FROM predictions WHERE id = $1 AND attempt = $2 AND status = $3"
+_FLAG_LOCKED = _FLAG + " FOR UPDATE"
+_EVENTS_AFTER = "SELECT seq, status, data FROM prediction_events WHERE prediction_id = $1 AND seq > $2 ORDER BY seq"
+_STATUS = "SELECT status FROM predictions WHERE id = $1"
+
+
 def retention_seconds(mode: str) -> float:
     if mode == PredictionMode.SYNC:
         return settings.predict.sync_retention_hours * SECONDS_PER_HOUR
@@ -113,6 +126,31 @@ async def requeue(conn, row, delay_seconds: float):
     if moved is not None:
         await add_event(conn, moved)
     return moved
+
+
+async def cancel_queued(conn, row):
+    """A queued prediction becomes cancelled at once (and says so in its events)."""
+    moved = await conn.fetchrow(_CANCEL_QUEUED, row["id"], PredictionStatus.CANCELLED, retention_seconds(row["mode"]), PredictionStatus.QUEUED)
+    await add_event(conn, moved, envelope(moved).model_dump(mode="json"))
+    return moved
+
+
+async def request_cancel(conn, row):
+    """Flag a running background prediction; its worker ends it as cancelled and drops any result."""
+    return await conn.fetchrow(_REQUEST_CANCEL, row["id"], PredictionMode.BACKGROUND, PredictionStatus.IN_PROGRESS)
+
+
+async def cancel_requested(conn, row, *, lock: bool = False) -> bool:
+    """Whether the attempt `row` holds has been cancelled; False when the row is no longer that attempt's."""
+    return bool(await conn.fetchval(_FLAG_LOCKED if lock else _FLAG, row["id"], row["attempt"], PredictionStatus.IN_PROGRESS))
+
+
+async def events_after(conn, prediction_id: uuid.UUID, seq: int) -> list:
+    return await conn.fetch(_EVENTS_AFTER, prediction_id, seq)
+
+
+async def status_of(conn, prediction_id: uuid.UUID) -> str | None:
+    return await conn.fetchval(_STATUS, prediction_id)
 
 
 async def get(conn, prediction_id: uuid.UUID):

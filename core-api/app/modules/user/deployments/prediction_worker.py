@@ -4,6 +4,8 @@
 at once), sends them to Serve concurrently (asyncio.gather bounded by predict.worker_concurrency, so a burst fans out across Serve's
 replicas) and writes each result back fenced on the attempt it claimed: a worker that lost its lease writes nothing. A 5xx, a timeout or a
 lost lease goes back to queued with a backoff until predict.max_attempts; a 4xx fails at once. No connection is held across a Serve call.
+A key's cancel is honoured before each attempt and every CANCEL_CHECK_SECONDS while Serve is called (the call is dropped); a result that
+arrives after the cancel flag is discarded.
 """
 import asyncio
 import json
@@ -18,6 +20,7 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle
 from app.modules.user.deployments import model_predict, prediction_store as store
 from app.modules.user.deployments.constants import (
+    CANCEL_CHECK_SECONDS,
     DEPLOYMENT_GONE_DETAIL,
     LEASE_LOST_DETAIL,
     PREDICTION_RETENTION_PURGE_LOG,
@@ -52,24 +55,54 @@ async def _retry_or_fail(conn, row, error: PredictionError, retryable: bool):
     return await store.finish(conn, row, PredictionStatus.FAILED, error=error)
 
 
+class _Cancelled(Exception):
+    """The key cancelled the prediction while its attempt was running."""
+
+
 async def _written(row, write) -> None:
-    """Run `write(conn)` (a fenced write-back) in a short transaction of the row's tenant; say so when the fence dropped it."""
+    """Run `write(conn)` (a fenced write-back) in a short transaction of the row's tenant, unless the key cancelled the attempt: then the
+    prediction ends cancelled whatever `write` would have said (a result after the cancel flag is discarded). Say so when the fence dropped it."""
     async with TenantConn(str(row["tenant_id"])) as conn:
-        moved = await write(conn)
+        if await store.cancel_requested(conn, row, lock=True):
+            moved = await store.finish(conn, row, PredictionStatus.CANCELLED)
+        else:
+            moved = await write(conn)
     if moved is None:
         logger.info("prediction %s attempt %s was taken over; its write-back is dropped", row["id"], row["attempt"])
 
 
+async def _call(row, deployment) -> tuple[object, float]:
+    """The Serve call of this attempt, dropped (httpx cancel) as soon as a poll finds the key asked to cancel."""
+    tenant_id = str(row["tenant_id"])
+    call = asyncio.create_task(model_predict.serve_call(
+        tenant_id, row["project_id"], deployment, row["input"], len(json.dumps(row["input"])), settings.predict.worker_concurrency))
+    try:
+        while True:
+            done, _ = await asyncio.wait({call}, timeout=CANCEL_CHECK_SECONDS)
+            if done:
+                return call.result()
+            async with TenantConn(tenant_id) as conn:
+                if await store.cancel_requested(conn, row):
+                    raise _Cancelled
+    finally:
+        if not call.done():
+            call.cancel()
+            await asyncio.gather(call, return_exceptions=True)
+
+
 async def _attempt(row) -> None:
     tenant_id = str(row["tenant_id"])
+    if row["cancel_requested"]:  # asked while it waited for a retry: no call at all
+        return await _written(row, lambda conn: store.finish(conn, row, PredictionStatus.CANCELLED))
     async with TenantConn(tenant_id) as conn:
         deployment = await conn.fetchrow(_DEPLOYMENT, row["deployment_id"])
     if deployment is None or deployment["status"] != DeploymentStatus.ACTIVE:
         gone = PredictionError(code=ProblemCode.NOT_ACTIVE, detail=DEPLOYMENT_GONE_DETAIL)
         return await _written(row, lambda conn: _retry_or_fail(conn, row, gone, retryable=False))
     try:
-        output, elapsed_ms = await model_predict.serve_call(
-            tenant_id, row["project_id"], deployment, row["input"], len(json.dumps(row["input"])), settings.predict.worker_concurrency)
+        output, elapsed_ms = await _call(row, deployment)
+    except _Cancelled:
+        return await _written(row, lambda conn: store.finish(conn, row, PredictionStatus.CANCELLED))
     except Problem as p:
         error, retryable = PredictionError(code=p.code, detail=p.detail), _retryable(p)
     except Exception:  # noqa: BLE001 - one prediction's bug must not stop the others; it is retried like a 5xx
