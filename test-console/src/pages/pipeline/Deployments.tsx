@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { Alert, Button, Code, HStack, Stack, Table, Text, Textarea } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, newKey, unwrap } from '@/api/client';
-import { DEPLOY_DONE, POLL_MS, RunStatus } from '@/constants';
+import { cfg } from '@/config';
+import { DEPLOY_DONE, DEPLOY_ENDED, POLL_MS, RunStatus } from '@/constants';
 import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
 import { runsQuery } from './Training';
+
+const COPIED_MS = 1_500;
 
 export function Deployments({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
@@ -24,6 +27,17 @@ export function Deployments({ projectId }: { projectId: string }) {
     onSuccess: (d) => setDeploymentId(d.id),
     onSettled: () => qc.invalidateQueries({ queryKey: ['deployments', projectId] }),
   });
+  const stop = useMutation({
+    mutationFn: (id: string) =>
+      unwrap(client.DELETE('/v1/projects/{project_id}/deployments/{deployment_id}', { params: { path: { ...path, deployment_id: id } } })),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['deployments', projectId] }),
+  });
+  const [copied, setCopied] = useState(false);
+  const copyKey = (key: string) =>
+    navigator.clipboard.writeText(key).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), COPIED_MS);
+    });
   // Through the session route, not /v1/predict: same Serve path, no predict key needed, and the call is logged.
   const test = useMutation({
     mutationFn: () =>
@@ -49,14 +63,25 @@ export function Deployments({ projectId }: { projectId: string }) {
           Deploy
         </Button>
       </HStack>
-      <ErrorAlert error={deploy.error ?? deployments.error} />
+      <ErrorAlert error={deploy.error ?? deployments.error ?? stop.error} />
       {deploy.data?.predict_key && (
         <Alert.Root status="info">
           <Alert.Indicator />
           <Alert.Content>
             <Alert.Title>Predict key (shown once)</Alert.Title>
             <Alert.Description>
-              <Code>{deploy.data.predict_key}</Code>
+              <HStack>
+                <Code>{deploy.data.predict_key}</Code>
+                <Button size="xs" variant="outline" onClick={() => copyKey(deploy.data.predict_key!)}>
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </HStack>
+              <Code display="block" whiteSpace="pre-wrap" mt="2" p="2" fontSize="xs">
+                {`curl -X POST ${cfg.apiUrl}/v1/predict/${deploy.data.id} \\
+  -H 'X-Predict-Key: ${deploy.data.predict_key}' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"inputs": []}'`}
+              </Code>
             </Alert.Description>
           </Alert.Content>
         </Alert.Root>
@@ -68,6 +93,7 @@ export function Deployments({ projectId }: { projectId: string }) {
             <Table.ColumnHeader>Route</Table.ColumnHeader>
             <Table.ColumnHeader>Status</Table.ColumnHeader>
             <Table.ColumnHeader>Created</Table.ColumnHeader>
+            <Table.ColumnHeader />
           </Table.Row>
         </Table.Header>
         <Table.Body>
@@ -81,6 +107,21 @@ export function Deployments({ projectId }: { projectId: string }) {
                 <StatusBadge status={d.status} />
               </Table.Cell>
               <Table.Cell>{when(d.created_at)}</Table.Cell>
+              <Table.Cell textAlign="end">
+                {!DEPLOY_ENDED.includes(d.status) && (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    loading={stop.isPending && stop.variables === d.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`Stop deployment ${short(d.id)}? Predict will answer 409.`)) stop.mutate(d.id);
+                    }}
+                  >
+                    Stop
+                  </Button>
+                )}
+              </Table.Cell>
             </Table.Row>
           ))}
         </Table.Body>
