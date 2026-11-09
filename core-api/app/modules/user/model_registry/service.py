@@ -33,7 +33,7 @@ _INSERT = (
     "SELECT $1, $2, $3, $4, $5, (SELECT id FROM models WHERE project_id = $2 AND name = $4) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at"
 )
 _LIST = (
-    "SELECT id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
+    "SELECT id, model_id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
     "WHERE project_id = $1 ORDER BY created_at DESC"
 )
 _BY_ID = "SELECT mlflow_model_name, mlflow_version FROM model_versions WHERE id = $1 AND project_id = $2"

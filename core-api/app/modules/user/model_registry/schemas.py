@@ -22,6 +22,7 @@ class ModelVersion(VersionRef):
 
 class ModelVersionItem(ModelVersion):
     customer_label: str
+    model_id: uuid.UUID  # X-Model-Id of POST /v1/predict; the revision there is mlflow_version
 
 
 class PromotedVersion(VersionRef):
