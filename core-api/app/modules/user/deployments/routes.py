@@ -3,16 +3,22 @@ import json
 import uuid
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from email.utils import format_datetime
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
 from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH, IdempotencyKey
+from app.core.metrics import predict as predict_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
 from app.modules.user.deployments import lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
+    ACCEPT_HEADER,
+    DEPRECATION_ACTIVE,
+    DEPRECATION_HEADER,
     MODEL_ID_HEADER,
     IDEMPOTENCY_KEY_PATTERN,
     LAST_EVENT_ID_HEADER,
@@ -21,6 +27,7 @@ from app.modules.user.deployments.constants import (
     PREFER_HEADER,
     PREFER_RESPOND_ASYNC,
     SSE_MEDIA_TYPE,
+    SUNSET_HEADER,
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
     TEST_CALLS_MIN_LIMIT,
@@ -150,8 +157,20 @@ async def predict(
     deployment_id: uuid.UUID,
     body: dict = Depends(capped_body),
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
+    response: Response = None,
 ):
-    return await service.predict(deployment_id, x_predict_key, body)
+    """Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment."""
+    marks = {DEPRECATION_HEADER: DEPRECATION_ACTIVE, SUNSET_HEADER: format_datetime(settings.predict.legacy_sunset, usegmt=True)}
+    try:
+        result = await service.predict(deployment_id, x_predict_key, body)
+    except HTTPException as e:
+        e.headers = {**(e.headers or {}), **marks}
+        if getattr(e, "code", None) != ProblemCode.INVALID_PREDICT_KEY:  # a wrong key says nothing about the deployment: no unbounded label values
+            predict_metrics.legacy_calls.add(1, {"deployment_id": str(deployment_id)})
+        raise
+    predict_metrics.legacy_calls.add(1, {"deployment_id": str(deployment_id)})
+    response.headers.update(marks)
+    return result
 
 
 def _wants_async(prefer: str | None) -> bool:
@@ -168,7 +187,9 @@ async def predict_model(
     x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
     idempotency_key: str | None = Header(None, alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH, pattern=IDEMPOTENCY_KEY_PATTERN),
     prefer: str | None = Header(None, alias=PREFER_HEADER),
+    accept: str | None = Header(None, alias=ACCEPT_HEADER),
 ):
+    model_predict.refuse_stream(accept)
     try:
         request = PredictRequest.model_validate(body)
     except ValidationError as e:

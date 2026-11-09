@@ -5,6 +5,7 @@ import uuid
 from types import SimpleNamespace
 
 from app.core import plan_limits
+from app.core.enums import PlanTier
 from app.core.authz import TenantStatus, generate_key, keys
 from app.integrations import serve_client
 from app.modules.user.deployments import calls, model_predict, prediction_service, prediction_store as store, prediction_worker, routes
@@ -48,12 +49,13 @@ def build(monkeypatch):
     monkeypatch.setattr(keys, "get_pool", get_pool)
     conn = PredictionsConn(row=RESOLVED)
     patch_counted_conn(monkeypatch, conn, model_predict, calls, prediction_worker, prediction_service)
-    state = SimpleNamespace(conn=conn, pool=pool, served=[], usage=[], limited=False, answer=None, key=None)
+    state = SimpleNamespace(conn=conn, pool=pool, served=[], usage=[], limited=False, limited_keys=set(), checks=[], plan_tier=PlanTier.FREE, answer=None, key=None)
 
-    def add_key(models=(), tenant_status=TenantStatus.ACTIVE, project=PROJECT):
+    def add_key(models=(), tenant_status=TenantStatus.ACTIVE, project=PROJECT, rate_limit=None):
         key = generate_key()
         pool.rows[key.key_hash] = dict(
-            key_id=uuid.uuid4(), tenant_id=TENANT, project_id=project, scopes=["predict"], model_ids=list(models), tenant_status=tenant_status)
+            key_id=uuid.uuid4(), tenant_id=TENANT, project_id=project, scopes=["predict"], model_ids=list(models), tenant_status=tenant_status,
+            rate_limit_per_minute=rate_limit)
         return key.secret
 
     state.add_key = add_key
@@ -62,8 +64,12 @@ def build(monkeypatch):
     async def predict_limits(conn, tenant_id):
         return plan_limits.Predict(max_body_bytes=200, max_inflight_per_deployment=3)
 
-    async def check(*_):
-        return not state.limited
+    async def check(key, limit):
+        state.checks.append((key, limit))
+        return not state.limited and key not in state.limited_keys
+
+    async def plan_tier(conn, tenant_id):
+        return state.plan_tier
 
     async def record_usage(conn, **kw):
         state.usage.append(kw)
@@ -76,6 +82,7 @@ def build(monkeypatch):
     state.answer = lambda *a: (serve_client.Prediction(predictions=[{"label": "cat"}], cold_load=False), 12.5)
     monkeypatch.setattr(model_predict.plan_limits, "predict_limits", predict_limits)
     monkeypatch.setattr(model_predict.rate_limit, "check", check)
+    monkeypatch.setattr(model_predict, "get_plan_tier", plan_tier)
     monkeypatch.setattr(model_predict, "record_usage", record_usage)
     monkeypatch.setattr(store, "record_usage", record_usage)
     monkeypatch.setattr(model_predict.shared, "answer", answer)
