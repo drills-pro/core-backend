@@ -19,6 +19,7 @@ from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_foun
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
+from app.integrations.data_plane import prediction_payloads
 from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.deployments import calls, prediction_store as store, service, shared
 from app.modules.user.deployments.constants import (
@@ -142,12 +143,12 @@ def request_hash(request: PredictRequest, model_id: uuid.UUID, revision: str | N
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _outcome(row) -> PredictOutcome:
+async def _outcome(row) -> PredictOutcome:
     """The answer for a stored prediction: a background one that is not finished is 202 with its Location, anything else 200."""
     if row["mode"] == PredictionMode.BACKGROUND and row["status"] not in TERMINAL_STATUSES:
         headers = {LOCATION_HEADER: f"{PREDICT_PATH}/{PREDICTION_ID_PREFIX}{row['id']}", PREFERENCE_APPLIED_HEADER: PREFER_RESPOND_ASYNC}
-        return PredictOutcome(envelope=store.envelope(row), status_code=HTTPStatus.ACCEPTED, headers=headers)
-    return PredictOutcome(envelope=store.envelope(row))
+        return PredictOutcome(envelope=await store.public(row), status_code=HTTPStatus.ACCEPTED, headers=headers)
+    return PredictOutcome(envelope=await store.public(row))
 
 
 def _stored_failure(row) -> Problem:
@@ -181,14 +182,25 @@ async def _replay(ctx: KeyContext, row, hashed: str) -> PredictOutcome:
             raise busy
         if row["status"] == PredictionStatus.FAILED:
             raise _stored_failure(row)
-    return _outcome(row)
+    return await _outcome(row)
+
+
+async def _begin(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, *, mode: PredictionMode, key: str, hashed: str):
+    """store.begin with an input over predict.inline_max_bytes written to the bucket first (outside the transaction); the object of a request
+    that turned out to be a repeat of the key is deleted again."""
+    prediction_id, stored_input = await store.stash_input(ctx, request.input)
+    async with TenantConn(ctx.tenant_id) as conn:
+        row, created = await store.begin(
+            conn, ctx, d["id"], model_uuid, d["mlflow_version"], request, mode=mode, key=key, request_hash=hashed,
+            prediction_id=prediction_id, stored_input=stored_input)
+    if not created and stored_input.ref is not None:
+        await prediction_payloads.delete(ctx.tenant_id, ctx.project_id, prediction_id)
+    return row, created
 
 
 async def _sync_stored(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, key: str, hashed: str, size: int, max_inflight: int) -> PredictOutcome:
     """A sync call with an Idempotency-Key: the first one runs and is stored, a repeat gets what was stored."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        row, created = await store.begin(
-            conn, ctx, d["id"], model_uuid, d["mlflow_version"], request, mode=PredictionMode.SYNC, key=key, request_hash=hashed)
+    row, created = await _begin(ctx, d, model_uuid, request, mode=PredictionMode.SYNC, key=key, hashed=hashed)
     if not created:
         return await _replay(ctx, row, hashed)
     try:
@@ -198,19 +210,19 @@ async def _sync_stored(ctx: KeyContext, d, model_uuid: uuid.UUID, request: Predi
         async with TenantConn(ctx.tenant_id) as conn:
             await store.finish(conn, row, PredictionStatus.FAILED, error=PredictionError(code=p.code, detail=p.detail), release_key=not stored)
         raise
+    stored_output = await store.stash_output(row, output)
     async with TenantConn(ctx.tenant_id) as conn:
-        moved = await store.finish(conn, row, PredictionStatus.COMPLETED, output=output, latency_ms=elapsed_ms)
+        moved = await store.finish(
+            conn, row, PredictionStatus.COMPLETED, output=stored_output.inline, output_ref=stored_output.ref, latency_ms=elapsed_ms)
         if moved is None:  # the lease ran out under us and a retry ended the row: answer what it says
             moved = await store.get(conn, row["id"])
-    return _outcome(moved)
+    return await _outcome(moved)
 
 
 async def _accept_background(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, key: str, hashed: str) -> PredictOutcome:
     """`Prefer: respond-async`: store a queued prediction for the worker and answer 202; a repeat of the key answers what it made."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        row, created = await store.begin(
-            conn, ctx, d["id"], model_uuid, d["mlflow_version"], request, mode=PredictionMode.BACKGROUND, key=key, request_hash=hashed)
-    return _outcome(row) if created else await _replay(ctx, row, hashed)
+    row, created = await _begin(ctx, d, model_uuid, request, mode=PredictionMode.BACKGROUND, key=key, hashed=hashed)
+    return await _outcome(row) if created else await _replay(ctx, row, hashed)
 
 
 async def predict(

@@ -24,11 +24,11 @@ class PredictionsConn(FakeConn):
 
     async def fetchrow(self, sql, *a):
         if sql == store._INSERT:
-            tenant, project, key_id, deployment, model, revision, mode, status, inp, meta, key, hashed, attempt, max_attempts, lease, retention = a
+            tenant, project, key_id, deployment, model, revision, mode, status, inp, meta, key, hashed, attempt, max_attempts, lease, retention, new_id, input_ref = a
             if key is not None and self._keyed(project, key) is not None:
                 return None
             row = dict(
-                id=uuid.uuid4(), tenant_id=tenant, project_id=project, api_key_id=key_id, deployment_id=deployment, model_id=model,
+                id=new_id or uuid.uuid4(), input_ref=input_ref, output_ref=None, tenant_id=tenant, project_id=project, api_key_id=key_id, deployment_id=deployment, model_id=model,
                 model_revision=revision, mode=mode, status=status, cancel_requested=False, input=inp, output=None, error=None, metadata=meta,
                 latency_ms=None, idempotency_key=key, request_hash=hashed, attempt=attempt, max_attempts=max_attempts, lease_owner=None,
                 lease_expires_at=None if lease is None else now() + timedelta(seconds=lease), next_attempt_at=now(), created_at=now(),
@@ -65,11 +65,11 @@ class PredictionsConn(FakeConn):
             row.update(status=status, lease_owner=None, lease_expires_at=None, next_attempt_at=now() + timedelta(seconds=delay))
             return row
         if sql == store._FINISH:
-            prediction_id, attempt, status, output, error, latency, retention, release, expected = a
+            prediction_id, attempt, status, output, error, latency, retention, release, expected, output_ref = a
             row = self.preds[prediction_id]
             if row["attempt"] != attempt or row["status"] != expected:
                 return None
-            row.update(status=status, output=output, error=error, latency_ms=latency, finished_at=now(), expires_at=now() + timedelta(seconds=retention), lease_expires_at=None)
+            row.update(status=status, output=output, output_ref=output_ref, error=error, latency_ms=latency, finished_at=now(), expires_at=now() + timedelta(seconds=retention), lease_expires_at=None)
             if release:
                 row["idempotency_key"] = None
             return row
