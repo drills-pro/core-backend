@@ -26,6 +26,9 @@ export const IMPORT_DONE: Schemas['ImportStatus'][] = ['succeeded', 'failed', 'c
 export const RunStatus = { SUCCEEDED: 'succeeded' } as const;
 export const RUN_DONE = ['succeeded', 'failed', 'cancelled'];
 export const DEPLOY_DONE = ['active', 'failed', 'deleted'];
+/** A deployment in one of these has nothing left to stop. */
+export const DEPLOY_ENDED = ['failed', 'deleted'];
+export const DeployStatus = { DELETED: 'deleted' } as const;
 
 export const PackageStatus = { CANDIDATE: 'candidate', STABLE: 'stable', RETIRED: 'retired' } as const satisfies Record<
   string,
