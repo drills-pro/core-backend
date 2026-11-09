@@ -96,9 +96,9 @@ def build(monkeypatch):
             headers["X-Model-Revision"] = revision
         return client.post("/v1/predict", json=body, headers=headers, **kw)
 
-    def get(prediction_id, *, secret=None, project=PROJECT, path="", **kw):
-        headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project)}
-        return client.get(f"/v1/predict/{prediction_id}{path}", headers=headers, **kw)
+    def get(prediction_id, *, secret=None, project=PROJECT, path="", extra=None):
+        headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project), **(extra or {})}
+        return client.get(f"/v1/predict/{prediction_id}{path}", headers=headers)
 
     def cancel(prediction_id, *, secret=None, project=PROJECT):
         headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project)}

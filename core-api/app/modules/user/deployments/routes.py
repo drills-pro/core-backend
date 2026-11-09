@@ -4,7 +4,7 @@ import uuid
 from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
@@ -15,10 +15,12 @@ from app.modules.user.deployments import lineage, model_predict, prediction_serv
 from app.modules.user.deployments.constants import (
     MODEL_ID_HEADER,
     IDEMPOTENCY_KEY_PATTERN,
+    LAST_EVENT_ID_HEADER,
     MODEL_REVISION_HEADER,
     PREDICT_KEY_HEADER,
     PREFER_HEADER,
     PREFER_RESPOND_ASYNC,
+    SSE_MEDIA_TYPE,
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
     TEST_CALLS_MIN_LIMIT,
@@ -180,3 +182,19 @@ async def predict_model(
 @router.get("/v1/predict/{prediction_id}", response_model=PredictionEnvelope)
 async def get_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
     return await prediction_service.get(ctx, prediction_id)
+
+
+@router.post("/v1/predict/{prediction_id}/cancel", response_model=PredictionEnvelope)
+async def cancel_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
+    return await prediction_service.cancel(ctx, prediction_id)
+
+
+@router.get("/v1/predict/{prediction_id}/events", response_class=StreamingResponse)
+async def prediction_events(
+    prediction_id: str,
+    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    last_event_id: str | None = Header(None, alias=LAST_EVENT_ID_HEADER),
+):
+    """Server-sent events: each status change (id = its seq, replayed after Last-Event-ID), the envelope in the terminal one."""
+    stream = await prediction_service.events(ctx, prediction_id, last_event_id)
+    return StreamingResponse(stream, media_type=SSE_MEDIA_TYPE, headers={"Cache-Control": "no-cache"})
