@@ -4,7 +4,8 @@ write-back), so the unit tests run the store's own Python. tests/db runs the SQL
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.modules.user.deployments import prediction_store as store
+from app.modules.user.deployments import prediction_service, prediction_store as store
+from app.modules.user.deployments.constants import PredictionMode, PredictionStatus
 from tests.support import FakeConn
 
 
@@ -39,6 +40,16 @@ class PredictionsConn(FakeConn):
             return self._keyed(*a)
         if sql == store._BY_ID:
             return self.preds.get(a[0])
+        if sql == prediction_service._OWNED:
+            row = self.preds.get(a[0])
+            return row if row is not None and row["api_key_id"] == a[1] and row["project_id"] == a[2] else None
+        if sql == store._REQUEUE:
+            prediction_id, attempt, status, delay, expected = a
+            row = self.preds[prediction_id]
+            if row["attempt"] != attempt or row["status"] != expected:
+                return None
+            row.update(status=status, lease_owner=None, lease_expires_at=None, next_attempt_at=now() + timedelta(seconds=delay))
+            return row
         if sql == store._FINISH:
             prediction_id, attempt, status, output, error, latency, retention, release, expected = a
             row = self.preds[prediction_id]
@@ -56,6 +67,22 @@ class PredictionsConn(FakeConn):
             row.update(status=status, error=error, finished_at=now(), expires_at=now() + timedelta(seconds=retention), lease_expires_at=None)
             return row
         return await super().fetchrow(sql, *a)
+
+    async def fetch(self, sql, *a):
+        if sql == store._CLAIM:
+            tenant, mode, status, limit, new_status, owner, lease = a
+            due = [r for r in self.preds.values() if str(r["tenant_id"]) == str(tenant) and r["mode"] == mode and r["status"] == status and r["next_attempt_at"] <= now()]
+            picked = sorted(due, key=lambda r: r["created_at"])[:limit]
+            for row in picked:
+                row.update(status=new_status, attempt=row["attempt"] + 1, lease_owner=owner, lease_expires_at=now() + timedelta(seconds=lease), started_at=row["started_at"] or now())
+            return picked
+        if sql == store._EXPIRED:
+            tenant, mode, status = a
+            return [r for r in self.preds.values() if str(r["tenant_id"]) == str(tenant) and r["mode"] == mode and r["status"] == status and r["lease_expires_at"] < now()]
+        return await super().fetch(sql, *a)
+
+    def tenants_with_work(self) -> list[tuple]:
+        return [(t,) for t in {r["tenant_id"] for r in self.preds.values() if r["mode"] == PredictionMode.BACKGROUND and r["status"] in (PredictionStatus.QUEUED, PredictionStatus.IN_PROGRESS)}]
 
     async def execute(self, sql, *a):
         if sql == store._EVENT:

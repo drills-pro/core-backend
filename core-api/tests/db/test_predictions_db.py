@@ -33,6 +33,11 @@ async def events(conn, prediction_id):
     return [(r["seq"], r["status"]) for r in await conn.fetch("SELECT seq, status FROM prediction_events WHERE prediction_id = $1 ORDER BY seq", prediction_id)]
 
 
+async def quiet(t, tenant):
+    """The seeded prediction of `tenant` out of the way (finished), so a test counts only its own."""
+    await t.conn.execute("UPDATE predictions SET status = $2 WHERE tenant_id = $1", tenant, PredictionStatus.COMPLETED)
+
+
 def test_a_sync_row_starts_in_progress_with_a_lease_and_24_hours_and_a_background_row_starts_queued(two_tenants):
     t = two_tenants
 

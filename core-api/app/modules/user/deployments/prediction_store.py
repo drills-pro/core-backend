@@ -46,6 +46,23 @@ _ABANDON = (
 )
 
 
+# The worker's claim: a lease on up to $4 queued rows that are due, taken once (MATERIALIZED) and skipping rows another replica holds.
+_CLAIM = (
+    "WITH picked AS MATERIALIZED (SELECT id FROM predictions WHERE tenant_id = $1 AND mode = $2 AND status = $3 AND next_attempt_at <= now() "
+    "ORDER BY created_at LIMIT $4 FOR UPDATE SKIP LOCKED) "
+    "UPDATE predictions p SET status = $5, attempt = attempt + 1, lease_owner = $6, lease_expires_at = now() + make_interval(secs => $7::float8), "
+    "started_at = coalesce(started_at, now()) FROM picked WHERE p.id = picked.id RETURNING p.*"
+)
+_EXPIRED = (
+    "SELECT * FROM predictions WHERE tenant_id = $1 AND mode = $2 AND status = $3 AND lease_expires_at < now() "
+    "ORDER BY created_at FOR UPDATE SKIP LOCKED"
+)
+_REQUEUE = (
+    "UPDATE predictions SET status = $3, lease_owner = NULL, lease_expires_at = NULL, next_attempt_at = now() + make_interval(secs => $4::float8) "
+    "WHERE id = $1 AND attempt = $2 AND status = $5 RETURNING *"
+)
+
+
 def retention_seconds(mode: str) -> float:
     if mode == PredictionMode.SYNC:
         return settings.predict.sync_retention_hours * SECONDS_PER_HOUR
@@ -73,6 +90,29 @@ async def begin(
     if created:
         await add_event(conn, row)
     return row, created
+
+
+async def claim(conn, tenant_id: str, limit: int, owner: str) -> list:
+    """Lease up to `limit` of the tenant's due background predictions to `owner` (attempt + 1, in_progress). Run in a TenantConn that
+    commits at once: two replicas claiming together get disjoint rows."""
+    rows = await conn.fetch(
+        _CLAIM, tenant_id, PredictionMode.BACKGROUND, PredictionStatus.QUEUED, limit, PredictionStatus.IN_PROGRESS, owner, settings.predict.lease_seconds)
+    for row in rows:
+        await add_event(conn, row)
+    return rows
+
+
+async def expired(conn, tenant_id: str) -> list:
+    """The tenant's in_progress background predictions whose lease ran out (their worker is gone), locked for the caller's transaction."""
+    return await conn.fetch(_EXPIRED, tenant_id, PredictionMode.BACKGROUND, PredictionStatus.IN_PROGRESS)
+
+
+async def requeue(conn, row, delay_seconds: float):
+    """Back to queued for another attempt after `delay_seconds`, fenced on the attempt the caller holds; None when it no longer owns the row."""
+    moved = await conn.fetchrow(_REQUEUE, row["id"], row["attempt"], PredictionStatus.QUEUED, delay_seconds, PredictionStatus.IN_PROGRESS)
+    if moved is not None:
+        await add_event(conn, moved)
+    return moved
 
 
 async def get(conn, prediction_id: uuid.UUID):
