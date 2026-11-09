@@ -1,13 +1,11 @@
 import { useState } from 'react';
-import { Alert, Button, Code, HStack, Stack, Table, Text, Textarea } from '@chakra-ui/react';
+import { Alert, Button, Code, HStack, Input, Stack, Table, Text, Textarea } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, newKey, unwrap } from '@/api/client';
 import { cfg } from '@/config';
-import { DEPLOY_DONE, DEPLOY_ENDED, POLL_MS, RunStatus } from '@/constants';
-import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
+import { DEPLOY_DONE, DEPLOY_ENDED, DeployStatus, POLL_MS, PREDICT_SCOPE, RunStatus } from '@/constants';
+import { CopyButton, ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
 import { runsQuery } from './Training';
-
-const COPIED_MS = 1_500;
 
 export function Deployments({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
@@ -27,17 +25,22 @@ export function Deployments({ projectId }: { projectId: string }) {
     onSuccess: (d) => setDeploymentId(d.id),
     onSettled: () => qc.invalidateQueries({ queryKey: ['deployments', projectId] }),
   });
+  const onSettled = () => qc.invalidateQueries({ queryKey: ['deployments', projectId] });
   const stop = useMutation({
     mutationFn: (id: string) =>
-      unwrap(client.DELETE('/v1/projects/{project_id}/deployments/{deployment_id}', { params: { path: { ...path, deployment_id: id } } })),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['deployments', projectId] }),
+      unwrap(client.POST('/v1/projects/{project_id}/deployments/{deployment_id}/stop', { params: { path: { ...path, deployment_id: id } } })),
+    onSettled,
   });
-  const [copied, setCopied] = useState(false);
-  const copyKey = (key: string) =>
-    navigator.clipboard.writeText(key).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), COPIED_MS);
-    });
+  const start = useMutation({
+    mutationFn: (id: string) =>
+      unwrap(client.POST('/v1/projects/{project_id}/deployments/{deployment_id}/start', { params: { path: { ...path, deployment_id: id } } })),
+    onSettled,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      unwrap(client.DELETE('/v1/projects/{project_id}/deployments/{deployment_id}', { params: { path: { ...path, deployment_id: id } } })),
+    onSettled,
+  });
   // Through the session route, not /v1/predict: same Serve path, no predict key needed, and the call is logged.
   const test = useMutation({
     mutationFn: () =>
@@ -51,6 +54,7 @@ export function Deployments({ projectId }: { projectId: string }) {
 
   const succeeded = (runs.data ?? []).filter((r) => r.status === RunStatus.SUCCEEDED);
   return (
+    <>
     <Section title="3. Deploy and predict">
       <HStack>
         <Select
@@ -63,7 +67,7 @@ export function Deployments({ projectId }: { projectId: string }) {
           Deploy
         </Button>
       </HStack>
-      <ErrorAlert error={deploy.error ?? deployments.error ?? stop.error} />
+      <ErrorAlert error={deploy.error ?? deployments.error ?? stop.error ?? start.error ?? remove.error} />
       {deploy.data?.predict_key && (
         <Alert.Root status="info">
           <Alert.Indicator />
@@ -72,9 +76,7 @@ export function Deployments({ projectId }: { projectId: string }) {
             <Alert.Description>
               <HStack>
                 <Code>{deploy.data.predict_key}</Code>
-                <Button size="xs" variant="outline" onClick={() => copyKey(deploy.data.predict_key!)}>
-                  {copied ? 'Copied' : 'Copy'}
-                </Button>
+                <CopyButton text={deploy.data.predict_key} />
               </HStack>
               <Code display="block" whiteSpace="pre-wrap" mt="2" p="2" fontSize="xs">
                 {`curl -X POST ${cfg.apiUrl}/v1/predict/${deploy.data.id} \\
@@ -108,19 +110,40 @@ export function Deployments({ projectId }: { projectId: string }) {
               </Table.Cell>
               <Table.Cell>{when(d.created_at)}</Table.Cell>
               <Table.Cell textAlign="end">
-                {!DEPLOY_ENDED.includes(d.status) && (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    loading={stop.isPending && stop.variables === d.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(`Stop deployment ${short(d.id)}? Predict will answer 409.`)) stop.mutate(d.id);
-                    }}
-                  >
-                    Stop
-                  </Button>
-                )}
+                <HStack justify="flex-end">
+                  {d.status === DeployStatus.STOPPED && (
+                    <Button size="xs" variant="outline" loading={start.isPending && start.variables === d.id} onClick={(e) => { e.stopPropagation(); start.mutate(d.id); }}>
+                      Start
+                    </Button>
+                  )}
+                  {!DEPLOY_ENDED.includes(d.status) && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      loading={stop.isPending && stop.variables === d.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Stop deployment ${short(d.id)}? Predict will answer 409 until you start it again.`)) stop.mutate(d.id);
+                      }}
+                    >
+                      Stop
+                    </Button>
+                  )}
+                  {d.status !== DeployStatus.DELETED && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      colorPalette="red"
+                      loading={remove.isPending && remove.variables === d.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete deployment ${short(d.id)}? Its predict key is cleared.`)) remove.mutate(d.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                </HStack>
               </Table.Cell>
             </Table.Row>
           ))}
@@ -144,6 +167,146 @@ export function Deployments({ projectId }: { projectId: string }) {
           )}
         </Stack>
       )}
+    </Section>
+    <ModelsAndKeys projectId={projectId} />
+    </>
+  );
+}
+
+/** Model ids for `POST /v1/predict`, and the project API keys that call it. Key secrets live in state only. */
+function ModelsAndKeys({ projectId }: { projectId: string }) {
+  const qc = useQueryClient();
+  const path = { project_id: projectId };
+  const models = useQuery({
+    queryKey: ['models', projectId],
+    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/models', { params: { path } })),
+  });
+  const keys = useQuery({
+    queryKey: ['api-keys', projectId],
+    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/api-keys', { params: { path } })),
+  });
+  const [name, setName] = useState('');
+  const [secret, setSecret] = useState<string>();
+  const [modelId, setModelId] = useState('');
+  const onSettled = () => qc.invalidateQueries({ queryKey: ['api-keys', projectId] });
+  const create = useMutation({
+    mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/api-keys', { params: { path }, body: { name, scopes: [PREDICT_SCOPE], model_ids: [] } })),
+    onSuccess: (k) => {
+      setSecret(k.secret);
+      setName('');
+    },
+    onSettled,
+  });
+  const revoke = useMutation({
+    mutationFn: (id: string) => unwrap(client.DELETE('/v1/projects/{project_id}/api-keys/{key_id}', { params: { path: { ...path, key_id: id } } })),
+    onSettled,
+  });
+
+  const model = models.data?.find((m) => m.id === modelId);
+  return (
+    <Section title="4. Models and API keys">
+      <ErrorAlert error={models.error ?? keys.error ?? create.error ?? revoke.error} />
+      <Table.Root size="sm">
+        <Table.Header>
+          <Table.Row>
+            <Table.ColumnHeader>Model</Table.ColumnHeader>
+            <Table.ColumnHeader>X-Model-Id</Table.ColumnHeader>
+            <Table.ColumnHeader>Revision</Table.ColumnHeader>
+            <Table.ColumnHeader>Stage</Table.ColumnHeader>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {models.data?.map((m) => (
+            <Table.Row key={m.id} onClick={() => setModelId(m.id)} cursor="pointer" bg={m.id === modelId ? 'orange.subtle' : undefined}>
+              <Table.Cell>{m.mlflow_model_name}</Table.Cell>
+              <Table.Cell>
+                <HStack>
+                  <Code>{m.model_id}</Code>
+                  <CopyButton text={m.model_id} />
+                </HStack>
+              </Table.Cell>
+              <Table.Cell>
+                <HStack>
+                  <Code>{m.mlflow_version}</Code>
+                  <CopyButton text={m.mlflow_version} />
+                </HStack>
+              </Table.Cell>
+              <Table.Cell>{m.stage}</Table.Cell>
+            </Table.Row>
+          ))}
+        </Table.Body>
+      </Table.Root>
+      <HStack>
+        <Input size="sm" placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button size="sm" colorPalette="orange" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+          Create predict key
+        </Button>
+      </HStack>
+      {secret && (
+        <Alert.Root status="info">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>API key (shown once)</Alert.Title>
+            <Alert.Description>
+              <HStack>
+                <Code>{secret}</Code>
+                <CopyButton text={secret} />
+                <Button size="xs" variant="ghost" onClick={() => setSecret(undefined)}>
+                  Dismiss
+                </Button>
+              </HStack>
+            </Alert.Description>
+          </Alert.Content>
+        </Alert.Root>
+      )}
+      <Table.Root size="sm">
+        <Table.Header>
+          <Table.Row>
+            <Table.ColumnHeader>Key</Table.ColumnHeader>
+            <Table.ColumnHeader>Prefix</Table.ColumnHeader>
+            <Table.ColumnHeader>Scopes</Table.ColumnHeader>
+            <Table.ColumnHeader>Created</Table.ColumnHeader>
+            <Table.ColumnHeader />
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {keys.data?.map((k) => (
+            <Table.Row key={k.id}>
+              <Table.Cell>{k.name}</Table.Cell>
+              <Table.Cell>
+                <Code>{k.prefix}</Code>
+              </Table.Cell>
+              <Table.Cell>{k.scopes.join(', ')}</Table.Cell>
+              <Table.Cell>{when(k.created_at)}</Table.Cell>
+              <Table.Cell textAlign="end">
+                {k.revoked_at ? (
+                  <StatusBadge status="revoked" />
+                ) : (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    loading={revoke.isPending && revoke.variables === k.id}
+                    onClick={() => window.confirm(`Revoke key ${k.name}?`) && revoke.mutate(k.id)}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </Table.Cell>
+            </Table.Row>
+          ))}
+        </Table.Body>
+      </Table.Root>
+      <Stack>
+        <Text fontWeight="semibold">Call POST /v1/predict{model ? ` for ${model.mlflow_model_name}` : ' (click a model row)'}</Text>
+        <Code display="block" whiteSpace="pre-wrap" p="2" fontSize="xs">
+          {`curl -X POST ${cfg.apiUrl}/v1/predict \\
+  -H 'Authorization: Bearer ${secret ?? '<key>'}' \\
+  -H 'X-Project-Id: ${projectId}' \\
+  -H 'X-Model-Id: ${model?.model_id ?? '<model_id>'}' \\${model ? `\n  -H 'X-Model-Revision: ${model.mlflow_version}' \\` : ''}
+  -H 'Content-Type: application/json' \\
+  -d '{"input": {}, "metadata": {}}'`}
+        </Code>
+      </Stack>
     </Section>
   );
 }
