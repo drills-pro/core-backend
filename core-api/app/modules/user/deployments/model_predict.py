@@ -15,7 +15,7 @@ import httpx
 from app.core import plan_limits, rate_limit
 from app.core.authz import KeyContext
 from app.core.metrics import inference as inference_metrics
-from app.core.problem import Problem, not_found
+from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
@@ -23,6 +23,7 @@ from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.deployments import calls, prediction_store as store, service, shared
 from app.modules.user.deployments.constants import (
     ABANDONED_DETAIL,
+    IDEMPOTENCY_KEY_REQUIRED_DETAIL,
     IDEMPOTENCY_REUSE_DETAIL,
     IN_PROGRESS_DETAIL,
     IN_PROGRESS_POLL_SECONDS,
@@ -190,9 +191,19 @@ async def _sync_stored(ctx: KeyContext, d, model_uuid: uuid.UUID, request: Predi
     return _outcome(moved)
 
 
+async def _accept_background(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, key: str, hashed: str) -> PredictOutcome:
+    """`Prefer: respond-async`: store a queued prediction for the worker and answer 202; a repeat of the key answers what it made."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row, created = await store.begin(
+            conn, ctx, d["id"], model_uuid, d["mlflow_version"], request, mode=PredictionMode.BACKGROUND, key=key, request_hash=hashed)
+    return _outcome(row) if created else await _replay(ctx, row, hashed)
+
+
 async def predict(
-    ctx: KeyContext, model_id: str, revision: str | None, request: PredictRequest, *, idempotency_key: str | None = None,
+    ctx: KeyContext, model_id: str, revision: str | None, request: PredictRequest, *, idempotency_key: str | None = None, background: bool = False,
 ) -> PredictOutcome:
+    if background and idempotency_key is None:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, IDEMPOTENCY_KEY_REQUIRED_DETAIL)
     try:
         model_uuid = uuid.UUID(model_id)
     except ValueError:
@@ -211,6 +222,8 @@ async def predict(
 
     if idempotency_key is not None:
         hashed = request_hash(request, model_uuid, revision)
+        if background:
+            return await _accept_background(ctx, row, model_uuid, request, idempotency_key, hashed)
         return await _sync_stored(ctx, row, model_uuid, request, idempotency_key, hashed, size, limits.max_inflight_per_deployment)
 
     prediction_id = uuid.uuid4()

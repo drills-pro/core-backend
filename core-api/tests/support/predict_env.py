@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from app.core import plan_limits
 from app.core.authz import TenantStatus, generate_key, keys
 from app.integrations import serve_client
-from app.modules.user.deployments import calls, model_predict, prediction_store as store, routes
+from app.modules.user.deployments import calls, model_predict, prediction_service, prediction_store as store, prediction_worker, routes
 from app.modules.user.deployments.constants import Serving
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support import make_client
@@ -47,7 +47,7 @@ def build(monkeypatch):
 
     monkeypatch.setattr(keys, "get_pool", get_pool)
     conn = PredictionsConn(row=RESOLVED)
-    patch_counted_conn(monkeypatch, conn, model_predict, calls)
+    patch_counted_conn(monkeypatch, conn, model_predict, calls, prediction_worker, prediction_service)
     state = SimpleNamespace(conn=conn, pool=pool, served=[], usage=[], limited=False, answer=None, key=None)
 
     def add_key(models=(), tenant_status=TenantStatus.ACTIVE, project=PROJECT):
@@ -79,6 +79,11 @@ def build(monkeypatch):
     monkeypatch.setattr(model_predict, "record_usage", record_usage)
     monkeypatch.setattr(store, "record_usage", record_usage)
     monkeypatch.setattr(model_predict.shared, "answer", answer)
+
+    async def tenants(sql):
+        return conn.tenants_with_work()
+
+    monkeypatch.setattr(prediction_worker.job_lifecycle, "fetch", tenants)
     client = make_client(routes.router, headers=None)
 
     def post(body=BODY, *, secret=None, model=MODEL, revision=None, project=PROJECT, key=None, extra=None, **kw):
@@ -91,5 +96,13 @@ def build(monkeypatch):
             headers["X-Model-Revision"] = revision
         return client.post("/v1/predict", json=body, headers=headers, **kw)
 
-    state.post = post
+    def get(prediction_id, *, secret=None, project=PROJECT, path="", **kw):
+        headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project)}
+        return client.get(f"/v1/predict/{prediction_id}{path}", headers=headers, **kw)
+
+    def cancel(prediction_id, *, secret=None, project=PROJECT):
+        headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project)}
+        return client.post(f"/v1/predict/{prediction_id}/cancel", headers=headers)
+
+    state.post, state.get, state.cancel, state.client = post, get, cancel, client
     return state

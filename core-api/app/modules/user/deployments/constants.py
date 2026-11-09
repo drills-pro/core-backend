@@ -142,3 +142,9 @@ STORED_ERROR_STATUS = {
     ProblemCode.UPSTREAM_ERROR: HTTPStatus.BAD_GATEWAY,
     ProblemCode.UPSTREAM_TIMEOUT: HTTPStatus.GATEWAY_TIMEOUT,
 }
+# The prediction worker (planning/24).
+RETRY_BACKOFF_SECONDS = (5, 30, 120)  # wait before the 2nd, 3rd, ... try of a background prediction; the last repeats
+WORKER_SWEEP_MAX_ROUNDS = 10  # claim-and-run rounds one poll makes before it yields to the next tick, so no tenant's backlog holds the leader forever
+LEASE_LOST_DETAIL = "the worker running this prediction stopped answering"
+DEPLOYMENT_GONE_DETAIL = "the model's deployment is no longer active"
+PREDICTION_RETENTION_PURGE_LOG = "purged %s stored predictions"

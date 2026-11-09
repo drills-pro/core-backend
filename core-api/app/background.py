@@ -13,7 +13,13 @@ from app.core import rate_limit
 from app.core.db import get_pool
 from app.integrations.serve_client import ensure_serving
 from app.modules.user.datasets import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
-from app.modules.user.deployments import purge_predict_calls, purge_test_calls, reconcile_inflight_deployments
+from app.modules.user.deployments import (
+    process_predictions,
+    purge_predict_calls,
+    purge_stored_predictions,
+    purge_test_calls,
+    reconcile_inflight_deployments,
+)
 from app.modules.user.training import reconcile_inflight_runs
 
 logger = logging.getLogger(__name__)
@@ -22,6 +28,7 @@ RECONCILE_INTERVAL_SECONDS = 10
 SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
 SERVING_ENSURE_INTERVAL_SECONDS = 60
+PREDICTION_WORKER_INTERVAL_SECONDS = 1  # background predictions wait at most this long to be picked up (planning/24 Q7)
 
 
 # (name, coroutine function, seconds between runs)
@@ -35,6 +42,8 @@ POLLERS = (
     ("serving-ensure", ensure_serving, SERVING_ENSURE_INTERVAL_SECONDS),
     ("predict-calls-purge", purge_predict_calls, PURGE_INTERVAL_SECONDS),
     ("test-calls-purge", purge_test_calls, PURGE_INTERVAL_SECONDS),
+    ("prediction-worker", process_predictions, PREDICTION_WORKER_INTERVAL_SECONDS),
+    ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
 )
 
 
