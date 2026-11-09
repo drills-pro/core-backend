@@ -28,10 +28,12 @@ from app.modules.user.deployments.constants import (
     IN_PROGRESS_DETAIL,
     IN_PROGRESS_POLL_SECONDS,
     IN_PROGRESS_RETRY_AFTER_SECONDS,
+    KEY_RATE_LIMIT_KEY,
     LOCATION_HEADER,
     MODEL_REJECTED_DETAIL_MAX_CHARS,
     PREDICT_PATH,
     PREDICTION_ID_PREFIX,
+    PLAN_RATE_LIMIT_KEY,
     PREFER_RESPOND_ASYNC,
     PREFERENCE_APPLIED_HEADER,
     RATE_LIMIT_WINDOW_SECONDS,
@@ -54,6 +56,7 @@ from app.modules.user.deployments.schemas import (
     PredictUsage,
 )
 from app.modules.user.deployments.status import DeploymentStatus
+from app.modules.user.tenants import get_plan_tier
 from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 logger = logging.getLogger(__name__)
@@ -95,9 +98,10 @@ async def _call_legacy(route_prefix: str, body) -> tuple[object, float]:
     return resp.json(), elapsed_ms
 
 
-async def _rate_limited(deployment_id: uuid.UUID, limit: int) -> None:
-    if not await rate_limit.check(str(deployment_id), limit):
-        problem = Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED, f"rate limit exceeded ({limit}/min for this model)")
+async def _rate_limited(key: str, limit: int, subject: str) -> None:
+    """429 with the seconds left in the current fixed one-minute window (when the count starts again) once `key` is over `limit`."""
+    if not await rate_limit.check(key, limit):
+        problem = Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED, f"rate limit exceeded ({limit}/min for {subject})")
         problem.headers = {RETRY_AFTER_HEADER: str(RATE_LIMIT_WINDOW_SECONDS - int(time.time()) % RATE_LIMIT_WINDOW_SECONDS)}
         raise problem
 
@@ -212,13 +216,18 @@ async def predict(
         row = await conn.fetchrow(
             _RESOLVE, model_uuid, ctx.project_id, revision, DeploymentStatus.DELETED, DeploymentStatus.ACTIVE, ModelStage.PRODUCTION)
         limits = await plan_limits.predict_limits(conn, ctx.tenant_id)
+        plan_limit = service.rate_limit_for(await get_plan_tier(conn, uuid.UUID(ctx.tenant_id)))
     if row is None:  # unknown model or revision, another project's, or one with no deployment: one body
         raise not_found()
     if row["status"] != DeploymentStatus.ACTIVE:  # deploying, stopped or failed: one code here (the legacy route has its own for stopped)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"the model's deployment is {row['status']}, not active")
     size = len(json.dumps(request.input))
     service._check_size(size, limits)
-    await _rate_limited(row["id"], row["rate_limit_per_minute"])
+    # The lower of the key's and the plan's limit: each counted on its own, the key first so a key over its limit does not use up the plan's.
+    if ctx.rate_limit_per_minute is not None:
+        await _rate_limited(KEY_RATE_LIMIT_KEY.format(ctx.key_id), ctx.rate_limit_per_minute, "this key")
+    await _rate_limited(PLAN_RATE_LIMIT_KEY.format(ctx.tenant_id), plan_limit, "this plan")
+    await _rate_limited(str(row["id"]), row["rate_limit_per_minute"], "this model")
 
     if idempotency_key is not None:
         hashed = request_hash(request, model_uuid, revision)

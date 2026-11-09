@@ -64,6 +64,14 @@ def test_a_model_of_another_project_is_refused_and_nothing_is_kept(call, monkeyp
     assert (r.status_code, r.json()["code"]) == (422, "unknown_model")
 
 
+def test_a_key_limit_is_stored_returned_and_must_be_positive(call):
+    r = call("POST", "", access(roles=["deployer"]), json={**CREATE["json"], "rate_limit_per_minute": 30})
+    assert r.status_code == 201 and r.json()["rate_limit_per_minute"] == 30 and 30 in [a for _, args in call.log for a in args]
+    assert call("POST", "", access(roles=["deployer"]), json=CREATE["json"]).json()["rate_limit_per_minute"] is None
+    assert call("POST", "", access(roles=["deployer"]), json={**CREATE["json"], "rate_limit_per_minute": 0}).status_code == 422
+    assert "rate_limit_per_minute" in call("GET", "", access(roles=["deployer"])).json()[0]
+
+
 def test_list_never_shows_secret_or_hash(call):
     r = call("GET", "", access(roles=["deployer"]))
     assert r.status_code == 200 and not {"secret", "key_hash"} & set(r.json()[0])

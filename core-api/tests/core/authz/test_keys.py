@@ -29,7 +29,7 @@ class FakePool:
         if not (revoked or expired):
             self.rows[key.key_hash] = dict(
                 key_id=uuid.uuid4(), tenant_id=TENANT, project_id=PROJECT, scopes=list(scopes), model_ids=list(models),
-                tenant_status=tenant_status,
+                tenant_status=tenant_status, rate_limit_per_minute=None,
             )
         return key.secret
 
