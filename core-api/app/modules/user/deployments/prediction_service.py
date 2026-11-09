@@ -42,7 +42,7 @@ async def owned(conn, ctx: KeyContext, prediction_id: str, *, lock: bool = False
 
 async def get(ctx: KeyContext, prediction_id: str) -> PredictionEnvelope:
     async with TenantConn(ctx.tenant_id) as conn:
-        return store.envelope(await owned(conn, ctx, prediction_id))
+        return await store.public(await owned(conn, ctx, prediction_id))
 
 
 async def cancel(ctx: KeyContext, prediction_id: str) -> PredictionEnvelope:
@@ -53,12 +53,23 @@ async def cancel(ctx: KeyContext, prediction_id: str) -> PredictionEnvelope:
             row = await store.cancel_queued(conn, row)
         elif row["status"] == PredictionStatus.IN_PROGRESS and row["mode"] == PredictionMode.BACKGROUND:
             row = await store.request_cancel(conn, row)
-        return store.envelope(row)
+        return await store.public(row)
 
 
 def frame(seq: int, status: str, data: dict) -> str:
     """One server-sent event: the id (its seq in prediction_events) for Last-Event-ID, the status as the event name, the envelope or status as data."""
     return f"id: {seq}\nevent: {status}\ndata: {json.dumps(data or {'status': status})}\n\n"
+
+
+async def _event_data(ctx: KeyContext, prediction_id: uuid.UUID, row) -> dict:
+    """The data of one event. A completed event never holds an output that lives in the bucket (it would defeat the offload), so it is read back here."""
+    if row["status"] != PredictionStatus.COMPLETED:
+        return row["data"]
+    async with TenantConn(ctx.tenant_id) as conn:
+        stored = await store.get(conn, prediction_id)
+    if stored is None or stored["output_ref"] is None:
+        return row["data"]
+    return {**row["data"], "output": await store.payload(stored, "output")}
 
 
 async def follow(ctx: KeyContext, prediction_id: uuid.UUID, after: int) -> AsyncIterator[str]:
@@ -71,7 +82,7 @@ async def follow(ctx: KeyContext, prediction_id: uuid.UUID, after: int) -> Async
             rows = await store.events_after(conn, prediction_id, after)
         for row in rows:
             after, last_write = row["seq"], time.monotonic()
-            yield frame(row["seq"], row["status"], row["data"])
+            yield frame(row["seq"], row["status"], await _event_data(ctx, prediction_id, row))
             if row["status"] in TERMINAL_STATUSES:
                 return
         if status in TERMINAL_STATUSES and not rows:

@@ -18,6 +18,7 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle
+from app.integrations.data_plane import prediction_payloads
 from app.modules.user.deployments import model_predict, prediction_store as store
 from app.modules.user.deployments.constants import (
     CANCEL_CHECK_SECONDS,
@@ -37,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 WORKER_ID = uuid.uuid4().hex  # who holds a lease: this process, this run
 _TENANTS = "SELECT inflight_prediction_tenant_ids()"
+_EXPIRING_REFS = "SELECT id, tenant_id, project_id FROM expiring_prediction_refs()"
+_PURGE = "SELECT purge_predictions($1::uuid[])"
 _DEPLOYMENT = "SELECT id, status, serving, route_prefix, training_run_id FROM deployments WHERE id = $1"
 
 
@@ -74,8 +77,9 @@ async def _written(row, write) -> None:
 async def _call(row, deployment) -> tuple[object, float]:
     """The Serve call of this attempt, dropped (httpx cancel) as soon as a poll finds the key asked to cancel."""
     tenant_id = str(row["tenant_id"])
+    input_ = await store.payload(row, "input")
     call = asyncio.create_task(model_predict.serve_call(
-        tenant_id, row["project_id"], deployment, row["input"], len(json.dumps(row["input"])), settings.predict.worker_concurrency))
+        tenant_id, row["project_id"], deployment, input_, len(json.dumps(input_)), settings.predict.worker_concurrency))
     try:
         while True:
             done, _ = await asyncio.wait({call}, timeout=CANCEL_CHECK_SECONDS)
@@ -109,7 +113,14 @@ async def _attempt(row) -> None:
         logger.exception("prediction %s failed unexpectedly", row["id"])
         error, retryable = PredictionError(code=ProblemCode.UPSTREAM_ERROR, detail=UPSTREAM_ERROR_DETAIL), True
     else:
-        return await _written(row, lambda conn: store.finish(conn, row, PredictionStatus.COMPLETED, output=output, latency_ms=elapsed_ms))
+        try:
+            stored = await store.stash_output(row, output)
+        except Exception:  # noqa: BLE001 - the bucket failed: retried like any other failed attempt
+            logger.exception("prediction %s: its output could not be stored", row["id"])
+            error, retryable = PredictionError(code=ProblemCode.UPSTREAM_ERROR, detail=UPSTREAM_ERROR_DETAIL), True
+        else:
+            return await _written(row, lambda conn: store.finish(
+                conn, row, PredictionStatus.COMPLETED, output=stored.inline, output_ref=stored.ref, latency_ms=elapsed_ms))
     await _written(row, lambda conn: _retry_or_fail(conn, row, error, retryable))
 
 
@@ -154,8 +165,20 @@ async def process_predictions() -> None:
 
 
 async def purge_stored_predictions() -> None:
-    """Poller `prediction-purge`: drop what retention has expired (sync idempotent rows are deleted, background ones lose input and output)."""
-    async with (await get_pool()).acquire() as conn:
-        purged = await conn.fetchval("SELECT purge_predictions()")
+    """Poller `prediction-purge`: drop what retention has expired (sync idempotent rows are deleted, background ones lose input and output).
+    The objects of the expiring rows go first; a row whose objects could not be deleted keeps its refs and is tried again on the next run."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        expiring = await conn.fetch(_EXPIRING_REFS)
+    cleaned = []
+    for r in expiring:
+        try:
+            await prediction_payloads.delete(str(r["tenant_id"]), r["project_id"], r["id"])
+        except Exception:  # noqa: BLE001 - one prediction's bucket error must not stop the others
+            logger.exception("prediction %s: its stored payloads could not be deleted", r["id"])
+        else:
+            cleaned.append(r["id"])
+    async with pool.acquire() as conn:
+        purged = await conn.fetchval(_PURGE, cleaned)
     if purged:
         logger.info(PREDICTION_RETENTION_PURGE_LOG, purged)

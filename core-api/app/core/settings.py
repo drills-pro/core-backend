@@ -165,6 +165,7 @@ class Predict(_Section):
     background_retention_days: int  # a finished background prediction keeps its input and output this long
     sync_retention_hours: int  # a sync prediction sent with an Idempotency-Key is replayable this long
     legacy_sunset: datetime  # the Sunset header of the deprecated POST /v1/predict/{deployment_id}: when it may stop answering (timezone required)
+    inline_max_bytes: int  # an input or output whose JSON is larger than this is stored in the staging bucket and the row keeps only its key
     in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
 
 

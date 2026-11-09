@@ -7,6 +7,8 @@ from typing import Any
 from app.core.authz import KeyContext
 from app.core.idempotency import insert_once
 from app.core.settings import settings
+from app.integrations.data_plane import prediction_payloads as payloads
+from app.integrations.data_plane.layout import PREDICTION_INPUT_KEY, PREDICTION_OUTPUT_KEY
 from app.modules.user.deployments.constants import (
     PREDICTION_ID_PREFIX,
     PredictionMode,
@@ -19,9 +21,9 @@ SECONDS_PER_HOUR = 3600
 SECONDS_PER_DAY = 86400
 
 _INSERT = (
-    "INSERT INTO predictions (tenant_id, project_id, api_key_id, deployment_id, model_id, model_revision, mode, status, input, metadata, "
+    "INSERT INTO predictions (id, input_ref, tenant_id, project_id, api_key_id, deployment_id, model_id, model_revision, mode, status, input, metadata, "
     "idempotency_key, request_hash, attempt, max_attempts, lease_expires_at, started_at, expires_at) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now() + make_interval(secs => $15::float8), "
+    "VALUES (coalesce($17::uuid, gen_random_uuid()), $18, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now() + make_interval(secs => $15::float8), "
     "CASE WHEN $13 > 0 THEN now() END, now() + make_interval(secs => $16::float8)) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING RETURNING *"
 )
@@ -34,7 +36,7 @@ _EVENT = (
 )
 # Ends a prediction its writer still owns: the attempt it claimed and the status it left it in. Zero rows = someone else owns it now.
 _FINISH = (
-    "UPDATE predictions SET status = $3, output = $4, error = $5, latency_ms = $6, finished_at = now(), "
+    "UPDATE predictions SET status = $3, output = $4, output_ref = $10, error = $5, latency_ms = $6, finished_at = now(), "
     "expires_at = now() + make_interval(secs => $7::float8), lease_owner = NULL, lease_expires_at = NULL, "
     "idempotency_key = CASE WHEN $8 THEN NULL ELSE idempotency_key END "
     "WHERE id = $1 AND attempt = $2 AND status = $9 RETURNING *"
@@ -88,16 +90,18 @@ async def add_event(conn, row, data: dict[str, Any] | None = None) -> None:
 
 async def begin(
     conn, ctx: KeyContext, deployment_id: uuid.UUID, model_id: uuid.UUID, revision: str, request: PredictRequest, *,
-    mode: PredictionMode, key: str, request_hash: str,
+    mode: PredictionMode, key: str, request_hash: str, prediction_id: uuid.UUID | None = None, stored_input: payloads.Payload | None = None,
 ):
     """(row, created): the new prediction, or the one an earlier request with this key made. A sync row starts in_progress on its
-    first attempt (its handler owns it for a lease); a background row starts queued for the worker."""
+    first attempt (its handler owns it for a lease); a background row starts queued for the worker.
+    An input already offloaded to the bucket (`stored_input`, under `prediction_id`, see stash_input) is kept as its ref."""
+    stored_input = stored_input or payloads.Payload(inline=request.input)
     sync = mode == PredictionMode.SYNC
     args = (
         ctx.tenant_id, ctx.project_id, ctx.key_id, deployment_id, model_id, revision, mode,
-        PredictionStatus.IN_PROGRESS if sync else PredictionStatus.QUEUED, request.input, request.metadata, key, request_hash,
+        PredictionStatus.IN_PROGRESS if sync else PredictionStatus.QUEUED, stored_input.inline, request.metadata, key, request_hash,
         1 if sync else 0, settings.predict.max_attempts,
-        settings.predict.lease_seconds if sync else None, retention_seconds(mode) if sync else None,
+        settings.predict.lease_seconds if sync else None, retention_seconds(mode) if sync else None, prediction_id, stored_input.ref,
     )
     row, created = await insert_once(conn, _INSERT, args, _BY_KEY, (ctx.project_id, key))
     if created:
@@ -158,15 +162,15 @@ async def get(conn, prediction_id: uuid.UUID):
 
 
 async def finish(
-    conn, row, status: PredictionStatus, *, output: Any = None, error: PredictionError | None = None, latency_ms: float | None = None,
+    conn, row, status: PredictionStatus, *, output: Any = None, output_ref: str | None = None, error: PredictionError | None = None, latency_ms: float | None = None,
     release_key: bool = False,
 ):
     """End the prediction as `status`, fenced on the attempt the caller holds; None when it no longer owns the row. A completed
     one is metered in the same transaction, so a prediction id is billed once and only when it completed. `release_key` frees the
-    Idempotency-Key (a failure that is not stored for replay)."""
+    Idempotency-Key (a failure that is not stored for replay). `output_ref` is an output already offloaded to the bucket (see stash_output)."""
     moved = await conn.fetchrow(
         _FINISH, row["id"], row["attempt"], status, output, error.model_dump() if error else None, latency_ms,
-        retention_seconds(row["mode"]), release_key, PredictionStatus.IN_PROGRESS)
+        retention_seconds(row["mode"]), release_key, PredictionStatus.IN_PROGRESS, output_ref)
     if moved is None:
         return None
     await add_event(conn, moved, envelope(moved).model_dump(mode="json"))
@@ -185,6 +189,31 @@ async def abandon_if_expired(conn, row, error: PredictionError):
     if moved is not None:
         await add_event(conn, moved, envelope(moved).model_dump(mode="json"))
     return moved
+
+
+async def stash_input(ctx: KeyContext, value: Any) -> tuple[uuid.UUID, payloads.Payload]:
+    """The id of a prediction about to be inserted and where its input goes: inline, or the bucket when it is over predict.inline_max_bytes."""
+    prediction_id = uuid.uuid4()
+    return prediction_id, await payloads.store(ctx.tenant_id, ctx.project_id, prediction_id, PREDICTION_INPUT_KEY, value)
+
+
+async def stash_output(row, value: Any) -> payloads.Payload:
+    """Where the output of the attempt `row` holds goes (the attempt is in the key, so a stale attempt never overwrites the current one's).
+    Written before the fenced write-back, outside any transaction; if the fence then drops it the object is left for the retention purge."""
+    return await payloads.store(str(row["tenant_id"]), row["project_id"], row["id"], PREDICTION_OUTPUT_KEY, value, attempt=row["attempt"])
+
+
+async def payload(row, column: str) -> Any:
+    """The `input` or `output` of the row, read from the bucket when the row holds a ref."""
+    ref = row[f"{column}_ref"]
+    if ref is None:
+        return row[column]
+    return await payloads.load(str(row["tenant_id"]), row["project_id"], row["id"], ref)
+
+
+async def public(row) -> PredictionEnvelope:
+    """The envelope of the row with its output resolved (an output in the bucket is read back)."""
+    return envelope({**dict(row), "output": await payload(row, "output")})
 
 
 def envelope(row) -> PredictionEnvelope:
