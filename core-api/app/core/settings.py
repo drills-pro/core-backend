@@ -137,6 +137,9 @@ class Serving(_Section):
 
     max_models_per_replica: int  # models a replica keeps loaded; the least recently used is dropped for another
     max_ongoing_requests: int  # per replica; more wait in Serve's queue
+    autoscale_target_ongoing_requests: float  # Serve adds a replica when the average per replica exceeds this (up to the app's max_replicas)
+    autoscale_upscale_delay_seconds: float  # the load must stay above the target this long before a replica is added
+    autoscale_downscale_delay_seconds: float  # ... and below it this long before one is removed (keeps a loaded model warm through a lull)
     health_check_period_seconds: int  # how often Serve probes a replica
     health_check_timeout_seconds: int  # a replica that has not answered a probe in this long is replaced
     graceful_shutdown_timeout_seconds: int  # a stopping replica gets this long to finish its requests

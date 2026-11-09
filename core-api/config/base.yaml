@@ -67,6 +67,9 @@ training:                    # app/modules/user/training; a task's cpu and memor
 serving:                     # app/integrations/serve_client.py: the two shared predictor apps
   max_models_per_replica: 8
   max_ongoing_requests: 8
+  autoscale_target_ongoing_requests: 2   # half of max_ongoing_requests: scale out before a replica's queue fills
+  autoscale_upscale_delay_seconds: 10
+  autoscale_downscale_delay_seconds: 300
   health_check_period_seconds: 10
   health_check_timeout_seconds: 30
   graceful_shutdown_timeout_seconds: 30
