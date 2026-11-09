@@ -4,7 +4,7 @@ import uuid
 import pytest
 from fastapi import Depends
 
-from app.core.authz import KeyContext, Scope, generate_key, keys, require_key
+from app.core.authz import KeyContext, Scope, TenantStatus, generate_key, keys, require_key
 from tests.support import make_client
 
 TENANT, PROJECT, MODEL, OTHER_MODEL = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -24,11 +24,12 @@ class FakePool:
     def __init__(self):
         self.rows = {}
 
-    def add(self, scopes=("predict",), models=(), revoked=False, expired=False):
+    def add(self, scopes=("predict",), models=(), revoked=False, expired=False, tenant_status=TenantStatus.ACTIVE):
         key = generate_key()
         if not (revoked or expired):
             self.rows[key.key_hash] = dict(
-                key_id=uuid.uuid4(), tenant_id=TENANT, project_id=PROJECT, scopes=list(scopes), model_ids=list(models)
+                key_id=uuid.uuid4(), tenant_id=TENANT, project_id=PROJECT, scopes=list(scopes), model_ids=list(models),
+                tenant_status=tenant_status,
             )
         return key.secret
 
@@ -103,6 +104,12 @@ def test_every_authentication_failure_is_the_same_401(client, pool):
         assert body.pop("request_id")
         bodies.append(body)
     assert all(b == bodies[0] for b in bodies)
+
+
+@pytest.mark.parametrize("tenant_status", [TenantStatus.SUSPENDED, TenantStatus.PENDING_DELETE])
+def test_a_key_of_a_tenant_that_is_not_active_is_503_tenant_suspended(client, pool, tenant_status):
+    r = call(client, pool.add(tenant_status=tenant_status))
+    assert (r.status_code, r.json()["code"]) == (503, "tenant_suspended")
 
 
 def test_missing_scope_is_403_naming_the_scope(client, pool):

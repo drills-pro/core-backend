@@ -13,11 +13,11 @@ import httpx
 
 from app.core import audit, plan_limits, rate_limit
 from app.core import task_types
-from app.core.authz import AuthzContext
+from app.core.authz import AuthzContext, TenantStatus
 from app.core.db import get_pool
 from app.core.idempotency import insert_once, replay
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
-from app.core.problem import Problem, not_found
+from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import calls, shared
@@ -345,6 +345,8 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         row = await conn.fetchrow("SELECT * FROM deployment_for_predict($1, $2)", deployment_id, hash_key(predict_key))
     if row is None:
         raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid deployment id or predict key")
+    if row["tenant_status"] != TenantStatus.ACTIVE:
+        raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, KernelProblemCode.TENANT_SUSPENDED, "this tenant is not active")
     _require_active(row["status"])
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
         raise Problem(

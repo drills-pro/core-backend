@@ -5,6 +5,7 @@ project: the X-Project-Id header may only confirm the key's project, never choos
     missing, unknown, revoked or expired key, or X-Project-Id missing/different  -> 401 invalid_api_key (one body)
     key without the scope                                                         -> 403 forbidden, naming the scope
     model outside a non-empty allowlist                                           -> 403 forbidden
+    tenant not active (suspended or pending deletion)                             -> 503 tenant_suspended
 """
 import hashlib
 import secrets
@@ -15,7 +16,7 @@ from typing import NamedTuple
 
 from fastapi import Header
 
-from app.core.authz.policy import Scope
+from app.core.authz.policy import Scope, TenantStatus
 from app.core.db import get_pool
 from app.core.problem import Problem, ProblemCode
 
@@ -79,6 +80,8 @@ def require_key(scope: Scope):
             row["key_id"], str(row["tenant_id"]), row["project_id"],
             frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]),
         )
+        if row["tenant_status"] != TenantStatus.ACTIVE:
+            raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.TENANT_SUSPENDED, "this tenant is not active")
         if scope not in ctx.scopes:
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing scope {scope}", scope=scope.value)
         if not ctx.allows_model(x_model_id):
