@@ -155,6 +155,17 @@ class Serving(_Section):
     apps: ServingApps
 
 
+class Predict(_Section):
+    """POST /v1/predict stored predictions: the background worker and how long results are kept (planning/24)."""
+
+    worker_concurrency: int  # background predictions one core-api process sends to Serve at once, so a burst fans out across Serve's replicas
+    max_attempts: int  # tries of one background prediction (a 5xx, a timeout or a lost lease is retried) before it fails
+    lease_seconds: int  # how long a claimed (or sync idempotent) prediction belongs to its worker before it is taken back
+    background_retention_days: int  # a finished background prediction keeps its input and output this long
+    sync_retention_hours: int  # a sync prediction sent with an Idempotency-Key is replayable this long
+    in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
@@ -187,6 +198,7 @@ class Settings(BaseSettings):
     dataset_limits: DatasetLimits
     training: Training
     serving: Serving
+    predict: Predict
     observability: Observability
     public: Public
     secrets: SecretPaths

@@ -86,6 +86,14 @@ serving:                     # app/integrations/serve_client.py: the two shared 
     cpu: {min_replicas: 2, max_replicas: 4, num_cpus: 1, num_gpus: 0, resources: {cpu_pool: 0.01}}   # on the CPU pool, two replicas so one can fail
     gpu: {min_replicas: 0, max_replicas: 2, num_cpus: 1, num_gpus: 1, resources: {}}
 
+predict:                     # app/modules/user/deployments: stored predictions (background mode, Idempotency-Key)
+  worker_concurrency: 8                # background predictions one process sends to Serve at once
+  max_attempts: 3
+  lease_seconds: 90                    # longer than serving.request_timeout_seconds, or a live call would be taken back
+  background_retention_days: 7
+  sync_retention_hours: 24
+  in_progress_wait_seconds: 10
+
 observability:
 
 public:                      # browser-facing, not the in-network names
