@@ -60,8 +60,8 @@ done
 [ "$S" = awaiting_review ] || fail "import ended as '$S': $(j "['report']")"
 call 200 -X POST "$IMPORT/commit"; V=$(j "['id']"); echo "committed version $(j "['number']")"
 
-# --- training run (the first preset the project offers)
-call 200 "$API/v1/projects/$P/training-presets"; PRESET=$(j "[0]['name']")
+# --- training run (PRESET, else the first the project offers; a local stack trains only `small`, see steps/cpu-preset.sh)
+call 200 "$API/v1/projects/$P/training-presets"; PRESET="${PRESET:-$(j "[0]['name']")}"
 call 202 -X POST "$API/v1/projects/$P/training-runs" -H "$JSON" -H "Idempotency-Key: e2e-run-$(date +%s)" \
   -d "{\"dataset_version_id\":\"$V\",\"preset\":\"$PRESET\"}"
 RUN=$(j "['id']"); echo "training run $RUN (preset $PRESET)"
