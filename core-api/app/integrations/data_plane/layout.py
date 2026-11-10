@@ -35,6 +35,7 @@ PREDICTION_OUTPUT_KEY = "output.json"  # written under <attempt>/, so a stale at
 SMOKE_KEY = "smoke.json"  # what a package's smoke job writes under smoke_prefix: {"ok": bool}
 UPLOAD_KEY = "upload/source"
 REPORT_KEY = "report.json"
+BATCH_PREDICTIONS_KEY = "predictions.jsonl"  # a predict_batch job's results, beside its report.json: one JSON line per item
 OUT_PREFIX = "out/"
 OBJECTS_PREFIX = "objects/"
 INDEX_KEY = "index.parquet"
