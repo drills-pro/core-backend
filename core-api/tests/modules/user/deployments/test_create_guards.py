@@ -192,3 +192,32 @@ def _plan(limit):
     from tests.core.test_plan_limits import row
 
     return row(deployments={"max_active_deployments": limit}, updated_at=datetime.now(UTC))
+
+
+def test_a_failing_cleanup_of_the_stray_serve_app_does_not_hide_the_409(env, monkeypatch):
+    env.shared = False
+    env.conn.fail = ("INSERT INTO deployments",)
+
+    async def remove(**kw):
+        raise RuntimeError("ray head is down")
+
+    monkeypatch.setattr(service.serve_client, "remove", remove)
+    with pytest.raises(HTTPException) as e:
+        create()
+    assert e.value.code == ProblemCode.DEPLOYMENT_EXISTS
+
+
+def test_a_shared_create_that_loses_to_the_index_has_no_serve_app_to_remove(env):
+    env.conn.fail = ("INSERT INTO deployments",)
+    with pytest.raises(HTTPException):
+        create()
+    assert env.removed == [] and env.deployed == []
+
+
+def test_a_main_create_that_loses_leaves_the_shared_main_app_to_the_winner(env):
+    env.shared = False
+    env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
+    env.conn.fail = ("INSERT INTO deployments",)
+    with pytest.raises(HTTPException):
+        create()
+    assert env.removed == []

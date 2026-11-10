@@ -19,6 +19,7 @@ from tests.support import PROJECT, FakeConn, TenantCtx, access, make_client, pat
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="u1")
 DEPLOYMENT, RUN = uuid.uuid4(), uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/deployments/{DEPLOYMENT}"
+_STATE = "id, project_id, training_run_id, status"
 UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into FakeConn.rows
 
 
@@ -165,6 +166,63 @@ def test_start_of_a_failed_deployment_is_409(env):
     with pytest.raises(HTTPException) as e:
         run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
     assert e.value.status_code == 409
+
+
+def servable_legacy(monkeypatch, *, run_servable=True, task_servable=True):
+    async def run_model(conn, project_id, run_id):
+        return SimpleNamespace(status=TrainingStatus.SUCCEEDED, mlflow_run_id="m1", class_names=["a"], servable=run_servable)
+
+    async def task(conn, project_id):
+        return "image-classification"
+
+    async def settings(conn, project_id):
+        return {}
+
+    async def info(conn, task):
+        return SimpleNamespace(enabled=True, servable=task_servable)
+
+    monkeypatch.setattr(service, "get_run_model", run_model)
+    monkeypatch.setattr(service, "get_task_type", task)
+    monkeypatch.setattr(service, "get_settings", settings)
+    monkeypatch.setattr(service.task_types, "get", info)
+
+
+@pytest.mark.parametrize("run_servable,task_servable", [(False, True), (True, False)])
+def test_start_of_a_legacy_deployment_whose_run_or_task_can_no_longer_be_served_is_409_and_deploys_nothing(env, monkeypatch, run_servable, task_servable):
+    servable_legacy(monkeypatch, run_servable=run_servable, task_servable=task_servable)
+    env.conn.rows = {UPDATE: row(S.DEPLOYING, Serving.LEGACY), SELECT: row(S.STOPPED, Serving.LEGACY)}
+    with pytest.raises(HTTPException) as e:
+        run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
+    assert (e.value.status_code, e.value.code) == (409, ProblemCode.NOT_DEPLOYABLE) and env.deployed == [] and moves(env) == []
+
+
+def test_two_starts_of_a_legacy_deployment_leave_one_job_running_and_stop_the_duplicate(env, monkeypatch):
+    servable_legacy(monkeypatch)
+    reads = iter([row(S.STOPPED, Serving.LEGACY)])  # this start read it stopped; by the compare-and-set another start had moved it
+
+    async def fetchrow(sql, *args):
+        if sql.startswith("UPDATE deployments SET status"):
+            return None
+        if sql.startswith("SELECT " + _STATE):
+            return next(reads, row(S.DEPLOYING, Serving.LEGACY))
+        return await original(sql, *args)
+
+    original = env.conn.fetchrow
+    env.conn.fetchrow = fetchrow
+    out = run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
+    assert out.status == S.DEPLOYING and env.deployed[0]["deployment_id"] == str(DEPLOYMENT)
+    assert env.stopped_jobs == ["ray-job-2"] and audited(env) == []  # the loser's job is stopped, and the repeat writes no audit
+
+
+def test_stopping_whose_serve_removal_fails_leaves_the_deployment_stopped_for_a_repeat_to_finish(env, monkeypatch):
+    async def remove(**kw):
+        raise RuntimeError("ray head is down")
+
+    monkeypatch.setattr(service.serve_client, "remove", remove)
+    env.conn.rows = {UPDATE: row(S.STOPPED, Serving.LEGACY)}
+    with pytest.raises(RuntimeError):
+        run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
+    assert len(moves(env)) == 1 and audited(env) == [(AuditAction.STOP, EntityType.DEPLOYMENT, str(DEPLOYMENT))]  # the move committed first
 
 
 # ---- what the rest of the surface answers ----

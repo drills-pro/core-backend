@@ -119,6 +119,18 @@ def test_the_model_urls_are_looked_up_once_per_run_and_a_new_run_looks_them_up_a
     assert served.urls == 2
 
 
+def test_the_target_cache_drops_the_least_recently_used_pair_past_its_size(served, monkeypatch):
+    monkeypatch.setattr(shared, "TARGET_CACHE_SIZE", 2)
+    a, b, c = (uuid.uuid4() for _ in range(3))
+    for run in (a, b):
+        answer(run=run)
+    answer(run=a)  # a is now the newest, so b is the oldest
+    answer(run=c)
+    assert set(shared._targets) == {(DEPLOYMENT, a), (DEPLOYMENT, c)} and served.urls == 3
+    answer(run=b)  # evicted: its model URLs are looked up again
+    assert served.urls == 4
+
+
 @pytest.mark.parametrize("code", list(ServeErrorCode))
 def test_every_serve_error_has_a_status_and_is_raised_with_it(served, code):
     assert code in SERVE_ERROR_STATUS
