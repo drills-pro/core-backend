@@ -1,0 +1,1818 @@
+# Feature coverage manifest: which designed capabilities are built, and which are tested.
+# Checked by core-api/tests/architecture/test_feature_coverage.py; rendered by scripts/feature-coverage-report.py
+# into docs/feature-coverage.md. Written 2026-11-10 from the code at that date, not from the older audit.
+#
+# Fields
+#   id       AREA-NN, stable
+#   area     training | registry | deployment | serving | predict | jobs | datasets
+#   title    the capability, one line
+#   source   design doc and section (planning/NN-... or core-backend docs/...)
+#   status   built | partial | missing | deferred   (deferred = the design itself schedules it later)
+#   weight   importance of a gap for ranking: 3 blocks the product path or isolation, 2 real gap, 1 polish
+#   old      feature id of the 2026-11-05 audit (F06..F20) when it had one
+#   code     files, or "METHOD /path" routes of the app (a route must exist in the OpenAPI)
+#   tests    files, or "file::test_function" (the function must exist in the file)
+#   gap      one line for partial, missing and deferred
+#   note     anything else worth knowing, including what could not be verified
+#
+# Every in-scope route of the app (training, models, deployments, predict, datasets, api-keys, job packages,
+# task types, plan limits) must appear in some entry's code list, so a new route forces a new row here.
+
+entries:
+# ------------------------------------------------------------------ TRAINING
+- id: TRN-01
+  area: training
+  title: Start a run on a pinned dataset version (202, Idempotency-Key, 429 over the plan's concurrent runs)
+  source: planning/05 Conventions; planning/06 Job spec v1; docs/trainer-plan.md
+  status: built
+  old: F07
+  code: ["POST /v1/projects/{project_id}/training-runs", core-api/app/modules/user/training/create_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_the_same_key_and_request_returns_the_same_run_without_starting_another
+  - core-api/tests/modules/user/training/test_training.py::test_too_many_runs_in_progress_is_429
+  - core-api/tests/modules/user/training/test_training.py::test_a_submit_that_fails_stops_the_job_and_fails_the_run_with_a_503
+- id: TRN-02
+  area: training
+  title: List and read runs (status, report, metrics, progress)
+  source: planning/05 Conventions
+  status: built
+  old: F07
+  code: ["GET /v1/projects/{project_id}/training-runs", "GET /v1/projects/{project_id}/training-runs/{run_id}", core-api/app/modules/user/training/run_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_viewer_lists_runs
+  - core-api/tests/modules/user/training/test_events.py::test_get_shows_the_latest_event_and_the_epoch_history
+  note: The list still pages by limit/offset, not by cursor (planning/05 Pagination).
+- id: TRN-03
+  area: training
+  title: Raw log tail of a run
+  source: planning/05 Conventions; planning/11 Customer-visible job logs
+  status: partial
+  weight: 1
+  old: F07
+  code: ["GET /v1/projects/{project_id}/training-runs/{run_id}/logs"]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_logs_are_the_raw_tail_only
+  - core-api/tests/modules/user/training/test_run_service.py::test_logs_are_the_tail_and_read_with_no_connection_held
+  gap: Last 8000 characters only (LOG_TAIL_CHARS); no streaming, no history, no per-tenant redaction.
+- id: TRN-04
+  area: training
+  title: Cancel a run (stop the job, close the MLflow run, settle once)
+  source: planning/07 Cancellation and failure handling
+  status: built
+  old: F07
+  code: ["POST /v1/projects/{project_id}/training-runs/{run_id}/cancel", core-api/app/modules/user/training/run_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_run_service.py::test_cancel_stops_the_job_then_settles_the_row_without_holding_a_connection
+  - core-api/tests/modules/user/training/test_run_service.py::test_a_cancel_that_loses_the_race_is_a_409_and_counts_nothing
+- id: TRN-05
+  area: training
+  title: Job spec v1 `train` payload, validated against a committed JSON Schema
+  source: planning/06 Job spec v1; docs/trainer-plan.md Job spec
+  status: built
+  old: F07
+  code: [core-api/app/integrations/job_spec.py, core-api/app/modules/user/training/train_spec.py, contracts/job-spec.v1.json]
+  tests:
+  - core-api/tests/integrations/test_job_spec.py::test_the_committed_schema_matches_the_models
+  - core-api/tests/integrations/test_job_spec.py::test_a_train_spec_round_trips_with_its_defaults_filled
+  - ray-training/tests/test_spec.py::test_a_spec_validates_against_the_committed_contract
+- id: TRN-06
+  area: training
+  title: Presets are data, copied into the spec; project preset list for the training form
+  source: planning/06 Task types and runtimes; planning/22 Training form
+  status: partial
+  weight: 1
+  old: F07
+  code: ["GET /v1/projects/{project_id}/training-presets", core-api/app/core/presets.py, core-api/app/modules/user/training/preset_service.py]
+  tests:
+  - core-api/tests/core/test_presets.py::test_a_row_becomes_a_preset_with_its_base_model_and_preprocessing
+  - core-api/tests/modules/user/training/test_training.py::test_a_preset_the_task_does_not_have_is_422_and_nothing_starts
+  gap: No GPU-minute estimate and no cost preview on the list (planning/22).
+- id: TRN-07
+  area: training
+  title: Admin CRUD of presets (changes never touch past runs)
+  source: planning/06 Task types and runtimes
+  status: built
+  old: F07
+  code: ["GET /v1/admin/training-presets/{task}", "PUT /v1/admin/training-presets/{task}/{name}", "DELETE /v1/admin/training-presets/{task}/{name}"]
+  tests:
+  - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
+  - core-api/tests/modules/admin/test_presets.py::test_deleting_a_missing_preset_is_404
+- id: TRN-08
+  area: training
+  title: Image classification trainer (HF ConvNeXt) to ONNX with top-1, top-5 and confusion matrix
+  source: planning/06 Task types and runtimes
+  status: built
+  old: F07
+  code: [ray-training/ray_training/classification.py, ray-training/ray_training/metrics.py]
+  tests:
+  - ray-training/tests/test_trainers.py::test_classification_trains_exports_and_reports
+  - ray-training/tests/test_metrics.py::test_top1_top5_and_confusion
+  note: ray-training tests are not run by .github/workflows/tests.yml (see JOB-27).
+- id: TRN-09
+  area: training
+  title: Object detection trainer (RT-DETRv2) to ONNX with mAP50 and mAP50-95
+  source: planning/06 Task types; planning/13 ADR-016
+  status: built
+  old: F07
+  code: [ray-training/ray_training/detection.py]
+  tests:
+  - ray-training/tests/test_trainers.py::test_detection_trains_exports_and_reports
+  - ray-training/tests/test_metrics.py::test_map_perfect_wrong_and_shifted
+- id: TRN-10
+  area: training
+  title: Text classification trainer (DistilBERT/BERT/RoBERTa), tokenizer served beside the model
+  source: planning/06 Task types (not listed there; added by docs/trainer-plan.md)
+  status: built
+  old: F07
+  code: [ray-training/ray_training/text_classification.py]
+  tests:
+  - ray-training/tests/test_trainers.py::test_text_classification_trains_exports_and_reports
+  - core-api/tests/integrations/test_serve_postprocess.py::test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_beside_the_model
+- id: TRN-11
+  area: training
+  title: Tabular classification and regression (Ludwig), segmentation, LLM fine-tune
+  source: planning/06 Task types and runtimes; planning/12 Thin demo
+  status: deferred
+  weight: 1
+  old: F07
+  code: []
+  tests: []
+  gap: No trainer for these task types; the task catalog marks them not trainable (planning/20 slip rules drop Ludwig first).
+- id: TRN-12
+  area: training
+  title: Augmentation, LR schedule with warmup and early stopping pinned per preset
+  source: planning/17 Task types and trainers
+  status: built
+  old: F07
+  code: [ray-training/ray_training/recipe.py, core-api/migrations/20261105131400_preset_training_recipe.sql, core-api/app/core/task_catalog.py]
+  tests:
+  - ray-training/tests/test_recipe.py::test_cosine_schedule_decays_to_zero
+  - ray-training/tests/test_recipe.py::test_early_stopping_ends_training_after_patience_and_keeps_the_last_model
+  - core-api/tests/core/test_presets.py::test_the_augmentation_must_be_one_the_tasks_trainer_has
+  note: The 2026-11-05 audit listed this as missing; it was built afterwards.
+- id: TRN-13
+  area: training
+  title: Run state machine with compare-and-set transitions
+  source: planning/03 State machines; planning/13 ADR-008
+  status: partial
+  weight: 2
+  old: F07
+  code: [core-api/app/modules/user/training/constants.py, core-api/app/integrations/job_lifecycle.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_a_finished_run_cannot_move_again
+  - core-api/tests/modules/user/training/test_training.py::test_the_status_check_mirrors_the_enum
+  gap: Five states (submitted, running, succeeded, failed, cancelled); no queued, cancelling, retry or lost, and cancel is not a desired state the worker converges to.
+- id: TRN-14
+  area: training
+  title: Trainer events API (idempotent by seq, only a running run takes events)
+  source: planning/06 Job runtime contract (Events)
+  status: partial
+  weight: 2
+  old: F07
+  code: ["POST /internal/v1/training-runs/{run_id}/events", core-api/app/modules/user/training/events_service.py, ray-training/ray_training/reporting.py]
+  tests:
+  - core-api/tests/modules/user/training/test_events.py::test_a_repeated_seq_is_a_200_no_op
+  - core-api/tests/modules/user/training/test_events.py::test_only_a_running_run_takes_events
+  - ray-training/tests/test_reporting.py::test_an_epoch_is_posted_with_the_token_and_seq_is_the_epoch_index
+  gap: Route is per training run with a random per-run token (sha256 at rest), not POST /internal/v1/jobs/{id}/events with a signed per-job JWT carrying attempt; no attempt fencing (see JOB-17).
+  note: Built after the 2026-11-05 audit, which listed the events API as missing.
+- id: TRN-15
+  area: training
+  title: Live progress (latest epoch and history) on the run
+  source: planning/06 Job runtime contract; planning/22 Metrics viewer
+  status: partial
+  weight: 2
+  old: F07
+  code: [core-api/app/modules/user/training/events_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_events.py::test_progress_is_kept_after_the_run_ends
+  gap: One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent.
+- id: TRN-16
+  area: training
+  title: Results from the job's report.json, never from logs
+  source: planning/06 Job runtime contract (Results)
+  status: built
+  old: F07
+  code: [core-api/app/integrations/data_plane/train_report.py, core-api/app/modules/user/training/effects.py]
+  tests:
+  - core-api/tests/modules/user/training/test_effects.py::test_final_report_is_what_the_job_wrote
+  - core-api/tests/modules/user/training/test_training.py::test_a_report_that_says_succeeded_does_not_save_a_job_ray_failed
+  - core-api/tests/integrations/data_plane/test_train.py::test_the_report_schema_is_committed
+- id: TRN-17
+  area: training
+  title: Metrics logged to MLflow by core-api; trainer holds no MLflow or lakeFS credential
+  source: planning/16 What a trainer receives; planning/13 ADR-018
+  status: built
+  old: F07
+  code: [core-api/app/modules/user/training/persist.py, core-api/app/integrations/data_plane/mlflow.py]
+  tests:
+  - core-api/tests/modules/user/training/test_persist.py::test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_gpu_runtime
+  - core-api/tests/integrations/data_plane/test_train.py::test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_credential_only
+- id: TRN-18
+  area: training
+  title: Reconciler settles runs from Ray state plus report; billed once under replicas
+  source: planning/09 Reconciler design
+  status: built
+  old: F07
+  code: [core-api/app/modules/user/training/service.py, core-api/app/modules/user/training/decide.py, core-api/app/integrations/job_lifecycle.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_two_replicas_sweeping_at_once_bill_a_finished_run_once
+  - core-api/tests/modules/user/training/test_training.py::test_a_gateway_failure_leaves_the_run_in_flight_and_the_next_sweep_settles_it
+  - core-api/tests/modules/user/training/test_decide.py::test_resolve_needs_ray_and_the_report_to_agree_on_success
+- id: TRN-19
+  area: training
+  title: Concurrent-run quota per plan (429 too_many_training_runs)
+  source: planning/14 Quota enforcement
+  status: built
+  old: F07
+  code: [core-api/app/core/plan_limits.py, core-api/app/modules/user/training/create_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_too_many_runs_in_progress_is_429
+  - core-api/tests/core/test_plan_limits.py::test_concurrency_above_the_yaml_ceiling_is_refused
+- id: TRN-20
+  area: training
+  title: Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate
+  source: planning/14 Quota enforcement; planning/22 Training form
+  status: missing
+  weight: 3
+  old: F07
+  code: []
+  tests: []
+  gap: Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance.
+- id: TRN-21
+  area: training
+  title: GPU-seconds metering of runs (usage event per finished run, once)
+  source: planning/14 Billable meters; planning/15
+  status: partial
+  weight: 2
+  old: F07
+  code: [core-api/app/modules/user/training/persist.py]
+  tests:
+  - core-api/tests/modules/user/training/test_persist.py::test_a_whole_gpu_for_a_known_time_bills_that_many_gpu_seconds
+  - core-api/tests/modules/user/training/test_persist.py::test_a_cpu_run_is_not_billed_gpu_seconds
+  - core-api/tests/modules/user/training/test_training.py::test_a_fast_job_never_seen_running_is_billed_from_rays_start_time
+  gap: Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15).
+  note: Billed from started_at, so queue time is no longer billed (changed since the old audit).
+- id: TRN-22
+  area: training
+  title: Fault tolerance - checkpoint per epoch, resume after worker loss, runtime limit
+  source: planning/16 Fast-start; planning/07 Scheduling
+  status: built
+  old: F07
+  code: [ray-training/ray_training/loop.py, ray-training/ray_training/entrypoints/train.py]
+  tests:
+  - ray-training/tests/test_driver.py::test_a_lost_worker_resumes_from_the_last_epoch_not_from_scratch
+  - ray-training/tests/test_driver.py::test_the_time_limit_cancels_the_task_and_reports_timeout
+  - core-api/tests/modules/user/training/test_training.py::test_a_job_still_running_past_the_horizon_is_timed_out_and_stopped
+- id: TRN-23
+  area: training
+  title: Data-parallel training across workers (Ray Train), only rank 0 uploads
+  source: docs/ray-parallelism.md Built
+  status: built
+  code: [ray-training/ray_training/entrypoints/train.py, ray-training/ray_training/worker.py]
+  tests:
+  - ray-training/tests/test_driver.py::test_several_workers_train_one_model_and_only_the_root_rank_uploads
+  - ray-training/tests/test_scaling.py::test_a_preset_gpu_is_workers_with_one_gpu_each_or_a_share_of_one
+- id: TRN-24
+  area: training
+  title: GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions
+  source: planning/07 GPU memory and sharing
+  status: missing
+  weight: 2
+  old: F08
+  code: []
+  tests: []
+  gap: Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call.
+- id: TRN-25
+  area: training
+  title: Hash-based splits when none is given, a held-out test split
+  source: planning/06 Quality gates
+  status: built
+  old: F07
+  code: [ray-training/ray_training/data.py]
+  tests:
+  - ray-training/tests/test_data.py::test_hash_split_is_deterministic_and_roughly_80_10_10
+  - ray-training/tests/test_data.py::test_the_split_column_wins_and_null_rows_are_hashed
+- id: TRN-26
+  area: training
+  title: Deploy gate with acknowledge_risk, model card, near-duplicate warning
+  source: planning/06 Quality gates
+  status: missing
+  weight: 2
+  old: F07
+  code: []
+  tests: []
+  gap: No acknowledge_risk parameter, no card, no perceptual hash; a model with no test split or a poor metric deploys silently.
+- id: TRN-27
+  area: training
+  title: Base model pinned by commit, copied into the spec
+  source: planning/17 Admission policy; planning/06 Job spec rules
+  status: built
+  old: F19
+  code: [core-api/app/core/presets.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_training/spec.py]
+  tests:
+  - core-api/tests/core/test_presets.py::test_a_bad_preset_is_refused
+  - core-api/tests/modules/user/training/test_training.py::test_create_builds_the_spec_stores_it_and_submits_it
+- id: TRN-28
+  area: training
+  title: Base model served from the platform mirror, never the Hub at run time; licence recorded
+  source: planning/17 Catalog; planning/06 Job spec rules
+  status: missing
+  weight: 2
+  old: F20
+  code: []
+  tests: []
+  gap: The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, no licence in the spec or model.json, no safetensors-only admission.
+- id: TRN-29
+  area: training
+  title: Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI
+  source: planning/13 ADR-016; planning/17 Licence policy
+  status: partial
+  weight: 1
+  old: F07
+  code: [ray-training/pyproject.toml]
+  tests: []
+  gap: No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI.
+- id: TRN-30
+  area: training
+  title: Lineage view - dataset version, run, model version, active deployment
+  source: planning/22 Lineage and pipeline view
+  status: built
+  old: F07
+  code: ["GET /v1/projects/{project_id}/training-runs/{run_id}/lineage", core-api/app/modules/user/deployments/lineage.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_deployments.py::test_lineage_joins_the_run_its_model_and_its_deployment
+  - core-api/tests/modules/user/deployments/test_deployments.py::test_lineage_of_an_unknown_run_is_404
+- id: TRN-31
+  area: training
+  title: Task type decides what can train; untrainable and mismatched tasks refused before any job
+  source: planning/06 Task types and runtimes
+  status: built
+  old: F19
+  code: [core-api/app/core/task_catalog.py, core-api/app/core/task_types.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_the_projects_task_decides_what_can_train
+  - core-api/tests/core/test_task_catalog.py::test_a_task_without_a_row_or_switched_off_is_a_422
+- id: TRN-32
+  area: training
+  title: Hyperparameters validated against the preset's bounds
+  source: planning/06 Job spec rules (limits enforced by schema)
+  status: built
+  code: [core-api/app/modules/user/training/train_spec.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_a_hyperparameter_outside_the_presets_bounds_is_422_and_nothing_starts
+  - core-api/tests/modules/user/training/test_training.py::test_hyperparameters_override_only_what_they_name
+- id: TRN-33
+  area: training
+  title: Training data to the trainer by presigned reads plus a staged manifest
+  source: planning/16 What a trainer receives (manifest endpoint with cursor and refresh)
+  status: partial
+  weight: 2
+  old: F20
+  code: [core-api/app/integrations/data_plane/train.py]
+  tests:
+  - core-api/tests/integrations/data_plane/test_train.py::test_train_data_is_presigned_and_the_manifest_is_staged
+  - core-api/tests/integrations/data_plane/test_train.py::test_presigned_objects_come_from_the_lakefs_gateway_at_the_commit
+  gap: URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24).
+- id: TRN-34
+  area: training
+  title: Streaming shard loader, node NVMe cache with prewarm, fast-start metrics
+  source: planning/16 Fast-start design
+  status: deferred
+  weight: 1
+  old: F20
+  code: []
+  tests: []
+  gap: Trainer reads the staged files directly; designed for later (planning/20 sprint 9 to 10).
+- id: TRN-35
+  area: training
+  title: Hyperparameter search (Ray Tune) and batch training variants
+  source: planning/06 Quality gates; docs/ray-parallelism.md Designed, not built
+  status: deferred
+  weight: 1
+  code: []
+  tests: []
+  gap: Presets first; tune is a product decision.
+- id: TRN-36
+  area: training
+  title: Audit rows for run create and cancel
+  source: planning/19 E1
+  status: missing
+  weight: 2
+  old: F07
+  code: []
+  tests: []
+  gap: training/ has no audit.record call; datasets, deployments and api keys do write audit rows.
+- id: TRN-37
+  area: training
+  title: Class names backfilled from model.json into old reports
+  source: core-api maintenance (not designed)
+  status: built
+  code: [core-api/app/modules/user/training/backfill_classes.py]
+  tests:
+  - core-api/tests/modules/user/training/test_backfill_classes.py::test_classes_from_model_json_are_merged_into_each_report
+  - core-api/tests/db/test_backfill_classes_db.py::test_only_succeeded_detection_runs_without_classes_are_picked_and_the_merge_keeps_the_report
+# ------------------------------------------------------------------ MODEL REGISTRY
+- id: REG-01
+  area: registry
+  title: Register a succeeded run's model (MLflow version plus model_versions row)
+  source: planning/06 Model registry and promotion
+  status: built
+  old: F09
+  code: ["POST /v1/projects/{project_id}/models/{run_id}/register", core-api/app/modules/user/model_registry/service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_register_route.py::test_a_succeeded_run_registers_its_model
+  - core-api/tests/modules/user/model_registry/test_service.py::test_register_records_the_mlflow_version_and_shows_the_chosen_name
+- id: REG-02
+  area: registry
+  title: A succeeded run registers its model automatically at settle time
+  source: planning/06 Lifecycle
+  status: built
+  old: F09
+  code: [core-api/app/modules/user/training/persist.py]
+  tests:
+  - core-api/tests/modules/user/training/test_persist.py::test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_gpu_runtime
+- id: REG-03
+  area: registry
+  title: List model versions with customer stage labels
+  source: planning/22 Models screen
+  status: partial
+  weight: 1
+  old: F09
+  code: ["GET /v1/projects/{project_id}/models", core-api/app/modules/user/model_registry/routes.py]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_list_shows_chosen_names_and_customer_labels
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_allowed_and_hidden
+  gap: Rows carry name, version, stage and date only; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call.
+- id: REG-04
+  area: registry
+  title: Promote between stages (None, Staging, Production); promoting an older version is the rollback
+  source: planning/06 Model registry and promotion
+  status: built
+  old: F09
+  code: ["POST /v1/projects/{project_id}/models/{model_version_id}/promote"]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_promote_to_production_is_also_the_rollback_of_an_older_version
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_an_unknown_stage_is_a_400_listing_the_stages
+- id: REG-05
+  area: registry
+  title: Archived stage for retired versions
+  source: planning/06 Model registry and promotion (candidate, production, archived)
+  status: missing
+  weight: 1
+  old: F09
+  code: [core-api/app/integrations/data_plane/mlflow.py]
+  tests: []
+  gap: ModelStage has None, Staging, Production only.
+- id: REG-06
+  area: registry
+  title: Promotion updates MLflow and the index in one operation
+  source: planning/06 Model registry and promotion
+  status: partial
+  weight: 1
+  old: F09
+  code: [core-api/app/modules/user/model_registry/service.py]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_mlflow_transition_leaves_the_row_alone
+  gap: MLflow first, then the row, in two steps; a failure of the row update after MLflow moved leaves the two out of step.
+- id: REG-07
+  area: registry
+  title: Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision
+  source: planning/24 Q1; planning/05 Predict API
+  status: built
+  old: F09
+  code: [core-api/migrations/20261109182100_models_and_deployment_version.sql, core-api/app/modules/user/model_registry/service.py]
+  tests:
+  - core-api/tests/db/test_models_db.py::test_record_version_joins_the_model_of_its_name_and_makes_one_per_name
+  - core-api/tests/db/test_models_db.py::test_tenant_a_cannot_resolve_tenant_bs_model_but_resolves_its_own
+  note: Built after the 2026-11-05 audit; revision is the MLflow version number.
+- id: REG-08
+  area: registry
+  title: Tenant and project namespaced MLflow names, RLS-isolated model_versions index
+  source: planning/03 Who owns which data; planning/16 Adapter contract
+  status: built
+  old: F09
+  code: [core-api/app/integrations/data_plane/mlflow.py]
+  tests:
+  - core-api/tests/integrations/test_mlflow_models.py::test_names_are_namespaced_per_tenant_and_project
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_of_another_project_is_404
+- id: REG-09
+  area: registry
+  title: Publish metadata and artifact flags to the public gallery
+  source: planning/05 (publish flag); planning/04 gallery
+  status: built
+  old: F09
+  code: ["PATCH /v1/projects/{project_id}/models/{model_version_id}/publish", "GET /v1/public/projects/{project_id}/models", core-api/app/modules/user/public/service.py]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_publish_flags_are_independent_and_need_one
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_editor_may_promote_but_not_publish
+  - core-api/tests/architecture/test_admin_shapes.py
+  note: The public models route itself has no route-level test; its SQL function shape is checked by test_admin_shapes.
+- id: REG-10
+  area: registry
+  title: Deploying requires a model stage of at least candidate
+  source: planning/06 Model registry and promotion
+  status: missing
+  weight: 2
+  old: F09
+  code: []
+  tests: []
+  gap: A deployment is created from a succeeded training run, not from a model version, and checks no stage.
+- id: REG-11
+  area: registry
+  title: model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics)
+  source: planning/06 Job runtime contract (Model manifest)
+  status: partial
+  weight: 1
+  old: F09
+  code: [ray-training/ray_training/result.py, ray-training/ray_training/constants.py]
+  tests:
+  - core-api/tests/integrations/test_mlflow_models.py::test_serving_preprocesses_with_what_the_manifest_records
+  gap: Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py).
+  note: Unverifiable here without running a trainer.
+- id: REG-12
+  area: registry
+  title: Stage enum mirrored by a CHECK with a drift test
+  source: core-backend CLAUDE.md rules
+  status: built
+  old: F09
+  code: [core-api/migrations/20261029193003_model_versions_stage_check.sql]
+  tests:
+  - core-api/tests/core/test_task_types.py::test_the_stage_check_mirrors_the_enum
+- id: REG-13
+  area: registry
+  title: Audit rows for register, promote and publish
+  source: planning/19 E1
+  status: missing
+  weight: 2
+  old: F09
+  code: []
+  tests: []
+  gap: model_registry/ has no audit.record call.
+- id: REG-14
+  area: registry
+  title: Download by signed URL and auto-generated model card
+  source: planning/18 Export; planning/06 Quality gates
+  status: missing
+  weight: 2
+  old: F09
+  code: []
+  tests: []
+  gap: The publish_artifact flag exists but no route issues a download link; no card.
+- id: REG-15
+  area: registry
+  title: Operator view of every model and its versions
+  source: planning/19 back office
+  status: built
+  old: F14
+  code: ["GET /v1/admin/models", "GET /v1/admin/models/summary", "GET /v1/admin/models/{version_id}/versions", core-api/app/modules/admin/models/service.py]
+  tests:
+  - core-api/tests/db/test_admin_models_db.py::test_every_deployment_status_maps_to_a_model_status
+- id: REG-16
+  area: registry
+  title: Registering a run twice is idempotent (one version row per run)
+  source: planning/03 Idempotency and events
+  status: partial
+  weight: 1
+  old: F09
+  code: [core-api/app/modules/user/model_registry/service.py]
+  tests:
+  - core-api/tests/integrations/test_mlflow_models.py::test_registering_a_run_twice_reuses_its_mlflow_version
+  gap: MLflow reuses the version, but the model_versions insert has no unique key on the run, so a second call to the register route adds a second row.
+# ------------------------------------------------------------------ DEPLOYMENT
+- id: DEP-01
+  area: deployment
+  title: Create a deployment from a succeeded run (202, Idempotency-Key, predict key shown once)
+  source: planning/06 Deployment model; planning/05 Conventions
+  status: built
+  old: F10
+  code: ["POST /v1/projects/{project_id}/deployments", core-api/app/modules/user/deployments/service.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_the_same_key_and_run_replays_the_deployment_without_the_key_or_a_deploy
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_mints_a_deployment_and_a_predict_key_shown_once
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_requires_a_succeeded_servable_run
+- id: DEP-02
+  area: deployment
+  title: List and read deployments (deleted rows hidden, internals hidden)
+  source: planning/05 Resource model
+  status: built
+  old: F10
+  code: ["GET /v1/projects/{project_id}/deployments", "GET /v1/projects/{project_id}/deployments/{deployment_id}"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_deployments.py::test_get_is_read_only_and_hides_internals
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_list_get_and_test_calls_leave_deleted_rows_out
+- id: DEP-03
+  area: deployment
+  title: Stop a deployment (predict answers 409, key kept, audited, idempotent)
+  source: planning/06 Deployment model; planning/18 Acceptable use enforcement
+  status: built
+  old: F10
+  code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/stop"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_of_a_stopped_deployment_is_a_repeat_not_an_error_and_writes_no_audit
+  note: The 2026-11-05 audit said a deployment could not be stopped; fixed since.
+- id: DEP-04
+  area: deployment
+  title: Start a stopped deployment again (same row and key, takes a quota slot)
+  source: planning/06 Deployment model
+  status: built
+  code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/start"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_of_a_shared_deployment_is_active_again_without_a_deploy
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full
+- id: DEP-05
+  area: deployment
+  title: Delete a deployment (soft, key cleared, audited, frees the run)
+  source: planning/06 Deployment model
+  status: built
+  code: ["DELETE /v1/projects/{project_id}/deployments/{deployment_id}"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_delete_clears_the_predict_key_and_audits
+  - core-api/tests/db/test_deployments_db.py::test_a_failed_or_deleted_deployment_releases_its_run
+- id: DEP-06
+  area: deployment
+  title: Deployment states and the reconciler that follows legacy deployments to active or failed
+  source: planning/03 Deployment state machine; planning/09 Reconciler design
+  status: partial
+  weight: 1
+  old: F10
+  code: [core-api/app/modules/user/deployments/tasks.py, core-api/app/modules/user/deployments/status.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_tasks.py::test_a_finished_job_settles_the_deployment
+  - core-api/tests/modules/user/deployments/test_tasks.py::test_a_job_still_running_past_the_deadline_fails
+  gap: Status is the observed state; there is no desired-versus-observed split and no updating or stopping state.
+- id: DEP-07
+  area: deployment
+  title: One live deployment per model version and per run (unique index, 409 deployment_exists)
+  source: planning/24 One active deployment per model version
+  status: built
+  old: F10
+  code: [core-api/migrations/20261109182100_models_and_deployment_version.sql]
+  tests:
+  - core-api/tests/db/test_models_db.py::test_a_version_with_a_live_deployment_cannot_get_another_on_any_run
+  - core-api/tests/db/test_deployments_db.py::test_a_run_with_a_live_deployment_cannot_get_another
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_second_live_deployment_of_the_run_is_409_deployment_exists
+- id: DEP-08
+  area: deployment
+  title: Plan limit on active deployments (429 before any deploy)
+  source: planning/14 Plans
+  status: built
+  old: F10
+  code: [core-api/app/core/plan_limits.py, core-api/app/modules/user/deployments/service.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_deploy
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_the_write_checks_the_quota_under_the_tenants_advisory_lock
+- id: DEP-09
+  area: deployment
+  title: ETag and If-Match on deployments and settings
+  source: planning/05 Conventions (Concurrency)
+  status: missing
+  weight: 1
+  old: F10
+  code: []
+  tests: []
+  gap: No ETag or If-Match handling anywhere in app/.
+- id: DEP-10
+  area: deployment
+  title: Audit rows for deployment actions
+  source: planning/19 E1; planning/18
+  status: partial
+  weight: 1
+  old: F10
+  code: [core-api/app/modules/user/deployments/service.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
+  gap: stop, start and delete write audit rows; create does not.
+- id: DEP-11
+  area: deployment
+  title: Try it with the user session (no predict key in the console) and a recent-calls log
+  source: planning/05 Predict API (Try it)
+  status: built
+  old: F10
+  code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/test", "GET /v1/projects/{project_id}/deployments/{deployment_id}/test-calls", core-api/app/modules/user/deployments/calls.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_test_calls.py::test_a_small_payload_is_kept_and_a_big_one_becomes_a_marker
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_try_it_calls_serve_at_the_configured_head
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_try_it_on_a_stopped_deployment_is_409_and_on_a_deleted_one_404
+  note: Route is /deployments/{id}/test, not the documented /deployments/{id}:try.
+- id: DEP-12
+  area: deployment
+  title: Deploy models of every servable task (classification, detection, text)
+  source: planning/06 Task types and runtimes
+  status: built
+  old: F10
+  code: [core-api/app/modules/user/deployments/service.py, core-api/app/modules/user/training/readers.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_detection_run_deploys_with_the_class_names_its_report_lists
+  - core-api/tests/modules/user/training/test_readers.py::test_a_model_exists_for_a_succeeded_run_with_an_mlflow_run_and_serves_when_it_has_class_names
+  note: The 2026-11-05 audit said detection models could not be deployed; fixed since.
+- id: DEP-13
+  area: deployment
+  title: Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting
+  source: planning/06 Deployment model (Rollout, Rollback)
+  status: partial
+  weight: 2
+  old: F10
+  code: [core-api/app/modules/user/deployments/service.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_main_strategy_redeploy_updates_the_one_deployment_in_place
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared
+  gap: There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback.
+- id: DEP-14
+  area: deployment
+  title: Deployment input/output schema endpoint and generated curl/JS/Python snippets
+  source: planning/05 Predict API (Schema, Snippets)
+  status: missing
+  weight: 2
+  old: F10
+  code: []
+  tests: []
+  gap: No GET /deployments/{id}/schema and no snippet generator.
+- id: DEP-15
+  area: deployment
+  title: Active only after a health check, and active deployments re-checked
+  source: planning/03 Deployment state machine
+  status: partial
+  weight: 2
+  old: F10
+  code: [core-api/app/integrations/serve_client.py]
+  tests:
+  - core-api/tests/integrations/test_serve_shared.py::test_the_apps_are_declared_when_they_are_not_there
+  gap: A shared deployment is active at once; only the shared apps are re-declared (ensure_serving). No per-deployment probe, so a model that cannot load shows active until its first call fails.
+- id: DEP-16
+  area: deployment
+  title: Legacy per-deployment Serve app started by a Ray job (deprecated serving mode)
+  source: planning/12 Migration mechanics
+  status: built
+  old: F10
+  code: [core-api/app/integrations/serve_client.py, core-api/app/modules/user/deployments/tasks.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_of_a_legacy_deployment_redeploys_it_and_waits_for_the_reconciler
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_legacy_create_that_loses_to_the_index_removes_its_own_serve_app
+- id: DEP-17
+  area: deployment
+  title: CPU or GPU compute target per project (project setting compute_target)
+  source: planning/07 Single-node reality
+  status: built
+  code: [core-api/app/modules/user/deployments/shared.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_request_goes_to_the_projects_compute_target_under_the_deployments_run
+  - core-api/tests/integrations/test_mlflow_models.py::test_only_a_gpu_target_asks_for_a_gpu
+- id: DEP-18
+  area: deployment
+  title: Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier
+  source: planning/06 Deployment model (Scale)
+  status: missing
+  weight: 2
+  old: F10
+  code: [core-api/app/integrations/serve_config.py]
+  tests: []
+  gap: Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan.
+- id: DEP-19
+  area: deployment
+  title: Blue/green rollout, traffic split, serve-torch runtime
+  source: planning/06 Rollout; planning/17 Serving runtimes
+  status: deferred
+  weight: 1
+  old: F10
+  code: []
+  tests: []
+  gap: Later feature in the design.
+# ------------------------------------------------------------------ SERVING
+- id: SRV-01
+  area: serving
+  title: Two shared predictor apps (CPU, GPU) declared through the Serve REST API and kept declared
+  source: planning/06 Deployment model; planning/13 ADR-011; docs/ray-parallelism.md
+  status: built
+  old: F10
+  code: [core-api/app/integrations/serve_client.py, core-api/app/integrations/serve_config.py, ray-serving/ray_serving/app.py]
+  tests:
+  - core-api/tests/integrations/test_serve_shared.py::test_both_apps_are_rendered_with_the_package_the_pool_pin_and_the_failure_settings
+  - core-api/tests/integrations/test_serve_shared.py::test_a_changed_setting_makes_the_live_config_out_of_date_but_defaults_serve_adds_do_not
+- id: SRV-02
+  area: serving
+  title: Multiplexed model loading by id (ONNX Runtime), recent models stay loaded
+  source: planning/17 Serving runtimes; docs/ray-parallelism.md
+  status: built
+  code: [ray-serving/ray_serving/model.py, ray-serving/ray_serving/app.py]
+  tests:
+  - ray-serving/tests/test_model.py::test_a_loaded_model_ranks_the_classes
+  - ray-serving/tests/test_model.py::test_a_missing_model_is_model_load_failed_and_an_unknown_function_is_its_own_code
+  note: ray-serving tests are not run by .github/workflows/tests.yml (see JOB-27).
+- id: SRV-03
+  area: serving
+  title: Task adapters (classification softmax, detection boxes, text tokenize) from the manifest
+  source: planning/17 Serving runtimes
+  status: built
+  code: [ray-serving/ray_serving/postprocess.py, ray-serving/ray_serving/inputs.py]
+  tests:
+  - core-api/tests/integrations/test_serve_postprocess.py::test_detection_scales_normalised_boxes_to_the_images_pixels_and_drops_low_scores
+  - core-api/tests/integrations/test_serve_postprocess.py::test_classification_ranks_classes_by_softmax
+- id: SRV-04
+  area: serving
+  title: Task types as data - trainer, serving functions, enabled flag, admin-editable
+  source: planning/06 Task types and runtimes
+  status: built
+  old: F19
+  code: ["GET /v1/admin/task-types", "PUT /v1/admin/task-types/{task}", core-api/app/core/task_types.py]
+  tests:
+  - core-api/tests/modules/admin/test_task_types.py::test_put_writes_the_row_as_the_actor
+  - core-api/tests/modules/admin/test_task_types.py::test_a_serving_function_the_files_do_not_define_is_422
+  - core-api/tests/integrations/test_serve_postprocess.py::test_every_servable_task_names_functions_the_serve_files_define
+- id: SRV-05
+  area: serving
+  title: Per-deployment in-flight cap and plan body cap
+  source: planning/07 Limits on the byte stream
+  status: built
+  old: F10
+  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/modules/user/deployments/routes.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_requests_over_the_in_flight_cap_get_429_and_free_their_slot
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_body_over_the_cap_is_413_before_it_is_parsed
+- id: SRV-06
+  area: serving
+  title: Cold-start handling (503 with Retry-After, or a bounded wait)
+  source: planning/07 Serving design
+  status: partial
+  weight: 2
+  old: F10
+  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/modules/user/deployments/calls.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_a_successful_shared_call_is_logged_with_its_run_latency_and_cold_load
+  gap: A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero.
+- id: SRV-07
+  area: serving
+  title: predict_calls log of every shared call with a retention purge
+  source: planning/15 U2 (per-prediction analytics, open)
+  status: built
+  old: F10
+  code: [core-api/app/modules/user/deployments/calls.py, core-api/migrations/20261104101545_predict_calls.sql]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_a_failed_shared_call_is_logged_with_its_code_and_still_raises
+  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_the_purge_asks_for_the_configured_retention
+- id: SRV-08
+  area: serving
+  title: Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning
+  source: planning/10 T8; planning/07 Single-node reality
+  status: partial
+  weight: 2
+  old: F10
+  code: [ray-serving/ray_serving/model.py, ray-serving/ray_serving/inputs.py, core-api/app/integrations/serve_config.py]
+  tests:
+  - ray-serving/tests/test_model.py::test_a_url_outside_the_artifact_store_is_refused
+  - ray-serving/tests/test_model.py::test_a_redirect_is_not_followed
+  - ray-serving/tests/test_model.py::test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded
+  gap: Guards inside the replica are built; per-tenant serving caps and the PriorityClass pool reservation live in the k8s repo and were not checked here.
+- id: SRV-09
+  area: serving
+  title: Autoscaling bounds and warm-model downscale delay from config
+  source: docs/ray-parallelism.md Serving scale
+  status: built
+  code: [core-api/app/integrations/serve_config.py, core-api/config/base.yaml]
+  tests:
+  - core-api/tests/integrations/test_serve_shared.py::test_both_apps_are_rendered_with_the_package_the_pool_pin_and_the_failure_settings
+- id: SRV-10
+  area: serving
+  title: Model URLs looked up once per run and cached; model fetched through the MLflow artifact API
+  source: docs/runtime-contract.md Models, experiments and MLflow
+  status: built
+  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/integrations/data_plane/mlflow.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_the_model_urls_are_looked_up_once_per_run_and_a_new_run_looks_them_up_again
+  - core-api/tests/integrations/test_mlflow_models.py::test_the_model_url_is_under_the_runs_artifact_root
+- id: SRV-11
+  area: serving
+  title: Serve error codes mapped to HTTP status (422, 502, 503, 504), Serve's own text never returned
+  source: planning/24 Request flow, step 6
+  status: built
+  code: [core-api/app/modules/user/deployments/constants.py, core-api/app/integrations/serve_client.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_every_serve_error_has_a_status_and_is_raised_with_it
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_serve_failures_map_and_cost_nothing
+- id: SRV-12
+  area: serving
+  title: Predict gateway as a separate streaming service (ADR-017)
+  source: planning/07 Predict gateway; planning/20 sprint 5
+  status: missing
+  weight: 1
+  old: F10
+  code: []
+  tests: []
+  gap: Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree.
+- id: SRV-13
+  area: serving
+  title: Smoke check of the serving package before it can be promoted
+  source: planning/06 Job catalog (packages)
+  status: built
+  code: [ray-serving/ray_serving/entrypoints/smoke.py, core-api/app/integrations/data_plane/job_package.py]
+  tests:
+  - ray-serving/tests/test_model.py::test_the_smoke_check_passes_and_writes_its_verdict
+  - core-api/tests/integrations/data_plane/test_job_package.py::test_a_written_smoke_result_settles_the_package
+- id: SRV-14
+  area: serving
+  title: Dynamic batching in Serve and batch inference job
+  source: docs/ray-parallelism.md Designed, not built
+  status: deferred
+  weight: 1
+  code: []
+  tests: []
+  gap: Designed (kind predict_batch, @serve.batch); needs the owner's go-ahead.
+- id: SRV-15
+  area: serving
+  title: Inference latency and call metrics
+  source: planning/11 Observability
+  status: built
+  code: [core-api/app/core/metrics/inference.py, core-api/app/core/metrics/predict.py]
+  tests:
+  - core-api/tests/core/test_metrics.py
+# ------------------------------------------------------------------ PREDICT API
+- id: PRD-01
+  area: predict
+  title: POST /v1/predict sync - model by headers, {input, metadata} body, envelope, input forwarded unchanged
+  source: planning/05 Predict API; planning/24 Request flow
+  status: built
+  old: F11
+  code: ["POST /v1/predict", core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_200_returns_the_envelope_and_forwards_input_unchanged
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
+  note: Built after the 2026-11-05 audit, which listed it as missing.
+- id: PRD-02
+  area: predict
+  title: Error mapping (401, 403, 404, 409, 413, 422, 429, 502, 503, 504) as problem+json
+  source: planning/24 Request flow step 6
+  status: built
+  old: F11
+  code: [core-api/app/modules/user/deployments/model_predict.py, core-api/app/modules/user/deployments/constants.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_422_for_an_unknown_key_a_missing_input_or_big_metadata
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_409_when_the_deployment_is_not_active
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_serve_failures_map_and_cost_nothing
+- id: PRD-03
+  area: predict
+  title: Project API keys - create (secret shown once, sha256 at rest), list, revoke, audited
+  source: planning/24 API keys; planning/04 Machine access
+  status: built
+  old: F11
+  code: ["POST /v1/projects/{project_id}/api-keys", "GET /v1/projects/{project_id}/api-keys", "DELETE /v1/projects/{project_id}/api-keys/{key_id}", core-api/app/modules/user/api_keys/service.py]
+  tests:
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_secret_is_returned_once_and_only_its_hash_is_stored
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_list_never_shows_secret_or_hash
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_viewer_gets_403_naming_the_action_and_deployer_is_allowed
+- id: PRD-04
+  area: predict
+  title: Key scopes (enum plus CHECK) and optional per-model allowlist
+  source: planning/24 API keys
+  status: built
+  old: F11
+  code: [core-api/app/modules/user/api_keys/constants.py, core-api/app/core/authz/keys.py]
+  tests:
+  - core-api/tests/core/authz/test_keys.py::test_model_allowlist_is_enforced_and_empty_means_any_model
+  - core-api/tests/core/authz/test_keys.py::test_missing_scope_is_403_naming_the_scope
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_unknown_scope_is_422
+- id: PRD-05
+  area: predict
+  title: require_key - one identical 401 for every failure cause, X-Project-Id must match the key
+  source: planning/24 require_key; planning/04 Authorization
+  status: built
+  old: F11
+  code: [core-api/app/core/authz/keys.py, core-api/migrations/20261109181400_predict_tenant_and_project_status.sql]
+  tests:
+  - core-api/tests/core/authz/test_keys.py::test_every_authentication_failure_is_the_same_401
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_401_for_an_unknown_key_and_for_another_project
+- id: PRD-06
+  area: predict
+  title: Suspended tenant answers 503 tenant_suspended before Serve is called; archived projects answer like an unknown key
+  source: planning/24 require_key; planning/14 Billing states
+  status: built
+  old: F11
+  code: [core-api/app/core/authz/keys.py, core-api/migrations/20261109181400_predict_tenant_and_project_status.sql]
+  tests:
+  - core-api/tests/core/authz/test_keys.py::test_a_key_of_a_tenant_that_is_not_active_is_503_tenant_suspended
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_503_for_a_suspended_tenant_before_anything_is_read
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_predict_for_a_tenant_that_is_not_active_is_503_before_serve
+- id: PRD-07
+  area: predict
+  title: Rate limits - plan, per key (api_keys.rate_limit_per_minute) and per deployment, 429 with Retry-After
+  source: planning/24 Rate limits; planning/05 Conventions
+  status: partial
+  weight: 1
+  old: F11
+  code: [core-api/app/core/rate_limit.py, core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_rate_limit.py::test_the_lower_limit_wins_when_the_key_is_lower
+  - core-api/tests/modules/user/deployments/test_predict_rate_limit.py::test_retry_after_is_the_seconds_left_in_the_fixed_minute
+  - core-api/tests/modules/user/deployments/test_predict_rate_limit.py::test_a_background_submission_is_counted_once_at_accept
+  gap: Fixed one-minute windows in Postgres (one upsert per check, the documented ceiling); no RateLimit-Limit / -Remaining / -Reset headers.
+- id: PRD-08
+  area: predict
+  title: Idempotency-Key on sync calls - stored result replayed, 422 on a different body, race-safe
+  source: planning/24 Idempotency-Key
+  status: built
+  old: F11
+  code: [core-api/app/modules/user/deployments/model_predict.py, core-api/app/modules/user/deployments/prediction_store.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_idempotency.py::test_the_same_key_and_body_replays_the_stored_envelope_with_no_second_serve_call_and_no_second_usage_event
+  - core-api/tests/modules/user/deployments/test_predict_idempotency.py::test_the_race_loser_reads_the_winners_row
+  - core-api/tests/modules/user/deployments/test_predict_idempotency.py::test_409_request_in_progress_with_retry_after_while_the_first_call_still_runs
+- id: PRD-09
+  area: predict
+  title: Background mode - Prefer respond-async returns 202 with Location and a queued envelope
+  source: planning/24 Modes
+  status: built
+  old: F11
+  code: [core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_background.py::test_202_with_location_and_preference_applied_and_a_queued_row_and_no_serve_call
+  - core-api/tests/modules/user/deployments/test_predict_background.py::test_422_without_an_idempotency_key_and_nothing_is_stored
+- id: PRD-10
+  area: predict
+  title: GET a prediction (only by the key that made it; expired payloads keep id and status)
+  source: planning/24 Background endpoints
+  status: built
+  code: ["GET /v1/predict/{prediction_id}", core-api/app/modules/user/deployments/prediction_service.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_background.py::test_get_returns_the_envelope_of_the_prediction_the_key_made
+  - core-api/tests/modules/user/deployments/test_predict_background.py::test_another_key_of_the_same_project_gets_the_one_404_for_a_prediction_it_did_not_make
+  - core-api/tests/modules/user/deployments/test_predict_background.py::test_get_after_the_retention_purge_says_expired_and_has_no_output
+- id: PRD-11
+  area: predict
+  title: Cancel a prediction (queued ends at once, running flagged, terminal is an idempotent 200)
+  source: planning/24 Background endpoints
+  status: built
+  code: ["POST /v1/predict/{prediction_id}/cancel"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_cancelling_a_queued_prediction_ends_it_at_once_and_the_worker_never_runs_it
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_cancelling_a_finished_prediction_is_an_idempotent_200_that_changes_nothing
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_a_result_that_arrives_after_the_cancel_flag_is_discarded
+- id: PRD-12
+  area: predict
+  title: Prediction status SSE with Last-Event-ID replay and heartbeat
+  source: planning/24 Background endpoints
+  status: built
+  code: ["GET /v1/predict/{prediction_id}/events"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_last_event_id_replays_everything_after_it
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_the_stream_follows_a_live_prediction_and_resumes_after_a_drop_delivering_each_event_once_in_order
+  - core-api/tests/modules/user/deployments/test_predict_cancel_events.py::test_a_quiet_stream_sends_a_heartbeat_comment_and_still_ends_with_the_terminal_event
+  note: Follow is a 1 s poll; LISTEN/NOTIFY is the documented later optimisation.
+- id: PRD-13
+  area: predict
+  title: Prediction worker - claim with lease (SKIP LOCKED), attempt fencing, retry with backoff, bounded concurrency
+  source: planning/24 Poller, leader election and fencing
+  status: built
+  code: [core-api/app/modules/user/deployments/prediction_worker.py, core-api/migrations/20261109190402_prediction_worker.sql]
+  tests:
+  - core-api/tests/modules/user/deployments/test_prediction_worker.py::test_a_stale_attempt_cannot_overwrite_the_current_ones_result
+  - core-api/tests/modules/user/deployments/test_prediction_worker.py::test_a_prediction_whose_worker_died_returns_to_the_queue_and_runs_again
+  - core-api/tests/modules/user/deployments/test_prediction_worker.py::test_the_backoff_is_5_30_and_120_seconds_and_the_last_repeats
+  - core-api/tests/db/test_prediction_claim_db.py::test_two_connections_claiming_at_once_get_disjoint_rows
+- id: PRD-14
+  area: predict
+  title: Payloads over predict.inline_max_bytes stored in the staging bucket under predictions/<id>/<attempt>/
+  source: planning/24 predictions table
+  status: built
+  code: [core-api/app/integrations/data_plane/prediction_payloads.py, core-api/migrations/20261109234908_prediction_payload_refs.sql]
+  tests:
+  - core-api/tests/modules/user/deployments/test_prediction_offload.py::test_a_payload_exactly_at_the_limit_stays_inline_and_one_byte_over_goes_to_the_bucket
+  - core-api/tests/modules/user/deployments/test_prediction_offload.py::test_the_output_of_a_stale_attempt_goes_beside_the_current_attempts_never_over_it
+  - core-api/tests/modules/user/deployments/test_prediction_offload.py::test_a_ref_outside_the_rows_tenant_and_project_is_refused
+- id: PRD-15
+  area: predict
+  title: Retention purge of stored predictions (payloads, objects, events), keeping id and status
+  source: planning/24 Retention
+  status: built
+  code: [core-api/app/modules/user/deployments/prediction_store.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_prediction_offload.py::test_the_purge_deletes_every_object_of_the_prediction_stale_attempts_included_and_tolerates_a_missing_one
+  - core-api/tests/db/test_predictions_worker_db.py::test_the_purge_deletes_expired_sync_rows_and_scrubs_expired_background_ones
+- id: PRD-16
+  area: predict
+  title: Usage - one event per 2xx prediction id, none for failures, replays or retries
+  source: planning/24 Usage and billing; planning/14
+  status: partial
+  weight: 2
+  old: F11
+  code: [core-api/app/modules/user/deployments/model_predict.py, core-api/app/modules/user/deployments/prediction_store.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_usage.py::test_a_200_records_exactly_one_event_under_the_prediction_id
+  - core-api/tests/modules/user/deployments/test_predict_usage.py::test_a_failed_serve_call_records_nothing_and_neither_does_its_replay
+  - core-api/tests/db/test_predictions_db.py::test_a_repeat_usage_write_for_one_prediction_id_is_absorbed
+  gap: Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter.
+- id: PRD-17
+  area: predict
+  title: Legacy POST /v1/predict/{deployment_id} with X-Predict-Key, marked Deprecation and Sunset, counted per deployment
+  source: planning/24 Migrating the old endpoint (phase 1)
+  status: partial
+  weight: 1
+  old: F11
+  code: ["POST /v1/predict/{deployment_id}", core-api/app/modules/user/deployments/routes.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_legacy.py::test_a_call_is_answered_as_before_marked_deprecated_and_counted_by_deployment
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_legacy_endpoint_is_still_there
+  gap: Phase 1 (shadow) is done; phases 2 and 3 (stop minting predict_key, remove the route, deployment_for_predict and predict_key_hash) are not.
+- id: PRD-18
+  area: predict
+  title: Streaming mode (Accept text/event-stream) with delta, done and error frames
+  source: planning/24 Modes; planning/05 Streaming
+  status: deferred
+  weight: 1
+  old: F11
+  code: [core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_predict_stream_refused.py::test_asking_only_for_a_stream_is_406_problem_json_and_nothing_runs
+  gap: No adapter declares streaming, so the route answers 406 not_acceptable (tested); streaming needs an LLM-style adapter first (planning/24 Q4).
+- id: PRD-19
+  area: predict
+  title: Publishable keys (origin allowlist, CORS preflight, lower limit)
+  source: planning/24 Publishable keys; planning/05 Auth
+  status: deferred
+  weight: 1
+  old: F11
+  code: []
+  tests: []
+  gap: Stretch slot (planning/20 sprints 9 to 10); no api_keys.kind, no origins table.
+- id: PRD-20
+  area: predict
+  title: Batch endpoint POST /v1/predict/{id}:batch
+  source: planning/05 Predict API (Batch)
+  status: deferred
+  weight: 1
+  code: []
+  tests: []
+  gap: Later, for tabular.
+- id: PRD-21
+  area: predict
+  title: Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard
+  source: planning/05 Predict API (Input)
+  status: partial
+  weight: 2
+  old: F11
+  code: [ray-serving/ray_serving/inputs.py]
+  tests:
+  - ray-serving/tests/test_model.py::test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded
+  gap: Only JSON with image_base64 (or text) is read, header-first with a pixel limit; no multipart and no image-URL input, so no SSRF path exists to guard.
+- id: PRD-22
+  area: predict
+  title: Metadata (at most 4 KB) echoed in the envelope, never forwarded to Serve
+  source: planning/05 Predict API; planning/24 Parse
+  status: built
+  old: F11
+  code: [core-api/app/modules/user/deployments/schemas.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_422_for_an_unknown_key_a_missing_input_or_big_metadata
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_200_returns_the_envelope_and_forwards_input_unchanged
+- id: PRD-23
+  area: predict
+  title: Key rotation or recovery, last-used time, first-use audit, publishable-key nudges
+  source: planning/04 Machine access; planning/22 Keys; planning/10 T13
+  status: missing
+  weight: 2
+  old: F11
+  code: []
+  tests: []
+  gap: A key can be created and revoked only; no rotation overlap, no last_used_at, no audit on first use.
+- id: PRD-24
+  area: predict
+  title: Authenticate, rate-limit and size-check before reading the body; stream with limits on the byte stream
+  source: planning/07 Predict gateway rules; planning/24 Parse
+  status: partial
+  weight: 1
+  old: F11
+  code: [core-api/app/modules/user/deployments/routes.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_body_over_the_cap_is_413_before_it_is_parsed
+  gap: The key is checked first and the declared length is refused before reading, but the body is then read whole (capped by serving.max_body_bytes) and parsed; nothing streams through.
+- id: PRD-25
+  area: predict
+  title: Active revision rule - an active deployment first, then the Production version, then the newest
+  source: planning/24 One active deployment per model version
+  status: partial
+  weight: 1
+  code: [core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
+  gap: No promoted_at column, so "newest promotion wins" is "newest version"; the tie-break is not covered by a test against real data (the lookup is faked in this test).
+- id: PRD-26
+  area: predict
+  title: Predictions table is tenant-isolated and a key sees only its own
+  source: planning/24 predictions table; planning/24 Security notes
+  status: built
+  code: [core-api/migrations/20261109185729_predictions.sql]
+  tests:
+  - core-api/tests/db/test_predictions_cancel_db.py::test_tenant_bs_key_cannot_reach_tenant_as_prediction
+  - core-api/tests/db/test_predictions_db.py::test_tenant_a_cannot_see_tenant_bs_predictions_or_events
+  note: These DB tests run only under scripts/db-tests.sh (Docker Postgres), which CI runs; plain pytest skips them.
+# ------------------------------------------------------------------ JOBS
+- id: JOB-01
+  area: jobs
+  title: Versioned job spec v1 - shared envelope, payload per kind, unknown version or kind refused
+  source: planning/06 Job spec v1; docs/job-spec.md
+  status: built
+  old: F08
+  code: [core-api/app/integrations/job_spec.py]
+  tests:
+  - core-api/tests/integrations/test_job_spec.py::test_an_unknown_version_or_kind_is_rejected
+  - core-api/tests/integrations/test_job_spec.py::test_the_kind_picks_the_payload
+  - ray-jobs/tests/test_spec.py::test_an_unknown_version_or_kind_is_refused
+- id: JOB-02
+  area: jobs
+  title: JSON Schema generated from the pydantic models and kept equal by a test
+  source: planning/06 Job spec v1
+  status: built
+  old: F08
+  code: [contracts/job-spec.v1.json, scripts/gen-job-spec-schema.py]
+  tests:
+  - core-api/tests/integrations/test_job_spec.py::test_the_committed_schema_matches_the_models
+- id: JOB-03
+  area: jobs
+  title: Envelope fields attempt and reporting (events_url, token_env)
+  source: planning/06 Job spec v1
+  status: partial
+  weight: 2
+  old: F08
+  code: [core-api/app/integrations/job_spec.py]
+  tests:
+  - core-api/tests/modules/user/training/test_events.py::test_the_token_reaches_the_job_environment_not_the_spec
+  gap: reporting is built for train; attempt is not in the envelope.
+- id: JOB-04
+  area: jobs
+  title: One jobs table with kind, spec, state and attempt
+  source: planning/03 Entities; planning/13 ADR-007
+  status: missing
+  weight: 2
+  old: F08
+  code: []
+  tests: []
+  gap: Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything.
+- id: JOB-05
+  area: jobs
+  title: Shared follower engine - tenant loop, lease claim (SKIP LOCKED), compare-and-set advance, backoff, isolation of a failing row
+  source: planning/09 Reconciler design; docs/runtime-contract.md Worker mode
+  status: built
+  old: F08
+  code: [core-api/app/integrations/job_lifecycle.py]
+  tests:
+  - core-api/tests/integrations/test_job_lifecycle.py::test_two_claims_get_disjoint_rows
+  - core-api/tests/integrations/test_job_lifecycle.py::test_one_failing_row_neither_blocks_the_sweep_nor_is_retried_before_its_backoff
+  - core-api/tests/integrations/test_job_lifecycle.py::test_advance_loses_quietly_when_someone_moved_the_row_first
+- id: JOB-06
+  area: jobs
+  title: Singleton sweeps elected through Postgres advisory locks; claiming pollers run on every replica
+  source: planning/09 State management rules; planning/13 ADR-006
+  status: built
+  old: F08
+  code: [core-api/app/background.py]
+  tests:
+  - core-api/tests/test_background.py::test_a_claiming_poller_runs_on_every_replica_without_the_leader_lock
+  - core-api/tests/test_background.py::test_the_other_pollers_run_under_the_leader_lock
+- id: JOB-07
+  area: jobs
+  title: Dedicated worker process (python -m app.worker) and an API that runs no pollers
+  source: planning/01 Responsibilities; planning/08 I5
+  status: built
+  old: F08
+  code: [core-api/app/worker.py]
+  tests:
+  - core-api/tests/test_worker.py::test_worker_starts_the_loops_and_stops_them_on_sigterm
+  - core-api/tests/test_worker.py::test_api_lifespan_skips_the_loops_when_the_worker_has_them
+  note: The old audit rated this partial; the worker has tests now. Whether the k8s repo runs it as its own Deployment was not checked.
+- id: JOB-08
+  area: jobs
+  title: Compute seam with two backends - Ray dashboard job API and KubeRay RayJob CR
+  source: planning/07 As built; planning/13 ADR-010
+  status: built
+  old: F08
+  code: [core-api/app/integrations/compute.py]
+  tests:
+  - core-api/tests/integrations/test_compute.py::test_rayjob_submit_creates_a_cr_named_by_the_submission_id
+  - core-api/tests/integrations/test_compute.py::test_dashboard_backend_maps_the_spec_onto_the_ray_job_api
+- id: JOB-09
+  area: jobs
+  title: RayJob per run on ephemeral clusters with Kueue queues and priority classes
+  source: planning/07 Target topology; planning/13 ADR-010
+  status: deferred
+  weight: 1
+  old: F08
+  code: []
+  tests: []
+  gap: Staging uses a shared cluster; the rayjob backend exists but Kueue does not.
+- id: JOB-10
+  area: jobs
+  title: Job catalog - a JobType names its entrypoint module
+  source: planning/06 Job catalog
+  status: partial
+  weight: 1
+  old: F08
+  code: [core-api/app/integrations/data_plane/job_catalog.py]
+  tests:
+  - core-api/tests/ingest_job/test_contract.py::test_every_job_type_has_an_entrypoint_module_that_runs_as_main
+  gap: Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum.
+- id: JOB-11
+  area: jobs
+  title: Job packages - content-hash zips, candidate to stable to retired, smoke gate, CI publish
+  source: planning/06 Where code lives (zip only); docs/runtime-contract.md
+  status: built
+  old: F08
+  code: ["GET /v1/admin/job-packages/{name}", "POST /v1/admin/job-packages/{name}/publish", "POST /v1/admin/job-packages/{name}/register", "PUT /v1/admin/job-packages/{name}/{sha256}/status", core-api/app/core/job_packages.py, scripts/build-job-package.py]
+  tests:
+  - core-api/tests/modules/admin/test_job_packages.py::test_a_package_whose_smoke_has_not_passed_cannot_be_promoted
+  - core-api/tests/integrations/data_plane/test_job_package.py::test_the_zip_is_deterministic_and_named_by_its_hash
+  - core-api/tests/integrations/data_plane/test_job_package.py::test_prod_runs_only_a_promoted_package
+- id: JOB-12
+  area: jobs
+  title: Run-time integrity check of the package a job loads
+  source: planning/10 T15
+  status: partial
+  weight: 2
+  old: F08
+  code: [core-api/app/integrations/data_plane/job_package.py]
+  tests:
+  - core-api/tests/integrations/data_plane/test_job_package.py::test_the_object_must_hash_to_the_sha_in_its_key
+  gap: The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here).
+- id: JOB-13
+  area: jobs
+  title: Results from report.json written by a shared runner that cannot skip it
+  source: planning/06 Job runtime contract (Entry, Results)
+  status: built
+  old: F08
+  code: [ray-jobs/ray_jobs/runner.py, core-api/app/integrations/data_plane/report.py]
+  tests:
+  - ray-jobs/tests/test_entrypoints.py::test_an_internal_error_still_writes_the_report
+  - ray-jobs/tests/test_entrypoints.py::test_main_arms_the_alarm_and_maps_failure_to_exit_code
+  - core-api/tests/integrations/data_plane/test_report.py::test_checked_in_json_schema_matches_the_model
+- id: JOB-14
+  area: jobs
+  title: Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot
+  source: planning/06 Job runtime contract (Heartbeats); planning/09 Failure modes
+  status: partial
+  weight: 2
+  old: F08
+  code: [core-api/app/integrations/job_lifecycle.py, core-api/app/modules/user/training/decide.py]
+  tests:
+  - core-api/tests/modules/user/training/test_training.py::test_a_run_ray_no_longer_knows_fails_only_past_the_deadline_and_the_job_is_stopped
+  - core-api/tests/integrations/test_job_lifecycle.py::test_judge_timed_out
+  gap: Detection is by Ray state and a fixed deadline (LOST_JOB_GRACE_SECONDS); there are no heartbeats to go silent, so a hung job is found only at the deadline.
+- id: JOB-15
+  area: jobs
+  title: Attempt fencing - attempt in token, prefixes and events; stale attempts rejected
+  source: planning/06 Job spec rules; planning/19 C6
+  status: missing
+  weight: 2
+  old: F08
+  code: []
+  tests: []
+  gap: Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report.
+  note: Listed for sprint 8 in planning/20.
+- id: JOB-16
+  area: jobs
+  title: Transactional outbox, dispatcher and webhooks
+  source: planning/03 Idempotency and events; planning/13 ADR-005; planning/05 Events and webhooks
+  status: missing
+  weight: 2
+  old: F08
+  code: []
+  tests: []
+  gap: No outbox, no events table, no webhook delivery; clients must poll job state.
+- id: JOB-17
+  area: jobs
+  title: Reconciler wake-up through LISTEN/NOTIFY
+  source: planning/09 Reconciler design
+  status: missing
+  weight: 1
+  old: F08
+  code: []
+  tests: []
+  gap: Pollers tick every 10 s (60 s for sweeps, 1 s for predictions).
+- id: JOB-18
+  area: jobs
+  title: Bounded per-tenant concurrency and failure isolation in sweeps
+  source: planning/09 Reconciler design
+  status: built
+  old: F08
+  code: [core-api/app/integrations/job_lifecycle.py]
+  tests:
+  - core-api/tests/integrations/test_job_lifecycle.py::test_sweep_takes_at_most_a_batch_per_tenant
+  - core-api/tests/integrations/test_job_lifecycle.py::test_sweep_runs_at_most_sweep_concurrency_rows_at_once_and_still_finishes_them_all
+- id: JOB-19
+  area: jobs
+  title: Resources declared in the spec, never inferred; runtime limit enforced
+  source: planning/06 Job spec rules; planning/07 Timeouts
+  status: built
+  old: F08
+  code: [core-api/app/integrations/job_spec.py, core-api/app/integrations/compute.py]
+  tests:
+  - core-api/tests/integrations/test_job_spec.py::test_resources_must_be_declared_and_positive
+  - core-api/tests/integrations/test_compute.py::test_dashboard_backend_maps_the_spec_onto_the_ray_job_api
+- id: JOB-20
+  area: jobs
+  title: Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS)
+  source: planning/16 What a trainer receives; planning/10 T19
+  status: missing
+  weight: 3
+  old: F20
+  code: []
+  tests: []
+  gap: Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker).
+- id: JOB-21
+  area: jobs
+  title: credential_issuances ledger of minted credentials
+  source: planning/16 Control mapping
+  status: missing
+  weight: 1
+  old: F20
+  code: []
+  tests: []
+  gap: Nothing mints credentials per job, so nothing is recorded.
+- id: JOB-22
+  area: jobs
+  title: Suspending a tenant stops what is already running (jobs, deployments, sweeps)
+  source: planning/14 Billing states; planning/19 A-04
+  status: partial
+  weight: 3
+  old: F03
+  code: [core-api/app/modules/admin/tenants/service.py, core-api/migrations/20261017172706_init.sql]
+  tests:
+  - core-api/tests/modules/admin/test_tenant_suspension.py
+  gap: Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run).
+- id: JOB-23
+  area: jobs
+  title: Per-plan limits stored as data and edited by an operator (imports, runs, archives, images, tables, predict, deployments)
+  source: planning/14 Plans
+  status: partial
+  weight: 2
+  old: F12
+  code: ["GET /v1/admin/plan-limits", "PUT /v1/admin/plan-limits/{tier}", core-api/app/core/plan_limits.py]
+  tests:
+  - core-api/tests/modules/admin/test_plan_limits.py::test_put_writes_the_tier_as_the_actor
+  - core-api/tests/core/test_plan_limits.py::test_a_plan_row_is_laid_over_the_yaml_limits_and_leaves_the_rest
+  - core-api/tests/core/test_plan_limits.py::test_concurrency_above_the_yaml_ceiling_is_refused
+  gap: Limits are counts and sizes; no GPU-minute allowance, no replica caps, no per-plan retention (planning/14).
+- id: JOB-24
+  area: jobs
+  title: Ingest jobs run resource-limited with the staging credential and no lakeFS credential
+  source: planning/06 Datasets; planning/13 ADR-018
+  status: built
+  old: F06
+  code: [core-api/app/integrations/data_plane/ingest.py, ray-jobs/ray_jobs/common/limits.py]
+  tests:
+  - core-api/tests/integrations/data_plane/test_start_ingest.py::test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs_one
+  - ray-jobs/tests/test_common.py::test_timeout_key_is_a_limit
+- id: JOB-25
+  area: jobs
+  title: Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation)
+  source: planning/20 Gates for a single-reviewer team
+  status: partial
+  weight: 2
+  old: F08
+  code: [.github/workflows/tests.yml, core-api/tests/integrations/test_trainer_contract.py]
+  tests:
+  - core-api/tests/integrations/test_trainer_contract.py::test_the_trainer_package_knows_only_task_types
+  - core-api/tests/ingest_job/test_contract.py::test_enums_mirror_core_api
+  gap: tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo.
+- id: JOB-26
+  area: jobs
+  title: Journey scripts (import, train and deploy, predict) run against the local stack
+  source: planning/05 Machine-friendly by design
+  status: partial
+  weight: 1
+  code: [scripts/e2e-import.sh, scripts/e2e-journey.sh, scripts/e2e-train-deploy.sh]
+  tests: []
+  gap: Scripts exist and were run by hand on the local stack; no CI job runs them and Schemathesis contract tests are not set up.
+- id: JOB-27
+  area: jobs
+  title: Customer-facing events for jobs (job.queued .. job.succeeded) and notifications
+  source: planning/05 Events and webhooks; planning/05 Notification channels
+  status: missing
+  weight: 2
+  code: []
+  tests: []
+  gap: Same gap as the outbox (JOB-16); no notifications module.
+# ------------------------------------------------------------------ DATASETS
+- id: DAT-01
+  area: datasets
+  title: Create, list (cursor) and read datasets
+  source: planning/05 Resource model; docs/datasets-plan.md
+  status: built
+  old: F06
+  code: ["POST /v1/projects/{project_id}/datasets", "GET /v1/projects/{project_id}/datasets", "GET /v1/projects/{project_id}/datasets/{dataset_id}"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_create_takes_task_type_from_the_project
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_list_pages_with_a_cursor
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_foreign_tenant_dataset_id_is_404
+- id: DAT-02
+  area: datasets
+  title: Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows
+  source: planning/03 Retention; docs/datasets-plan.md
+  status: built
+  old: F06
+  code: ["DELETE /v1/projects/{project_id}/datasets/{dataset_id}", "POST /v1/projects/{project_id}/datasets/{dataset_id}:restore", core-api/app/modules/user/datasets/reconcile.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_restore_of_a_live_or_expired_dataset_is_409
+  - core-api/tests/modules/user/datasets/test_reconcile.py::test_purge_removes_only_datasets_past_retention
+- id: DAT-03
+  area: datasets
+  title: Create an import - presigned PUT to a fixed staging key, upload never passes through the API
+  source: planning/06 Datasets
+  status: built
+  old: F06
+  code: ["POST /v1/projects/{project_id}/datasets/{dataset_id}/imports", core-api/app/modules/user/datasets/import_service.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_create_returns_an_upload_url_audits_and_counts
+  - core-api/tests/integrations/data_plane/test_gateway.py::test_presign_staging_put_targets_the_fixed_staging_key
+- id: DAT-04
+  area: datasets
+  title: Import lifecycle - 10 states, compare-and-set transitions, Idempotency-Key, per-tenant active cap
+  source: planning/05 Resource model; planning/03 State machines; docs/datasets-architecture.md
+  status: built
+  old: F06
+  code: [core-api/app/modules/user/datasets/lifecycle.py, core-api/app/modules/user/datasets/constants.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_cas_moves_along_legal_edges_only
+  - core-api/tests/modules/user/datasets/test_imports.py::test_create_with_the_same_idempotency_key_returns_the_same_import
+  - core-api/tests/modules/user/datasets/test_imports.py::test_create_is_capped_per_tenant_with_429
+  - core-api/tests/modules/user/datasets/test_imports.py::test_active_statuses_match_the_migration_index
+- id: DAT-05
+  area: datasets
+  title: List and read imports
+  source: docs/datasets-architecture.md
+  status: built
+  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/imports", "GET /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_only_a_writer_gets_the_upload_url_back_from_a_read
+- id: DAT-06
+  area: datasets
+  title: Start an import (queue it and submit the ingest job; a failed submit stays startable)
+  source: docs/datasets-architecture.md Import flow
+  status: built
+  code: ["POST /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/start"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_start_queues_the_import_and_submits_the_job
+  - core-api/tests/modules/user/datasets/test_imports.py::test_a_failed_job_submit_leaves_the_import_startable
+  - core-api/tests/modules/user/datasets/test_imports.py::test_a_cancel_during_start_stops_the_job_instead_of_orphaning_it
+- id: DAT-07
+  area: datasets
+  title: Cancel an import (stops the job, purges staging)
+  source: docs/datasets-architecture.md
+  status: built
+  code: ["POST /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/cancel"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_cancel_stops_the_job_and_purges_staging
+  - core-api/tests/modules/user/datasets/test_imports.py::test_cancel_is_only_for_work_in_progress
+- id: DAT-08
+  area: datasets
+  title: Review before commit - staged preview and report, discard, expiry (24 h upload, 7 d review)
+  source: docs/datasets-plan.md decision 10 (not in planning)
+  status: built
+  old: F06
+  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/preview", "POST /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/discard", core-api/app/modules/user/datasets/preview_service.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_preview.py::test_import_preview_reads_the_staged_index
+  - core-api/tests/modules/user/datasets/test_preview.py::test_import_preview_outside_review_is_409
+  - core-api/tests/modules/user/datasets/test_reconcile.py::test_stale_import_expires_with_purge_and_audit
+  - core-api/tests/modules/user/datasets/test_imports.py::test_discard_purges_staging_and_audits
+- id: DAT-09
+  area: datasets
+  title: Commit - staged output verified, copied inside the object store, one idempotent lakeFS commit
+  source: planning/06 Datasets; planning/16
+  status: built
+  old: F06
+  code: ["POST /v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/commit", core-api/app/integrations/data_plane/lakefs.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_imports.py::test_commit_creates_the_next_version_audits_and_counts_bytes
+  - core-api/tests/modules/user/datasets/test_imports.py::test_double_commit_returns_the_same_version
+  - core-api/tests/integrations/data_plane/test_gateway.py::test_a_retried_commit_returns_the_commit_an_earlier_try_made
+- id: DAT-10
+  area: datasets
+  title: Merge an import onto a base version (strict merge, 409 stale_base, duplicates skipped, no overwrite mode)
+  source: docs/datasets-plan.md decision 5 (not in planning)
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/merge.py, core-api/app/modules/user/datasets/import_service.py]
+  tests:
+  - ray-jobs/tests/test_merge.py::test_merge_conflict_same_path_other_bytes
+  - core-api/tests/modules/user/datasets/test_imports.py::test_two_concurrent_commits_on_one_base_give_one_success_and_one_stale_base
+  - core-api/tests/modules/user/datasets/test_imports.py::test_start_refuses_a_stale_base
+- id: DAT-11
+  area: datasets
+  title: Immutable dataset versions, listed
+  source: planning/03 Entities; planning/06 Datasets
+  status: built
+  old: F06
+  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/versions"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_versions_page
+- id: DAT-12
+  area: datasets
+  title: Version preview with per-image presigned reads
+  source: planning/22 section 8
+  status: built
+  old: F06
+  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview", "GET /v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/files/{path}"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_preview.py::test_version_preview_returns_rows_with_urls_and_reads_only_the_index
+  - core-api/tests/modules/user/datasets/test_preview.py::test_file_link_presigns_the_object_path
+  - core-api/tests/integrations/data_plane/test_gateway.py::test_presign_get_rejects_bad_paths
+- id: DAT-13
+  area: datasets
+  title: Publish a dataset version to the public gallery (stats only) and unpublish
+  source: planning/05 (publish flag); planning/04
+  status: built
+  old: F06
+  code: ["PUT /v1/projects/{project_id}/datasets/{dataset_id}/published", "DELETE /v1/projects/{project_id}/datasets/{dataset_id}/published", "GET /v1/public/projects/{project_id}/datasets"]
+  tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_publish_sets_the_version_scoped_to_the_dataset_and_audits
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_gallery_function_returns_metadata_and_stats_only
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_unpublish_clears_it_and_audits
+- id: DAT-14
+  area: datasets
+  title: Ingest image classification from a zip
+  source: planning/06 Task types
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/entrypoints/upload_images.py, ray-jobs/ray_jobs/sources/images.py]
+  tests:
+  - ray-jobs/tests/test_images.py::test_valid_classification_zip
+  - ray-jobs/tests/test_entrypoints.py::test_classification_success_writes_objects_index_and_ok_report
+- id: DAT-15
+  area: datasets
+  title: Ingest object detection from a COCO zip
+  source: planning/06 Task types
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/sources/coco.py]
+  tests:
+  - ray-jobs/tests/test_coco.py::test_valid_coco
+  - ray-jobs/tests/test_entrypoints.py::test_detection_zip_is_routed_to_the_coco_reader
+- id: DAT-16
+  area: datasets
+  title: Ingest tabular and text datasets from CSV (target column, split tag, schema inference)
+  source: planning/06 Task types; planning/12 thin demo
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/entrypoints/upload_csv.py, ray-jobs/ray_jobs/sources/csv_table.py]
+  tests:
+  - ray-jobs/tests/test_csv_table.py::test_csv_schema_inference_and_split_tag
+  - ray-jobs/tests/test_entrypoints.py::test_csv_success_and_merge_with_a_base
+- id: DAT-17
+  area: datasets
+  title: Hostile-archive defences - traversal, symlinks, depth, file count, size, ratio, byte budget, header decode
+  source: planning/06 Datasets; planning/10 T7
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/sources/archive.py, ray-jobs/ray_jobs/common/limits.py]
+  tests:
+  - ray-jobs/tests/test_archive.py::test_zip_bomb_by_ratio_and_by_size
+  - ray-jobs/tests/test_archive.py::test_path_traversal_is_rejected
+  - ray-jobs/tests/test_archive.py::test_symlink_is_rejected
+  - ray-jobs/tests/test_images.py::test_corrupt_and_oversized_images_fail
+- id: DAT-18
+  area: datasets
+  title: Hugging Face dataset import (card and schema check, pinned commit, data files only, size cap)
+  source: planning/17 Hugging Face datasets; planning/12 P3
+  status: built
+  old: F06
+  code: [ray-jobs/ray_jobs/entrypoints/huggingface.py, ray-jobs/ray_jobs/sources/huggingface.py, core-api/app/modules/user/datasets/schemas.py]
+  tests:
+  - ray-jobs/tests/test_huggingface.py::test_hf_data_files_only_and_size_cap
+  - ray-jobs/tests/test_huggingface.py::test_hf_card_and_schema_agree
+  - core-api/tests/modules/user/datasets/test_schemas.py::test_repo_ids_that_reach_other_hub_paths_are_refused
+- id: DAT-19
+  area: datasets
+  title: Canonical formats - WebDataset shards (vision) and Parquet (tabular)
+  source: planning/06 Datasets; planning/16 Fast-start
+  status: partial
+  weight: 1
+  old: F06
+  code: [ray-jobs/ray_jobs/common/parquet.py, core-api/app/integrations/data_plane/layout.py]
+  tests:
+  - ray-jobs/tests/test_parquet.py::test_real_parquet_round_trip_of_an_image_index
+  gap: Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet.
+- id: DAT-20
+  area: datasets
+  title: Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates)
+  source: planning/06 Quality gates; planning/16 Dataset statistics
+  status: partial
+  weight: 1
+  old: F06
+  code: [ray-jobs/ray_jobs/common/stats.py, ray-jobs/ray_jobs/common/report.py]
+  tests:
+  - ray-jobs/tests/test_common.py::test_stats
+  - ray-jobs/tests/test_images.py::test_nfc_label_collisions_are_errors
+  gap: No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed.
+- id: DAT-21
+  area: datasets
+  title: Perceptual-hash warning for near-duplicates across splits
+  source: planning/06 Quality gates
+  status: missing
+  weight: 1
+  old: F06
+  code: []
+  tests: []
+  gap: Not built.
+- id: DAT-22
+  area: datasets
+  title: Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports)
+  source: planning/14 Plans
+  status: built
+  old: F06
+  code: [core-api/app/core/plan_limits.py, core-api/app/core/settings.py]
+  tests:
+  - core-api/tests/core/test_plan_limits.py::test_a_plan_row_is_laid_over_the_yaml_limits_and_leaves_the_rest
+  - core-api/tests/modules/user/datasets/test_imports.py::test_finished_imports_do_not_count_against_the_cap
+  - ray-jobs/tests/test_entrypoints.py::test_an_oversized_upload_is_refused_before_it_is_downloaded
+- id: DAT-23
+  area: datasets
+  title: Audit rows for dataset actions
+  source: planning/19 E1
+  status: partial
+  weight: 1
+  old: F06
+  code: [core-api/app/modules/user/datasets/service.py, core-api/app/modules/user/datasets/import_service.py]
+  tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
+  - core-api/tests/modules/user/datasets/test_imports.py::test_discard_purges_staging_and_audits
+  gap: Import create, commit, discard, expiry, delete, restore and publish are audited; creating the dataset itself is not.
+- id: DAT-24
+  area: datasets
+  title: Import usage metering (count and bytes)
+  source: planning/15 Usage pipeline
+  status: missing
+  weight: 1
+  old: F06
+  code: []
+  tests: []
+  gap: record_usage is called only for training and inference; the "counts bytes" in the commit test is a dataset size field, not a usage event (unverified).
+- id: DAT-25
+  area: datasets
+  title: datasets.data_categories declaration (personal data, faces and biometrics)
+  source: planning/18 Backend responsibilities
+  status: missing
+  weight: 2
+  old: F06
+  code: []
+  tests: []
+  gap: No column or field.
+- id: DAT-26
+  area: datasets
+  title: Tombstoning dataset versions for erasure inside immutable history
+  source: planning/03 Tables specified elsewhere; planning/18
+  status: deferred
+  weight: 1
+  old: F06
+  code: []
+  tests: []
+  gap: Designed with the erasure flow.
+- id: DAT-27
+  area: datasets
+  title: Labeling (Label Studio behind core-api)
+  source: planning/16 Label Studio; planning/22
+  status: deferred
+  weight: 1
+  old: F20
+  code: []
+  tests: []
+  gap: Stretch slot in planning/20.
+- id: DAT-28
+  area: datasets
+  title: Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow)
+  source: planning/17 Catalog
+  status: deferred
+  weight: 1
+  old: F19
+  code: []
+  tests: []
+  gap: Plus GET /v1/catalog/models and /v1/catalog/datasets and the catalog tables, none of which exist.
+- id: DAT-29
+  area: datasets
+  title: Adapter contract - only typed ids, names derived, ownership resolved under RLS first, fails closed
+  source: planning/16 Adapter contract
+  status: built
+  old: F20
+  code: [core-api/app/integrations/data_plane/access.py, core-api/app/integrations/data_plane/lakefs.py]
+  tests:
+  - core-api/tests/integrations/data_plane/test_gateway.py::test_foreign_tenant_gets_404_and_no_backend_call
+  - core-api/tests/integrations/data_plane/test_access.py::test_a_malformed_id_is_a_404_before_any_checker_runs
+  - core-api/tests/integrations/data_plane/test_gateway.py::test_every_operation_is_covered_by_the_args_table
+- id: DAT-30
+  area: datasets
+  title: Operator list of a tenant's datasets
+  source: planning/19 back office
+  status: built
+  old: F14
+  code: ["GET /v1/admin/tenants/{tenant_id}/datasets", core-api/app/modules/admin/tenants/detail.py]
+  tests:
+  - core-api/tests/architecture/test_admin_shapes.py
+  note: Only the SQL function shape is tested; there is no route-level test.
+- id: DAT-31
+  area: datasets
+  title: Cleanup of per-run training prefixes in the staging bucket
+  source: planning/03 Retention; planning/18 Erasure
+  status: missing
+  weight: 1
+  old: F20
+  code: []
+  tests: []
+  gap: "Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it)."
