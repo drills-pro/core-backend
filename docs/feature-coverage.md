@@ -125,7 +125,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | Id | Feature | Tests |
 |---|---|---|
 | SRV-15 | Inference latency and call metrics | core-api/tests/core/test_metrics.py |
-| DAT-30 | Operator list of a tenant's datasets | core-api/tests/architecture/test_admin_shapes.py |
 
 ## Could not be verified from the repo
 
@@ -193,13 +192,13 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-06 | partial | Promotion updates MLflow and the index in one operation | planning/06 Model registry and promotion | 1 |
 | REG-07 | built | Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision | planning/24 Q1; planning/05 Predict API | 2 |
 | REG-08 | built | Tenant and project namespaced MLflow names, RLS-isolated model_versions index | planning/03 Who owns which data; planning/16 Adapter contract | 2 |
-| REG-09 | built | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 3 |
+| REG-09 | built | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 4 |
 | REG-10 | missing | Deploying requires a model stage of at least candidate | planning/06 Model registry and promotion | 0 |
 | REG-11 | partial | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | planning/06 Job runtime contract (Model manifest) | 1 |
 | REG-12 | built | Stage enum mirrored by a CHECK with a drift test | core-backend CLAUDE.md rules | 1 |
 | REG-13 | missing | Audit rows for register, promote and publish | planning/19 E1 | 0 |
 | REG-14 | missing | Download by signed URL and auto-generated model card | planning/18 Export; planning/06 Quality gates | 0 |
-| REG-15 | built | Operator view of every model and its versions | planning/19 back office | 1 |
+| REG-15 | built | Operator view of every model and its versions | planning/19 back office | 4 |
 | REG-16 | partial | Registering a run twice is idempotent (one version row per run) | planning/03 Idempotency and events | 1 |
 
 ### deployment
@@ -325,7 +324,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-10 | built | Merge an import onto a base version (strict merge, 409 stale_base, duplicates skipped, no overwrite mode) | docs/datasets-plan.md decision 5 (not in planning) | 3 |
 | DAT-11 | built | Immutable dataset versions, listed | planning/03 Entities; planning/06 Datasets | 1 |
 | DAT-12 | built | Version preview with per-image presigned reads | planning/22 section 8 | 3 |
-| DAT-13 | built | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 3 |
+| DAT-13 | built | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 4 |
 | DAT-14 | built | Ingest image classification from a zip | planning/06 Task types | 2 |
 | DAT-15 | built | Ingest object detection from a COCO zip | planning/06 Task types | 2 |
 | DAT-16 | built | Ingest tabular and text datasets from CSV (target column, split tag, schema inference) | planning/06 Task types; planning/12 thin demo | 2 |
@@ -342,5 +341,5 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-27 | deferred | Labeling (Label Studio behind core-api) | planning/16 Label Studio; planning/22 | 0 |
 | DAT-28 | deferred | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | planning/17 Catalog | 0 |
 | DAT-29 | built | Adapter contract - only typed ids, names derived, ownership resolved under RLS first, fails closed | planning/16 Adapter contract | 3 |
-| DAT-30 | built | Operator list of a tenant's datasets | planning/19 back office | 1 |
+| DAT-30 | built | Operator list of a tenant's datasets | planning/19 back office | 2 |
 | DAT-31 | missing | Cleanup of per-run training prefixes in the staging bucket | planning/03 Retention; planning/18 Erasure | 0 |
