@@ -67,7 +67,7 @@ async def cancel(tenant_id: str, row: dict) -> dict:
 
 async def fail_unstarted(tenant_id: str, run_id: uuid.UUID, mlflow_run_id: str, project_id: uuid.UUID) -> None:
     """The job never started: end the run as failed so it stops counting against the quota."""
-    row = {"id": run_id, "status": TrainingStatus.SUBMITTED, "project_id": project_id, "mlflow_run_id": mlflow_run_id}
+    row = {"id": run_id, "tenant_id": tenant_id, "status": TrainingStatus.SUBMITTED, "project_id": project_id, "mlflow_run_id": mlflow_run_id}
     report = decide.failed_report(FailureCode.INTERNAL, "the training job could not be started")
     outcome = decide.Outcome(status=TrainingStatus.FAILED, report=report)
     async with TenantConn(tenant_id) as conn:
