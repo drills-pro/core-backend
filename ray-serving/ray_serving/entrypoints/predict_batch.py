@@ -10,6 +10,7 @@ report.json is written in a `finally`, whatever happened. The actors fetch the i
 import base64
 import io
 import json
+import re
 import sys
 from enum import StrEnum
 from typing import Callable
@@ -18,6 +19,13 @@ from ray_serving import model
 from ray_serving.batch_spec import INDEX_PATH_COLUMN, allowed_base, parse_spec
 from ray_serving.constants import MAX_REPORT_FAILURES, PREDICTIONS_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION
 from ray_serving.store import http_get, store_from_env
+
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")  # an object repr's address differs per process: the same bad item must give the same message
+
+
+def _message(text: str) -> str:
+    return _ADDRESS.sub("", text)
+
 
 OK, SUCCEEDED, FAILED = "ok", "succeeded", "failed"
 
@@ -50,13 +58,13 @@ def predict_item(loaded: model.Loaded, item: dict, fetch: Fetch) -> dict:
     try:
         image = fetch(item["url"])
     except Exception as e:  # noqa: BLE001 - an unreadable object is this item's failure
-        return {**row, "code": ItemCode.FETCH_FAILED, "message": f"{type(e).__name__}: {e}"}
+        return {**row, "code": ItemCode.FETCH_FAILED, "message": _message(f"{type(e).__name__}: {e}")}
     try:
         return {**row, OK: True, "predictions": model.predict(loaded, {"image_base64": base64.b64encode(image).decode()})}
     except model.ServeError as e:
-        return {**row, "code": e.code, "message": str(e)}
+        return {**row, "code": e.code, "message": _message(str(e))}
     except Exception as e:  # noqa: BLE001 - the model failed on this item
-        return {**row, "code": ItemCode.INTERNAL, "message": f"{type(e).__name__}: {e}"}
+        return {**row, "code": ItemCode.INTERNAL, "message": _message(f"{type(e).__name__}: {e}")}
 
 
 def predict_items(loaded: model.Loaded, items: list[dict], fetch: Fetch = http_get) -> list[dict]:
@@ -83,7 +91,7 @@ def ray_predict(payload: dict, items: list[dict]) -> list[dict]:
 
     spec = payload["model"]
     done = ray.data.from_items(items).map_batches(
-        BatchPredictor, batch_size=payload["batch_size"], concurrency=payload["concurrency"], batch_format="numpy",
+        BatchPredictor, batch_size=payload["batch_size"], compute=ray.data.ActorPoolStrategy(size=payload["concurrency"]), batch_format="numpy",
         fn_constructor_kwargs={"spec": spec, "base": allowed_base(spec["model_url"])}).take_all()
     return [{"path": str(r["path"]), OK: bool(r[OK]), "predictions": json.loads(r["predictions"]) if r[OK] else None,
              "code": str(r["code"]) or None, "message": str(r["message"]) or None} for r in done]

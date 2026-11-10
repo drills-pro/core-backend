@@ -144,9 +144,15 @@ def test_on_ray_the_same_rows_come_back(world):
     import ray
 
     payload, _, _ = world
-    ray.init(num_cpus=2, include_dashboard=False, ignore_reinit_error=True)
+    ray.init(address="local", num_cpus=2, include_dashboard=False, ignore_reinit_error=True)  # its own instance, even where a cluster is already running
     try:
         items = predict_batch.list_items(payload["data"])
         assert sorted(predict_batch.ray_predict(payload, items), key=lambda r: r["path"]) == sorted(local_predict(payload, items), key=lambda r: r["path"])
     finally:
         ray.shutdown()
+
+
+def test_an_item_message_carries_no_object_address():
+    # PIL's error text embeds "<_io.BytesIO object at 0x...>": the address differs per process, so the same bad item must not
+    # give a different message on every run (and the Ray and local paths must agree).
+    assert predict_batch._message("cannot identify image file <_io.BytesIO object at 0xfffd9fb58310>") == "cannot identify image file <_io.BytesIO object>"
