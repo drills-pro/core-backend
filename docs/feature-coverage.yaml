@@ -506,8 +506,8 @@ entries:
   tests:
   - core-api/tests/modules/user/model_registry/test_service.py::test_publish_flags_are_independent_and_need_one
   - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_editor_may_promote_but_not_publish
+  - core-api/tests/modules/user/public/test_public_routes.py::test_an_unpublished_model_has_no_name_or_version
   - core-api/tests/architecture/test_admin_shapes.py
-  note: The public models route itself has no route-level test; its SQL function shape is checked by test_admin_shapes.
 - id: REG-10
   area: registry
   title: Deploying requires a model stage of at least candidate
@@ -568,6 +568,9 @@ entries:
   code: ["GET /v1/admin/models", "GET /v1/admin/models/summary", "GET /v1/admin/models/{version_id}/versions", core-api/app/modules/admin/models/service.py]
   tests:
   - core-api/tests/db/test_admin_models_db.py::test_every_deployment_status_maps_to_a_model_status
+  - core-api/tests/modules/admin/test_models_routes.py::test_the_list_is_one_row_per_model_with_the_filtered_total_in_a_header
+  - core-api/tests/modules/admin/test_models_routes.py::test_an_unknown_filter_is_a_400_not_an_empty_page
+  - core-api/tests/modules/admin/test_models_routes.py::test_the_summary_is_the_platform_wide_counts
 - id: REG-16
   area: registry
   title: Registering a run twice is idempotent (one version row per run)
@@ -1626,6 +1629,7 @@ entries:
   - core-api/tests/modules/user/datasets/test_datasets.py::test_publish_sets_the_version_scoped_to_the_dataset_and_audits
   - core-api/tests/modules/user/datasets/test_datasets.py::test_gallery_function_returns_metadata_and_stats_only
   - core-api/tests/modules/user/datasets/test_datasets.py::test_unpublish_clears_it_and_audits
+  - core-api/tests/modules/user/public/test_public_routes.py::test_a_private_dataset_exists_but_has_no_name
 - id: DAT-14
   area: datasets
   title: Ingest image classification from a zip
@@ -1804,8 +1808,8 @@ entries:
   old: F14
   code: ["GET /v1/admin/tenants/{tenant_id}/datasets", core-api/app/modules/admin/tenants/detail.py]
   tests:
+  - core-api/tests/modules/admin/test_models_routes.py::test_a_tenants_datasets_are_listed_with_their_project_and_import_state
   - core-api/tests/architecture/test_admin_shapes.py
-  note: Only the SQL function shape is tested; there is no route-level test.
 - id: DAT-31
   area: datasets
   title: Cleanup of per-run training prefixes in the staging bucket
