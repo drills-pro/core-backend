@@ -1,6 +1,6 @@
 # Where Ray parallelism is used, and what is next
 
-Status 2026-11-10. "Built" rows were run on the local stack (`scripts/e2e-journey.sh`) unless noted. "Designed" rows are
+Status 2026-11-10 (batch inference: first slice built, see item 1). "Built" rows were run on the local stack (`scripts/e2e-journey.sh`) unless noted. "Designed" rows are
 not built; they need the owner's go-ahead because each adds a job kind or a product surface.
 
 ## Built
@@ -16,11 +16,22 @@ not built; they need the owner's go-ahead because each adds a job kind or a prod
 
 ## Designed, not built
 
-1. **Batch inference job (`kind: predict_batch`).** For a large offline set (thousands of images) the per-request gateway is the
-   wrong path. A new `BatchPredictSpec` beside `IngestSpec` and `TrainSpec` (same envelope, `report.json` result, GPU-seconds
-   metering) runs `ray.data.read_binary_files` on a dataset version, then `map_batches` with an actor pool that loads the model once
-   per actor (`concurrency` and `batch_size` from the preset), and writes predictions to the staging prefix. It reuses
-   `ray_serving.model.load/predict`, so a batch result equals a live one. Needs: job kind, spec test, a route to start it, quota.
+1. **Batch inference job (`kind: predict_batch`) - first slice built, not yet startable.** For a large offline set (thousands of images)
+   the per-request gateway is the wrong path. Built: `BatchPredictSpec` beside `IngestSpec` and `TrainSpec`
+   (`app/integrations/job_spec.py`, `JobKind.PREDICT_BATCH`, schema in `contracts/job-spec.v1.json`) and the runner
+   `ray-serving/ray_serving/entrypoints/predict_batch.py`. It reads the dataset index and object manifest (presigned, as TrainSpec does),
+   runs `ray.data.from_items(...).map_batches(BatchPredictor, concurrency=, batch_size=)` where each actor loads the model once with
+   `ray_serving.model.load` and answers each item with `model.predict` (so a batch result equals a live one, tested), and writes
+   `predictions.jsonl` and `report.json` (counts, per-item failures, capped at 200) under the job's prefix; one bad item never ends the
+   job and report.json is written in a `finally`. The runner lives in `ray_serving`, not `ray_jobs`: it must import the model code, and
+   each package ships as its own zip. It runs on the CPU pool, where the ray-jobs image carries onnxruntime.
+   **Next slice needs:** a route to start it (`POST` on a project's dataset version with a deployment or model version; builds the spec
+   with `serve_client.served_model` and a manifest like training's, submits with `job_submit.submit` and module
+   `ray_serving.entrypoints.predict_batch`, package `JobPackageName.RAY_SERVING`), a `predict_batches` table (RLS, status, report
+   read-back, CHECK mirrored from an enum), a reconciler like the training one, GPU-seconds metering and a quota (concurrent batch
+   jobs per tenant, items per job), `layout` prefix and presigned read of `predictions.jsonl` for the customer, and a Ray Data run
+   on the cluster (unverified: `ray.data` needs pandas, which the ray-training dev venv lacks; the CI jobs do not run `ray-serving/tests`).
+   Ceiling: the driver collects all rows (`take_all`) before writing, so very large sets need `write_json` to the staging prefix.
 2. **Hyperparameter search (`kind: tune`).** Ray Tune with the ASHA scheduler over the bounds that already live in
    `task_presets.hyperparameters` (min, max, default). Each trial is the existing Ray Train run; `max_concurrent_trials` caps GPU use;
    the best trial registers as the model version. Deferred by doc 17 ("tuning deferred"), so this is a product decision first.
