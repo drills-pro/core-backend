@@ -25,9 +25,26 @@ dev = [
     "pytest>=8.0",
     "cryptography>=42",
     "ruff>=0.17.3",
+    "coverage>=7",
+    "pytest-cov>=5",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "../ray-jobs", "../ray-training"]  # ray_jobs, ray_training: the contract tests import the job packages (ray_training without torch)
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+# The CI gate (tests.yml runs pytest with --cov): a pull request that drops the total below this fails. Baseline 91% on
+# 2026-11-10; raise the number when coverage rises, never lower it to get a change through.
+fail_under = 90
+skip_empty = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.$",
+]

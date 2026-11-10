@@ -12,6 +12,7 @@ Run from `core-api/` (tools via `mise`; ask before installing anything):
 ```bash
 uv sync --group dev                  # first time
 .venv/bin/python -m pytest tests -q  # tests need no services and no network
+.venv/bin/python -m pytest tests -q --cov=app --cov-report=term-missing:skip-covered  # line + branch coverage; CI fails under 90%
 core-api/.venv/bin/ruff check .      # from the repo root (ruff is a core-api dev dep; config in ruff.toml, lint only)
 ./scripts/db-tests.sh                # from the repo root: tenant isolation as core_app on a real Postgres (Docker only)
 ./scripts/install-hooks.sh           # once per clone: pre-commit runs ruff on staged .py files
