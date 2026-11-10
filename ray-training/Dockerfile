@@ -12,7 +12,8 @@ FROM ${BASE}
 COPY --chown=ray:users pyproject.toml /tmp/ray-training/pyproject.toml
 # Ray first, then the rest under a protobuf<6 constraint: ray[serve] pins protobuf 5.x, and the newest onnx needs protobuf 6.31+. Installed in
 # the other order, onnx pulls protobuf 7, Ray downgrades it, and `import onnx` fails with a gencode/runtime version error, which breaks the
-# ONNX export (found building the same dependency set for the local compose Ray head, compose/ray-head/Dockerfile). Not built for cu128 yet.
+# ONNX export (reproduced building the same dependency set for the local compose Ray head, compose/ray-head/Dockerfile). The build-time import check below
+# now includes onnx, so CI fails if this regresses; earlier CI builds passed because that check did not import it.
 RUN echo 'protobuf<6' > /tmp/ray-training/constraints.txt \
     && python -c "import tomllib; print('\\n'.join(tomllib.load(open('/tmp/ray-training/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-training/requirements.txt \
