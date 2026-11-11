@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from app.core.enums import TaskType
 from app.modules.user.deployments import service
 from app.modules.user.deployments.constants import (
+    METRIC_FLOORS,
     DEFAULT_COMPUTE_TARGET,
     PLAN_TIER_RATE_LIMITS,
     SETTING_COMPUTE_TARGET,
@@ -141,6 +142,18 @@ def test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_r
     deploy_env.conn.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY, acknowledge_risk=True))
     assert deploy_env.deployed and inserted(deploy_env.conn)[-1] is True  # risk_acknowledged is the last insert argument
+
+
+def test_a_score_under_the_task_floor_needs_acknowledge_risk(deploy_env):
+    metric, floor = METRIC_FLOORS[TaskType.IMAGE_CLASSIFICATION]  # the fixture's default task
+    deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "metrics": {metric: floor - 0.1}}
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+    assert e.value.status_code == 409 and e.value.code == ProblemCode.DEPLOY_RISK and metric in e.value.detail and not deploy_env.deployed
+    deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "metrics": {metric: floor}}  # at the floor is fine
+    deploy_env.conn.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
+    asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+    assert deploy_env.deployed and inserted(deploy_env.conn)[-1] is False
 
 
 def test_a_detection_run_deploys_with_the_class_names_its_report_lists(deploy_env):

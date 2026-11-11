@@ -27,7 +27,9 @@ from app.modules.user.deployments.constants import (
     OUTPUT_ITEM_BY_POSTPROCESS,
     SNIPPET_INPUT_PLACEHOLDER,
     DEFAULT_COMPUTE_TARGET,
+    DEPLOY_BELOW_FLOOR_DETAIL,
     DEPLOY_RISK_DETAIL,
+    METRIC_FLOORS,
     DEPLOYMENT_EXISTS_DETAIL,
     DEPLOYMENT_LOCK_PREFIX,
     AuditAction,
@@ -153,9 +155,14 @@ async def create_deployment(
         info = None if task is None else await task_types.get(conn, task)
         if info is None or not info.enabled or not info.servable or not run.servable:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
-        risky = not run.has_test_split
+        risk = None if run.has_test_split else DEPLOY_RISK_DETAIL
+        metric, floor = METRIC_FLOORS.get(task, (None, 0.0))
+        score = (run.metrics or {}).get(metric)
+        if risk is None and isinstance(score, int | float) and score < floor:
+            risk = DEPLOY_BELOW_FLOOR_DETAIL.format(metric=metric, value=score, floor=floor)
+        risky = risk is not None
         if risky and not acknowledge_risk:  # a warning with an acknowledgement, not a block (planning/06 Quality gates)
-            raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOY_RISK, DEPLOY_RISK_DETAIL)
+            raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOY_RISK, risk)
 
         settings = await get_settings(conn, project_id)
         deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
