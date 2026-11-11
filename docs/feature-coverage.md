@@ -20,10 +20,10 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
-| datasets | 22 | 2 | 4 | 3 | 31 |
-| **all** | 109 | 34 | 14 | 14 | 171 |
+| datasets | 23 | 2 | 3 | 3 | 31 |
+| **all** | 110 | 34 | 13 | 14 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 80% of 157.
+Built share of the features that are due (partial counts half, deferred excluded): 81% of 157.
 
 ## Gaps, most important first
 
@@ -61,7 +61,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
-| 1 | missing | DAT-24 | datasets | Import usage metering (count and bytes) | record_usage is called only for training and inference; the "counts bytes" in the commit test is a dataset size field, not a usage event (unverified). |
 | 1 | missing | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
 | 1 | missing | DEP-09 | deployment | ETag and If-Match on deployments and settings | No ETag or If-Match handling anywhere in app/. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
@@ -123,7 +122,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-11 | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Unverifiable here without running a trainer. |
 | JOB-07 | Dedicated worker process (python -m app.worker) and an API that runs no pollers | The old audit rated this partial; the worker has tests now. Whether the k8s repo runs it as its own Deployment was not checked. |
 | JOB-12 | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
-| DAT-24 | Import usage metering (count and bytes) | record_usage is called only for training and inference; the "counts bytes" in the commit test is a dataset size field, not a usage event (unverified). |
 | DAT-31 | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
 
 ## All features
@@ -325,7 +323,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-21 | missing | Perceptual-hash warning for near-duplicates across splits | planning/06 Quality gates | 0 |
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
 | DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
-| DAT-24 | missing | Import usage metering (count and bytes) | planning/15 Usage pipeline | 0 |
+| DAT-24 | built | Import usage metering (count and bytes) | planning/15 Usage pipeline | 1 |
 | DAT-25 | missing | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 0 |
 | DAT-26 | deferred | Tombstoning dataset versions for erasure inside immutable history | planning/03 Tables specified elsewhere; planning/18 | 0 |
 | DAT-27 | deferred | Labeling (Label Studio behind core-api) | planning/16 Label Studio; planning/22 | 0 |

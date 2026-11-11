@@ -21,6 +21,7 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.datasets import import_service as svc
 from app.integrations import job_lifecycle
+from app.modules.user.usage import UsageResource, UsageUnit
 from app.modules.user.datasets import lifecycle, readers
 from app.modules.user.datasets import router as datasets
 from app.modules.user.datasets.job_table import IMPORTS
@@ -57,6 +58,7 @@ class FakeDb:
         self.task_type, self.imports, self.versions, self.audits = task_type, {}, [], []
         self.lock, self.tenant_lock, self.fail_audit, self.fail_version = asyncio.Lock(), asyncio.Lock(), False, False
         self.fail_set_job = False
+        self.usage_rows = []  # usage_events rows: (resource_type, quantity, unit, source_ref)
         self.access = access(roles=["editor"])
 
     def seed(self, status=S.AWAITING_REVIEW, **kw):
@@ -124,6 +126,9 @@ class _Conn:
         if sql.startswith(f"UPDATE {IMPORTS.table} SET status"):  # job_lifecycle.advance, via cas
             self.tx.mutating()
             return apply_advance(IMPORTS, db.imports, sql, a)
+        if sql.startswith("INSERT INTO usage_events"):
+            db.usage_rows.append((a[3], a[4], a[5], a[7]))
+            return {"id": len(db.usage_rows)}
         if sql == svc._NEW_VERSION:
             if db.fail_version:
                 raise RuntimeError("connection lost")
@@ -176,6 +181,8 @@ class _Conn:
         if sql == svc._TENANT_LOCK:  # pg_advisory_xact_lock: held until the transaction ends
             await db.tenant_lock.acquire()
             self.tx.tenant_locked = True
+            return None
+        if "team_id FROM projects" in sql:  # usage.record_usage derives the team
             return None
         raise AssertionError(f"unexpected fetchval: {sql}")
 
@@ -492,6 +499,7 @@ def test_commit_creates_the_next_version_audits_and_counts_bytes(env):
     assert env.db.imports[row["id"]]["status"] == S.SUCCEEDED and env.db.versions[0]["lakefs_commit"] == "commit-1"
     assert env.db.audits == [(AuditAction.IMPORT_COMMITTED, EntityType.DATASET_IMPORT, str(row["id"]))]
     assert env.db.usage == [("dataset_import_bytes", 7)]
+    assert env.db.usage_rows == [(UsageResource.STORAGE_DATASET, 7, UsageUnit.BYTES, str(row["id"]))]
     second = run(svc.commit_import(CTX, PROJECT, DS, env.db.seed(S.AWAITING_REVIEW, base_version_id=version.id)["id"]))
     assert second.number == 2
 

@@ -14,3 +14,4 @@ class UsageResource(StrEnum):
 class UsageUnit(StrEnum):
     GPU_SECONDS = "gpu_seconds"
     REQUESTS = "requests"
+    BYTES = "bytes"

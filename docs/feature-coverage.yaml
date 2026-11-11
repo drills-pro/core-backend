@@ -1754,12 +1754,13 @@ entries:
   area: datasets
   title: Import usage metering (count and bytes)
   source: planning/15 Usage pipeline
-  status: missing
+  status: built
   weight: 1
   old: F06
-  code: []
-  tests: []
-  gap: record_usage is called only for training and inference; the "counts bytes" in the commit test is a dataset size field, not a usage event (unverified).
+  code: [core-api/app/modules/user/datasets/import_service.py]
+  tests:
+    - core-api/tests/modules/user/datasets/test_imports.py::test_commit_creates_the_next_version_audits_and_counts_bytes
+  note: One storage_dataset usage event in bytes per committed import (source_ref is the import id, so a resumed commit writes it once).
 - id: DAT-25
   area: datasets
   title: datasets.data_categories declaration (personal data, faces and biometrics)

@@ -44,6 +44,7 @@ from app.modules.user.datasets.constants import (
 )
 from app.modules.user.datasets import ingest_spec, pipeline_log
 from app.modules.user.datasets.job_table import IMPORTS
+from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 from app.modules.user.datasets.lifecycle import purge_staging_quietly, wind_down
 from app.modules.user.datasets.readers import dataset_task
 from app.modules.user.datasets.schemas import DatasetImport, DatasetVersion, ImportCreate
@@ -337,6 +338,10 @@ async def commit_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uu
             )
             await cas(conn, row, ImportStatus.SUCCEEDED)
             await audit.record_for(conn, ctx, project_id, AuditAction.IMPORT_COMMITTED, EntityType.DATASET_IMPORT, import_id)
+            await record_usage(  # one event per import: a resumed commit writes the same source_ref and no-ops
+                conn, tenant_id=ctx.tenant_id, project_id=project_id, resource_type=UsageResource.STORAGE_DATASET,
+                quantity=stats.total_bytes, unit=UsageUnit.BYTES, occurred_at=datetime.now(UTC), source_ref=str(import_id),
+            )
     except Exception as e:
         if not isinstance(e, Problem):  # a Problem is the caller's (the dataset went away), not the store's
             pipeline_log.storage_failed(claimed, e)
