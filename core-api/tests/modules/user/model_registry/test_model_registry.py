@@ -51,7 +51,7 @@ def test_allowed_and_hidden(call, method, path, action, kw):
 
 
 def test_an_unknown_stage_is_a_400_listing_the_stages(call):
-    res = call("post", f"{BASE}/{MODEL}/promote", ADMIN, params={"stage": "Archived"})
+    res = call("post", f"{BASE}/{MODEL}/promote", ADMIN, params={"stage": "Retired"})
     assert res.status_code == 400 and "Staging" in res.json()["detail"]
 
 

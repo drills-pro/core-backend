@@ -15,15 +15,15 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
 | training | 22 | 8 | 4 | 3 | 37 |
-| registry | 12 | 2 | 2 | 0 | 16 |
+| registry | 13 | 2 | 1 | 0 | 16 |
 | deployment | 14 | 2 | 2 | 1 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 6 | 1 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
 | datasets | 22 | 2 | 4 | 3 | 31 |
-| **all** | 108 | 30 | 21 | 12 | 171 |
+| **all** | 109 | 30 | 20 | 12 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 77% of 159.
+Built share of the features that are due (partial counts half, deferred excluded): 78% of 159.
 
 ## Gaps, most important first
 
@@ -66,7 +66,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | missing | DEP-09 | deployment | ETag and If-Match on deployments and settings | No ETag or If-Match handling anywhere in app/. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
-| 1 | missing | REG-05 | registry | Archived stage for retired versions | ModelStage has None, Staging, Production only. |
 | 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
 | 1 | partial | DAT-20 | datasets | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed. |
@@ -179,7 +178,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-02 | built | A succeeded run registers its model automatically at settle time | planning/06 Lifecycle | 1 |
 | REG-03 | partial | List model versions with customer stage labels | planning/22 Models screen | 2 |
 | REG-04 | built | Promote between stages (None, Staging, Production); promoting an older version is the rollback | planning/06 Model registry and promotion | 2 |
-| REG-05 | missing | Archived stage for retired versions | planning/06 Model registry and promotion (candidate, production, archived) | 0 |
+| REG-05 | built | Archived stage for retired versions | planning/06 Model registry and promotion (candidate, production, archived) | 1 |
 | REG-06 | built | Promotion updates MLflow and the index in one operation | planning/06 Model registry and promotion | 2 |
 | REG-07 | built | Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision | planning/24 Q1; planning/05 Predict API | 2 |
 | REG-08 | built | Tenant and project namespaced MLflow names, RLS-isolated model_versions index | planning/03 Who owns which data; planning/16 Adapter contract | 2 |

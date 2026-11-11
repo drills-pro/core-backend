@@ -43,6 +43,7 @@ class ModelStage(StrEnum):
     NONE = "None"
     STAGING = "Staging"
     PRODUCTION = "Production"
+    ARCHIVED = "Archived"
 
 
 class StartedRun(BaseModel):
