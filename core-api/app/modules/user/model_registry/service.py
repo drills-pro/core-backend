@@ -7,6 +7,7 @@ its row written once it is the compare-and-set winner.
 import uuid
 from http import HTTPStatus
 
+from app.core import audit
 from app.core.authz import AuthzContext
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
@@ -14,6 +15,8 @@ from app.integrations.data_plane import mlflow
 from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.model_registry.constants import (
     CUSTOMER_STAGE_LABELS,
+    AuditAction,
+    EntityType,
     NOTHING_TO_UPDATE_DETAIL,
     ProblemCode,
 )
@@ -88,6 +91,7 @@ async def register_run(
     registered = await register_in_mlflow(ctx.tenant_id, project_id, name, mlflow_run_id)
     async with TenantConn(ctx.tenant_id) as conn:
         stored = await record_version(conn, ctx.tenant_id, project_id, training_run_id, registered)
+        await audit.record_for(conn, ctx, project_id, AuditAction.REGISTER, EntityType.MODEL_VERSION, stored.id)
     return _shown(stored, ctx.tenant_id, project_id)
 
 
@@ -114,6 +118,8 @@ async def promote(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUI
     try:
         async with TenantConn(tenant_id) as conn:
             updated = await conn.fetchrow(_SET_STAGE, version_id, stage)
+            if updated is not None:
+                await audit.record_for(conn, ctx, project_id, AuditAction.PROMOTE, EntityType.MODEL_VERSION, version_id)
     except Exception:
         # The row write failed after MLflow moved: put MLflow back so the two do not diverge (audit C-14).
         await mlflow.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], ModelStage(row["stage"]))
@@ -133,6 +139,8 @@ async def set_publish(
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE_DETAIL)
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(_SET_PUBLISH, version_id, metadata, artifact, project_id)
+        if row is not None:
+            await audit.record_for(conn, ctx, project_id, AuditAction.SET_PUBLISH, EntityType.MODEL_VERSION, version_id)
     if row is None:
         raise not_found()
     return PublishState.model_validate(dict(row))

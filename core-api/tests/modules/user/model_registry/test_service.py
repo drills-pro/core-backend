@@ -18,7 +18,7 @@ from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
 
 TENANT, PROJECT, RUN, VERSION = str(uuid.uuid4()), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-CTX = SimpleNamespace(tenant_id=TENANT)
+CTX = SimpleNamespace(tenant_id=TENANT, actor="user-1")
 FULL_NAME = mlflow.registered_model_name(TENANT, str(PROJECT), "clf")
 NOW = datetime.now(timezone.utc)
 RUN_ROW = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": []}
@@ -69,6 +69,20 @@ def test_promote_moves_mlflow_then_the_row_and_labels_the_stage_for_customers(en
     assert (out.mlflow_model_name, out.stage, out.customer_label) == ("clf", "Staging", CUSTOMER_STAGE_LABELS[ModelStage.STAGING])
     update = next(args for sql, args in env.conn.calls if sql.startswith("UPDATE model_versions SET stage"))
     assert update == (VERSION, ModelStage.STAGING)
+
+
+def audited(env):
+    return [args[3:5] for sql, args in env.conn.calls if sql.startswith("INSERT INTO audit_log")]
+
+
+def test_register_promote_and_publish_each_write_an_audit_row(env):
+    run(service.register_run(CTX, PROJECT, RUN, "clf", "mlflow-1"))
+    env.conn.rows["SELECT mlflow_model_name, mlflow_version"] = {"mlflow_model_name": FULL_NAME, "mlflow_version": "3", "stage": "None"}
+    env.conn.rows["UPDATE model_versions SET stage"] = {**STORED, "stage": ModelStage.STAGING}
+    run(service.promote(CTX, PROJECT, VERSION, ModelStage.STAGING))
+    env.conn.rows["UPDATE model_versions SET publish_metadata"] = {"id": VERSION, "publish_metadata": True, "publish_artifact": False}
+    run(service.set_publish(CTX, PROJECT, VERSION, True, None))
+    assert audited(env) == [("register", "model_version"), ("promote", "model_version"), ("set_publish", "model_version")]
 
 
 def test_promote_to_production_is_also_the_rollback_of_an_older_version(env):
