@@ -104,6 +104,7 @@ def test_over_the_deployments_rate_limit_is_429_naming_the_limit_and_nothing_is_
     problem = refused()
     assert (problem.status_code, problem.code) == (HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED) and "7/min" in problem.detail
     assert env.checks == [(str(DEPLOYMENT), 7)] and not env.posted and not env.usage
+    assert 1 <= int(problem.headers["Retry-After"]) <= 60  # seconds left in the fixed minute
 
 
 def test_a_legacy_deployment_gets_the_body_without_metadata_which_is_echoed_back_and_the_call_is_metered(env):
