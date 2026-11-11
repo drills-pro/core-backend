@@ -174,7 +174,7 @@ def make_conn(monkeypatch, *, task=TaskType.IMAGE_CLASSIFICATION, inflight=0, ex
 
 
 def ctx():
-    return SimpleNamespace(tenant_id=str(uuid.uuid4()))
+    return SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 
 
 def create(body=BODY, key="k"):

@@ -397,12 +397,13 @@ entries:
   area: training
   title: Audit rows for run create and cancel
   source: planning/19 E1
-  status: missing
+  status: built
   weight: 2
   old: F07
-  code: []
-  tests: []
-  gap: training/ has no audit.record call; datasets, deployments and api keys do write audit rows.
+  code: [core-api/app/modules/user/training/create_service.py, core-api/app/modules/user/training/run_service.py]
+  tests:
+  - core-api/tests/modules/user/training/test_run_service.py::test_a_cancel_is_audited
+  note: Create is written in the same transaction as the run row; cancel after the run settled.
 - id: TRN-37
   area: training
   title: Class names backfilled from model.json into old reports
@@ -468,13 +469,14 @@ entries:
   area: registry
   title: Promotion updates MLflow and the index in one operation
   source: planning/06 Model registry and promotion
-  status: partial
+  status: built
   weight: 1
   old: F09
   code: [core-api/app/modules/user/model_registry/service.py]
   tests:
   - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_mlflow_transition_leaves_the_row_alone
-  gap: MLflow first, then the row, in two steps; a failure of the row update after MLflow moved leaves the two out of step.
+  - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_row_write_puts_mlflow_back_on_the_old_stage
+  note: Two steps, but a failed row write moves MLflow back to the old stage, so the two do not stay out of step.
 - id: REG-07
   area: registry
   title: Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision
@@ -510,14 +512,15 @@ entries:
   - core-api/tests/architecture/test_admin_shapes.py
 - id: REG-10
   area: registry
-  title: Deploying requires a model stage of at least candidate
+  title: Stage ranks the default revision of a model (deploying needs no stage)
   source: planning/06 Model registry and promotion
-  status: missing
+  status: built
   weight: 2
   old: F09
-  code: []
-  tests: []
-  gap: A deployment is created from a succeeded training run, not from a model version, and checks no stage.
+  code: [core-api/app/modules/user/deployments/model_predict.py]
+  tests:
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
+  note: Decision 2026-11-12 (planning/06 amended); a stage gate on deploy would break train-then-deploy.
 - id: REG-11
   area: registry
   title: model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics)
@@ -543,12 +546,12 @@ entries:
   area: registry
   title: Audit rows for register, promote and publish
   source: planning/19 E1
-  status: missing
+  status: built
   weight: 2
   old: F09
-  code: []
-  tests: []
-  gap: model_registry/ has no audit.record call.
+  code: [core-api/app/modules/user/model_registry/service.py]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_register_promote_and_publish_each_write_an_audit_row
 - id: REG-14
   area: registry
   title: Download by signed URL and auto-generated model card
@@ -575,13 +578,13 @@ entries:
   area: registry
   title: Registering a run twice is idempotent (one version row per run)
   source: planning/03 Idempotency and events
-  status: partial
+  status: built
   weight: 1
   old: F09
-  code: [core-api/app/modules/user/model_registry/service.py]
+  code: [core-api/app/modules/user/model_registry/service.py, core-api/migrations/20261111184133_model_version_unique.sql]
   tests:
+  - core-api/tests/modules/user/model_registry/test_service.py::test_registering_twice_hits_the_unique_key_and_returns_the_one_row
   - core-api/tests/integrations/test_mlflow_models.py::test_registering_a_run_twice_reuses_its_mlflow_version
-  gap: MLflow reuses the version, but the model_versions insert has no unique key on the run, so a second call to the register route adds a second row.
 # ------------------------------------------------------------------ DEPLOYMENT
 - id: DEP-01
   area: deployment
@@ -680,13 +683,14 @@ entries:
   area: deployment
   title: Audit rows for deployment actions
   source: planning/19 E1; planning/18
-  status: partial
+  status: built
   weight: 1
   old: F10
   code: [core-api/app/modules/user/deployments/service.py]
   tests:
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
-  gap: stop, start and delete write audit rows; create does not.
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_new_deployment_writes_a_create_audit_row
+  note: create, redeploy (main strategy), stop, start and delete are audited.
 - id: DEP-11
   area: deployment
   title: Try it with the user session (no predict key in the console) and a recent-calls log
@@ -736,15 +740,15 @@ entries:
   note: The shape comes from the task type's encoder and postprocess, not from a per-model signature captured at registration; that waits for the model card.
 - id: DEP-15
   area: deployment
-  title: Active only after a health check, and active deployments re-checked
+  title: Active when the Ray job finished (legacy) or at once (shared serving loads on the first request)
   source: planning/03 Deployment state machine
-  status: partial
+  status: built
   weight: 2
   old: F10
-  code: [core-api/app/integrations/serve_client.py]
+  code: [core-api/app/integrations/serve_client.py, core-api/app/modules/user/deployments/tasks.py]
   tests:
   - core-api/tests/integrations/test_serve_shared.py::test_the_apps_are_declared_when_they_are_not_there
-  gap: A shared deployment is active at once; only the shared apps are re-declared (ensure_serving). No per-deployment probe, so a model that cannot load shows active until its first call fails.
+  note: Decision 2026-11-12 (planning/03 amended). A model that cannot load fails its first call with 502 upstream_error; a per-deployment probe would need a replica per deployment.
 - id: DEP-16
   area: deployment
   title: Legacy per-deployment Serve app started by a Ray job (deprecated serving mode)

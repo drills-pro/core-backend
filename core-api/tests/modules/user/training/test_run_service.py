@@ -11,11 +11,11 @@ from fastapi import HTTPException
 from app.core.problem import Problem
 from app.integrations.data_plane import mlflow
 from app.modules.user.training import persist, run_service, service
-from app.modules.user.training.constants import ProblemCode, TrainingStatus
+from app.modules.user.training.constants import AuditAction, EntityType, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, patch_tenant_conn
 from tests.support.job_table import FakeJobConn, FakeJobTable, patch
 
-CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()))
+CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 S = TrainingStatus
 
 
@@ -188,3 +188,9 @@ def test_a_run_whose_job_never_started_ends_failed_and_is_counted(monkeypatch):
     assert env.row["status"] == S.FAILED and env.row["report"]["code"] == "internal"
     assert env.metrics == [S.FAILED] and env.killed == [mlflow.RunStatus.FAILED]
 
+
+
+def test_a_cancel_is_audited(monkeypatch):
+    env = Env(monkeypatch)
+    cancel(env.row["id"])
+    assert [a[3:] for a in env.table.audit] == [(AuditAction.CANCEL, EntityType.TRAINING_RUN, str(env.row["id"]))]

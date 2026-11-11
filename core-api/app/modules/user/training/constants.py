@@ -12,6 +12,15 @@ class TrainingStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class AuditAction(StrEnum):
+    CREATE = "create"
+    CANCEL = "cancel"
+
+
+class EntityType(StrEnum):
+    TRAINING_RUN = "training_run"
+
+
 class ProblemCode(StrEnum):
     INVALID_STATE = "invalid_training_state"
     TASK_TYPE_MISSING = "project_task_type_missing"
