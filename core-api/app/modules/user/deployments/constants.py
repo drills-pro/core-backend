@@ -163,3 +163,14 @@ ACCEPT_HEADER = "Accept"
 JSON_ACCEPTABLE = ("application/json", "application/*", "*/*")  # an Accept entry that lets the sync JSON answer through
 NOT_STREAMABLE_DETAIL = "no model can stream yet (no serve adapter declares streaming); send Accept: application/json, or Prefer: respond-async"
 LAST_EVENT_ID_HEADER = "Last-Event-ID"
+
+
+# What a deployment's callers send and get back, by what the task type's encoder and postprocess functions read and write
+# (ray_serving/inputs.py, ray_serving/postprocess.py); the keys are those function names.
+INPUT_FIELD_BY_ENCODER = {"image_encoder": "image_base64", "text_encoder": "text"}
+OUTPUT_ITEM_BY_POSTPROCESS = {
+    "classify": {"class": "string", "probability": "number"},
+    "detect": {"class": "string", "probability": "number", "box": {"x": "number", "y": "number", "width": "number", "height": "number"}},
+}
+SNIPPET_KEY_PLACEHOLDER = "<YOUR_API_KEY>"
+SNIPPET_INPUT_PLACEHOLDER = "<BASE64_IMAGE>"
