@@ -19,9 +19,9 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
-| jobs | 12 | 9 | 4 | 2 | 27 |
+| jobs | 13 | 8 | 4 | 2 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 116 | 35 | 4 | 16 | 171 |
+| **all** | 117 | 34 | 4 | 16 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 86% of 155.
 
@@ -41,7 +41,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | JOB-14 | jobs | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | Detection is by Ray state and a fixed deadline (LOST_JOB_GRACE_SECONDS); there are no heartbeats to go silent, so a hung job is found only at the deadline. |
 | 2 | partial | JOB-23 | jobs | Per-plan limits stored as data and edited by an operator (imports, runs, archives, images, tables, predict, deployments) | Limits are counts and sizes; no GPU-minute allowance, no replica caps, no per-plan retention (planning/14). |
 | 2 | partial | JOB-25 | jobs | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo. |
-| 2 | partial | JOB-27 | jobs | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | Kinds are <job>.<status> (training, import, deployment), readable by cursor; webhook delivery is built (JOB-16); there is no notifications module (email or in-app). |
 | 2 | partial | PRD-16 | predict | Usage - one event per 2xx prediction id, none for failures, replays or retries | Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter. |
 | 2 | partial | PRD-21 | predict | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | Only JSON with image_base64 (or text) is read, header-first with a pixel limit; no multipart and no image-URL input, so no SSRF path exists to guard. |
 | 2 | partial | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge. |
@@ -288,7 +287,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | JOB-24 | built | Ingest jobs run resource-limited with the staging credential and no lakeFS credential | planning/06 Datasets; planning/13 ADR-018 | 2 |
 | JOB-25 | partial | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | planning/20 Gates for a single-reviewer team | 2 |
 | JOB-26 | partial | Journey scripts (import, train and deploy, predict) run against the local stack | planning/05 Machine-friendly by design | 0 |
-| JOB-27 | partial | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | planning/05 Events and webhooks; planning/05 Notification channels | 1 |
+| JOB-27 | built | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | planning/05 Events and webhooks; planning/05 Notification channels | 3 |
 
 ### datasets
 
