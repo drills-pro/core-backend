@@ -14,16 +14,16 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
-| training | 22 | 8 | 4 | 3 | 37 |
+| training | 22 | 8 | 3 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
-| deployment | 14 | 2 | 2 | 1 | 19 |
+| deployment | 14 | 2 | 1 | 2 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
 | datasets | 22 | 2 | 4 | 3 | 31 |
-| **all** | 109 | 32 | 18 | 12 | 171 |
+| **all** | 109 | 32 | 16 | 14 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 79% of 159.
+Built share of the features that are due (partial counts half, deferred excluded): 80% of 157.
 
 ## Gaps, most important first
 
@@ -32,10 +32,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | Weight | Status | Id | Area | Feature | Gap |
 |---|---|---|---|---|---|
 | 3 | missing | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker). |
-| 3 | missing | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. |
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
+| 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | missing | DAT-25 | datasets | datasets.data_categories declaration (personal data, faces and biometrics) | No column or field. |
-| 2 | missing | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. |
 | 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | missing | JOB-16 | jobs | Transactional outbox, dispatcher and webhooks | No outbox, no events table, no webhook delivery; clients must poll job state. |
@@ -60,6 +59,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
+| 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
 | 1 | missing | DAT-24 | datasets | Import usage metering (count and bytes) | record_usage is called only for training and inference; the "counts bytes" in the commit test is a dataset size field, not a usage event (unverified). |
 | 1 | missing | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
@@ -151,7 +151,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-17 | built | Metrics logged to MLflow by core-api; trainer holds no MLflow or lakeFS credential | planning/16 What a trainer receives; planning/13 ADR-018 | 2 |
 | TRN-18 | built | Reconciler settles runs from Ray state plus report; billed once under replicas | planning/09 Reconciler design | 3 |
 | TRN-19 | built | Concurrent-run quota per plan (429 too_many_training_runs) | planning/14 Quota enforcement | 2 |
-| TRN-20 | missing | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | planning/14 Quota enforcement; planning/22 Training form | 0 |
+| TRN-20 | deferred | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | planning/14 Quota enforcement; planning/22 Training form | 0 |
 | TRN-21 | partial | GPU-seconds metering of runs (usage event per finished run, once) | planning/14 Billable meters; planning/15 | 3 |
 | TRN-22 | built | Fault tolerance - checkpoint per epoch, resume after worker loss, runtime limit | planning/16 Fast-start; planning/07 Scheduling | 3 |
 | TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | docs/ray-parallelism.md Built | 2 |
@@ -212,7 +212,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-15 | built | Active when the Ray job finished (legacy) or at once (shared serving loads on the first request) | planning/03 Deployment state machine | 1 |
 | DEP-16 | built | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | planning/12 Migration mechanics | 2 |
 | DEP-17 | built | CPU or GPU compute target per project (project setting compute_target) | planning/07 Single-node reality | 2 |
-| DEP-18 | missing | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | planning/06 Deployment model (Scale) | 0 |
+| DEP-18 | deferred | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | planning/06 Deployment model (Scale) | 0 |
 | DEP-19 | deferred | Blue/green rollout, traffic split, serve-torch runtime | planning/06 Rollout; planning/17 Serving runtimes | 0 |
 
 ### serving
