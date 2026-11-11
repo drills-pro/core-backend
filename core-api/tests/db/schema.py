@@ -21,6 +21,9 @@ SEEDS = (
     ("events",
      "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) "
      "SELECT tenant_id, id, 'training.succeeded', gen_random_uuid(), 'succeeded' FROM projects WHERE tenant_id = $1"),
+    ("webhook_endpoints",
+     "INSERT INTO webhook_endpoints (tenant_id, project_id, url, created_by) "
+     "SELECT tenant_id, id, 'https://example.com/hook', 'u1' FROM projects WHERE tenant_id = $1"),
     ("usage_events",
      f"INSERT INTO usage_events (tenant_id, project_id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version) "
      f"SELECT tenant_id, id, '{UsageResource.TRAINING}', 1, '{UsageUnit.GPU_SECONDS}', now(), tenant_id::text, 'v1' "

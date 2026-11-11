@@ -184,6 +184,7 @@ class SecretPaths(_Section):
     staging: Path  # {"endpoint", "access_key", "secret_key"} of the S3 store holding the staging bucket
     ingest: Path  # same shape as staging, but limited to the staging bucket: the ingest job runs hostile input with it
     zitadel: Path
+    webhooks: Path  # {"signing_key"}; optional: without the file webhook endpoints cannot be created or delivered to
 
 
 class Settings(BaseSettings):

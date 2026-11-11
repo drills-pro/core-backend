@@ -14,5 +14,6 @@ write_secret lakefs.json endpoint "http://lakefs:8000" access_key "$KEY" secret_
 write_secret staging.json endpoint "http://minio:9000" access_key "$KEY" secret_key "$SECRET"
 # Bucket-only MinIO user created by steps/lakefs.sh: the ingest job runs hostile input and gets nothing else.
 write_secret ingest.json endpoint "http://minio:9000" access_key "ingest" secret_key "ingest-local-secret"
+write_secret webhooks.json signing_key "local-webhook-signing-key"
 
-echo "secrets: $SECRETS_DIR (lakefs, staging, ingest)"
+echo "secrets: $SECRETS_DIR (lakefs, staging, ingest, webhooks)"

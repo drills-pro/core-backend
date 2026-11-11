@@ -13,3 +13,4 @@ secrets:
   staging: /nonexistent/staging.json
   ingest: /nonexistent/ingest.json
   zitadel: /nonexistent/zitadel.json
+  webhooks: /nonexistent/webhooks.json

@@ -21,6 +21,7 @@ from app.modules.user.deployments import (
     reconcile_inflight_deployments,
 )
 from app.modules.user.training import reconcile_inflight_runs
+from app.modules.user.webhooks import dispatch_webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ RECONCILE_INTERVAL_SECONDS = 10
 SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
 SERVING_ENSURE_INTERVAL_SECONDS = 60
+WEBHOOK_INTERVAL_SECONDS = 5
 PREDICTION_WORKER_INTERVAL_SECONDS = 1  # background predictions wait at most this long to be picked up (planning/24 Q7)
 
 
@@ -44,6 +46,7 @@ POLLERS = (
     ("test-calls-purge", purge_test_calls, PURGE_INTERVAL_SECONDS),
     ("prediction-worker", process_predictions, PREDICTION_WORKER_INTERVAL_SECONDS),
     ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
+    ("webhook-dispatch", dispatch_webhooks, WEBHOOK_INTERVAL_SECONDS),
 )
 
 

@@ -46,6 +46,7 @@ from app.modules.user import (
     tenant_members,
     tenants,
     training,
+    webhooks,
     usage,
 )
 from app.modules.user.datasets import pipeline_log
@@ -67,6 +68,7 @@ ROUTERS = (
     admin_tenants.detail_router,
     projects.router,
     job_events.router,
+    webhooks.router,
     datasets.router,
     deployments.router,
     auth.router,
