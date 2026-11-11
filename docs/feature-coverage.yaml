@@ -1828,9 +1828,12 @@ entries:
   area: datasets
   title: Cleanup of per-run training prefixes in the staging bucket
   source: planning/03 Retention; planning/18 Erasure
-  status: missing
+  status: partial
   weight: 1
   old: F20
-  code: []
-  tests: []
-  gap: "Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it)."
+  code: [core-api/app/integrations/data_plane/train.py, core-api/app/modules/user/training/effects.py, core-api/app/modules/user/training/service.py]
+  tests:
+    - core-api/tests/integrations/data_plane/test_gateway.py::test_purge_train_prefix_deletes_the_run_prefix_with_the_staging_credentials
+    - core-api/tests/modules/user/training/test_training.py::test_a_purge_failure_does_not_fail_the_settle
+  note: A run's staged files are deleted when it reaches a final state (settle or cancel). The purge is best effort with no retry sweep, and package prefixes are not cleaned.
+  gap: "A failed purge is only logged; no sweep retries it, and no bucket lifecycle rule exists in the k8s repo."

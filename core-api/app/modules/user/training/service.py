@@ -44,6 +44,7 @@ async def settle(row: dict, verdict: job_lifecycle.Verdict) -> None:
         return
     if not TRANSITIONS[outcome.status]:
         usage_metrics.training_runs.add(1, {"status": outcome.status})
+        await effects.purge_run_files(tenant_id, row)
     if verdict.timed_out:
         await job_lifecycle.stop_quietly(row["ray_job_id"])
 
@@ -62,6 +63,7 @@ async def cancel(tenant_id: str, row: dict) -> dict:
             return dict(current)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is no longer {row['status']}")
     usage_metrics.training_runs.add(1, {"status": TrainingStatus.CANCELLED})
+    await effects.purge_run_files(tenant_id, row)
     return moved
 
 
