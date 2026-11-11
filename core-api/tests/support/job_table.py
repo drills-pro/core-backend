@@ -94,6 +94,9 @@ class FakeJobConn:
 
     async def execute(self, sql, *args):
         t = self.table
+        if sql.startswith("INSERT INTO audit_log"):
+            t.audit = [*getattr(t, "audit", []), args]
+            return
         assert sql in (job_lifecycle.release_sql(t.job), job_lifecycle.defer_sql(t.job)), sql
         row = t.rows.get(args[0])
         if row is None or row["claimed_until"] != args[1]:  # only the lease this claim took

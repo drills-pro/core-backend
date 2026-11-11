@@ -23,7 +23,7 @@ from app.modules.user.training import TrainingStatus
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
 
-CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()))
+CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 
 
 def test_rate_limit_follows_plan_tier_and_unknown_falls_back_to_free():

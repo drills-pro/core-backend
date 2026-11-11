@@ -57,6 +57,8 @@ TERMINAL_STATUSES = frozenset({PredictionStatus.COMPLETED, PredictionStatus.FAIL
 
 
 class AuditAction(StrEnum):
+    CREATE = "create"
+    REDEPLOY = "redeploy"
     STOP = "stop"
     START = "start"
     DELETE = "delete"

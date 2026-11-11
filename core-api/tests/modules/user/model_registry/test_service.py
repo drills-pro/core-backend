@@ -146,3 +146,12 @@ def test_the_lineage_reader_returns_the_newest_version_of_a_run(env):
     assert (ref.id, ref.mlflow_model_name) == (VERSION, FULL_NAME)  # the namespaced name, as lineage always showed it
     env.conn.rows["WHERE training_run_id"] = None
     assert run(get_run_version(env.conn, RUN)) is None
+
+
+def test_registering_twice_hits_the_unique_key_and_returns_the_one_row(env):
+    from pathlib import Path
+    run(service.register_run(CTX, PROJECT, RUN, "clf", "mlflow-1"))
+    sql = next(s for s, _ in env.conn.calls if s.startswith("INSERT INTO model_versions"))
+    migration = next((Path(__file__).parents[4] / "migrations").glob("*_model_version_unique.sql")).read_text()
+    assert "ON CONFLICT (project_id, mlflow_model_name, mlflow_version)" in sql
+    assert "UNIQUE (project_id, mlflow_model_name, mlflow_version)" in migration

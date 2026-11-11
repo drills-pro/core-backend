@@ -23,7 +23,7 @@ from tests.integrations.test_serve_shared import MODEL
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
 
-CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()))
+CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 PROJECT, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 KEY = "k"
 SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat", "dog"]}

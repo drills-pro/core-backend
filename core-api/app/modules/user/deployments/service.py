@@ -215,6 +215,7 @@ async def _write_deployment(
                 )
                 if row is None:
                     raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
+                await audit.record_for(conn, ctx, project_id, AuditAction.REDEPLOY, EntityType.DEPLOYMENT, deployment_id)
                 return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
             # Shown once — this is the credential a customer's downstream
@@ -229,6 +230,7 @@ async def _write_deployment(
             )
             if not created:  # lost a race with the same key: that one is the deployment
                 return _replay(row, training_run_id)
+            await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DEPLOYMENT, deployment_id)
     except asyncpg.UniqueViolationError:  # only a unique index on the version or the run is left (deployments_one_active_per_version, deployments_one_live_per_run): the idempotency key conflict is DO NOTHING above
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
