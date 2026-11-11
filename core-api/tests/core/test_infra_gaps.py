@@ -6,7 +6,7 @@ import logging
 import pytest
 
 from app import background
-from app.core import auth_log, rate_limit, secret_files, tenant_conn
+from app.core import auth_log, loki_log, rate_limit, secret_files, tenant_conn
 from app.core.enums import AuthEvent, AuthResult
 from app.core.settings import settings
 from tests.support.fake_pool import RecordingConn, patch_pool
@@ -107,8 +107,8 @@ def test_auth_log_setup_is_a_noop_in_test_and_ships_over_otlp_otherwise(monkeypa
     assert auth_log.logger.handlers == handlers  # env == test
 
     monkeypatch.setattr(settings, "env", "local")
-    monkeypatch.setattr(auth_log, "OTLPLogExporter", _FakeExporter)
-    monkeypatch.setattr(auth_log, "BatchLogRecordProcessor", lambda exporter: _NoopProcessor())
+    monkeypatch.setattr(loki_log, "OTLPLogExporter", _FakeExporter)
+    monkeypatch.setattr(loki_log, "BatchLogRecordProcessor", lambda exporter: _NoopProcessor())
     before = auth_log.logger.propagate
     try:
         auth_log.setup()

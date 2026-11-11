@@ -21,21 +21,7 @@ ABSOLUTE = ("/v1/", "/internal/", "/health")
 EXPR = "\x00"  # stands for an f-string expression inside a scanned literal
 
 # (METHOD, path template): why no test names it. Keep this short; a route that matters gets a test instead.
-_ADMIN_READ = "platform-admin read-only listing; test_matrix.py only checks that it declares the platform-admin gate, no handler test yet"
 UNTESTED: dict[tuple[str, str], str] = {
-    ("GET", "/v1/admin/activity"): _ADMIN_READ,
-    ("GET", "/v1/admin/activity/summary"): _ADMIN_READ,
-    ("GET", "/v1/admin/models"): _ADMIN_READ,
-    ("GET", "/v1/admin/models/summary"): _ADMIN_READ,
-    ("GET", "/v1/admin/models/{version_id}/versions"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants/summary"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants/{tenant_id}"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants/{tenant_id}/datasets"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants/{tenant_id}/members"): _ADMIN_READ,
-    ("GET", "/v1/admin/tenants/{tenant_id}/projects"): _ADMIN_READ,
-    ("POST", "/v1/admin/tenants"): "platform-admin tenant creation; same gate, no route test yet (tests/modules/admin/test_internal_tenant.py covers the internal tenant only)",
-    ("PATCH", "/v1/admin/tenants/{tenant_id}/settings"): "platform-admin settings write; same gate, no handler test yet",
 }
 
 
