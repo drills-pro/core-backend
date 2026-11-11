@@ -25,8 +25,10 @@ class ProblemCode(StrEnum):
     NOT_REGISTRABLE = "run_not_registrable"
     EVENT_TOO_LARGE = "training_event_too_large"
     INVALID_EVENT = "invalid_training_event"
+    CANCEL_FAILED = "training_cancel_failed"
 
 
+CANCEL_FAILED_DETAIL = "the run could not be stopped right now; it is unchanged, try again shortly"
 START_FAILED_DETAIL = "could not start the training run, try again shortly"
 DEFAULT_MODEL_NAME = "model"  # the registered model every succeeded run adds a version to (matches model_registry's MODEL_NAME)
 SEED_MAX = 2**32 - 1

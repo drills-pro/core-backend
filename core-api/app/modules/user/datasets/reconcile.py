@@ -23,6 +23,7 @@ from app.modules.user.datasets.constants import (
     EntityType,
     ImportStatus,
 )
+from app.modules.user.datasets import pipeline_log
 from app.modules.user.datasets.job_table import IMPORTS
 from app.modules.user.datasets.lifecycle import wind_down
 
@@ -55,6 +56,7 @@ async def _move(row: dict, *steps: tuple[ImportStatus, dict]) -> dict | None:
 
 async def _fail(row: dict, report: ImportReport) -> None:
     if await _move(row, (ImportStatus.FAILED, {"expires_at": None, "report": report.model_dump(mode="json")})):
+        pipeline_log.failed(row, report)  # only the replica that moved it logs
         await wind_down(row, stop_job=False)  # after the commit
 
 
@@ -74,7 +76,8 @@ async def _settle(row: dict, verdict: job_lifecycle.Verdict, now: datetime) -> N
     report = await data_plane.read_report(*ids)
     if verdict.ray is JobStatus.SUCCEEDED and report is not None and report.outcome is Outcome.OK:
         review = {"expires_at": now + IMPORT_REVIEW_TTL, "report": report.model_dump(mode="json")}
-        await _move(row, *to_running, (ImportStatus.AWAITING_REVIEW, review))
+        if await _move(row, *to_running, (ImportStatus.AWAITING_REVIEW, review)):
+            pipeline_log.completed(row, report)
         return
     if report is None or report.outcome is not Outcome.FAILED:
         report = _failure(IssueCode.INTERNAL_ERROR, f"the ingest job ended as {verdict.ray} without a usable report")

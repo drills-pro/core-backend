@@ -30,13 +30,16 @@ from app.modules.user.model_registry.schemas import (
 _ENSURE_MODEL = "INSERT INTO models (tenant_id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO NOTHING"
 _INSERT = (
     "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version, model_id) "
-    "SELECT $1, $2, $3, $4, $5, (SELECT id FROM models WHERE project_id = $2 AND name = $4) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at"
+    "SELECT $1, $2, $3, $4, $5, (SELECT id FROM models WHERE project_id = $2 AND name = $4) "
+    # a retried register answers the row the first one wrote (the no-op update makes RETURNING see it)
+    "ON CONFLICT (project_id, mlflow_model_name, mlflow_version) DO UPDATE SET mlflow_version = EXCLUDED.mlflow_version "
+    "RETURNING id, mlflow_model_name, mlflow_version, stage, created_at"
 )
 _LIST = (
     "SELECT id, model_id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
     "WHERE project_id = $1 ORDER BY created_at DESC"
 )
-_BY_ID = "SELECT mlflow_model_name, mlflow_version FROM model_versions WHERE id = $1 AND project_id = $2"
+_BY_ID = "SELECT mlflow_model_name, mlflow_version, stage FROM model_versions WHERE id = $1 AND project_id = $2"
 _SET_STAGE = "UPDATE model_versions SET stage = $2 WHERE id = $1 RETURNING id, mlflow_model_name, mlflow_version, stage"
 _SET_PUBLISH = (
     "UPDATE model_versions SET publish_metadata = COALESCE($2, publish_metadata), "
@@ -106,15 +109,15 @@ async def promote(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUI
         row = await conn.fetchrow(_BY_ID, version_id, project_id)
     if row is None:
         raise not_found()
-    await mlflow.transition_stage(
-        tenant_id,
-        str(project_id),
-        mlflow.display_name(row["mlflow_model_name"], tenant_id, str(project_id)),
-        row["mlflow_version"],
-        stage,
-    )
-    async with TenantConn(tenant_id) as conn:
-        updated = await conn.fetchrow(_SET_STAGE, version_id, stage)
+    name = mlflow.display_name(row["mlflow_model_name"], tenant_id, str(project_id))
+    await mlflow.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], stage)
+    try:
+        async with TenantConn(tenant_id) as conn:
+            updated = await conn.fetchrow(_SET_STAGE, version_id, stage)
+    except Exception:
+        # The row write failed after MLflow moved: put MLflow back so the two do not diverge (audit C-14).
+        await mlflow.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], ModelStage(row["stage"]))
+        raise
     if updated is None:
         raise not_found()
     shown = _shown(VersionRef.model_validate(dict(updated)), tenant_id, project_id)

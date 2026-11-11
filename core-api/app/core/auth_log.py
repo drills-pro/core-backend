@@ -1,8 +1,4 @@
-"""Sign-in log records, pushed over OTLP to Loki (the otel-gateway in prod, the LGTM container locally).
-
-Only this module's logger goes out that way, and it does not propagate to the root logger: stdout is
-tailed into Loki by the cluster's otel-agent too, so propagating would ship every record twice. Each
-record carries the active span's trace and span ids, so Grafana links it to the request in Tempo.
+"""Sign-in log records, an OTLP stream under the backend's service name (core/loki_log.py ships it).
 
 Sign-out happens at Zitadel (/oidc/v1/end_session) and never reaches this process; Zitadel ships a
 request log for every request it serves, so query its sign-in, sign-up and sign-out paths in Grafana.
@@ -10,29 +6,17 @@ request log for every request it serves, so query its sign-in, sign-up and sign-
 In Grafana: {service_name="core-backend"} | auth_event="sign_in". Attribute dots become underscores.
 """
 import logging
-import socket
 
-from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.sdk.resources import Resource
-
+from app.core import loki_log
 from app.core.enums import AuthAttribute, AuthEvent, AuthResult
-from app.core.settings import SERVICE_NAME, settings
+from app.core.settings import SERVICE_NAME
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # the root logger stays at WARNING; sign-ins are INFO
 
 
 def setup() -> None:
-    if settings.env == "test":
-        return  # records stay ordinary ones that caplog sees; nothing tries to reach a collector
-    resource = Resource.create({"service.name": SERVICE_NAME, "service.instance.id": socket.gethostname()})
-    provider = LoggerProvider(resource=resource)
-    exporter = OTLPLogExporter(endpoint=settings.observability.otlp_endpoint, insecure=True)
-    provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
-    logger.addHandler(LoggingHandler(level=logging.INFO, logger_provider=provider))
-    logger.propagate = False
+    loki_log.ship(SERVICE_NAME, logger)
 
 
 def signed_in(subject: str, event: AuthEvent) -> None:

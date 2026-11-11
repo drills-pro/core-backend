@@ -581,3 +581,82 @@ def test_the_status_check_mirrors_the_enum():
     sql = (MIGRATIONS / "20261017172706_init.sql").read_text()
     clause = re.search(r"status\s+text NOT NULL DEFAULT 'submitted'\s+CHECK \(status IN \(([^)]*)\)\)", sql)
     assert set(re.findall(r"'([^']+)'", clause.group(1))) == {s.value for s in TrainingStatus}
+
+
+# ---- reads and failure paths the tests above do not reach ----
+
+def test_get_run_returns_the_run(call):
+    ok = call("GET", f"{BASE}/{RUN}", {**access(), **run_row()})
+    assert (ok.status_code, ok.json()["id"]) == (200, str(RUN))
+
+
+def test_get_run_of_another_project_is_404(monkeypatch):
+    patch_tenant_conn(monkeypatch, FakeConn(row=None), run_service)
+    with pytest.raises(Problem) as err:
+        asyncio.run(run_service.get_run(ctx(), PROJECT, RUN))
+    assert err.value.status_code == 404
+
+
+def test_logs_of_an_unknown_run_are_404(monkeypatch):
+    patch_tenant_conn(monkeypatch, FakeConn(row=None), run_service)
+    with pytest.raises(Problem) as err:
+        asyncio.run(run_service.get_logs(ctx(), PROJECT, RUN))
+    assert err.value.status_code == 404
+
+
+def test_cancel_route_stops_a_viewer_but_lets_a_deployer_cancel(call, monkeypatch):
+    async def cancel_run(c, project_id, run_id):
+        return run_row(status="cancelled")
+
+    monkeypatch.setattr(run_service, "cancel_run", cancel_run)
+    r = call("POST", f"{BASE}/{RUN}/cancel", access(role=TenantRole.ADMIN))
+    assert (r.status_code, r.json()["status"]) == (200, "cancelled")
+
+
+def test_presets_route_lists_the_projects_task_presets(monkeypatch, dev_headers):
+    from app.modules.user.training import preset_service
+
+    client = make_client(routes.presets_router)
+    conn = FakeConn(access(), val=TaskType.IMAGE_CLASSIFICATION, rowset=[preset_row()])
+    patch_tenant_conn(monkeypatch, conn, preset_service)
+    r = client.get(f"/v1/projects/{PROJECT}/training-presets")
+    assert r.status_code == 200 and [p["name"] for p in r.json()] == ["small"]
+    assert conn.calls[-1][1] == (TaskType.IMAGE_CLASSIFICATION,)  # asked for this task's presets only
+
+
+def test_a_project_without_a_task_type_has_no_presets(monkeypatch, dev_headers):
+    from app.modules.user.training import preset_service
+
+    client = make_client(routes.presets_router)
+    patch_tenant_conn(monkeypatch, FakeConn(access(), val=None), preset_service)
+    r = client.get(f"/v1/projects/{PROJECT}/training-presets")
+    assert (r.status_code, r.json()) == (200, [])
+
+
+@pytest.mark.parametrize("broken", ["resolve", "start_run"])
+def test_a_failure_before_the_run_exists_is_a_503_and_nothing_is_stored_or_submitted(monkeypatch, broken):
+    gw = Gateway(monkeypatch)
+    conn = make_conn(monkeypatch)
+
+    async def boom(*a, **k):
+        raise RuntimeError("mlflow is down")
+
+    monkeypatch.setattr(create_service.data_plane if broken == "resolve" else create_service.mlflow, "resolve_stable_package" if broken == "resolve" else "start_run", boom)
+    with pytest.raises(Problem) as err:
+        create()
+    assert (err.value.status_code, err.value.code) == (503, ProblemCode.START_FAILED)
+    assert gw.spec is None and not any(sql.startswith("INSERT INTO training_runs") for sql, _ in conn.calls)
+
+
+def test_a_submit_failure_still_fails_the_run_when_stopping_the_job_and_closing_the_run_also_fail(monkeypatch):
+    gw = Gateway(monkeypatch, fail_submit=True)
+    make_conn(monkeypatch)
+
+    async def boom(*a, **k):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(create_service.compute, "stop", boom)
+    monkeypatch.setattr(service, "fail_unstarted", boom)
+    with pytest.raises(Problem) as err:
+        create()
+    assert (err.value.status_code, err.value.code) == (503, ProblemCode.START_FAILED) and gw.spec is not None

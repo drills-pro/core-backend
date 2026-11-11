@@ -26,7 +26,9 @@ from app.modules.user.datasets.constants import (
     AuditAction,
     ImportStatus,
 )
+from app.modules.user.datasets.constants import PipelineEvent as E
 from app.modules.user.datasets.job_table import IMPORTS
+from tests.modules.user.datasets.test_pipeline_log import pipeline_events
 from tests.support import PROJECT, TENANT
 from tests.support.job_table import FakeJobConn, FakeJobTable
 
@@ -173,6 +175,13 @@ def test_finished_job_moves_to_review_with_report_and_ttl(env):
     assert env.gw.purged_staging == []  # staging holds what review will read
 
 
+def test_a_finished_import_logs_pipeline_completed(env, caplog):
+    row = env.db.seed(S.RUNNING)
+    env.ray.status, env.gw.reports[str(row["id"])] = R.SUCCEEDED, OK
+    run(rec.reconcile_inflight_imports(T0))
+    assert pipeline_events(caplog) == [("INFO", E.COMPLETED, None)]
+
+
 def test_failed_report_fails_the_import_and_purges_staging(env):
     row = env.db.seed(S.RUNNING)
     env.ray.status, env.gw.reports[str(row["id"])] = R.SUCCEEDED, BAD
@@ -180,6 +189,19 @@ def test_failed_report_fails_the_import_and_purges_staging(env):
     assert row["status"] == S.FAILED and row["completed_at"] is not None
     assert row["report"]["issues"][0]["code"] == IssueCode.CORRUPT_IMAGE
     assert env.gw.purged_staging == [str(row["id"])]
+
+
+def test_a_failed_import_logs_its_failed_stage_then_pipeline_failed(env, caplog):
+    row = env.db.seed(S.RUNNING)
+    env.ray.status, env.gw.reports[str(row["id"])] = R.SUCCEEDED, BAD
+    run(rec.reconcile_inflight_imports(T0))
+    assert pipeline_events(caplog) == [("WARNING", E.FILE_VALIDATION_FAILED, "corrupt_image"), ("ERROR", E.FAILED, "corrupt_image")]
+
+
+def test_a_timed_out_import_logs_pipeline_failed(env, caplog):
+    env.db.seed(S.RUNNING, expires_at=T0)
+    run(rec.reconcile_inflight_imports(T0))
+    assert pipeline_events(caplog) == [("ERROR", E.FAILED, "job_timeout")]
 
 
 def test_crashed_job_without_report_fails_with_internal_error(env):
@@ -262,9 +284,10 @@ def test_a_cancel_that_lands_while_the_report_is_read_wins_quietly(env, caplog):
     run(rec.reconcile_inflight_imports(T0))
     assert row["status"] == S.CANCELLED and row["report"] is None
     assert env.gw.purged_staging == [] and not [r for r in caplog.records if r.levelname == "ERROR"]  # not a logged 409
+    assert pipeline_events(caplog) == []  # the cancel won; the import did not fail
 
 
-def test_two_replicas_reconciling_at_once_settle_a_finished_import_once(env):
+def test_two_replicas_reconciling_at_once_settle_a_finished_import_once(env, caplog):
     rows = [env.db.seed(S.RUNNING) for _ in range(4)]
     env.ray.status = R.FAILED
 
@@ -274,6 +297,7 @@ def test_two_replicas_reconciling_at_once_settle_a_finished_import_once(env):
     run(both())
     assert {r["status"] for r in rows} == {S.FAILED}
     assert sorted(env.gw.purged_staging) == sorted(str(r["id"]) for r in rows)  # each wound down once
+    assert [e for _, e, _ in pipeline_events(caplog)] == [E.FAILED] * len(rows)  # and logged once
 
 
 def test_expiry_purges_staging_only_after_the_row_change_succeeded(env, monkeypatch):
