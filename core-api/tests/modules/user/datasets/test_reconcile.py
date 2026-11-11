@@ -106,6 +106,8 @@ class _Conn(FakeJobConn):
     async def execute(self, sql, *a):
         if sql == job_lifecycle.release_sql(IMPORTS):
             return await super().execute(sql, *a)
+        if sql == job_lifecycle._EMIT:
+            return
         self.db.audits.append((a[2], a[3], a[5]))  # audit.record: tenant, project, actor, action, entity_type, entity_id
 
 

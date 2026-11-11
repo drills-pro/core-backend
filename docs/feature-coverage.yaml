@@ -1380,12 +1380,13 @@ entries:
   area: jobs
   title: Transactional outbox, dispatcher and webhooks
   source: planning/03 Idempotency and events; planning/13 ADR-005; planning/05 Events and webhooks
-  status: missing
+  status: partial
   weight: 2
   old: F08
-  code: []
-  tests: []
-  gap: No outbox, no events table, no webhook delivery; clients must poll job state.
+  code: ["GET /v1/projects/{project_id}/events", core-api/migrations/20261111221500_events_outbox.sql, core-api/app/integrations/job_lifecycle.py, core-api/app/modules/user/job_events/service.py]
+  tests:
+    - core-api/tests/modules/user/job_events/test_events_route.py::test_a_viewer_reads_events_after_a_cursor
+  gap: Events are written in the same transaction as each state move and listed by cursor; there is no dispatcher or webhook delivery, and training cancel paths that bypass advance emit no event.
 - id: JOB-17
   area: jobs
   title: Reconciler wake-up through LISTEN/NOTIFY
@@ -1495,11 +1496,12 @@ entries:
   area: jobs
   title: Customer-facing events for jobs (job.queued .. job.succeeded) and notifications
   source: planning/05 Events and webhooks; planning/05 Notification channels
-  status: missing
+  status: partial
   weight: 2
-  code: []
-  tests: []
-  gap: Same gap as the outbox (JOB-16); no notifications module.
+  code: ["GET /v1/projects/{project_id}/events", core-api/app/modules/user/job_events/routes.py]
+  tests:
+    - core-api/tests/modules/user/job_events/test_events_route.py::test_a_project_the_caller_cannot_see_is_404
+  gap: Kinds are <job>.<status> (training, import, deployment), readable by cursor; no notifications module and no webhook delivery (JOB-16).
 # ------------------------------------------------------------------ DATASETS
 - id: DAT-01
   area: datasets

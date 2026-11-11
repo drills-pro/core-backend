@@ -18,6 +18,9 @@ SEEDS = (
      f"INSERT INTO project_members (tenant_id, project_id, user_sub, role) "
      f"SELECT tenant_id, id, 'u1', '{Role.VIEWER}' FROM projects WHERE tenant_id = $1"),
     ("audit_log", "INSERT INTO audit_log (tenant_id, actor, action, entity_type, entity_id) VALUES ($1, 'u1', 'seeded', 'tenant', 'x')"),
+    ("events",
+     "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) "
+     "SELECT tenant_id, id, 'training.succeeded', gen_random_uuid(), 'succeeded' FROM projects WHERE tenant_id = $1"),
     ("usage_events",
      f"INSERT INTO usage_events (tenant_id, project_id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version) "
      f"SELECT tenant_id, id, '{UsageResource.TRAINING}', 1, '{UsageUnit.GPU_SECONDS}', now(), tenant_id::text, 'v1' "
