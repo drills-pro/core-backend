@@ -59,6 +59,7 @@ class TrainSpec:
     early_stopping_patience: int = 0  # 0 = off
     events_url: str | None = None  # reporting.events_url: where to post progress; None = post nothing
     events_token_env: str | None = None  # reporting.token_env: the environment variable that holds the token (never in the spec)
+    base_license: str | None = None  # the base model's SPDX licence as the preset recorded it, copied to model.json
 
 
 def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
@@ -93,5 +94,5 @@ def parse_spec(text: str) -> TrainSpec:
         lr_schedule=LrSchedule(p.get("lr_schedule", LrSchedule.CONSTANT)), warmup_fraction=p.get("warmup_fraction", 0.0),
         augmentation=Augmentation(p.get("augmentation", Augmentation.NONE)),
         early_stopping_patience=p.get("early_stopping_patience", 0),
-        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"),
+        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"), base_license=base.get("license"),
     )
