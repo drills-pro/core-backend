@@ -75,11 +75,12 @@ async def create_deployment(
     project_id: uuid.UUID,
     training_run_id: uuid.UUID,
     idempotency_key: IdempotencyKey,
+    acknowledge_risk: bool = False,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
-    """Deploy a training run. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
+    """Deploy a training run. A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
     the predict key, which is shown once); the same key with another run is 409."""
-    return await service.create_deployment(ctx, project_id, training_run_id, idempotency_key)
+    return await service.create_deployment(ctx, project_id, training_run_id, idempotency_key, acknowledge_risk)
 
 
 @router.get("/v1/projects/{project_id}/deployments", response_model=list[DeploymentListItem])

@@ -297,12 +297,14 @@ entries:
   area: training
   title: Deploy gate with acknowledge_risk, model card, near-duplicate warning
   source: planning/06 Quality gates
-  status: missing
+  status: partial
   weight: 2
   old: F07
-  code: []
-  tests: []
-  gap: No acknowledge_risk parameter, no card, no perceptual hash; a model with no test split or a poor metric deploys silently.
+  code: [core-api/app/modules/user/deployments/service.py, core-api/app/modules/user/deployments/routes.py, core-api/app/modules/user/training/readers.py, core-api/migrations/20261111224403_deployments_risk_acknowledged.sql]
+  tests:
+    - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_recorded
+  note: A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment.
+  gap: "No per-task metric floor, no model card, no perceptual hash (DAT-21)."
 - id: TRN-27
   area: training
   title: Base model pinned by commit, copied into the spec

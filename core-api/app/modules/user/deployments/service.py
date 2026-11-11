@@ -27,6 +27,7 @@ from app.modules.user.deployments.constants import (
     OUTPUT_ITEM_BY_POSTPROCESS,
     SNIPPET_INPUT_PLACEHOLDER,
     DEFAULT_COMPUTE_TARGET,
+    DEPLOY_RISK_DETAIL,
     DEPLOYMENT_EXISTS_DETAIL,
     DEPLOYMENT_LOCK_PREFIX,
     AuditAction,
@@ -105,8 +106,8 @@ _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key =
 _VERSION_OF_RUN = "(SELECT id FROM model_versions WHERE training_run_id = {run} ORDER BY created_at DESC, id LIMIT 1)"
 _INSERT = (
     "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
-    "rate_limit_per_minute, serving, status, idempotency_key, model_version_id) "
-    f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, {_VERSION_OF_RUN.format(run='$4')}) "
+    "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id) "
+    f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, {_VERSION_OF_RUN.format(run='$4')}) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
     "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id"
 )
@@ -137,7 +138,9 @@ async def _drop_stray_app(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             logger.warning("could not remove the Serve app of deployment %s", deployment_id)
 
 
-async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str) -> DeploymentCreated:
+async def create_deployment(
+    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, acknowledge_risk: bool = False,
+) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
         existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
@@ -150,6 +153,9 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         info = None if task is None else await task_types.get(conn, task)
         if info is None or not info.enabled or not info.servable or not run.servable:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
+        risky = not run.has_test_split
+        if risky and not acknowledge_risk:  # a warning with an acknowledgement, not a block (planning/06 Quality gates)
+            raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOY_RISK, DEPLOY_RISK_DETAIL)
 
         settings = await get_settings(conn, project_id)
         deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
@@ -185,7 +191,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
     try:
         return await _write_deployment(
             ctx, project_id, training_run_id, idempotency_key, deployment_id, existing_main is not None,
-            ray_job_id, route_prefix, serving, status, plan_tier)
+            ray_job_id, route_prefix, serving, status, plan_tier, risky)
     except Exception:  # ponytail: a create that loses an Idempotency-Key race returns normally and leaves its legacy app to the winner's reconcile
         if existing_main is None:
             await _drop_stray_app(ctx, project_id, deployment_id, serving, deploy_strategy)
@@ -194,7 +200,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
 
 async def _write_deployment(
     ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, deployment_id: uuid.UUID,
-    in_place: bool, ray_job_id, route_prefix, serving, status, plan_tier,
+    in_place: bool, ray_job_id, route_prefix, serving, status, plan_tier, risk_acknowledged: bool = False,
 ) -> DeploymentCreated:
     """The write half of a deploy, under the tenant's deployments lock. One live deployment per run is the unique index's rule:
     a violation is 409. A `main` re-deploy moves the one row to the new run (and takes the new key)."""
@@ -204,7 +210,7 @@ async def _write_deployment(
             if in_place:
                 row = await conn.fetchrow(
                     "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5, idempotency_key = $7, "
-                    f"model_version_id = {_VERSION_OF_RUN.format(run='$2')} "
+                    f"risk_acknowledged = $8, model_version_id = {_VERSION_OF_RUN.format(run='$2')} "
                     "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
                     deployment_id,
                     training_run_id,
@@ -213,6 +219,7 @@ async def _write_deployment(
                     serving,
                     DeploymentStatus.STOPPED,  # stopped since the read: a deploy never resurrects it
                     idempotency_key,
+                    risk_acknowledged,
                 )
                 if row is None:
                     raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
@@ -227,7 +234,7 @@ async def _write_deployment(
             row, created = await insert_once(
                 conn, _INSERT,
                 (deployment_id, ctx.tenant_id, project_id, training_run_id, ray_job_id, route_prefix, hash_key(predict_key),
-                 rate_limit_for(plan_tier), serving, status, idempotency_key),
+                 rate_limit_for(plan_tier), serving, status, idempotency_key, risk_acknowledged),
                 _BY_KEY, (project_id, idempotency_key),
             )
             if not created:  # lost a race with the same key: that one is the deployment
