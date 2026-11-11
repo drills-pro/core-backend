@@ -9,6 +9,7 @@ import logging
 import signal
 
 from app import background
+from app.modules.user.datasets import pipeline_log
 
 logger = logging.getLogger(__name__)
 
@@ -28,4 +29,5 @@ async def run() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    pipeline_log.setup()  # import-reconcile settles imports here
     asyncio.run(run())

@@ -42,7 +42,7 @@ from app.modules.user.datasets.constants import (
     ImportStatus,
     ProblemCode,
 )
-from app.modules.user.datasets import ingest_spec
+from app.modules.user.datasets import ingest_spec, pipeline_log
 from app.modules.user.datasets.job_table import IMPORTS
 from app.modules.user.datasets.lifecycle import purge_staging_quietly, wind_down
 from app.modules.user.datasets.readers import dataset_task
@@ -240,6 +240,7 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
         await job_lifecycle.stop_quietly(job_id)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, "the import was cancelled while it was starting")
     row["ray_job_id"] = job_id
+    pipeline_log.started(row)
     return await _to_model(ctx, row)
 
 
@@ -335,7 +336,9 @@ async def commit_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uu
             )
             await cas(conn, row, ImportStatus.SUCCEEDED)
             await audit.record_for(conn, ctx, project_id, AuditAction.IMPORT_COMMITTED, EntityType.DATASET_IMPORT, import_id)
-    except Exception:
+    except Exception as e:
+        if not isinstance(e, Problem):  # a Problem is the caller's (the dataset went away), not the store's
+            pipeline_log.storage_failed(claimed, e)
         await _release_commit(ctx, import_id)  # so the retry resumes now; lakeFS answers it with the commit already made
         raise
     usage.dataset_import_bytes.add(stats.total_bytes, {"source": row["source"]})

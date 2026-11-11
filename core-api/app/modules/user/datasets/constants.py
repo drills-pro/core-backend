@@ -91,3 +91,32 @@ HF_REVISION_PATTERN = rf"^{HF_SEGMENT}(/{HF_SEGMENT})*$"
 
 PREVIEW_DEFAULT_LIMIT = 20
 PREVIEW_MAX_LIMIT = 100
+
+
+PIPELINE_SERVICE_NAME = "data-pipeline"  # OTel service.name of the import pipeline's own log stream (pipeline_log.py)
+
+
+class PipelineEvent(StrEnum):
+    """The `pipeline.event` attribute on the import pipeline log records (pipeline_log.py)."""
+
+    STARTED = "pipeline_started"  # the ingest job was submitted and its id saved
+    COMPLETED = "pipeline_completed"  # the job's report is ok; the import awaits review
+    FAILED = "pipeline_failed"  # the job's report failed, or the job ended without one, or ran out of time
+    FILE_EXTRACTION_FAILED = "file_extraction_failed"  # archive_* issues: the zip is unsafe or over a limit
+    FILE_VALIDATION_FAILED = "file_validation_failed"  # the data does not fit the task (CSV, images, COCO, Hugging Face)
+    DATA_TRANSFORMATION_FAILED = "data_transformation_failed"  # merging with the base version failed
+    DATA_STORAGE_FAILED = "data_storage_failed"  # committing the reviewed import as a dataset version failed
+
+
+class PipelineAttribute(StrEnum):
+    """Attribute keys on the import pipeline log records. Loki turns the dots into underscores."""
+
+    EVENT = "pipeline.event"  # PipelineEvent
+    TENANT = "tenant_id"
+    PROJECT = "project_id"
+    DATASET = "dataset_id"
+    IMPORT = "import_id"
+    RAY_JOB = "ray_job_id"
+    ISSUE_CODES = "pipeline.issue_codes"  # the report's distinct issue codes behind the event, comma-separated
+    ISSUE_COUNT = "pipeline.issue_count"  # issues behind the event: ERRORs on a failure, warnings on completed
+    ERROR_TYPE = "pipeline.error_type"  # exception class behind data_storage_failed
