@@ -44,6 +44,7 @@ class PresetSummary(BaseModel):
     cpu: float
     memory_bytes: int
     gpu: float
+    vram_gb: float | None = None
     max_runtime_s: int
     hyperparameters: HyperparameterLimits
     lr_schedule: LrSchedule

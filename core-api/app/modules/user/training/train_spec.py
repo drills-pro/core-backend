@@ -79,5 +79,5 @@ async def build(
             hyperparameters=hyperparameters,
             seed=body.seed,
         ),
-        resources=Resources(cpu=preset.cpu, memory_bytes=preset.memory_bytes, gpu=preset.gpu, max_runtime_s=preset.max_runtime_s),
+        resources=Resources(cpu=preset.cpu, memory_bytes=preset.memory_bytes, gpu=preset.gpu, vram_gb=preset.vram_gb, max_runtime_s=preset.max_runtime_s),
     )

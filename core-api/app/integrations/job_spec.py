@@ -33,6 +33,7 @@ class Resources(BaseModel):
     cpu: float = Field(gt=0)
     memory_bytes: int = Field(gt=0)
     gpu: float = Field(default=0, ge=0)
+    vram_gb: float | None = Field(default=None, gt=0)  # GiB of GPU memory the job may hold (the trainer caps itself); None = the GPU share decides
     max_runtime_s: int = Field(default=0, ge=0)  # 0 = unlimited
 
 
