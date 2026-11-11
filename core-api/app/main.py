@@ -47,6 +47,7 @@ from app.modules.user import (
     training,
     usage,
 )
+from app.modules.user.datasets import pipeline_log
 
 # Registration order is significant: FastAPI matches routes in the order
 # they are added, so the more specific prefixes stay ahead of the ones that
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     )
     tracing.setup(app)
     auth_log.setup()
+    pipeline_log.setup()
     problem.install(app)
     for router in ROUTERS:
         app.include_router(router)
