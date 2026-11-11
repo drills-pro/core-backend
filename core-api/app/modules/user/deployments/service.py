@@ -34,6 +34,8 @@ from app.modules.user.deployments.constants import (
     ProblemCode,
     PLAN_TIER_RATE_LIMITS,
     PREDICT_KEY_BYTES,
+    RATE_LIMIT_WINDOW_SECONDS,
+    RETRY_AFTER_HEADER,
     SERVE_TIMEOUT_SECONDS,
     STOPPED_DETAIL,
     TOO_MANY_DEPLOYMENTS_DETAIL,
@@ -352,10 +354,12 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, KernelProblemCode.TENANT_SUSPENDED, "this tenant is not active")
     _require_active(row["status"])
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
-        raise Problem(
+        problem = Problem(
             HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED,
             f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)",
         )
+        problem.headers = {RETRY_AFTER_HEADER: str(RATE_LIMIT_WINDOW_SECONDS - int(time.time()) % RATE_LIMIT_WINDOW_SECONDS)}
+        raise problem
 
     # FR6: an optional `metadata` passthrough field, popped before
     # forwarding to Serve (the model was never trained to expect it) and
