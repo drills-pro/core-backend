@@ -34,6 +34,7 @@ from app.modules.user.deployments.constants import (
     ProblemCode,
 )
 from app.modules.user.deployments.schemas import (
+    DeploymentSchema,
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
@@ -91,6 +92,17 @@ async def get_deployment(
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
 ):
     return await service.get_deployment(ctx, project_id, deployment_id)
+
+
+@router.get("/v1/projects/{project_id}/deployments/{deployment_id}/schema", response_model=DeploymentSchema)
+async def get_deployment_schema(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    request: Request,
+    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
+):
+    """What to send to POST /v1/predict and what comes back, with curl, JavaScript and Python snippets (the key is a placeholder)."""
+    return await service.get_schema(ctx, project_id, deployment_id, str(request.base_url))
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/stop", response_model=DeploymentDetail)

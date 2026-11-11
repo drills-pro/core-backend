@@ -20,8 +20,11 @@ from app.core.metrics import inference as inference_metrics, usage as usage_metr
 from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
-from app.modules.user.deployments import calls, shared
+from app.modules.user.deployments import calls, shared, snippets
 from app.modules.user.deployments.constants import (
+    INPUT_FIELD_BY_ENCODER,
+    OUTPUT_ITEM_BY_POSTPROCESS,
+    SNIPPET_INPUT_PLACEHOLDER,
     DEFAULT_COMPUTE_TARGET,
     DEPLOYMENT_EXISTS_DETAIL,
     DEPLOYMENT_LOCK_PREFIX,
@@ -49,6 +52,7 @@ from app.modules.user.deployments.constants import (
     Serving,
 )
 from app.modules.user.deployments.schemas import (
+    DeploymentSchema,
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
@@ -256,6 +260,28 @@ async def get_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id
     if row is None:
         raise not_found()
     return DeploymentDetail.model_validate(dict(row))
+
+
+async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, base_url: str) -> DeploymentSchema:
+    """The input and output shape for POST /v1/predict on this deployment, from its task type's encoder and postprocess, and call snippets."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT mv.model_id, mv.mlflow_version FROM deployments d JOIN model_versions mv ON mv.id = d.model_version_id "
+            "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3",
+            deployment_id, project_id, DeploymentStatus.DELETED,
+        )
+        task = await get_task_type(conn, project_id)
+        info = None if task is None else await task_types.get(conn, task)
+    if row is None or info is None:
+        raise not_found()
+    field = INPUT_FIELD_BY_ENCODER.get(info.encoder)
+    body_input = {field: SNIPPET_INPUT_PLACEHOLDER} if field else {}
+    item = OUTPUT_ITEM_BY_POSTPROCESS.get(info.postprocess, {})
+    return DeploymentSchema(
+        task_type=task, model_id=row["model_id"], model_revision=row["mlflow_version"],
+        input={field: "string"} if field else {}, output={"predictions": [item]},
+        snippets=snippets.build(base_url, str(project_id), str(row["model_id"]), row["mlflow_version"], {"input": body_input}),
+    )
 
 
 def _require_active(status: str) -> None:

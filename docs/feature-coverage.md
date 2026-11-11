@@ -16,14 +16,14 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 |---|---|---|---|---|---|
 | training | 21 | 8 | 5 | 3 | 37 |
 | registry | 8 | 4 | 4 | 0 | 16 |
-| deployment | 11 | 4 | 3 | 1 | 19 |
+| deployment | 12 | 4 | 2 | 1 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 6 | 1 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
 | datasets | 21 | 3 | 4 | 3 | 31 |
-| **all** | 99 | 35 | 25 | 12 | 171 |
+| **all** | 100 | 35 | 24 | 12 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 73% of 159.
+Built share of the features that are due (partial counts half, deferred excluded): 74% of 159.
 
 ## Gaps, most important first
 
@@ -35,7 +35,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | missing | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. |
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
 | 2 | missing | DAT-25 | datasets | datasets.data_categories declaration (personal data, faces and biometrics) | No column or field. |
-| 2 | missing | DEP-14 | deployment | Deployment input/output schema endpoint and generated curl/JS/Python snippets | No GET /deployments/{id}/schema and no snippet generator. |
 | 2 | missing | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. |
 | 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
@@ -218,7 +217,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-11 | built | Try it with the user session (no predict key in the console) and a recent-calls log | planning/05 Predict API (Try it) | 3 |
 | DEP-12 | built | Deploy models of every servable task (classification, detection, text) | planning/06 Task types and runtimes | 2 |
 | DEP-13 | partial | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | planning/06 Deployment model (Rollout, Rollback) | 2 |
-| DEP-14 | missing | Deployment input/output schema endpoint and generated curl/JS/Python snippets | planning/05 Predict API (Schema, Snippets) | 0 |
+| DEP-14 | built | Deployment input/output schema endpoint and generated curl/JS/Python snippets | planning/05 Predict API (Schema, Snippets) | 2 |
 | DEP-15 | partial | Active only after a health check, and active deployments re-checked | planning/03 Deployment state machine | 1 |
 | DEP-16 | built | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | planning/12 Migration mechanics | 2 |
 | DEP-17 | built | CPU or GPU compute target per project (project setting compute_target) | planning/07 Single-node reality | 2 |

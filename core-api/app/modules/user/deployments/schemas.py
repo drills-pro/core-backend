@@ -122,3 +122,20 @@ class PredictOutcome(BaseModel):
     envelope: PredictionEnvelope
     status_code: int = HTTPStatus.OK
     headers: dict[str, str] = Field(default_factory=dict)
+
+
+class DeploymentSnippets(BaseModel):
+    curl: str
+    javascript: str
+    python: str
+
+
+class DeploymentSchema(BaseModel):
+    """What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets."""
+
+    task_type: str
+    model_id: uuid.UUID
+    model_revision: str
+    input: dict[str, Any]
+    output: dict[str, Any]
+    snippets: DeploymentSnippets

@@ -1016,6 +1016,70 @@
         "title": "DeploymentListItem",
         "type": "object"
       },
+      "DeploymentSchema": {
+        "description": "What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets.",
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "title": "Input",
+            "type": "object"
+          },
+          "model_id": {
+            "format": "uuid",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "model_revision": {
+            "title": "Model Revision",
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": true,
+            "title": "Output",
+            "type": "object"
+          },
+          "snippets": {
+            "$ref": "#/components/schemas/DeploymentSnippets"
+          },
+          "task_type": {
+            "title": "Task Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_type",
+          "model_id",
+          "model_revision",
+          "input",
+          "output",
+          "snippets"
+        ],
+        "title": "DeploymentSchema",
+        "type": "object"
+      },
+      "DeploymentSnippets": {
+        "properties": {
+          "curl": {
+            "title": "Curl",
+            "type": "string"
+          },
+          "javascript": {
+            "title": "Javascript",
+            "type": "string"
+          },
+          "python": {
+            "title": "Python",
+            "type": "string"
+          }
+        },
+        "required": [
+          "curl",
+          "javascript",
+          "python"
+        ],
+        "title": "DeploymentSnippets",
+        "type": "object"
+      },
       "Deployments": {
         "additionalProperties": false,
         "properties": {
@@ -11969,6 +12033,108 @@
           }
         },
         "summary": "Get Deployment",
+        "tags": [
+          "deployments"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/deployments/{deployment_id}/schema": {
+      "get": {
+        "description": "What to send to POST /v1/predict and what comes back, with curl, JavaScript and Python snippets (the key is a placeholder).",
+        "operationId": "get_deployment_schema_v1_projects__project_id__deployments__deployment_id__schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Deployment Schema",
         "tags": [
           "deployments"
         ]

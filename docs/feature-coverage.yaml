@@ -726,12 +726,14 @@ entries:
   area: deployment
   title: Deployment input/output schema endpoint and generated curl/JS/Python snippets
   source: planning/05 Predict API (Schema, Snippets)
-  status: missing
+  status: built
   weight: 2
   old: F10
-  code: []
-  tests: []
-  gap: No GET /deployments/{id}/schema and no snippet generator.
+  code: ["GET /v1/projects/{project_id}/deployments/{deployment_id}/schema"]
+  tests:
+  - core-api/tests/modules/user/deployments/test_schema.py::test_an_image_detector_documents_its_input_boxes_and_snippets
+  - core-api/tests/modules/user/deployments/test_schema.py::test_a_text_model_takes_text
+  note: The shape comes from the task type's encoder and postprocess, not from a per-model signature captured at registration; that waits for the model card.
 - id: DEP-15
   area: deployment
   title: Active only after a health check, and active deployments re-checked
