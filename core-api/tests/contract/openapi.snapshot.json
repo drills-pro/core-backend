@@ -1095,6 +1095,15 @@
         "title": "Deployments",
         "type": "object"
       },
+      "DownloadFile": {
+        "description": "The files of a version a project member may download (the names under the run's `model/` artifacts).",
+        "enum": [
+          "model.onnx",
+          "model.json"
+        ],
+        "title": "DownloadFile",
+        "type": "string"
+      },
       "EventAck": {
         "properties": {
           "duplicate": {
@@ -12961,6 +12970,109 @@
           }
         },
         "summary": "List Models",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/models/{model_version_id}/download/{file}": {
+      "get": {
+        "description": "The version's `model.onnx` or `model.json`, streamed through core-api to a signed-in project member (audited).",
+        "operationId": "download_model_file_v1_projects__project_id__models__model_version_id__download__file__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "model_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Model Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DownloadFile"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Model File",
         "tags": [
           "models"
         ]

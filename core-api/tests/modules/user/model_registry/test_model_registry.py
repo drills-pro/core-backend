@@ -76,3 +76,40 @@ def test_model_editor_may_promote_but_not_publish(call):
     editor = access(visibility=Visibility.PRIVATE, roles=[Role.MODEL_EDITOR])
     assert call(*ROUTES[1][:2], editor, **ROUTES[1][3]).status_code == 200
     assert call(*ROUTES[2][:2], editor, **ROUTES[2][3]).status_code == 403
+
+
+class FakeResponse:
+    def __init__(self):
+        self.closed = False
+
+    async def aiter_bytes(self):
+        yield b"on"
+        yield b"nx"
+
+    async def aclose(self):
+        self.closed = True
+
+
+class FakeClient(FakeResponse):
+    pass
+
+
+def test_download_streams_the_file_audits_and_closes(call, monkeypatch):
+    resp, client, seen = FakeResponse(), FakeClient(), []
+
+    async def open_file(tenant, project, run, name):
+        seen.append((project, run, name))
+        return client, resp
+
+    monkeypatch.setattr(service.mlflow, "open_model_file", open_file)
+    r = call("get", f"{BASE}/{MODEL}/download/model.onnx", ADMIN)
+    assert (r.status_code, r.content, r.headers["content-type"]) == (200, b"onnx", "application/octet-stream")
+    assert seen[0][2] == "model.onnx" and resp.closed and client.closed
+
+
+def test_download_refuses_a_file_that_is_not_published(call):
+    assert call("get", f"{BASE}/{MODEL}/download/secrets.txt", ADMIN).status_code == 422
+
+
+def test_download_of_an_unknown_version_is_404(call):
+    assert call("get", f"{BASE}/{MODEL}/download/model.json", ADMIN, found=False).status_code == 404

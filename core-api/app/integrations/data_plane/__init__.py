@@ -50,6 +50,7 @@ OPERATIONS = (
     mlflow.finish_run,
     mlflow.publish_run_model,
     mlflow.run_model_url,
+    mlflow.open_model_file,
     mlflow.register_model_version,
     mlflow.transition_stage,
 )

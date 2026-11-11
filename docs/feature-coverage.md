@@ -15,15 +15,15 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
 | training | 22 | 8 | 4 | 3 | 37 |
-| registry | 13 | 2 | 1 | 0 | 16 |
+| registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 14 | 2 | 2 | 1 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
 | datasets | 22 | 2 | 4 | 3 | 31 |
-| **all** | 109 | 31 | 19 | 12 | 171 |
+| **all** | 109 | 32 | 18 | 12 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 78% of 159.
+Built share of the features that are due (partial counts half, deferred excluded): 79% of 159.
 
 ## Gaps, most important first
 
@@ -40,7 +40,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | missing | JOB-16 | jobs | Transactional outbox, dispatcher and webhooks | No outbox, no events table, no webhook delivery; clients must poll job state. |
 | 2 | missing | JOB-27 | jobs | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | Same gap as the outbox (JOB-16); no notifications module. |
-| 2 | missing | REG-14 | registry | Download by signed URL and auto-generated model card | The publish_artifact flag exists but no route issues a download link; no card. |
 | 2 | missing | TRN-24 | training | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call. |
 | 2 | missing | TRN-26 | training | Deploy gate with acknowledge_risk, model card, near-duplicate warning | No acknowledge_risk parameter, no card, no perceptual hash; a model with no test split or a poor metric deploys silently. |
 | 2 | missing | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, no licence in the spec or model.json, no safetensors-only admission. |
@@ -53,6 +52,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | PRD-16 | predict | Usage - one event per 2xx prediction id, none for failures, replays or retries | Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter. |
 | 2 | partial | PRD-21 | predict | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | Only JSON with image_base64 (or text) is read, header-first with a pixel limit; no multipart and no image-URL input, so no SSRF path exists to guard. |
 | 2 | partial | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge. |
+| 2 | partial | REG-14 | registry | Download by signed URL and auto-generated model card | A signed-in project member downloads model.onnx or model.json through an audited stream (the session token is the credential, so no signed link is issued); an unauthenticated link for publish_artifact and the generated model card are not built. |
 | 2 | partial | SRV-06 | serving | Cold-start handling (503 with Retry-After, or a bounded wait) | A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero. |
 | 2 | partial | SRV-08 | serving | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | Guards inside the replica are built; per-tenant serving caps and the PriorityClass pool reservation live in the k8s repo and were not checked here. |
 | 2 | partial | TRN-13 | training | Run state machine with compare-and-set transitions | Five states (submitted, running, succeeded, failed, cancelled); no queued, cancelling, retry or lost, and cancel is not a desired state the worker converges to. |
@@ -187,7 +187,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-11 | partial | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | planning/06 Job runtime contract (Model manifest) | 1 |
 | REG-12 | built | Stage enum mirrored by a CHECK with a drift test | core-backend CLAUDE.md rules | 1 |
 | REG-13 | built | Audit rows for register, promote and publish | planning/19 E1 | 1 |
-| REG-14 | missing | Download by signed URL and auto-generated model card | planning/18 Export; planning/06 Quality gates | 0 |
+| REG-14 | partial | Download by signed URL and auto-generated model card | planning/18 Export; planning/06 Quality gates | 1 |
 | REG-15 | built | Operator view of every model and its versions | planning/19 back office | 4 |
 | REG-16 | built | Registering a run twice is idempotent (one version row per run) | planning/03 Idempotency and events | 2 |
 
