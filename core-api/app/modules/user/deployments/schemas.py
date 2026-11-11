@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.task_catalog import TrainBaseModel
 from app.modules.user.datasets import VersionRef
 from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_TOO_LARGE_DETAIL, PredictionStatus
 from app.modules.user.training import LineageRun
@@ -78,6 +79,7 @@ class ModelCard(BaseModel):
     training_run_id: uuid.UUID
     task: str | None
     preset: str | None
+    base_model: TrainBaseModel | None
     metrics: Any
     dataset_version: VersionRef | None
     test_dataset_version: str | None
