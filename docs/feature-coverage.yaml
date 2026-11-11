@@ -307,7 +307,7 @@ entries:
     - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_recorded
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_card_of_an_unknown_run_is_404
-  note: A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. Still missing: the metric floor and the base model's licence (not stored anywhere).
+  note: A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. Still missing are the metric floor and the base model's licence (not stored anywhere).
   gap: "No per-task metric floor, no perceptual hash (DAT-21); the card has no base model name or licence."
 - id: TRN-27
   area: training
