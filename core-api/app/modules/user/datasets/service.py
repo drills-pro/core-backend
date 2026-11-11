@@ -35,6 +35,7 @@ async def create_dataset(ctx: AuthzContext, project_id: uuid.UUID, name: str) ->
             ctx.tenant_id,
             name,
         )
+        await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DATASET, row["id"])
         return await _summary(conn, project_id, row)
 
 

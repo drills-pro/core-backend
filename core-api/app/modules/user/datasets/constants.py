@@ -49,6 +49,7 @@ SYSTEM_ACTOR = "system"  # audit actor for what the background sweeps do
 
 
 class AuditAction(StrEnum):
+    CREATE = "create"
     DELETE = "delete"
     RESTORE = "restore"
     PUBLISH = "publish"

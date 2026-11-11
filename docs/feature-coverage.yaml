@@ -1737,14 +1737,14 @@ entries:
   area: datasets
   title: Audit rows for dataset actions
   source: planning/19 E1
-  status: partial
+  status: built
   weight: 1
   old: F06
   code: [core-api/app/modules/user/datasets/service.py, core-api/app/modules/user/datasets/import_service.py]
   tests:
+  - core-api/tests/modules/user/datasets/test_datasets.py::test_create_audits
   - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
   - core-api/tests/modules/user/datasets/test_imports.py::test_discard_purges_staging_and_audits
-  gap: Import create, commit, discard, expiry, delete, restore and publish are audited; creating the dataset itself is not.
 - id: DAT-24
   area: datasets
   title: Import usage metering (count and bytes)

@@ -85,9 +85,16 @@ def test_foreign_tenant_dataset_id_is_404(call, method, path):
 def test_create_takes_task_type_from_the_project(call):
     r = call(access(roles=["editor"]), "POST", "", {"name": "x"})
     assert (r.status_code, r.json()["task_type"]) == (201, "image-classification")
-    insert, read = r.conn.calls[-2:]
+    insert, read = r.conn.calls[-3], r.conn.calls[-1]  # the audit row sits between them
     assert "FROM projects" not in insert[0] and len(insert[1]) == 3  # no task type is stored or passed in
     assert "FROM projects" in read[0] and read[1] == (PROJECT,)
+
+
+def test_create_audits(call):
+    executed = []
+    r = call(access(roles=["editor"]), "POST", "", {"name": "x"}, executed=executed)
+    assert r.status_code == 201
+    assert audited(executed) == [(AuditAction.CREATE, EntityType.DATASET, str(DS))]
 
 
 def test_create_needs_a_name(call):
