@@ -913,12 +913,12 @@ entries:
   area: serving
   title: Predict gateway as a separate streaming service (ADR-017)
   source: planning/07 Predict gateway; planning/20 sprint 5
-  status: missing
+  status: deferred
   weight: 1
   old: F10
   code: []
   tests: []
-  gap: Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree.
+  gap: Predict stays in core-api by decision (ADR-017 amended 2026-11-12). Split it into its own service when sustained load passes about 200 RPS or gateway overhead passes 10 ms p99.
 - id: SRV-13
   area: serving
   title: Smoke check of the serving package before it can be promoted
@@ -1260,12 +1260,12 @@ entries:
   area: jobs
   title: One jobs table with kind, spec, state and attempt
   source: planning/03 Entities; planning/13 ADR-007
-  status: missing
+  status: deferred
   weight: 2
   old: F08
   code: []
   tests: []
-  gap: Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything.
+  gap: Deliberately per-context tables on one shared lifecycle engine (ADR-007 amended 2026-11-12). A jobs table and /operations resource wait until the per-table shape costs more than it saves.
 - id: JOB-05
   area: jobs
   title: Shared follower engine - tenant loop, lease claim (SKIP LOCKED), compare-and-set advance, backoff, isolation of a failing row
