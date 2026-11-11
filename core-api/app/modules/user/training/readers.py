@@ -10,7 +10,7 @@ from app.modules.user.training.schemas import LineageRun
 # The report's `classes` are the model's class names (every task); a run reported before that field has only the
 # classification confusion-matrix labels, which are the same names.
 _RUN_MODEL = (
-    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'classes', report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names "
+    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'classes', report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names, test_dataset_id "
     "FROM training_runs WHERE id = $1 AND project_id = $2"
 )
 _OWNED = "SELECT 1 FROM training_runs WHERE id = $1 AND project_id = $2 AND tenant_id = $3"
@@ -23,6 +23,12 @@ class RunModel(BaseModel):
     status: TrainingStatus
     mlflow_run_id: str | None
     class_names: list[str] = Field(default_factory=list)
+    test_dataset_id: uuid.UUID | None = None
+
+    @property
+    def has_test_split(self) -> bool:
+        """The run was scored on a dataset of its own, not only on what it trained on (the deploy gate asks for an acknowledgement without one)."""
+        return self.test_dataset_id is not None
 
     @property
     def has_model(self) -> bool:

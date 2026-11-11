@@ -35,6 +35,7 @@ class ProblemCode(StrEnum):
     IDEMPOTENCY_KEY_REUSE = "idempotency_key_reuse"
     REQUEST_IN_PROGRESS = "request_in_progress"
     NOT_ACCEPTABLE = "not_acceptable"
+    DEPLOY_RISK = "deploy_risk_unacknowledged"
 
 
 class PredictionStatus(StrEnum):
@@ -102,6 +103,7 @@ STOPPED_DETAIL = "the deployment is stopped; start it to serve again"
 TOO_MANY_REQUESTS_DETAIL = "too many concurrent requests for this deployment"
 TARGET_CACHE_SIZE = 1024  # (deployment, run) pairs whose model URLs core-api remembers
 
+DEPLOY_RISK_DETAIL = "this run has no test dataset, so its metrics were not measured on unseen data; deploy again with acknowledge_risk=true to accept that"
 NOT_DEPLOYABLE_DETAIL = (
     "training run has no deployable model (only a succeeded run of a servable task type can be served)"
 )

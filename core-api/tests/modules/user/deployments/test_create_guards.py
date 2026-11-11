@@ -20,7 +20,7 @@ from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_c
 MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_deployments_quota_idempotency.sql")).read_text().split("-- migrate:down")[0]
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 RUN, OTHER_RUN, KEY = uuid.uuid4(), uuid.uuid4(), "key-1"
-SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"]}
+SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"], "test_dataset_id": uuid.uuid4()}
 CREATED = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 10, "training_run_id": RUN}
 
 
@@ -99,7 +99,7 @@ def test_a_create_that_loses_the_race_for_the_same_key_returns_the_winner(env):
 def test_the_key_is_stored_with_the_new_deployment_and_the_insert_skips_a_taken_key(env):
     out = create()
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert args[-1] == KEY and "ON CONFLICT (project_id, idempotency_key)" in sql and out.predict_key
+    assert args[-2] == KEY and "ON CONFLICT (project_id, idempotency_key)" in sql and out.predict_key
 
 
 def test_a_new_deployment_writes_a_create_audit_row(env):

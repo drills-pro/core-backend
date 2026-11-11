@@ -91,13 +91,13 @@ def test_a_second_ownership_offer_racing_the_first_is_409(monkeypatch, dev_heade
 def test_deploy_route_passes_the_run_and_the_key_and_answers_202(monkeypatch, dev_headers):
     run, seen = uuid.uuid4(), {}
 
-    async def create_deployment(ctx, project_id, training_run_id, key):
-        seen.update(run=training_run_id, key=key)
+    async def create_deployment(ctx, project_id, training_run_id, key, acknowledge_risk):
+        seen.update(run=training_run_id, key=key, ack=acknowledge_risk)
         return {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/p", "rate_limit_per_minute": 60, "plan_tier": None, "predict_key": "drl_x"}
 
     monkeypatch.setattr(deployment_service, "create_deployment", create_deployment)
     patch_tenant_conn(monkeypatch, FakeConn(access(roles=["deployer"])), deployment_service)
     r = make_client(deployment_routes.router).post(
         f"/v1/projects/{PROJECT}/deployments?training_run_id={run}", headers={"Idempotency-Key": "k1"})
-    assert (r.status_code, r.json()["predict_key"], seen) == (202, "drl_x", {"run": run, "key": "k1"})
+    assert (r.status_code, r.json()["predict_key"], seen) == (202, "drl_x", {"run": run, "key": "k1", "ack": False})
     assert make_client(deployment_routes.router).post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}").status_code == 422

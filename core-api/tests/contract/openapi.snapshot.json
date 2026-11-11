@@ -11817,7 +11817,7 @@
         ]
       },
       "post": {
-        "description": "Deploy a training run. Sending the same Idempotency-Key and training_run_id again returns that deployment (without\nthe predict key, which is shown once); the same key with another run is 409.",
+        "description": "Deploy a training run. A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true. Sending the same Idempotency-Key and training_run_id again returns that deployment (without\nthe predict key, which is shown once); the same key with another run is 409.",
         "operationId": "create_deployment_v1_projects__project_id__deployments_post",
         "parameters": [
           {
@@ -11838,6 +11838,16 @@
               "format": "uuid",
               "title": "Training Run Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acknowledge_risk",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Acknowledge Risk",
+              "type": "boolean"
             }
           },
           {
