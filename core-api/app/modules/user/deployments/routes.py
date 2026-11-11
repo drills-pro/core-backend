@@ -155,14 +155,15 @@ async def list_test_calls(
 @router.post("/v1/predict/{deployment_id}", dependencies=[Depends(public)])
 async def predict(
     deployment_id: uuid.UUID,
-    body: dict = Depends(capped_body),
+    request: Request,
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
     response: Response = None,
 ):
     """Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment."""
     marks = {DEPRECATION_HEADER: DEPRECATION_ACTIVE, SUNSET_HEADER: format_datetime(settings.predict.legacy_sunset, usegmt=True)}
     try:
-        result = await service.predict(deployment_id, x_predict_key, body)
+        row = await service.authenticate(deployment_id, x_predict_key)  # the key is checked before the body is read
+        result = await service.serve_authenticated(row, deployment_id, await capped_body(request))
     except HTTPException as e:
         e.headers = {**(e.headers or {}), **marks}
         if getattr(e, "code", None) != ProblemCode.INVALID_PREDICT_KEY:  # a wrong key says nothing about the deployment: no unbounded label values
