@@ -17,13 +17,13 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | training | 24 | 9 | 0 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 15 | 2 | 0 | 2 | 19 |
-| serving | 11 | 2 | 1 | 1 | 15 |
+| serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
-| jobs | 11 | 10 | 5 | 1 | 27 |
+| jobs | 11 | 10 | 4 | 2 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 115 | 36 | 6 | 14 | 171 |
+| **all** | 115 | 36 | 4 | 16 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 85% of 157.
+Built share of the features that are due (partial counts half, deferred excluded): 86% of 155.
 
 ## Gaps, most important first
 
@@ -34,7 +34,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | missing | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker). |
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
-| 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
@@ -57,9 +56,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer still calls from_pretrained(repo_id, revision) against the Hub; no platform mirror. |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
+| 2 | deferred | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Deliberately per-context tables on one shared lifecycle engine (ADR-007 amended 2026-11-12). A jobs table and /operations resource wait until the per-table shape costs more than it saves. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
-| 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
 | 1 | partial | DAT-20 | datasets | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed. |
 | 1 | partial | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | A failed purge is only logged; no sweep retries it, and no bucket lifecycle rule exists in the k8s repo. |
@@ -83,6 +82,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | deferred | PRD-18 | predict | Streaming mode (Accept text/event-stream) with delta, done and error frames | No adapter declares streaming, so the route answers 406 not_acceptable (tested); streaming needs an LLM-style adapter first (planning/24 Q4). |
 | 1 | deferred | PRD-19 | predict | Publishable keys (origin allowlist, CORS preflight, lower limit) | Stretch slot (planning/20 sprints 9 to 10); no api_keys.kind, no origins table. |
 | 1 | deferred | PRD-20 | predict | Batch endpoint POST /v1/predict/{id}:batch | Later, for tabular. |
+| 1 | deferred | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict stays in core-api by decision (ADR-017 amended 2026-11-12). Split it into its own service when sustained load passes about 200 RPS or gateway overhead passes 10 ms p99. |
 | 1 | deferred | SRV-14 | serving | Dynamic batching in Serve and batch inference job | Designed (kind predict_batch, @serve.batch); needs the owner's go-ahead. |
 | 1 | deferred | TRN-11 | training | Tabular classification and regression (Ludwig), segmentation, LLM fine-tune | No trainer for these task types; the task catalog marks them not trainable (planning/20 slip rules drop Ludwig first). |
 | 1 | deferred | TRN-34 | training | Streaming shard loader, node NVMe cache with prewarm, fast-start metrics | Trainer reads the staged files directly; designed for later (planning/20 sprint 9 to 10). |
@@ -223,7 +223,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | SRV-09 | built | Autoscaling bounds and warm-model downscale delay from config | docs/ray-parallelism.md Serving scale | 1 |
 | SRV-10 | built | Model URLs looked up once per run and cached; model fetched through the MLflow artifact API | docs/runtime-contract.md Models, experiments and MLflow | 2 |
 | SRV-11 | built | Serve error codes mapped to HTTP status (422, 502, 503, 504), Serve's own text never returned | planning/24 Request flow, step 6 | 2 |
-| SRV-12 | missing | Predict gateway as a separate streaming service (ADR-017) | planning/07 Predict gateway; planning/20 sprint 5 | 0 |
+| SRV-12 | deferred | Predict gateway as a separate streaming service (ADR-017) | planning/07 Predict gateway; planning/20 sprint 5 | 0 |
 | SRV-13 | built | Smoke check of the serving package before it can be promoted | planning/06 Job catalog (packages) | 2 |
 | SRV-14 | deferred | Dynamic batching in Serve and batch inference job | docs/ray-parallelism.md Designed, not built | 0 |
 | SRV-15 | built | Inference latency and call metrics | planning/11 Observability | 1 |
@@ -266,7 +266,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | JOB-01 | built | Versioned job spec v1 - shared envelope, payload per kind, unknown version or kind refused | planning/06 Job spec v1; docs/job-spec.md | 3 |
 | JOB-02 | built | JSON Schema generated from the pydantic models and kept equal by a test | planning/06 Job spec v1 | 1 |
 | JOB-03 | partial | Envelope fields attempt and reporting (events_url, token_env) | planning/06 Job spec v1 | 1 |
-| JOB-04 | missing | One jobs table with kind, spec, state and attempt | planning/03 Entities; planning/13 ADR-007 | 0 |
+| JOB-04 | deferred | One jobs table with kind, spec, state and attempt | planning/03 Entities; planning/13 ADR-007 | 0 |
 | JOB-05 | built | Shared follower engine - tenant loop, lease claim (SKIP LOCKED), compare-and-set advance, backoff, isolation of a failing row | planning/09 Reconciler design; docs/runtime-contract.md Worker mode | 3 |
 | JOB-06 | built | Singleton sweeps elected through Postgres advisory locks; claiming pollers run on every replica | planning/09 State management rules; planning/13 ADR-006 | 2 |
 | JOB-07 | built | Dedicated worker process (python -m app.worker) and an API that runs no pollers | planning/01 Responsibilities; planning/08 I5 | 2 |
