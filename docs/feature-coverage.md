@@ -14,16 +14,16 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
-| training | 23 | 9 | 1 | 4 | 37 |
+| training | 23 | 10 | 0 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
 | datasets | 24 | 3 | 1 | 3 | 31 |
-| **all** | 113 | 36 | 8 | 14 | 171 |
+| **all** | 113 | 37 | 7 | 14 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 83% of 157.
+Built share of the features that are due (partial counts half, deferred excluded): 84% of 157.
 
 ## Gaps, most important first
 
@@ -36,7 +36,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
-| 2 | missing | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, no licence in the spec or model.json, no safetensors-only admission. |
 | 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
 | 2 | partial | JOB-12 | jobs | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
@@ -56,6 +55,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
 | 2 | partial | TRN-26 | training | Deploy gate with acknowledge_risk, model card, near-duplicate warning | No per-task metric floor, no perceptual hash (DAT-21); the card has no base model name or licence. |
+| 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, the licence is not written to model.json, no safetensors-only admission. |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
@@ -154,7 +154,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
 | TRN-26 | partial | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
 | TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 2 |
-| TRN-28 | missing | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 0 |
+| TRN-28 | partial | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
 | TRN-29 | partial | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | planning/13 ADR-016; planning/17 Licence policy | 0 |
 | TRN-30 | built | Lineage view - dataset version, run, model version, active deployment | planning/22 Lineage and pipeline view | 2 |
 | TRN-31 | built | Task type decides what can train; untrainable and mismatched tasks refused before any job | planning/06 Task types and runtimes | 2 |

@@ -307,7 +307,7 @@ entries:
     - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_recorded
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_card_of_an_unknown_run_is_404
-  note: A run with no test dataset, or a score under the task floor (METRIC_FLOORS in deployments/constants.py), is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. Still missing are the base model's licence (not stored anywhere) and the near-duplicate warning (DAT-21).
+  note: A run with no test dataset, or a score under the task floor (METRIC_FLOORS in deployments/constants.py), is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. The card also carries the licence an admin recorded on the preset. Still missing is the near-duplicate warning (DAT-21).
   gap: "No per-task metric floor, no perceptual hash (DAT-21); the card has no base model name or licence."
 - id: TRN-27
   area: training
@@ -323,12 +323,15 @@ entries:
   area: training
   title: Base model served from the platform mirror, never the Hub at run time; licence recorded
   source: planning/17 Catalog; planning/06 Job spec rules
-  status: missing
+  status: partial
   weight: 2
   old: F20
-  code: []
-  tests: []
-  gap: The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, no licence in the spec or model.json, no safetensors-only admission.
+  code: [core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]
+  tests:
+    - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
+    - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
+  note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model and shows on the model card.
+  gap: The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, the licence is not written to model.json, no safetensors-only admission.
 - id: TRN-29
   area: training
   title: Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI

@@ -100,12 +100,12 @@ def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_hea
 
 def test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag(monkeypatch, dev_headers):
     run = {**RUN_ROW, "task": "image_classification", "preset": "small", "metrics": {"top1": 0.9},
-           "base_model": {"repo_id": "org/vit", "revision": "abc"}}
+           "base_model": {"repo_id": "org/vit", "revision": "abc", "license": "apache-2.0"}}
     rows = {"FROM training_runs": run, "FROM dataset_versions": DATASET_VERSION_ROW, "FROM model_versions": MODEL_ROW, "FROM deployments": None}
     r, _ = lineage(monkeypatch, dev_headers, rows, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
     body = r.json()
     assert r.status_code == 200 and (body["metrics"], body["task"], body["preset"]) == ({"top1": 0.9}, "image_classification", "small")
-    assert body["base_model"] == {"repo_id": "org/vit", "revision": "abc"}
+    assert body["base_model"] == {"repo_id": "org/vit", "revision": "abc", "license": "apache-2.0"}
     assert (body["has_test_split"], body["dataset_version"]["number"], body["model_version"]["stage"]) == (False, 3, "Staging")
     r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": {**run, "test_dataset_id": uuid.uuid4()}}, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
     assert r.json()["has_test_split"] is True

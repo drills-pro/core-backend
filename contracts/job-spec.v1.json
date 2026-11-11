@@ -692,6 +692,19 @@
     "TrainBaseModel": {
       "description": "A pretrained checkpoint on the Hugging Face Hub, pinned to a commit.",
       "properties": {
+        "license": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
         "repo_id": {
           "title": "Repo Id",
           "type": "string"
