@@ -338,7 +338,9 @@ async def list_test_calls(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     return [TestCall.model_validate(dict(r)) for r in rows]
 
 
-async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dict:
+async def authenticate(deployment_id: uuid.UUID, predict_key: str):
+    """The deployment row for a valid predict key, or the Problem that refuses the call (401, suspended tenant, not active, 429). Runs
+    before the route reads the body, so an unauthenticated caller makes it buffer nothing."""
     # req/04: "separate auth scope from management API — this is what the
     # customer's own downstream systems call." Genuinely separate: no
     # tenant/JWT credential accepted here at all, just the per-deployment
@@ -360,7 +362,14 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         )
         problem.headers = {RETRY_AFTER_HEADER: str(RATE_LIMIT_WINDOW_SECONDS - int(time.time()) % RATE_LIMIT_WINDOW_SECONDS)}
         raise problem
+    return row
 
+
+async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dict:
+    return await serve_authenticated(await authenticate(deployment_id, predict_key), deployment_id, body)
+
+
+async def serve_authenticated(row, deployment_id: uuid.UUID, body: dict) -> dict:
     # FR6: an optional `metadata` passthrough field, popped before
     # forwarding to Serve (the model was never trained to expect it) and
     # echoed back alongside the prediction.
