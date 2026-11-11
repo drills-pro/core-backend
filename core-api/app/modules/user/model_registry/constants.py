@@ -15,6 +15,16 @@ NOTHING_TO_UPDATE_DETAIL = "nothing to update"
 BAD_STAGE_DETAIL = f"stage must be one of {sorted(ModelStage)}"
 
 
+class AuditAction(StrEnum):
+    REGISTER = "register"
+    PROMOTE = "promote"
+    SET_PUBLISH = "set_publish"
+
+
+class EntityType(StrEnum):
+    MODEL_VERSION = "model_version"
+
+
 class ProblemCode(StrEnum):
     NOTHING_TO_UPDATE = "nothing_to_update"
     INVALID_STAGE = "invalid_stage"
