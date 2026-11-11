@@ -14,14 +14,14 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
-| training | 22 | 9 | 2 | 4 | 37 |
+| training | 22 | 10 | 1 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
 | datasets | 24 | 3 | 1 | 3 | 31 |
-| **all** | 112 | 36 | 9 | 14 | 171 |
+| **all** | 112 | 37 | 8 | 14 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 83% of 157.
 
@@ -36,7 +36,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
-| 2 | missing | TRN-24 | training | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call. |
 | 2 | missing | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, no licence in the spec or model.json, no safetensors-only admission. |
 | 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
@@ -77,6 +76,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | REG-11 | registry | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py). |
 | 1 | partial | TRN-03 | training | Raw log tail of a run | Last 8000 characters only (LOG_TAIL_CHARS); no streaming, no history, no per-tenant redaction. |
 | 1 | partial | TRN-06 | training | Presets are data, copied into the spec; project preset list for the training form | No GPU-minute estimate and no cost preview on the list (planning/22). |
+| 1 | partial | TRN-24 | training | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | The spec declares a gpu fraction, not vram_gb, so the cap is the fraction of the card, not a stated number of gigabytes. |
 | 1 | partial | TRN-29 | training | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI. |
 | 1 | deferred | DAT-26 | datasets | Tombstoning dataset versions for erasure inside immutable history | Designed with the erasure flow. |
 | 1 | deferred | DAT-27 | datasets | Labeling (Label Studio behind core-api) | Stretch slot in planning/20. |
@@ -102,6 +102,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-08 | built | Image classification trainer (HF ConvNeXt) to ONNX with top-1, top-5 and confusion matrix | ray-training/tests/test_trainers.py::test_classification_trains_exports_and_reports, ray-training/tests/test_metrics.py::test_top1_top5_and_confusion |
 | TRN-09 | built | Object detection trainer (RT-DETRv2) to ONNX with mAP50 and mAP50-95 | ray-training/tests/test_trainers.py::test_detection_trains_exports_and_reports, ray-training/tests/test_metrics.py::test_map_perfect_wrong_and_shifted |
 | TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | ray-training/tests/test_driver.py::test_several_workers_train_one_model_and_only_the_root_rank_uploads, ray-training/tests/test_scaling.py::test_a_preset_gpu_is_workers_with_one_gpu_each_or_a_share_of_one |
+| TRN-24 | partial | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | ray-training/tests/test_gpu_share.py::test_only_a_fraction_on_a_cuda_machine_is_capped |
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | ray-training/tests/test_data.py::test_hash_split_is_deterministic_and_roughly_80_10_10, ray-training/tests/test_data.py::test_the_split_column_wins_and_null_rows_are_hashed |
 | SRV-02 | built | Multiplexed model loading by id (ONNX Runtime), recent models stay loaded | ray-serving/tests/test_model.py::test_a_loaded_model_ranks_the_classes, ray-serving/tests/test_model.py::test_a_missing_model_is_model_load_failed_and_an_unknown_function_is_its_own_code |
 | SRV-08 | partial | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | ray-serving/tests/test_model.py::test_a_url_outside_the_artifact_store_is_refused, ray-serving/tests/test_model.py::test_a_redirect_is_not_followed, ray-serving/tests/test_model.py::test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded |
@@ -150,7 +151,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-21 | partial | GPU-seconds metering of runs (usage event per finished run, once) | planning/14 Billable meters; planning/15 | 3 |
 | TRN-22 | built | Fault tolerance - checkpoint per epoch, resume after worker loss, runtime limit | planning/16 Fast-start; planning/07 Scheduling | 3 |
 | TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | docs/ray-parallelism.md Built | 2 |
-| TRN-24 | missing | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | planning/07 GPU memory and sharing | 0 |
+| TRN-24 | partial | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | planning/17 GPU sharing | 1 |
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
 | TRN-26 | partial | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
 | TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 2 |

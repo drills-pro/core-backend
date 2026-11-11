@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from ray_training.constants import ROOT_RANK
 from ray_training.recipe import EarlyStopping, make_scheduler
-from ray_training.result import NUM_WORKERS_GPU, device
+from ray_training.result import NUM_WORKERS_GPU, cap_gpu_share, device
 from ray_training.spec import TrainSpec
 
 Batch = Any
@@ -83,6 +83,7 @@ def _cpu_state(module: torch.nn.Module) -> dict:
 def fit(kit: Kit, spec: TrainSpec) -> Fit | None:
     """Train `kit.model` for spec.epochs and evaluate it. Returns None on every rank but the root one, which owns the export."""
     dev = device()
+    cap_gpu_share(getattr(spec, "gpu", 0))  # the test doubles carry no GPU share: uncapped
     model = session.prepare_model(kit.model.to(dev))
     inner = _unwrapped(model)
     workers = NUM_WORKERS_GPU if dev.type == "cuda" else 0
