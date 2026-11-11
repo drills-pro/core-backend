@@ -20,6 +20,7 @@ from app.core.enums import TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
 from app.modules.user.datasets import import_service as svc
+from app.integrations import job_lifecycle
 from app.modules.user.datasets import lifecycle, readers
 from app.modules.user.datasets import router as datasets
 from app.modules.user.datasets.job_table import IMPORTS
@@ -185,6 +186,8 @@ class _Conn:
 
     async def execute(self, sql, *a):
         self.tx.mutating()
+        if sql == job_lifecycle._EMIT:
+            return
         if sql == svc._RELEASE_COMMIT:
             if self.db.imports[a[0]]["status"] == a[2]:
                 self.db.imports[a[0]]["expires_at"] = a[1]

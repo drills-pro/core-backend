@@ -38,6 +38,7 @@ from app.modules.user import (
     datasets,
     deployments,
     health,
+    job_events,
     model_registry,
     projects,
     public,
@@ -65,6 +66,7 @@ ROUTERS = (
     # listing's own /v1/admin/tenants/summary.
     admin_tenants.detail_router,
     projects.router,
+    job_events.router,
     datasets.router,
     deployments.router,
     auth.router,

@@ -168,6 +168,9 @@ def settle_backoff(attempts: int) -> float:
     return min(SETTLE_BACKOFF_BASE_SECONDS * SETTLE_BACKOFF_FACTOR ** (attempts - 1), SETTLE_BACKOFF_MAX_SECONDS)
 
 
+_EMIT = "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) VALUES ($1, $2, $3, $4, $5)"
+
+
 def advance_sql(job: JobTable, columns: list[str], stamp_completed: bool) -> str:
     sets = ["status = $3", "claimed_until = NULL", "settle_attempts = 0"] + [f"{c} = ${i}" for i, c in enumerate(columns, start=4)]
     if stamp_completed:
@@ -196,7 +199,11 @@ async def advance(conn, job: JobTable, row: dict, to: str, **cols: Any) -> dict 
     if stamp:
         args.append(datetime.now(UTC))
     moved = await conn.fetchrow(advance_sql(job, list(cols), stamp), *args)
-    return dict(moved) if moved is not None else None
+    if moved is None:
+        return None
+    # The outbox row rides the same transaction as the move: no event without the change, none lost after it.
+    await conn.execute(_EMIT, moved["tenant_id"], moved["project_id"], f"{job.name}.{to}", moved["id"], str(to))
+    return dict(moved)
 
 
 async def _write_lease(job: JobTable, row: dict, sql: str, *args) -> None:
