@@ -29,6 +29,7 @@ class TrainBaseModel(BaseModel):
 
     repo_id: str
     revision: str
+    license: str | None = Field(default=None, min_length=1)  # SPDX id the admin recorded when pinning it; None = not recorded
 
 
 class Resample(StrEnum):

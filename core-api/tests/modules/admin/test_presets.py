@@ -35,7 +35,7 @@ def test_put_writes_the_row_as_the_actor_and_returns_it(call):
     res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
     sql, args = conn.calls[-1]
     assert res.status_code == 200 and res.json()["updated_by"] == "ops" and sql.startswith("INSERT INTO task_presets")
-    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None)
+    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None, None)
 
 
 def test_list_returns_the_tasks_presets(call):
