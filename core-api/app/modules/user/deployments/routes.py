@@ -42,6 +42,7 @@ from app.modules.user.deployments.schemas import (
     DeploymentListItem,
     PredictionEnvelope,
     PredictRequest,
+    ModelCard,
     TrainingRunLineage,
     TestCall,
     TestCallResult,
@@ -166,6 +167,12 @@ async def get_training_run_lineage(
 ):
     """One endpoint joining dataset commit -> training run -> model registry entry -> active deployment."""
     return await lineage.get_lineage(ctx, project_id, run_id)
+
+
+@router.get("/v1/projects/{project_id}/training-runs/{run_id}/card", response_model=ModelCard)
+async def get_model_card(project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))):
+    """The model card of a run: task, preset, scores, dataset version and whether a test dataset was used."""
+    return await lineage.get_card(ctx, project_id, run_id)
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/test", response_model=TestCallResult)
