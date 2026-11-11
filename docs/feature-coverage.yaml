@@ -299,7 +299,7 @@ entries:
   area: training
   title: Deploy gate with acknowledge_risk, model card, near-duplicate warning
   source: planning/06 Quality gates
-  status: partial
+  status: built
   weight: 2
   old: F07
   code: ["GET /v1/projects/{project_id}/training-runs/{run_id}/card", core-api/app/modules/user/deployments/lineage.py, core-api/app/modules/user/deployments/service.py, core-api/app/modules/user/deployments/routes.py, core-api/app/modules/user/training/readers.py, core-api/migrations/20261111224403_deployments_risk_acknowledged.sql]
@@ -307,8 +307,7 @@ entries:
     - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_recorded
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_card_of_an_unknown_run_is_404
-  note: A run with no test dataset, or a score under the task floor (METRIC_FLOORS in deployments/constants.py), is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. The card also carries the licence an admin recorded on the preset. Still missing is the near-duplicate warning (DAT-21).
-  gap: "No per-task metric floor, no perceptual hash (DAT-21); the card has no base model name or licence."
+  note: A run with no test dataset, or a score under the task floor (METRIC_FLOORS in deployments/constants.py), is 409 deploy_risk_unacknowledged until acknowledge_risk=true, which is recorded on the deployment. GET .../training-runs/{run_id}/card returns task, preset, the pinned base model, scores, dataset version and the test-split flag. The card also carries the licence an admin recorded on the preset. near_duplicates (DAT-21) shows how many held-out images have a near twin in the training set.
 - id: TRN-27
   area: training
   title: Base model pinned by commit, copied into the spec
@@ -1731,12 +1730,14 @@ entries:
   area: datasets
   title: Perceptual-hash warning for near-duplicates across splits
   source: planning/06 Quality gates
-  status: missing
+  status: built
   weight: 1
   old: F06
-  code: []
-  tests: []
-  gap: Not built.
+  code: [ray-training/ray_training/near_duplicates.py, ray-training/ray_training/classification.py, ray-training/ray_training/detection.py, ray-training/ray_training/runner.py, core-api/app/integrations/data_plane/train_report.py]
+  tests:
+    - ray-training/tests/test_near_duplicates.py::test_a_noised_copy_counts_and_a_different_picture_does_not
+    - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
+  note: Measured at training time, where the splits are final, not at import (a deviation from the doc, with no index change; it also covers a split column the user supplied). The trainer dHashes the held-out images (up to 2000) and counts those within 4 bits of a training image; the count is in report.json and on the model card as near_duplicates. Image tasks only; a warning, never a failure.
 - id: DAT-22
   area: datasets
   title: Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports)

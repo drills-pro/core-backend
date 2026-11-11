@@ -1926,6 +1926,17 @@
             ],
             "title": "Mlflow Run Id"
           },
+          "near_duplicates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Near Duplicates"
+          },
           "preset": {
             "anyOf": [
               {
@@ -2248,6 +2259,17 @@
               }
             ]
           },
+          "near_duplicates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Near Duplicates"
+          },
           "preset": {
             "anyOf": [
               {
@@ -2292,6 +2314,7 @@
           "task",
           "preset",
           "base_model",
+          "near_duplicates",
           "metrics",
           "dataset_version",
           "test_dataset_version",

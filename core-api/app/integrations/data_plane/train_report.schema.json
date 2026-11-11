@@ -118,6 +118,19 @@
         }
       ],
       "default": null
+    },
+    "near_duplicates": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Near Duplicates"
     }
   },
   "required": [

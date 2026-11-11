@@ -43,6 +43,7 @@ class TrainReport(BaseModel):
     history: list[dict[str, Metric]] = Field(default=[], max_length=MAX_EPOCH_HISTORY)  # one entry per epoch, e.g. {"epoch": 1, "loss": 0.7}
     classes: list[str] = []  # the model's class names in output order; serving names its answers with them
     confusion_matrix: ConfusionMatrix | None = None  # classification only
+    near_duplicates: int | None = Field(default=None, ge=0)  # image tasks: held-out images with a near twin in the training set; None = not measured
 
     @model_validator(mode="after")
     def _code_iff_failed(self) -> "TrainReport":

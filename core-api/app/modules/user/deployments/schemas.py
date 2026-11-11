@@ -80,6 +80,7 @@ class ModelCard(BaseModel):
     task: str | None
     preset: str | None
     base_model: TrainBaseModel | None
+    near_duplicates: int | None  # a score measured on images the model trained on near-copies of is too good; None = not measured
     metrics: Any
     dataset_version: VersionRef | None
     test_dataset_version: str | None
