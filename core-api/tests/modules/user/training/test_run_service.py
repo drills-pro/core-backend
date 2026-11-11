@@ -81,6 +81,19 @@ def test_cancel_stops_the_job_then_settles_the_row_without_holding_a_connection(
     assert env.open_during == [0, 0]  # not across compute.stop, not across the MLflow call
 
 
+def test_a_compute_outage_is_a_503_and_leaves_the_run_unchanged(monkeypatch):
+    env = Env(monkeypatch)
+
+    async def down(job_id):
+        raise RuntimeError("ray unreachable")
+
+    monkeypatch.setattr(run_service.compute, "stop", down)
+    with pytest.raises(Problem) as err:
+        cancel(env.row["id"])
+    assert (err.value.status_code, err.value.code) == (503, ProblemCode.CANCEL_FAILED)
+    assert env.row["status"] == S.RUNNING and env.killed == [] and env.metrics == []
+
+
 def test_a_cancel_that_loses_the_race_is_a_409_and_counts_nothing(monkeypatch):
     env = Env(monkeypatch)
     stop = run_service.compute.stop
