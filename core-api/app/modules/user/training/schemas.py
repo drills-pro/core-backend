@@ -154,4 +154,5 @@ class LineageRun(BaseModel):
     task: str | None = None
     preset: str | None = None
     metrics: Any = None
+    near_duplicates: int | None = None  # held-out images with a near twin in the training set; None = not measured
     base_model: TrainBaseModel | None = None  # the checkpoint frozen into the run's spec; None for runs from before it was recorded

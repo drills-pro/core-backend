@@ -13,6 +13,7 @@ from ray_training.constants import Augmentation
 from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.loop import Kit, fit
 from ray_training.metrics import detection_metrics
+from ray_training.near_duplicates import count_near_duplicates
 from ray_training.recipe import flip_with_boxes
 from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
 from ray_training.spec import Preprocessing, TrainSpec
@@ -97,4 +98,4 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
         "outputs": [{"name": "logits", "shape": ["batch", queries, n], "dtype": "float32", "activation": "sigmoid"},
                     {"name": "pred_boxes", "shape": ["batch", queries, 4], "dtype": "float32", "format": "cxcywh_normalized"}],
         "preprocessing": preprocessing(spec)}
-    return Result(ds.classes, done.metrics, done.history, onnx, signature)
+    return Result(ds.classes, done.metrics, done.history, onnx, signature, near_duplicates=count_near_duplicates(ds))

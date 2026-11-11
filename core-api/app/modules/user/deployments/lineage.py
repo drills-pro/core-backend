@@ -33,5 +33,5 @@ async def get_card(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) 
     found = await get_lineage(ctx, project_id, run_id)
     run = found.training_run
     return ModelCard(
-        training_run_id=run.id, task=run.task, preset=run.preset, base_model=run.base_model, metrics=run.metrics, dataset_version=found.dataset_version,
+        training_run_id=run.id, task=run.task, preset=run.preset, base_model=run.base_model, near_duplicates=run.near_duplicates, metrics=run.metrics, dataset_version=found.dataset_version,
         test_dataset_version=run.test_dataset_version, has_test_split=run.test_dataset_id is not None, model_version=found.model_version)

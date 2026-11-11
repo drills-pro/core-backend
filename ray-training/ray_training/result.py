@@ -23,6 +23,7 @@ class Result:
     signature: dict  # model.json: inputs, outputs, preprocessing
     confusion: dict | None = None  # classification: {"labels": [...], "matrix": [[...]]}
     extra_files: dict[str, Path] = field(default_factory=dict)  # uploaded beside the model under this name (a tokenizer)
+    near_duplicates: int | None = None  # image tasks: held-out images with a near twin in the training set (near_duplicates.py); None = not measured
 
 
 GIB = 1024**3

@@ -14,16 +14,16 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
-| training | 23 | 10 | 0 | 4 | 37 |
+| training | 24 | 9 | 0 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
-| datasets | 24 | 3 | 1 | 3 | 31 |
-| **all** | 113 | 37 | 7 | 14 | 171 |
+| datasets | 25 | 3 | 0 | 3 | 31 |
+| **all** | 115 | 36 | 6 | 14 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 84% of 157.
+Built share of the features that are due (partial counts half, deferred excluded): 85% of 157.
 
 ## Gaps, most important first
 
@@ -54,11 +54,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-14 | training | Trainer events API (idempotent by seq, only a running run takes events) | Route is per training run with a random per-run token (sha256 at rest), not POST /internal/v1/jobs/{id}/events with a signed per-job JWT carrying attempt; no attempt fencing (see JOB-17). |
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
-| 2 | partial | TRN-26 | training | Deploy gate with acknowledge_risk, model card, near-duplicate warning | No per-task metric floor, no perceptual hash (DAT-21); the card has no base model name or licence. |
 | 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, the licence is not written to model.json, no safetensors-only admission. |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
-| 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
 | 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
@@ -152,7 +150,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | docs/ray-parallelism.md Built | 2 |
 | TRN-24 | built | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | planning/17 GPU sharing | 2 |
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
-| TRN-26 | partial | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
+| TRN-26 | built | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
 | TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 2 |
 | TRN-28 | partial | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
 | TRN-29 | partial | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | planning/13 ADR-016; planning/17 Licence policy | 0 |
@@ -317,7 +315,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-18 | built | Hugging Face dataset import (card and schema check, pinned commit, data files only, size cap) | planning/17 Hugging Face datasets; planning/12 P3 | 3 |
 | DAT-19 | partial | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | planning/06 Datasets; planning/16 Fast-start | 1 |
 | DAT-20 | partial | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | planning/06 Quality gates; planning/16 Dataset statistics | 2 |
-| DAT-21 | missing | Perceptual-hash warning for near-duplicates across splits | planning/06 Quality gates | 0 |
+| DAT-21 | built | Perceptual-hash warning for near-duplicates across splits | planning/06 Quality gates | 2 |
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
 | DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
 | DAT-24 | built | Import usage metering (count and bytes) | planning/15 Usage pipeline | 1 |
