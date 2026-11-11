@@ -136,8 +136,8 @@ def verify_token(token: str) -> Claims:
     return claims
 
 
-async def get_claims(authorization: str = Header(...)) -> Claims:
-    if not authorization.startswith("Bearer "):
+async def get_claims(authorization: str | None = Header(None)) -> Claims:
+    if authorization is None or not authorization.startswith("Bearer "):  # no header is 401 too, not FastAPI's 422
         with _verify_span():
             _count_verification(AuthResult.NOT_BEARER)
         raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.BEARER_REQUIRED, "expected 'Bearer <token>'")
