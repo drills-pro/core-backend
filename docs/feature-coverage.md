@@ -20,8 +20,8 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 6 | 1 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
-| datasets | 21 | 3 | 4 | 3 | 31 |
-| **all** | 107 | 31 | 21 | 12 | 171 |
+| datasets | 22 | 2 | 4 | 3 | 31 |
+| **all** | 108 | 30 | 21 | 12 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 77% of 159.
 
@@ -70,7 +70,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
 | 1 | partial | DAT-20 | datasets | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed. |
-| 1 | partial | DAT-23 | datasets | Audit rows for dataset actions | Import create, commit, discard, expiry, delete, restore and publish are audited; creating the dataset itself is not. |
 | 1 | partial | DEP-06 | deployment | Deployment states and the reconciler that follows legacy deployments to active or failed | Status is the observed state; there is no desired-versus-observed split and no updating or stopping state. |
 | 1 | partial | JOB-10 | jobs | Job catalog - a JobType names its entrypoint module | Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum. |
 | 1 | partial | JOB-26 | jobs | Journey scripts (import, train and deploy, predict) run against the local stack | Scripts exist and were run by hand on the local stack; no CI job runs them and Schemathesis contract tests are not set up. |
@@ -326,7 +325,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-20 | partial | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | planning/06 Quality gates; planning/16 Dataset statistics | 2 |
 | DAT-21 | missing | Perceptual-hash warning for near-duplicates across splits | planning/06 Quality gates | 0 |
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
-| DAT-23 | partial | Audit rows for dataset actions | planning/19 E1 | 2 |
+| DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
 | DAT-24 | missing | Import usage metering (count and bytes) | planning/15 Usage pipeline | 0 |
 | DAT-25 | missing | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 0 |
 | DAT-26 | deferred | Tombstoning dataset versions for erasure inside immutable history | planning/03 Tables specified elsewhere; planning/18 | 0 |
