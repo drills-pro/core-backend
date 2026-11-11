@@ -233,12 +233,12 @@ entries:
   area: training
   title: Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate
   source: planning/14 Quota enforcement; planning/22 Training form
-  status: missing
+  status: deferred
   weight: 3
   old: F07
   code: []
   tests: []
-  gap: Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance.
+  gap: Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist.
 - id: TRN-21
   area: training
   title: GPU-seconds metering of runs (usage event per finished run, once)
@@ -773,12 +773,12 @@ entries:
   area: deployment
   title: Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier
   source: planning/06 Deployment model (Scale)
-  status: missing
+  status: deferred
   weight: 2
   old: F10
   code: [core-api/app/integrations/serve_config.py]
   tests: []
-  gap: Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan.
+  gap: Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist.
 - id: DEP-19
   area: deployment
   title: Blue/green rollout, traffic split, serve-torch runtime
