@@ -254,6 +254,14 @@ def test_delete_repo_tolerates_a_missing_repo_and_still_purges_the_namespace(own
     assert secrets == ["staging"]
 
 
+def test_purge_train_prefix_deletes_the_run_prefix_with_the_staging_credentials(owned, monkeypatch):
+    purged = []
+    monkeypatch.setattr(lakefs, "_delete_prefix", lambda bucket, prefix, client: purged.append((bucket, prefix, client)))
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: secret)
+    asyncio.run(data_plane.purge_train_prefix(TENANT, PROJECT, RUN))
+    assert purged == [(settings.data_plane.staging_bucket, layout.train_prefix(TENANT, PROJECT, RUN), "staging")]
+
+
 def _mlflow_stub(monkeypatch, run_tags):
     real = httpx.AsyncClient
 

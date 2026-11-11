@@ -59,6 +59,15 @@ async def publish_model(tenant_id: str, row: dict) -> None:
         await mlflow.publish_run_model(tenant_id, str(row["project_id"]), str(row["id"]), row["mlflow_run_id"])
 
 
+async def purge_run_files(tenant_id: str, row: dict) -> None:
+    """Best effort: the run has ended and its model is published, so its scratch prefix goes. A store that does not
+    answer leaves the files behind (ponytail: no retry or bucket lifecycle rule yet, add a sweep if leaks show up)."""
+    try:
+        await data_plane.purge_train_prefix(tenant_id, str(row["project_id"]), str(row["id"]))
+    except Exception:  # noqa: BLE001 - the settle already committed; a leftover prefix must not fail it
+        logger.warning("could not purge the files of run %s", row["id"], exc_info=True)
+
+
 async def register_model(tenant_id: str, row: dict) -> RegisteredVersion | None:
     """Create the run's MLflow model version, with no connection held. Idempotent per MLflow run (the version is
     looked up before it is created), so a retry after a rolled-back settle reuses it; the model_versions row is

@@ -378,6 +378,12 @@ class Fx:
             return compute.JobState(status=self.ray, started_at=self.ray_start)
 
         monkeypatch.setattr(compute, "job_state", job_state)
+        self.purged = []
+
+        async def purge_train_prefix(tenant_id, project_id, run_id):
+            self.purged.append(run_id)
+
+        monkeypatch.setattr(effects.data_plane, "purge_train_prefix", purge_train_prefix)
         monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
         monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
@@ -409,7 +415,7 @@ def test_a_succeeded_job_with_a_good_report_logs_metrics_registers_the_model_and
     assert fx.mlflow == [("FINISHED", {"top1": 0.9})] and len(fx.published) == 1
     assert fx.registered == [(row["id"], f"{DEFAULT_MODEL_NAME}-mlflow-1", "1")]
     assert fx.usage[0]["source_ref"] == f"train-{RUN}" and fx.usage[0]["unit"] == "gpu_seconds"
-    assert fx.metrics == [TrainingStatus.SUCCEEDED]
+    assert fx.metrics == [TrainingStatus.SUCCEEDED] and fx.purged == [str(row["id"])]  # the staged files go once the run is final
     assert fx.open_during == [0, 0, 0, 0]  # report read, MLflow closed, model published and registered with no connection held
 
 
@@ -451,6 +457,20 @@ def test_a_stopped_job_cancels_the_run_and_kills_the_mlflow_run(monkeypatch):
     fx.sweep()
     assert row["status"] == TrainingStatus.CANCELLED and row["completed_at"] is not None and row["report"] is None
     assert fx.mlflow == [("KILLED", None)] and fx.metrics == [TrainingStatus.CANCELLED]
+    assert fx.purged == [str(row["id"])]
+
+
+def test_a_purge_failure_does_not_fail_the_settle(monkeypatch):
+    fx = Fx(monkeypatch, GOOD)
+    row = fx.seed()
+    fx.ray = JobStatus.SUCCEEDED
+
+    async def boom(*ids):
+        raise RuntimeError("s3 down")
+
+    monkeypatch.setattr(effects.data_plane, "purge_train_prefix", boom)
+    fx.sweep()
+    assert row["status"] == TrainingStatus.SUCCEEDED
 
 
 def test_a_run_ray_starts_moves_to_running_and_one_still_pending_stays_submitted(monkeypatch):

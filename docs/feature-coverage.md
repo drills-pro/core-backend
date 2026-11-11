@@ -20,8 +20,8 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
-| datasets | 24 | 2 | 2 | 3 | 31 |
-| **all** | 112 | 34 | 11 | 14 | 171 |
+| datasets | 24 | 3 | 1 | 3 | 31 |
+| **all** | 112 | 35 | 10 | 14 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 82% of 157.
 
@@ -60,12 +60,12 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
-| 1 | missing | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
 | 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
 | 1 | partial | DAT-20 | datasets | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed. |
+| 1 | partial | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | A failed purge is only logged; no sweep retries it, and no bucket lifecycle rule exists in the k8s repo. |
 | 1 | partial | DEP-06 | deployment | Deployment states and the reconciler that follows legacy deployments to active or failed | Status is the observed state; there is no desired-versus-observed split and no updating or stopping state. |
 | 1 | partial | JOB-10 | jobs | Job catalog - a JobType names its entrypoint module | Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum. |
 | 1 | partial | JOB-26 | jobs | Journey scripts (import, train and deploy, predict) run against the local stack | Scripts exist and were run by hand on the local stack; no CI job runs them and Schemathesis contract tests are not set up. |
@@ -120,7 +120,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-11 | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Unverifiable here without running a trainer. |
 | JOB-07 | Dedicated worker process (python -m app.worker) and an API that runs no pollers | The old audit rated this partial; the worker has tests now. Whether the k8s repo runs it as its own Deployment was not checked. |
 | JOB-12 | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
-| DAT-31 | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
 
 ## All features
 
@@ -328,4 +327,4 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-28 | deferred | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | planning/17 Catalog | 0 |
 | DAT-29 | built | Adapter contract - only typed ids, names derived, ownership resolved under RLS first, fails closed | planning/16 Adapter contract | 3 |
 | DAT-30 | built | Operator list of a tenant's datasets | planning/19 back office | 2 |
-| DAT-31 | missing | Cleanup of per-run training prefixes in the staging bucket | planning/03 Retention; planning/18 Erasure | 0 |
+| DAT-31 | partial | Cleanup of per-run training prefixes in the staging bucket | planning/03 Retention; planning/18 Erasure | 2 |
