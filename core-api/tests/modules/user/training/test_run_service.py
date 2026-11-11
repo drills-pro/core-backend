@@ -180,3 +180,11 @@ def test_register_of_another_projects_run_is_404(monkeypatch):
     with pytest.raises(Problem) as e:
         asyncio.run(run_service.register_model(CTX, PROJECT, RUN_ROW["id"], "clf"))
     assert e.value.status_code == 404 and not calls
+
+
+def test_a_run_whose_job_never_started_ends_failed_and_is_counted(monkeypatch):
+    env = Env(monkeypatch, S.SUBMITTED)
+    asyncio.run(service.fail_unstarted(CTX.tenant_id, env.row["id"], "mlflow-1", PROJECT))
+    assert env.row["status"] == S.FAILED and env.row["report"]["code"] == "internal"
+    assert env.metrics == [S.FAILED] and env.killed == [mlflow.RunStatus.FAILED]
+

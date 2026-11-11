@@ -694,3 +694,97 @@ def test_list_pages_with_a_cursor(env):
         env.db.seed(S.SUCCEEDED)
     page = run(svc.list_imports(CTX, PROJECT, DS, PageParams(page_size=2, page_token=None)))
     assert len(page.items) == 2 and page.next_page_token
+
+
+# --- paths the tests above do not reach: a Hugging Face text import, a dataset that vanished, cleanup that fails ----
+
+def _intercept(monkeypatch, env, *, missing=None, skip=0, fail_execute=None):
+    """The same fake database, except `missing` (a SQL constant) answers None after `skip` answers, and an execute of `fail_execute` raises."""
+    seen = []
+
+    class Conn(_Conn):
+        async def fetchval(self, sql, *a):
+            if sql == missing:
+                seen.append(sql)
+                if len(seen) > skip:
+                    return None
+            return await super().fetchval(sql, *a)
+
+        async def execute(self, sql, *a):
+            if sql == fail_execute:
+                raise RuntimeError("connection lost")
+            return await super().execute(sql, *a)
+
+    class Tx(_Tx):
+        def __init__(self, db):
+            super().__init__(db)
+            self.conn = Conn(self)
+
+    monkeypatch.setattr(svc, "TenantConn", lambda tenant_id: Tx(env.db))
+
+
+def test_a_huggingface_import_of_a_text_dataset_is_422(env):
+    env.db.task_type = TaskType.TEXT_CLASSIFICATION
+    problem(create(ImportCreate(source=ImportSource.HUGGINGFACE, params=ImportParams(repo="a/b"))), 422, ProblemCode.INVALID_PARAMS)
+    assert not env.db.imports
+
+
+def test_listing_the_imports_of_a_dataset_that_is_gone_is_404(env, monkeypatch):
+    _intercept(monkeypatch, env, missing=svc._DATASET_EXISTS)
+    with pytest.raises(Problem) as err:
+        run(svc.list_imports(CTX, PROJECT, DS, PageParams(page_size=2, page_token=None)))
+    assert err.value.status_code == 404
+
+
+def test_a_start_that_fails_and_cannot_be_put_back_still_answers_503(env, monkeypatch):
+    imp = run(create())
+    env.gw.fail = "submit_ingest"
+
+    def break_cas():
+        monkeypatch.setattr(svc, "cas", _boom)  # the put-back fails too
+
+    async def _boom(*a, **k):
+        raise RuntimeError("connection lost")
+
+    env.gw.hooks["submit_ingest"] = break_cas
+    problem(svc.start_import(CTX, PROJECT, DS, imp.id), 503, ProblemCode.START_FAILED)
+    assert env.db.imports[imp.id]["status"] == S.QUEUED  # left for the reconciler to fail at its deadline
+
+
+def test_committing_into_a_dataset_that_is_gone_is_404_and_commits_nothing(env, monkeypatch):
+    row = env.db.seed(S.AWAITING_REVIEW)
+    _intercept(monkeypatch, env, missing=svc._LOCK_DATASET)
+    with pytest.raises(Problem) as err:
+        run(svc.commit_import(CTX, PROJECT, DS, row["id"]))
+    assert err.value.status_code == 404 and "commit_staged" not in env.gw.calls
+
+
+def test_a_dataset_deleted_while_lakefs_commits_is_404_and_the_lease_is_released(env, monkeypatch):
+    row = env.db.seed(S.AWAITING_REVIEW)
+    _intercept(monkeypatch, env, missing=svc._LOCK_DATASET, skip=1)  # the claim finds it, the final write does not
+    with pytest.raises(Problem) as err:
+        run(svc.commit_import(CTX, PROJECT, DS, row["id"]))
+    assert err.value.status_code == 404 and not env.db.versions
+    assert env.db.imports[row["id"]]["status"] == S.COMMITTING and env.db.imports[row["id"]]["expires_at"] <= datetime.now(UTC)  # resumable at once
+
+
+def test_a_commit_that_a_resumed_one_finished_meanwhile_answers_with_that_version(env):
+    row = env.db.seed(S.AWAITING_REVIEW)
+
+    def other_finishes():
+        env.db.imports[row["id"]]["status"] = S.SUCCEEDED
+        env.db.versions.append({"id": uuid.uuid4(), "dataset_id": DS, "number": 1, "lakefs_commit": "c", "import_id": row["id"],
+                                "stats": {}, "created_at": datetime.now(UTC)})
+
+    env.gw.hooks["commit_staged"] = other_finishes
+    version = run(svc.commit_import(CTX, PROJECT, DS, row["id"]))
+    assert version.number == 1 and len(env.db.versions) == 1 and not env.db.audits
+
+
+def test_a_failed_commit_whose_lease_cannot_be_released_still_raises_the_original_error(env, monkeypatch):
+    row = env.db.seed(S.AWAITING_REVIEW)
+    env.gw.fail = "commit_staged"
+    _intercept(monkeypatch, env, fail_execute=svc._RELEASE_COMMIT)
+    with pytest.raises(RuntimeError, match="commit_staged failed"):
+        run(svc.commit_import(CTX, PROJECT, DS, row["id"]))
+    assert env.db.imports[row["id"]]["status"] == S.COMMITTING  # the lease runs out on its own

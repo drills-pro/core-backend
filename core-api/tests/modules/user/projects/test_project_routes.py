@@ -15,10 +15,10 @@ PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, 
 def call(monkeypatch, dev_headers):
     client = make_client(routes.router)
 
-    def go(row, method, path, on_project=True, gallery=False):
+    def go(row, method, path, on_project=True, gallery=False, **kw):
         conn = FakeConn(row, row=PROJECT_ROW, val=[PROJECT], vals={"gallery_published": gallery}, result="INSERT 1")
         patch_tenant_conn(monkeypatch, conn, service)
-        return client.request(method, f"/v1/projects{f'/{PROJECT}' if on_project else ''}{path}")
+        return client.request(method, f"/v1/projects{f'/{PROJECT}' if on_project else ''}{path}", **kw)
 
     return go
 
@@ -100,3 +100,11 @@ def test_restore_of_a_project_that_is_not_pending_delete_is_409(monkeypatch, dev
 
 def test_list_rejects_a_bad_page_token(call):
     assert call(access(), "GET", "?page_token=garbage", on_project=False).status_code == 400
+
+
+def test_editor_renames_the_project_and_patches_settings(call):
+    row = access(roles=["editor"])
+    assert call(row, "PATCH", "?name=renamed").status_code == 200
+    assert call(row, "PATCH", "/settings", json={"base_model": "m"}).status_code == 200
+    r = call(row, "PATCH", "/settings", json={})
+    assert (r.status_code, r.json()["code"]) == (400, "nothing_to_update")
