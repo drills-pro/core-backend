@@ -26,6 +26,9 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "zitadel": ("USER_ID", "KEY_ID", "PRIVATE_KEY"),
 }
 
+# Not in REQUIRED, so readiness does not depend on them: the feature that reads one is off while its file is missing.
+OPTIONAL: dict[str, tuple[str, ...]] = {"webhooks": ("signing_key",)}
+
 _cache: dict[str, tuple[Path, int, dict]] = {}
 
 
@@ -47,7 +50,7 @@ def get(name: str) -> dict:
         data = json.loads(path.read_text())
     except json.JSONDecodeError as e:
         raise SecretError(f"secret {name!r}: {path} is not valid JSON") from e
-    missing = [k for k in REQUIRED[name] if k not in data]
+    missing = [k for k in {**REQUIRED, **OPTIONAL}[name] if k not in data]
     if missing:
         raise SecretError(f"secret {name!r}: {path} is missing {missing}")
     _cache[name] = (path, mtime, data)

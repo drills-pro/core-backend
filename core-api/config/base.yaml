@@ -108,3 +108,4 @@ secrets:                     # paths of JSON files, mounted into the pod (Vault 
   staging: /var/app-secret/app-backend/staging
   ingest: /var/app-secret/app-backend/ingest
   zitadel: /var/app-secret/app-backend/zitadel
+  webhooks: /var/app-secret/app-backend/webhooks   # {"signing_key"}: optional, webhook delivery is off without it

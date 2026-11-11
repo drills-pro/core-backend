@@ -26,3 +26,4 @@ secrets:
   staging: ../.local/secrets-host/staging.json
   ingest: ../.local/secrets-host/ingest.json
   zitadel: ../.local/secrets-host/zitadel.json
+  webhooks: ../.local/secrets-host/webhooks.json
