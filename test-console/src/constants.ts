@@ -25,7 +25,12 @@ export const IMPORT_DONE: Schemas['ImportStatus'][] = ['succeeded', 'failed', 'c
 /** Mirrors core-api TrainingStatus and DeploymentStatus (plain strings in the API schema). */
 export const RunStatus = { SUCCEEDED: 'succeeded' } as const;
 export const RUN_DONE = ['succeeded', 'failed', 'cancelled'];
-export const DEPLOY_DONE = ['active', 'failed', 'deleted'];
+export const DEPLOY_DONE = ['active', 'failed', 'stopped', 'deleted'];
+/** A deployment in one of these has nothing left to stop. */
+export const DEPLOY_ENDED = ['failed', 'stopped', 'deleted'];
+export const DeployStatus = { DELETED: 'deleted', STOPPED: 'stopped' } as const;
+/** The only scope a project API key needs for POST /v1/predict. */
+export const PREDICT_SCOPE: Schemas['Scope'] = 'predict';
 
 export const PackageStatus = { CANDIDATE: 'candidate', STABLE: 'stable', RETIRED: 'retired' } as const satisfies Record<
   string,
@@ -39,6 +44,7 @@ export const SHA_CONFIRM_CHARS = 8;
 export function statusColor(status: string): string {
   if (['succeeded', 'active', 'stable', 'passed'].includes(status)) return 'green';
   if (['failed', 'expired', 'retired'].includes(status)) return 'red';
+  if (status === DeployStatus.STOPPED) return 'orange';
   if (['cancelled', 'discarded', 'deleted'].includes(status)) return 'gray';
   if ([ImportStatus.AWAITING_UPLOAD, ImportStatus.AWAITING_REVIEW, 'candidate'].includes(status)) return 'yellow';
   return 'blue';

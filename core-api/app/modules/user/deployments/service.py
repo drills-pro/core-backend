@@ -13,11 +13,11 @@ import httpx
 
 from app.core import audit, plan_limits, rate_limit
 from app.core import task_types
-from app.core.authz import AuthzContext
+from app.core.authz import AuthzContext, TenantStatus
 from app.core.db import get_pool
 from app.core.idempotency import insert_once, replay
 from app.core.metrics import inference as inference_metrics, usage as usage_metrics
-from app.core.problem import Problem, not_found
+from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import calls, shared
@@ -94,10 +94,12 @@ async def _deploy_legacy(ctx, project_id, deployment_id, run, info, settings, de
 _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _ACTIVE_COUNT = "SELECT count(*) FROM deployments WHERE tenant_id = $1 AND id <> $2 AND status = ANY($3::text[])"
 _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key = $2"
+# The model version a deployment serves is the newest registered from its run (versions are 1:1 with runs today); NULL when none is.
+_VERSION_OF_RUN = "(SELECT id FROM model_versions WHERE training_run_id = {run} ORDER BY created_at DESC, id LIMIT 1)"
 _INSERT = (
     "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
-    "rate_limit_per_minute, serving, status, idempotency_key) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+    "rate_limit_per_minute, serving, status, idempotency_key, model_version_id) "
+    f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, {_VERSION_OF_RUN.format(run='$4')}) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
     "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id"
 )
@@ -194,7 +196,8 @@ async def _write_deployment(
             await _check_quota(conn, ctx.tenant_id, deployment_id, lock=True)
             if in_place:
                 row = await conn.fetchrow(
-                    "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5, idempotency_key = $7 "
+                    "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5, idempotency_key = $7, "
+                    f"model_version_id = {_VERSION_OF_RUN.format(run='$2')} "
                     "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
                     deployment_id,
                     training_run_id,
@@ -220,7 +223,7 @@ async def _write_deployment(
             )
             if not created:  # lost a race with the same key: that one is the deployment
                 return _replay(row, training_run_id)
-    except asyncpg.UniqueViolationError:  # only deployments_one_live_per_run is left: the idempotency key conflict is DO NOTHING above
+    except asyncpg.UniqueViolationError:  # only a unique index on the version or the run is left (deployments_one_active_per_version, deployments_one_live_per_run): the idempotency key conflict is DO NOTHING above
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
     return DeploymentCreated.model_validate({**dict(row), "predict_key": predict_key, "plan_tier": plan_tier})
@@ -345,6 +348,8 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         row = await conn.fetchrow("SELECT * FROM deployment_for_predict($1, $2)", deployment_id, hash_key(predict_key))
     if row is None:
         raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid deployment id or predict key")
+    if row["tenant_status"] != TenantStatus.ACTIVE:
+        raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, KernelProblemCode.TENANT_SUSPENDED, "this tenant is not active")
     _require_active(row["status"])
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
         raise Problem(

@@ -98,9 +98,11 @@ def test_promote_of_a_version_of_another_project_is_404(env):
 
 
 def test_list_shows_chosen_names_and_customer_labels(env):
-    env.conn.rowset = [{**STORED, "stage": ModelStage.PRODUCTION}, {**STORED, "stage": ModelStage.STAGING}]
+    model_id = uuid.uuid4()
+    env.conn.rowset = [{**STORED, "model_id": model_id, "stage": ModelStage.PRODUCTION}, {**STORED, "model_id": model_id, "stage": ModelStage.STAGING}]
     out = run(service.list_versions(CTX, PROJECT))
     assert [(v.mlflow_model_name, v.customer_label) for v in out] == [("clf", "live/deployed"), ("clf", "candidate")]
+    assert {v.model_id for v in out} == {model_id}  # what a caller sends as X-Model-Id
 
 
 def test_publish_flags_are_independent_and_need_one(env):

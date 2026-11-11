@@ -9,6 +9,7 @@ Secrets are not here. `secrets:` holds the *path* of each JSON file; app/core/se
 reads them.
 """
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -137,6 +138,9 @@ class Serving(_Section):
 
     max_models_per_replica: int  # models a replica keeps loaded; the least recently used is dropped for another
     max_ongoing_requests: int  # per replica; more wait in Serve's queue
+    autoscale_target_ongoing_requests: float  # Serve adds a replica when the average per replica exceeds this (up to the app's max_replicas)
+    autoscale_upscale_delay_seconds: float  # the load must stay above the target this long before a replica is added
+    autoscale_downscale_delay_seconds: float  # ... and below it this long before one is removed (keeps a loaded model warm through a lull)
     health_check_period_seconds: int  # how often Serve probes a replica
     health_check_timeout_seconds: int  # a replica that has not answered a probe in this long is replaced
     graceful_shutdown_timeout_seconds: int  # a stopping replica gets this long to finish its requests
@@ -150,6 +154,19 @@ class Serving(_Section):
     test_calls_retention_days: int  # deployment_test_calls rows (the try-it payloads) older than this are purged
     package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
     apps: ServingApps
+
+
+class Predict(_Section):
+    """POST /v1/predict stored predictions: the background worker and how long results are kept (planning/24)."""
+
+    worker_concurrency: int  # background predictions one core-api process sends to Serve at once, so a burst fans out across Serve's replicas
+    max_attempts: int  # tries of one background prediction (a 5xx, a timeout or a lost lease is retried) before it fails
+    lease_seconds: int  # how long a claimed (or sync idempotent) prediction belongs to its worker before it is taken back
+    background_retention_days: int  # a finished background prediction keeps its input and output this long
+    sync_retention_hours: int  # a sync prediction sent with an Idempotency-Key is replayable this long
+    legacy_sunset: datetime  # the Sunset header of the deprecated POST /v1/predict/{deployment_id}: when it may stop answering (timezone required)
+    inline_max_bytes: int  # an input or output whose JSON is larger than this is stored in the staging bucket and the row keeps only its key
+    in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
 
 
 class Observability(_Section):
@@ -184,6 +201,7 @@ class Settings(BaseSettings):
     dataset_limits: DatasetLimits
     training: Training
     serving: Serving
+    predict: Predict
     observability: Observability
     public: Public
     secrets: SecretPaths

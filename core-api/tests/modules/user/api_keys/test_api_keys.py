@@ -19,7 +19,7 @@ def call(monkeypatch, dev_headers):
     client = make_client(routes.router)
 
     def go(method, path, row, **kw):
-        conn = FakeConn(row, row={"id": KEY_ID, "created_at": NOW}, val=KEY_ID, rowset=KEY_LIST)
+        conn = FakeConn(row, row={"id": KEY_ID, "created_at": NOW}, val=KEY_ID, vals={"INSERT INTO api_key_models": 1}, rowset=KEY_LIST)
         patch_tenant_conn(monkeypatch, conn, service)
         go.log = conn.calls
         return client.request(method, BASE + path, **kw)
@@ -55,6 +55,21 @@ def test_secret_is_returned_once_and_only_its_hash_is_stored(call):
     assert body["secret"] not in stored and body["secret"][12:] not in stored
     assert any(isinstance(a, str) and len(a) == 64 for _, args in call.log for a in args)  # the sha256
     assert [a for _, args in call.log for a in args if a == "api_key.create"]  # audited
+
+
+def test_a_model_of_another_project_is_refused_and_nothing_is_kept(call, monkeypatch):
+    conn = FakeConn(access(roles=["deployer"]), row={"id": KEY_ID, "created_at": NOW}, vals={"INSERT INTO api_key_models": 0})
+    patch_tenant_conn(monkeypatch, conn, service)
+    r = make_client(routes.router).post(BASE, json={"name": "x", "scopes": ["predict"], "model_ids": [str(uuid.uuid4())]})
+    assert (r.status_code, r.json()["code"]) == (422, "unknown_model")
+
+
+def test_a_key_limit_is_stored_returned_and_must_be_positive(call):
+    r = call("POST", "", access(roles=["deployer"]), json={**CREATE["json"], "rate_limit_per_minute": 30})
+    assert r.status_code == 201 and r.json()["rate_limit_per_minute"] == 30 and 30 in [a for _, args in call.log for a in args]
+    assert call("POST", "", access(roles=["deployer"]), json=CREATE["json"]).json()["rate_limit_per_minute"] is None
+    assert call("POST", "", access(roles=["deployer"]), json={**CREATE["json"], "rate_limit_per_minute": 0}).status_code == 422
+    assert "rate_limit_per_minute" in call("GET", "", access(roles=["deployer"])).json()[0]
 
 
 def test_list_never_shows_secret_or_hash(call):

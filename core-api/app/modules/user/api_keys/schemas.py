@@ -11,6 +11,7 @@ class NewApiKey(BaseModel):
     scopes: list[Scope] = Field(min_length=1)
     model_ids: list[uuid.UUID] = []  # empty = every model in the project
     expires_at: datetime | None = None
+    rate_limit_per_minute: int | None = Field(default=None, gt=0)  # POST /v1/predict calls a minute; the lower of this and the plan's applies
 
 
 class ApiKey(BaseModel):
@@ -23,6 +24,7 @@ class ApiKey(BaseModel):
     model_ids: list[uuid.UUID]
     expires_at: datetime | None
     created_at: datetime
+    rate_limit_per_minute: int | None = None
 
 
 class ListedApiKey(ApiKey):

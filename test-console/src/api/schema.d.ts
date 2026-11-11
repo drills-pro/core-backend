@@ -999,8 +999,82 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Predict */
+        /**
+         * Predict
+         * @description Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment.
+         */
         post: operations["predict_v1_predict__deployment_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/predict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Predict Model */
+        post: operations["predict_model_v1_predict_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/predict/{prediction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Prediction */
+        get: operations["get_prediction_v1_predict__prediction_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/predict/{prediction_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Prediction */
+        post: operations["cancel_prediction_v1_predict__prediction_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/predict/{prediction_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prediction Events
+         * @description Server-sent events: each status change (id = its seq, replayed after Last-Event-ID), the envelope in the terminal one.
+         */
+        get: operations["prediction_events_v1_predict__prediction_id__events_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1912,6 +1986,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute?: number | null;
             /** Secret */
             secret: string;
         };
@@ -2438,6 +2514,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute?: number | null;
             /** Created By */
             created_by: string;
             /** Revoked At */
@@ -2546,6 +2624,11 @@ export interface components {
             created_at: string;
             /** Customer Label */
             customer_label: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
         };
         /** NewApiKey */
         NewApiKey: {
@@ -2560,6 +2643,8 @@ export interface components {
             model_ids: string[];
             /** Expires At */
             expires_at?: string | null;
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute?: number | null;
         };
         /** OrgOwner */
         OrgOwner: {
@@ -2696,6 +2781,62 @@ export interface components {
             /** Max Inflight Per Deployment */
             max_inflight_per_deployment: number;
         };
+        /** PredictModelRef */
+        PredictModelRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Revision */
+            revision: string;
+        };
+        /** PredictUsage */
+        PredictUsage: {
+            /** Latency Ms */
+            latency_ms?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PredictionEnvelope */
+        PredictionEnvelope: {
+            /** Id */
+            id: string;
+            /** @default completed */
+            status: components["schemas"]["PredictionStatus"];
+            model: components["schemas"]["PredictModelRef"];
+            /** Output */
+            output?: unknown;
+            usage: components["schemas"]["PredictUsage"];
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            error?: components["schemas"]["PredictionError"] | null;
+            /**
+             * Expired
+             * @default false
+             */
+            expired: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** PredictionError */
+        PredictionError: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * PredictionStatus
+         * @description Mirrors the predictions.status and prediction_events.status CHECK constraints.
+         * @enum {string}
+         */
+        PredictionStatus: "queued" | "in_progress" | "completed" | "failed" | "cancelled";
         /**
          * Preprocessing
          * @description How an image becomes the model's input: resize (stretch, to a square `image_size`) with `resample`, multiply by
@@ -6095,6 +6236,144 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    predict_model_v1_predict_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Model-Id": string;
+                "X-Model-Revision"?: string | null;
+                "Idempotency-Key"?: string | null;
+                Prefer?: string | null;
+                Accept?: string | null;
+                "x-project-id"?: string | null;
+                "x-model-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prediction_v1_predict__prediction_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-project-id"?: string | null;
+                "x-model-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_prediction_v1_predict__prediction_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-project-id"?: string | null;
+                "x-model-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prediction_events_v1_predict__prediction_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: string | null;
+                "x-project-id"?: string | null;
+                "x-model-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

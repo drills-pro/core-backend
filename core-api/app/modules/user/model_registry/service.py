@@ -26,12 +26,14 @@ from app.modules.user.model_registry.schemas import (
     VersionRef,
 )
 
+# The model (planning/24 Q1) is one row per (project, registered name); a version joins the one its name has.
+_ENSURE_MODEL = "INSERT INTO models (tenant_id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO NOTHING"
 _INSERT = (
-    "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version) "
-    "VALUES ($1, $2, $3, $4, $5) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at"
+    "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version, model_id) "
+    "SELECT $1, $2, $3, $4, $5, (SELECT id FROM models WHERE project_id = $2 AND name = $4) RETURNING id, mlflow_model_name, mlflow_version, stage, created_at"
 )
 _LIST = (
-    "SELECT id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
+    "SELECT id, model_id, mlflow_model_name, mlflow_version, stage, created_at FROM model_versions "
     "WHERE project_id = $1 ORDER BY created_at DESC"
 )
 _BY_ID = "SELECT mlflow_model_name, mlflow_version FROM model_versions WHERE id = $1 AND project_id = $2"
@@ -69,6 +71,7 @@ async def register_in_mlflow(tenant_id: str, project_id: uuid.UUID, name: str, m
 async def record_version(
     conn, tenant_id: str, project_id: uuid.UUID, training_run_id: uuid.UUID, registered: RegisteredVersion
 ) -> ModelVersion:
+    await conn.execute(_ENSURE_MODEL, tenant_id, project_id, registered.mlflow_model_name)
     row = await conn.fetchrow(
         _INSERT, tenant_id, project_id, training_run_id, registered.mlflow_model_name, registered.mlflow_version
     )

@@ -59,6 +59,14 @@ stack, run it once before `bootstrap.sh`.
 `GET /health/deps` pings every dependency (Postgres, LakeFS, Zitadel,
 Ray, MLflow) — `"ok"` per service once everything is wired.
 
+## Journey script
+
+`./scripts/e2e-journey.sh` drives the whole path on a running local stack with the dev headers: a tiny
+image-classification project, zip upload, ingest, commit, a real training run, deploy, `POST /v1/predict/{id}` with the
+one-time key (asserts `predictions`), then delete and a refused predict. It needs Ray able to train and serve, so a run
+takes minutes. `API`, `TENANT`, `POLLS` and `POLL_SECONDS` override the defaults. `scripts/e2e-import.sh` covers import
+only and `scripts/e2e-train-deploy.sh` is the fast variant that seeds its training runs in Postgres.
+
 ## Status against req/
 
 | Doc | Status |

@@ -10,10 +10,15 @@ ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cu128@sha256:76e91000ac4eab6b53c5d79
 FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/ray-training/pyproject.toml
-RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-training/pyproject.toml', 'rb'))['project']['dependencies']))" \
+# Ray first, then the rest under a protobuf<6 constraint: ray[serve] pins protobuf 5.x, and the newest onnx needs protobuf 6.31+. Installed in
+# the other order, onnx pulls protobuf 7, Ray downgrades it, and `import onnx` fails with a gencode/runtime version error, which breaks the
+# ONNX export (reproduced building the same dependency set for the local compose Ray head, compose/ray-head/Dockerfile). The build-time import check below
+# now includes onnx, so CI fails if this regresses; earlier CI builds passed because that check did not import it.
+RUN echo 'protobuf<6' > /tmp/ray-training/constraints.txt \
+    && python -c "import tomllib; print('\\n'.join(tomllib.load(open('/tmp/ray-training/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-training/requirements.txt \
-    && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/ray-training/requirements.txt \
-    && pip uninstall -y onnxruntime && pip install --no-cache-dir onnxruntime-gpu \
     && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
-    && python -c "import ray.serve, ray.train.torch, torch, transformers, onnxruntime; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
+    && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/ray-training/requirements.txt \
+    && pip uninstall -y onnxruntime && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt onnxruntime-gpu \
+    && python -c "import ray.serve, ray.train.torch, torch, transformers, onnx, onnxruntime; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'onnx', onnx.__version__, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
     && rm -rf /tmp/ray-training

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Button, Code, HStack, Table } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, newKey, unwrap } from '@/api/client';
-import { DEFAULT_SEED, POLL_MS, RUN_DONE } from '@/constants';
+import { lineageQuery } from '@/api/queries';
+import { DEFAULT_SEED, POLL_MS, RUN_DONE, RunStatus } from '@/constants';
 import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
 import { versionsQuery } from './Datasets';
 
@@ -10,6 +11,18 @@ export const runsQuery = (projectId: string) => ({
   queryKey: ['runs', projectId],
   queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/training-runs', { params: { path: { project_id: projectId } } })),
 });
+
+/** The deployment a succeeded run ended up in, from the lineage join. */
+function RunDeployment({ projectId, runId }: { projectId: string; runId: string }) {
+  const { data } = useQuery(lineageQuery(projectId, runId));
+  if (!data?.deployment) return <>-</>;
+  return (
+    <HStack>
+      <Code>{short(data.deployment.id)}</Code>
+      <StatusBadge status={data.deployment.status} />
+    </HStack>
+  );
+}
 
 export function Training({ projectId, datasetId }: { projectId: string; datasetId: string }) {
   const qc = useQueryClient();
@@ -76,6 +89,7 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
             <Table.ColumnHeader>Preset</Table.ColumnHeader>
             <Table.ColumnHeader>Status</Table.ColumnHeader>
             <Table.ColumnHeader>Metrics</Table.ColumnHeader>
+            <Table.ColumnHeader>Deployment</Table.ColumnHeader>
             <Table.ColumnHeader>Created</Table.ColumnHeader>
             <Table.ColumnHeader />
           </Table.Row>
@@ -93,6 +107,7 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
               <Table.Cell>
                 <Code fontSize="xs">{r.metrics ? JSON.stringify(r.metrics) : '-'}</Code>
               </Table.Cell>
+              <Table.Cell>{r.status === RunStatus.SUCCEEDED ? <RunDeployment projectId={projectId} runId={r.id} /> : '-'}</Table.Cell>
               <Table.Cell>{when(r.created_at)}</Table.Cell>
               <Table.Cell>
                 <HStack justify="end">

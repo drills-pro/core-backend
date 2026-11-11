@@ -1,8 +1,8 @@
-import type { ReactNode } from 'react';
-import { Alert, Badge, Card, Heading, HStack, NativeSelect } from '@chakra-ui/react';
-import { statusColor } from '@/constants';
+import { type ReactNode, useState } from 'react';
+import { Alert, Badge, Button, Card, Heading, HStack, NativeSelect } from '@chakra-ui/react';
+import { DeployStatus, statusColor } from '@/constants';
 
-export const StatusBadge = ({ status }: { status: string }) => <Badge colorPalette={statusColor(status)}>{status}</Badge>;
+export const StatusBadge = ({ status }: { status: string }) => <Badge colorPalette={statusColor(status)} variant={status === DeployStatus.DELETED ? 'outline' : undefined}>{status}</Badge>;
 
 /** Shows the API's own error text: this is a staff tool, the detail is the useful part. */
 export function ErrorAlert({ error }: { error: unknown }) {
@@ -56,3 +56,24 @@ export function Select({
 
 export const short = (id: string) => id.slice(0, 8);
 export const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString() : '-');
+
+const COPIED_MS = 1_500;
+
+/** Copies `text` to the clipboard and says so for a moment. */
+export function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), COPIED_MS);
+        })
+      }
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </Button>
+  );
+}

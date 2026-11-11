@@ -1,11 +1,14 @@
 """Response shapes for the deployment routes."""
+import json
 import uuid
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.user.datasets import VersionRef
+from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_TOO_LARGE_DETAIL, PredictionStatus
 from app.modules.user.training import LineageRun
 
 class DeploymentCreated(BaseModel):
@@ -67,3 +70,55 @@ class TrainingRunLineage(BaseModel):
     dataset_version: VersionRef | None
     model_version: LineageModel | None
     deployment: RunDeployment | None
+
+
+class PredictRequest(BaseModel):
+    """POST /v1/predict body. Closed: an unknown top-level key is a 422. `input` goes to the model as sent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: Any
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def _small(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(json.dumps(value)) > METADATA_MAX_BYTES:
+            raise ValueError(METADATA_TOO_LARGE_DETAIL)
+        return value
+
+
+class PredictModelRef(BaseModel):
+    id: uuid.UUID
+    revision: str
+
+
+class PredictUsage(BaseModel):
+    model_config = ConfigDict(extra="allow")  # token or compute counts later
+
+    latency_ms: float | None = None  # None until a call finished
+
+
+class PredictionError(BaseModel):
+    code: str
+    detail: str
+
+
+class PredictionEnvelope(BaseModel):
+    id: str
+    status: PredictionStatus = PredictionStatus.COMPLETED  # a sync answer is always completed
+    model: PredictModelRef
+    output: Any = None
+    usage: PredictUsage
+    metadata: dict[str, Any]
+    error: PredictionError | None = None
+    expired: bool = False  # the retention purge dropped input and output
+    created_at: datetime
+
+
+class PredictOutcome(BaseModel):
+    """What the predict service hands the route: the envelope, the status it travels with and its extra headers."""
+
+    envelope: PredictionEnvelope
+    status_code: int = HTTPStatus.OK
+    headers: dict[str, str] = Field(default_factory=dict)

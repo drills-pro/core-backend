@@ -5,6 +5,7 @@ project: the X-Project-Id header may only confirm the key's project, never choos
     missing, unknown, revoked or expired key, or X-Project-Id missing/different  -> 401 invalid_api_key (one body)
     key without the scope                                                         -> 403 forbidden, naming the scope
     model outside a non-empty allowlist                                           -> 403 forbidden
+    tenant not active (suspended or pending deletion)                             -> 503 tenant_suspended
 """
 import hashlib
 import secrets
@@ -15,7 +16,7 @@ from typing import NamedTuple
 
 from fastapi import Header
 
-from app.core.authz.policy import Scope
+from app.core.authz.policy import Scope, TenantStatus
 from app.core.db import get_pool
 from app.core.problem import Problem, ProblemCode
 
@@ -45,6 +46,7 @@ class KeyContext:
     project_id: uuid.UUID
     scopes: frozenset[Scope]
     model_ids: frozenset[uuid.UUID]  # empty = every model in the project
+    rate_limit_per_minute: int | None = None  # the key's own limit for POST /v1/predict; None = only the plan's
 
     def allows_model(self, model_id: str | None) -> bool:
         if not self.model_ids:
@@ -77,8 +79,10 @@ def require_key(scope: Scope):
             raise invalid_api_key()
         ctx = KeyContext(
             row["key_id"], str(row["tenant_id"]), row["project_id"],
-            frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]),
+            frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]), row["rate_limit_per_minute"],
         )
+        if row["tenant_status"] != TenantStatus.ACTIVE:
+            raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.TENANT_SUSPENDED, "this tenant is not active")
         if scope not in ctx.scopes:
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing scope {scope}", scope=scope.value)
         if not ctx.allows_model(x_model_id):

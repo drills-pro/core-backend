@@ -45,7 +45,11 @@ def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = 
             "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)}},
             "deployments": [{
                 "name": PREDICTOR_DEPLOYMENT, "max_ongoing_requests": cfg.max_ongoing_requests,
-                "autoscaling_config": {"min_replicas": size.min_replicas, "max_replicas": size.max_replicas},
+                "autoscaling_config": {
+                    "min_replicas": size.min_replicas, "max_replicas": size.max_replicas,
+                    "target_ongoing_requests": cfg.autoscale_target_ongoing_requests,
+                    "upscale_delay_s": cfg.autoscale_upscale_delay_seconds,
+                    "downscale_delay_s": cfg.autoscale_downscale_delay_seconds},
                 "health_check_period_s": cfg.health_check_period_seconds, "health_check_timeout_s": cfg.health_check_timeout_seconds,
                 "graceful_shutdown_timeout_s": cfg.graceful_shutdown_timeout_seconds, "ray_actor_options": actor}]}
 

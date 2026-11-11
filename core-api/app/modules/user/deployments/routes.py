@@ -3,15 +3,31 @@ import json
 import uuid
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from email.utils import format_datetime
 
-from app.core.authz import Action, AuthzContext, public, require
-from app.core.idempotency import IdempotencyKey
-from app.core.problem import Problem
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
+
+from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
+from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH, IdempotencyKey
+from app.core.metrics import predict as predict_metrics
+from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import lineage, service
+from app.modules.user.deployments import lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
+    ACCEPT_HEADER,
+    DEPRECATION_ACTIVE,
+    DEPRECATION_HEADER,
+    MODEL_ID_HEADER,
+    IDEMPOTENCY_KEY_PATTERN,
+    LAST_EVENT_ID_HEADER,
+    MODEL_REVISION_HEADER,
     PREDICT_KEY_HEADER,
+    PREFER_HEADER,
+    PREFER_RESPOND_ASYNC,
+    SSE_MEDIA_TYPE,
+    SUNSET_HEADER,
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
     TEST_CALLS_MIN_LIMIT,
@@ -21,6 +37,8 @@ from app.modules.user.deployments.schemas import (
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
+    PredictionEnvelope,
+    PredictRequest,
     TrainingRunLineage,
     TestCall,
     TestCallResult,
@@ -139,5 +157,65 @@ async def predict(
     deployment_id: uuid.UUID,
     body: dict = Depends(capped_body),
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
+    response: Response = None,
 ):
-    return await service.predict(deployment_id, x_predict_key, body)
+    """Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment."""
+    marks = {DEPRECATION_HEADER: DEPRECATION_ACTIVE, SUNSET_HEADER: format_datetime(settings.predict.legacy_sunset, usegmt=True)}
+    try:
+        result = await service.predict(deployment_id, x_predict_key, body)
+    except HTTPException as e:
+        e.headers = {**(e.headers or {}), **marks}
+        if getattr(e, "code", None) != ProblemCode.INVALID_PREDICT_KEY:  # a wrong key says nothing about the deployment: no unbounded label values
+            predict_metrics.legacy_calls.add(1, {"deployment_id": str(deployment_id)})
+        raise
+    predict_metrics.legacy_calls.add(1, {"deployment_id": str(deployment_id)})
+    response.headers.update(marks)
+    return result
+
+
+def _wants_async(prefer: str | None) -> bool:
+    """`Prefer: respond-async` among the comma-separated preferences (their parameters ignored)."""
+    return any(token.split(";")[0].strip().lower() == PREFER_RESPOND_ASYNC for token in (prefer or "").split(","))
+
+
+# Key-authenticated (a drl_ project key with the predict scope): the model is named by X-Model-Id [+ X-Model-Revision].
+@router.post("/v1/predict", response_model=PredictionEnvelope)
+async def predict_model(
+    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    body: dict = Depends(capped_body),
+    x_model_id: str = Header(..., alias=MODEL_ID_HEADER),
+    x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),
+    idempotency_key: str | None = Header(None, alias=IDEMPOTENCY_HEADER, min_length=1, max_length=IDEMPOTENCY_KEY_MAX_LENGTH, pattern=IDEMPOTENCY_KEY_PATTERN),
+    prefer: str | None = Header(None, alias=PREFER_HEADER),
+    accept: str | None = Header(None, alias=ACCEPT_HEADER),
+):
+    model_predict.refuse_stream(accept)
+    try:
+        request = PredictRequest.model_validate(body)
+    except ValidationError as e:
+        detail = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, detail) from None
+    outcome = await model_predict.predict(ctx, x_model_id, x_model_revision, request, idempotency_key=idempotency_key, background=_wants_async(prefer))
+    return JSONResponse(outcome.envelope.model_dump(mode="json"), outcome.status_code, outcome.headers)
+
+
+# What a key reads of a prediction it made (a restricted key still sends X-Model-Id, as on POST: require_key checks the allowlist).
+@router.get("/v1/predict/{prediction_id}", response_model=PredictionEnvelope)
+async def get_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
+    return await prediction_service.get(ctx, prediction_id)
+
+
+@router.post("/v1/predict/{prediction_id}/cancel", response_model=PredictionEnvelope)
+async def cancel_prediction(prediction_id: str, ctx: KeyContext = Depends(require_key(Scope.PREDICT))):
+    return await prediction_service.cancel(ctx, prediction_id)
+
+
+@router.get("/v1/predict/{prediction_id}/events", response_class=StreamingResponse)
+async def prediction_events(
+    prediction_id: str,
+    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    last_event_id: str | None = Header(None, alias=LAST_EVENT_ID_HEADER),
+):
+    """Server-sent events: each status change (id = its seq, replayed after Last-Event-ID), the envelope in the terminal one."""
+    stream = await prediction_service.events(ctx, prediction_id, last_event_id)
+    return StreamingResponse(stream, media_type=SSE_MEDIA_TYPE, headers={"Cache-Control": "no-cache"})
