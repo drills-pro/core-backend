@@ -87,6 +87,8 @@ def require_key(scope: Scope):
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing scope {scope}", scope=scope.value)
         if not ctx.allows_model(x_model_id):
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, "this key may not use that model")
+        async with pool.acquire() as conn:
+            await conn.execute("SELECT api_key_touch($1)", ctx.key_id)  # last_used_at, written at most once a minute
         return ctx
 
     dependency.authz_scope = scope  # read by tests/core/authz/test_matrix.py

@@ -30,6 +30,7 @@ class ApiKey(BaseModel):
 class ListedApiKey(ApiKey):
     created_by: str
     revoked_at: datetime | None
+    last_used_at: datetime | None = None
 
 
 class CreatedApiKey(ApiKey):
