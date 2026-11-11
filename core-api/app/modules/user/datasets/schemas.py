@@ -11,6 +11,7 @@ from app.modules.user.datasets.constants import (
     HF_REPO_PATTERN,
     HF_REVISION_PATTERN,
     PARAM_MAX_LENGTH,
+    DataCategory,
     ImportSource,
     ImportStatus,
 )
@@ -18,6 +19,7 @@ from app.modules.user.datasets.constants import (
 
 class DatasetCreate(BaseModel):
     name: str = Field(min_length=1)
+    data_categories: list[DataCategory] = Field(default_factory=list, description="what the dataset holds, declared by the customer")
 
 
 class DatasetSummary(BaseModel):
@@ -30,6 +32,7 @@ class DatasetSummary(BaseModel):
     created_at: datetime
     deleted_at: datetime | None
     published_version_id: uuid.UUID | None
+    data_categories: list[DataCategory]
 
 
 class PublishRequest(BaseModel):

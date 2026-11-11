@@ -20,10 +20,10 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
-| datasets | 23 | 2 | 3 | 3 | 31 |
-| **all** | 110 | 34 | 13 | 14 | 171 |
+| datasets | 24 | 2 | 2 | 3 | 31 |
+| **all** | 111 | 34 | 12 | 14 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 81% of 157.
+Built share of the features that are due (partial counts half, deferred excluded): 82% of 157.
 
 ## Gaps, most important first
 
@@ -34,7 +34,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | missing | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker). |
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
-| 2 | missing | DAT-25 | datasets | datasets.data_categories declaration (personal data, faces and biometrics) | No column or field. |
 | 2 | missing | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Each kind keeps its own table (training_runs, dataset_imports, deployments); no /jobs resource or Location /operations/{id}, so training-runs is not yet an alias of anything. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | missing | TRN-24 | training | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call. |
@@ -324,7 +323,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
 | DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
 | DAT-24 | built | Import usage metering (count and bytes) | planning/15 Usage pipeline | 1 |
-| DAT-25 | missing | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 0 |
+| DAT-25 | built | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 1 |
 | DAT-26 | deferred | Tombstoning dataset versions for erasure inside immutable history | planning/03 Tables specified elsewhere; planning/18 | 0 |
 | DAT-27 | deferred | Labeling (Label Studio behind core-api) | planning/16 Label Studio; planning/22 | 0 |
 | DAT-28 | deferred | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | planning/17 Catalog | 0 |

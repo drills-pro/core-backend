@@ -1765,12 +1765,13 @@ entries:
   area: datasets
   title: datasets.data_categories declaration (personal data, faces and biometrics)
   source: planning/18 Backend responsibilities
-  status: missing
+  status: built
   weight: 2
   old: F06
-  code: []
-  tests: []
-  gap: No column or field.
+  code: [core-api/migrations/20261111222944_datasets_data_categories.sql, core-api/app/modules/user/datasets/service.py]
+  tests:
+    - core-api/tests/modules/user/datasets/test_data_categories.py::test_the_enum_matches_the_check_constraint
+  note: Set at creation, stored and returned; it does not yet surface in audit rows.
 - id: DAT-26
   area: datasets
   title: Tombstoning dataset versions for erasure inside immutable history
