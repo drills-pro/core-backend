@@ -29,6 +29,15 @@ def device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def cap_gpu_share(gpu: float) -> bool:
+    """A job holding a fraction of a GPU may not use more of its memory than that fraction, so neighbours sharing the card are not
+    starved by one job's allocator. True when a cap was set (a whole GPU or the CPU is left alone)."""
+    if not torch.cuda.is_available() or not 0 < gpu < 1:
+        return False
+    torch.cuda.set_per_process_memory_fraction(gpu)
+    return True
+
+
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)

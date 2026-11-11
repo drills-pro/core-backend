@@ -276,13 +276,15 @@ entries:
 - id: TRN-24
   area: training
   title: GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions
-  source: planning/07 GPU memory and sharing
-  status: missing
-  weight: 2
-  old: F08
-  code: []
-  tests: []
-  gap: Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call.
+  source: planning/17 GPU sharing
+  status: partial
+  weight: 1
+  old: F07
+  code: [ray-training/ray_training/result.py, ray-training/ray_training/loop.py]
+  tests:
+    - ray-training/tests/test_gpu_share.py::test_only_a_fraction_on_a_cuda_machine_is_capped
+  note: A job holding a fraction of a GPU caps its memory at that fraction (set_per_process_memory_fraction); Ray admits by the sum of the fractional GPU counts.
+  gap: "The spec declares a gpu fraction, not vram_gb, so the cap is the fraction of the card, not a stated number of gigabytes."
 - id: TRN-25
   area: training
   title: Hash-based splits when none is given, a held-out test split
