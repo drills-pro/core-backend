@@ -141,6 +141,7 @@ IN_PROGRESS_DETAIL = "the first request with this Idempotency-Key is still runni
 ABANDONED_DETAIL = "the first request with this Idempotency-Key did not finish; send a new key to run it again"
 IN_PROGRESS_POLL_SECONDS = 0.2
 IN_PROGRESS_RETRY_AFTER_SECONDS = 1
+COLD_START_RETRY_AFTER_SECONDS = 5  # a timed-out call is usually a replica still loading the model: tell the caller when to retry
 PREDICT_PATH = "/v1/predict"
 # The status a stored failure is replayed with: the failures that reached Serve (the only ones stored).
 STORED_ERROR_STATUS = {

@@ -27,6 +27,7 @@ from app.modules.user.deployments.constants import (
     IDEMPOTENCY_KEY_REQUIRED_DETAIL,
     JSON_ACCEPTABLE,
     IDEMPOTENCY_REUSE_DETAIL,
+    COLD_START_RETRY_AFTER_SECONDS,
     IN_PROGRESS_DETAIL,
     IN_PROGRESS_POLL_SECONDS,
     IN_PROGRESS_RETRY_AFTER_SECONDS,
@@ -89,7 +90,9 @@ def serve_problem(e: shared.ServeFailed) -> Problem:
         return Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.MODEL_REJECTED_INPUT, str(e.detail)[:MODEL_REJECTED_DETAIL_MAX_CHARS])
     logger.warning("serve failed (%s): %s", e.code, e.detail)
     if e.code == serve_client.ServeErrorCode.TIMEOUT:
-        return Problem(HTTPStatus.GATEWAY_TIMEOUT, ProblemCode.UPSTREAM_TIMEOUT, UPSTREAM_TIMEOUT_DETAIL)
+        problem = Problem(HTTPStatus.GATEWAY_TIMEOUT, ProblemCode.UPSTREAM_TIMEOUT, UPSTREAM_TIMEOUT_DETAIL)
+        problem.headers = {RETRY_AFTER_HEADER: str(COLD_START_RETRY_AFTER_SECONDS)}
+        return problem
     return Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.UPSTREAM_ERROR, UPSTREAM_ERROR_DETAIL)
 
 
