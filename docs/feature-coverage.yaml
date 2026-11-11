@@ -1508,12 +1508,14 @@ entries:
   area: jobs
   title: Customer-facing events for jobs (job.queued .. job.succeeded) and notifications
   source: planning/05 Events and webhooks; planning/05 Notification channels
-  status: partial
+  status: built
   weight: 2
-  code: ["GET /v1/projects/{project_id}/events", core-api/app/modules/user/job_events/routes.py]
+  code: ["GET /v1/projects/{project_id}/events", "GET /v1/projects/{project_id}/notifications", "POST /v1/projects/{project_id}/notifications/read", core-api/migrations/20261111233919_notification_cursors.sql, core-api/app/modules/user/notifications/service.py, core-api/app/modules/user/job_events/routes.py]
   tests:
+    - core-api/tests/modules/user/notifications/test_notifications.py::test_a_viewer_reads_the_unread_count_and_the_newest_events
+    - core-api/tests/modules/user/notifications/test_notifications.py::test_marking_read_moves_the_cursor_with_greatest_so_it_never_goes_back
     - core-api/tests/modules/user/job_events/test_events_route.py::test_a_project_the_caller_cannot_see_is_404
-  gap: Kinds are <job>.<status> (training, import, deployment), readable by cursor; webhook delivery is built (JOB-16); there is no notifications module (email or in-app).
+  note: Kinds are <job>.<status>, readable by cursor and delivered by webhook (JOB-16). In-app notifications are each member's unread view of those events (a per-member cursor). Email is deliberately not built until a mail provider is chosen, the channel would read the same outbox.
 # ------------------------------------------------------------------ DATASETS
 - id: DAT-01
   area: datasets
