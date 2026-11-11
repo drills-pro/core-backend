@@ -37,6 +37,8 @@ from app.integrations import compute
 from app.integrations.data_plane.report import Stats
 from app.modules.user.datasets.schemas import ImportCreate, ImportParams
 from app.core.pagination import PageParams
+from app.modules.user.datasets.constants import PipelineEvent
+from tests.modules.user.datasets.test_pipeline_log import pipeline_events
 from tests.support import PROJECT, TENANT, access, make_client, patch_tenant_conn
 from tests.support.job_table import apply_advance
 from tests.support.task_types import seeded
@@ -371,11 +373,12 @@ def test_base_version_must_belong_to_the_dataset(env):
 
 # --- start ---------------------------------------------------------------------------------------------
 
-def test_start_queues_the_import_and_submits_the_job(env):
+def test_start_queues_the_import_and_submits_the_job(env, caplog):
     imp = run(create())
     started = run(svc.start_import(CTX, PROJECT, DS, imp.id))
     assert started.status == S.QUEUED
     assert env.db.imports[imp.id]["ray_job_id"] == "ray-job" and env.gw.calls[-2:] == ["create_dataset_repo", "submit_ingest"]
+    assert pipeline_events(caplog) == [("INFO", PipelineEvent.STARTED, None)]
     problem(svc.start_import(CTX, PROJECT, DS, imp.id), 409, ProblemCode.INVALID_STATE)
 
 
@@ -387,10 +390,11 @@ def test_start_refuses_a_stale_base(env):
     assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD and "submit_ingest" not in env.gw.calls
 
 
-def test_a_failed_job_submit_leaves_the_import_startable(env):
+def test_a_failed_job_submit_leaves_the_import_startable(env, caplog):
     imp = run(create())
     env.gw.fail = "submit_ingest"
     problem(svc.start_import(CTX, PROJECT, DS, imp.id), 503, ProblemCode.START_FAILED)
+    assert pipeline_events(caplog) == []  # nothing started
     assert env.db.imports[imp.id]["status"] == S.AWAITING_UPLOAD
 
 
@@ -541,11 +545,12 @@ def test_two_base_less_imports_on_an_empty_dataset_cannot_both_commit(env):
     problem(svc.commit_import(CTX, PROJECT, DS, two["id"]), 409, ProblemCode.STALE_BASE)
 
 
-def test_a_failed_lakefs_commit_can_be_resumed_at_once(env):
+def test_a_failed_lakefs_commit_can_be_resumed_at_once(env, caplog):
     row = env.db.seed(S.AWAITING_REVIEW)
     env.gw.fail = "commit_staged"
     with pytest.raises(RuntimeError):
         run(svc.commit_import(CTX, PROJECT, DS, row["id"]))
+    assert pipeline_events(caplog) == [("ERROR", PipelineEvent.DATA_STORAGE_FAILED, None)]
     assert env.db.imports[row["id"]]["status"] == S.COMMITTING and not env.db.versions and not env.db.audits
     env.gw.fail = None
     assert run(svc.commit_import(CTX, PROJECT, DS, row["id"])).number == 1

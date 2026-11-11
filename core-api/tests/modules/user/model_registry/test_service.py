@@ -90,6 +90,18 @@ def test_a_failed_mlflow_transition_leaves_the_row_alone(env, monkeypatch):
     assert not any(sql.startswith("UPDATE") for sql, _ in env.conn.calls)
 
 
+def test_a_failed_row_write_puts_mlflow_back_on_the_old_stage(env, monkeypatch):
+    env.conn.rows["SELECT mlflow_model_name, mlflow_version"] = {"mlflow_model_name": FULL_NAME, "mlflow_version": "3", "stage": ModelStage.NONE}
+
+    async def boom(*_):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.conn, "fetchrow", lambda sql, *a: boom() if sql.startswith("UPDATE") else FakeConn.fetchrow(env.conn, sql, *a))
+    with pytest.raises(RuntimeError):
+        run(service.promote(CTX, PROJECT, VERSION, ModelStage.PRODUCTION))
+    assert [c[3] for c in env.mlflow_calls] == [ModelStage.PRODUCTION, ModelStage.NONE]
+
+
 def test_promote_of_a_version_of_another_project_is_404(env):
     env.conn.rows["SELECT mlflow_model_name, mlflow_version"] = None
     with pytest.raises(Problem) as e:

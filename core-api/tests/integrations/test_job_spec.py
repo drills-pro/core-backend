@@ -11,6 +11,7 @@ from app.core.settings import settings
 from app.integrations.job_spec import (
     SPEC_ADAPTER,
     SPEC_VERSION,
+    BatchPredictSpec,
     Hyperparameters,
     IngestPayload,
     IngestSpec,
@@ -46,6 +47,13 @@ def train_payload(**over):
 
 def train_spec(**over):
     return envelope(JobKind.TRAIN, train_payload(**over.pop("payload", {})), resources=TRAIN_RESOURCES, **over)
+
+
+def batch_spec(**over):
+    payload = {"bucket": "b", "prefix": "batch/t/p/", "data": {"index_url": "http://i", "manifest_url": "http://m", "version_id": str(uuid.uuid4()), "lakefs_commit": "c0ffee"},
+               "model": {"model_url": "http://x/model.onnx", "manifest_url": "http://x/model.json", "tokenizer_url": "", "class_names": ["a", "b"], "params": {},
+                         "providers": ["CPUExecutionProvider"], "encoder": "image_encoder", "postprocess": "classify"}, **over}
+    return envelope(JobKind.PREDICT_BATCH, payload)
 
 
 def test_the_committed_schema_matches_the_models():
@@ -92,3 +100,23 @@ def test_a_bad_train_payload_is_rejected(bad):
 def test_resources_must_be_declared_and_positive():
     with pytest.raises(ValidationError):
         Resources(cpu=0, memory_bytes=1)
+
+
+def test_a_predict_batch_spec_is_picked_by_its_kind_and_fills_the_knobs():
+    spec = SPEC_ADAPTER.validate_python(batch_spec())
+    assert isinstance(spec, BatchPredictSpec) and (spec.payload.concurrency, spec.payload.batch_size) == (2, 16)
+    assert BatchPredictSpec.model_validate_json(spec.model_dump_json()) == spec
+
+
+@pytest.mark.parametrize("bad", [
+    {"concurrency": 0},
+    {"concurrency": 33},
+    {"batch_size": 0},
+    {"batch_size": 257},
+    {"data": {"index_url": "http://i", "version_id": str(uuid.uuid4()), "lakefs_commit": "c"}},  # no manifest_url
+    {"data": {"index_url": "", "manifest_url": "http://m", "version_id": str(uuid.uuid4()), "lakefs_commit": "c"}},
+    {"model": {"manifest_url": "http://x/model.json"}},  # no model_url
+])
+def test_a_bad_predict_batch_payload_is_rejected(bad):
+    with pytest.raises(ValidationError):
+        SPEC_ADAPTER.validate_python(batch_spec(**bad))
