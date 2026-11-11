@@ -459,12 +459,12 @@ entries:
   area: registry
   title: Archived stage for retired versions
   source: planning/06 Model registry and promotion (candidate, production, archived)
-  status: missing
+  status: built
   weight: 1
   old: F09
-  code: [core-api/app/integrations/data_plane/mlflow.py]
-  tests: []
-  gap: ModelStage has None, Staging, Production only.
+  code: [core-api/app/integrations/data_plane/mlflow.py, core-api/migrations/20261111192853_model_versions_stage_archived.sql]
+  tests:
+  - core-api/tests/core/test_task_types.py::test_the_stage_check_mirrors_the_enum
 - id: REG-06
   area: registry
   title: Promotion updates MLflow and the index in one operation

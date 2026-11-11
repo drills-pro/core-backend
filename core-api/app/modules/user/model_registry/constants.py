@@ -8,6 +8,7 @@ CUSTOMER_STAGE_LABELS = {
     ModelStage.NONE: "internal only",
     ModelStage.STAGING: "candidate",
     ModelStage.PRODUCTION: "live/deployed",
+    ModelStage.ARCHIVED: "retired",
 }
 MODEL_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,60}$"  # a registered model's name as the customer chooses it (MLflow's full name is namespaced)
 
