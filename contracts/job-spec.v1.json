@@ -620,6 +620,19 @@
           "exclusiveMinimum": 0,
           "title": "Memory Bytes",
           "type": "integer"
+        },
+        "vram_gb": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vram Gb"
         }
       },
       "required": [

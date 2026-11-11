@@ -34,6 +34,7 @@ class TrainSpec:
     memory_bytes: int
     gpu: float  # resources.gpu: the Ray Train workers, one GPU each (a fraction = one worker holding that share)
     max_runtime_s: int  # resources.max_runtime_s, 0 = none
+    vram_gb: float | None  # resources.vram_gb: GiB of GPU memory the run may hold, None = the GPU share decides
     bucket: str
     prefix: str
     task: str  # a task_types slug; data.py looks its loader up by slug (LOADERS)
@@ -80,7 +81,7 @@ def parse_spec(text: str) -> TrainSpec:
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
-        max_runtime_s=doc["resources"].get("max_runtime_s", 0),
+        max_runtime_s=doc["resources"].get("max_runtime_s", 0), vram_gb=doc["resources"].get("vram_gb"),
         bucket=p["bucket"], prefix=p["prefix"], task=task, trainer=p["trainer"], preset=preset,
         base_model=base["repo_id"], base_revision=base.get("revision"),
         index_url=data.get("index_url"), manifest_url=data.get("manifest_url"), data_url=data.get("data_url"),

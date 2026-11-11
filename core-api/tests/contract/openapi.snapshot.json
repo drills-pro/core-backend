@@ -3131,6 +3131,18 @@
             ],
             "title": "Preprocessing"
           },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Gb"
+          },
           "warmup_fraction": {
             "default": 0,
             "exclusiveMaximum": 1.0,
@@ -3193,6 +3205,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Gb"
           },
           "warmup_fraction": {
             "title": "Warmup Fraction",
@@ -4190,6 +4213,18 @@
           "updated_by": {
             "title": "Updated By",
             "type": "string"
+          },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Gb"
           },
           "warmup_fraction": {
             "default": 0,
