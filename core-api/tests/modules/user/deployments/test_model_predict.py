@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 
+from app.modules.user.deployments.constants import COLD_START_RETRY_AFTER_SECONDS
+
 from app.core.authz import TenantStatus
 from app.integrations.serve_client import ServeErrorCode
 from app.modules.user.deployments import routes, shared
@@ -107,6 +109,7 @@ def test_serve_failures_map_and_cost_nothing(env, code, status, problem):
     r = env.post()
     assert (r.status_code, r.json()["code"]) == (status, problem) and not env.usage
     assert len(r.json()["detail"]) <= 500 and "secret internals" not in r.json()["detail"] * (problem != "model_rejected_input")
+    assert r.headers.get("Retry-After") == (str(COLD_START_RETRY_AFTER_SECONDS) if status == 504 else None)
 
 
 def test_the_legacy_endpoint_is_still_there():
