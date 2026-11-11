@@ -153,3 +153,4 @@ class LineageRun(BaseModel):
     task: str | None = None
     preset: str | None = None
     metrics: Any = None
+    base_model: TrainBaseModel | None = None  # the checkpoint frozen into the run's spec; None for runs from before it was recorded
