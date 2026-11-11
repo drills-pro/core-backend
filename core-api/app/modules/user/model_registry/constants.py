@@ -1,6 +1,7 @@
 """Named values for the model registry."""
 from enum import StrEnum
 
+from app.integrations.data_plane import layout
 from app.integrations.data_plane.mlflow import ModelStage
 
 # req/06 FR2: registry stages map to customer-facing states.
@@ -16,7 +17,18 @@ NOTHING_TO_UPDATE_DETAIL = "nothing to update"
 BAD_STAGE_DETAIL = f"stage must be one of {sorted(ModelStage)}"
 
 
+class DownloadFile(StrEnum):
+    """The files of a version a project member may download (the names under the run's `model/` artifacts)."""
+
+    MODEL = layout.MODEL_KEY
+    META = layout.MODEL_META_KEY
+
+
+DOWNLOAD_MEDIA_TYPES = {DownloadFile.MODEL: "application/octet-stream", DownloadFile.META: "application/json"}
+
+
 class AuditAction(StrEnum):
+    DOWNLOAD = "download"
     REGISTER = "register"
     PROMOTE = "promote"
     SET_PUBLISH = "set_publish"

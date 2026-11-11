@@ -18,6 +18,7 @@ from app.modules.user.model_registry.constants import (
     AuditAction,
     EntityType,
     NOTHING_TO_UPDATE_DETAIL,
+    DownloadFile,
     ProblemCode,
 )
 from app.modules.user.model_registry.schemas import (
@@ -43,6 +44,10 @@ _LIST = (
     "WHERE project_id = $1 ORDER BY created_at DESC"
 )
 _BY_ID = "SELECT mlflow_model_name, mlflow_version, stage FROM model_versions WHERE id = $1 AND project_id = $2"
+_RUN_OF = (
+    "SELECT tr.mlflow_run_id FROM model_versions mv JOIN training_runs tr ON tr.id = mv.training_run_id "
+    "WHERE mv.id = $1 AND mv.project_id = $2"
+)
 _SET_STAGE = "UPDATE model_versions SET stage = $2 WHERE id = $1 RETURNING id, mlflow_model_name, mlflow_version, stage"
 _SET_PUBLISH = (
     "UPDATE model_versions SET publish_metadata = COALESCE($2, publish_metadata), "
@@ -150,3 +155,13 @@ async def get_run_version(conn, training_run_id: uuid.UUID) -> VersionRef | None
     """The newest version registered from a training run (the lineage view), with MLflow's namespaced name."""
     row = await conn.fetchrow(_LATEST_OF_RUN, training_run_id)
     return None if row is None else VersionRef.model_validate(dict(row))
+
+
+async def open_download(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID, file: DownloadFile):
+    """The version's model file as an open stream (client, response) for the route to forward, and an audit row."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        mlflow_run_id = await conn.fetchval(_RUN_OF, version_id, project_id)
+        if mlflow_run_id is None:
+            raise not_found()
+        await audit.record_for(conn, ctx, project_id, AuditAction.DOWNLOAD, EntityType.MODEL_VERSION, version_id)
+    return await mlflow.open_model_file(ctx.tenant_id, str(project_id), mlflow_run_id, file)

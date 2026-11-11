@@ -25,6 +25,7 @@ ARGS = {
     "version_id": VERSION, "project_id": PROJECT, "run_id": RUN, "path": "objects/a.jpg", "message": "m",
     "spec": None, "kind": None, "limits": settings.dataset_limits, "column": "path", "paths": ["objects/a.jpg"], "ttl_seconds": 60, "mlflow_run_id": "mlflow-run",
     "key": layout.INDEX_KEY, "limit": 5, "data_kind": DataKind.IMAGES, "model_name": "clf", "version": "1", "stage": "Staging", "package_sha256": "a" * 64, "events_token": None, "status": RunStatus.FINISHED,
+    "name": layout.MODEL_KEY,
 }
 
 

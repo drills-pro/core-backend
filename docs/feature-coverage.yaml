@@ -556,12 +556,13 @@ entries:
   area: registry
   title: Download by signed URL and auto-generated model card
   source: planning/18 Export; planning/06 Quality gates
-  status: missing
+  status: partial
   weight: 2
   old: F09
-  code: []
-  tests: []
-  gap: The publish_artifact flag exists but no route issues a download link; no card.
+  code: ["GET /v1/projects/{project_id}/models/{model_version_id}/download/{file}"]
+  tests:
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_download_streams_the_file_audits_and_closes
+  gap: A signed-in project member downloads model.onnx or model.json through an audited stream (the session token is the credential, so no signed link is issued); an unauthenticated link for publish_artifact and the generated model card are not built.
 - id: REG-15
   area: registry
   title: Operator view of every model and its versions
