@@ -18,10 +18,10 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | registry | 13 | 2 | 1 | 0 | 16 |
 | deployment | 14 | 2 | 2 | 1 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
-| predict | 16 | 6 | 1 | 3 | 26 |
+| predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 8 | 7 | 1 | 27 |
 | datasets | 22 | 2 | 4 | 3 | 31 |
-| **all** | 109 | 30 | 20 | 12 | 171 |
+| **all** | 109 | 31 | 19 | 12 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 78% of 159.
 
@@ -40,7 +40,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | missing | JOB-16 | jobs | Transactional outbox, dispatcher and webhooks | No outbox, no events table, no webhook delivery; clients must poll job state. |
 | 2 | missing | JOB-27 | jobs | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | Same gap as the outbox (JOB-16); no notifications module. |
-| 2 | missing | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | A key can be created and revoked only; no rotation overlap, no last_used_at, no audit on first use. |
 | 2 | missing | REG-14 | registry | Download by signed URL and auto-generated model card | The publish_artifact flag exists but no route issues a download link; no card. |
 | 2 | missing | TRN-24 | training | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | Presets carry a fractional gpu count only; no vram_gb in the spec and no set_per_process_memory_fraction call. |
 | 2 | missing | TRN-26 | training | Deploy gate with acknowledge_risk, model card, near-duplicate warning | No acknowledge_risk parameter, no card, no perceptual hash; a model with no test split or a poor metric deploys silently. |
@@ -53,6 +52,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | JOB-25 | jobs | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo. |
 | 2 | partial | PRD-16 | predict | Usage - one event per 2xx prediction id, none for failures, replays or retries | Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter. |
 | 2 | partial | PRD-21 | predict | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | Only JSON with image_base64 (or text) is read, header-first with a pixel limit; no multipart and no image-URL input, so no SSRF path exists to guard. |
+| 2 | partial | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge. |
 | 2 | partial | SRV-06 | serving | Cold-start handling (503 with Retry-After, or a bounded wait) | A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero. |
 | 2 | partial | SRV-08 | serving | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | Guards inside the replica are built; per-tenant serving caps and the PriorityClass pool reservation live in the k8s repo and were not checked here. |
 | 2 | partial | TRN-13 | training | Run state machine with compare-and-set transitions | Five states (submitted, running, succeeded, failed, cancelled); no queued, cancelling, retry or lost, and cancel is not a desired state the worker converges to. |
@@ -261,7 +261,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | PRD-20 | deferred | Batch endpoint POST /v1/predict/{id}:batch | planning/05 Predict API (Batch) | 0 |
 | PRD-21 | partial | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | planning/05 Predict API (Input) | 1 |
 | PRD-22 | built | Metadata (at most 4 KB) echoed in the envelope, never forwarded to Serve | planning/05 Predict API; planning/24 Parse | 2 |
-| PRD-23 | missing | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | planning/04 Machine access; planning/22 Keys; planning/10 T13 | 0 |
+| PRD-23 | partial | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | planning/04 Machine access; planning/22 Keys; planning/10 T13 | 1 |
 | PRD-24 | partial | Authenticate, rate-limit and size-check before reading the body; stream with limits on the byte stream | planning/07 Predict gateway rules; planning/24 Parse | 1 |
 | PRD-25 | partial | Active revision rule - an active deployment first, then the Production version, then the newest | planning/24 One active deployment per model version | 1 |
 | PRD-26 | built | Predictions table is tenant-isolated and a key sees only its own | planning/24 predictions table; planning/24 Security notes | 2 |

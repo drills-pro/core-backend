@@ -1176,12 +1176,13 @@ entries:
   area: predict
   title: Key rotation or recovery, last-used time, first-use audit, publishable-key nudges
   source: planning/04 Machine access; planning/22 Keys; planning/10 T13
-  status: missing
+  status: partial
   weight: 2
   old: F11
-  code: []
-  tests: []
-  gap: A key can be created and revoked only; no rotation overlap, no last_used_at, no audit on first use.
+  code: [core-api/app/core/authz/keys.py, core-api/migrations/20261111193500_api_key_last_used.sql]
+  tests:
+  - core-api/tests/core/authz/test_keys.py::test_only_an_accepted_request_marks_the_key_used
+  gap: last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge.
 - id: PRD-24
   area: predict
   title: Authenticate, rate-limit and size-check before reading the body; stream with limits on the byte stream

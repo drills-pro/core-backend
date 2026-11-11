@@ -39,6 +39,9 @@ class Pool:
     async def fetchrow(self, sql, key_hash):
         return self.rows.get(key_hash)
 
+    async def execute(self, sql, key_id):
+        return None  # api_key_touch
+
 
 def build(monkeypatch):
     pool = Pool()

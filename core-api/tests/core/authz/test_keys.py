@@ -23,6 +23,7 @@ class FakePool:
 
     def __init__(self):
         self.rows = {}
+        self.touched = []
 
     def add(self, scopes=("predict",), models=(), revoked=False, expired=False, tenant_status=TenantStatus.ACTIVE):
         key = generate_key()
@@ -44,6 +45,9 @@ class FakePool:
 
     async def fetchrow(self, sql, key_hash):
         return self.rows.get(key_hash)
+
+    async def execute(self, sql, key_id):
+        self.touched.append(key_id)
 
 
 @pytest.fixture
@@ -83,6 +87,14 @@ def call(client, secret, project=str(PROJECT), model=None):
 def test_valid_key_resolves_tenant_and_project_from_the_key(client, pool):
     r = call(client, pool.add())
     assert (r.status_code, r.json()) == (200, {"project_id": str(PROJECT), "tenant_id": str(TENANT), "scopes": ["predict"]})
+
+
+def test_only_an_accepted_request_marks_the_key_used(client, pool):
+    good = pool.add()
+    assert call(client, good).status_code == 200
+    assert call(client, pool.add(scopes=())).status_code == 403
+    assert call(client, "drl_unknown").status_code == 401
+    assert len(pool.touched) == 1 and pool.touched[0] == pool.rows[keys.hash_key(good)]["key_id"]
 
 
 def test_every_authentication_failure_is_the_same_401(client, pool):
