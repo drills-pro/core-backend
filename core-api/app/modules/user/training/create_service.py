@@ -16,11 +16,12 @@ from app.core.idempotency import insert_once, replay
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, data_plane
+from app.integrations import compute, data_plane, job_lifecycle
 from app.integrations.data_plane import mlflow
 from app.modules.user.datasets import get_version_source
 from app.modules.user.projects import get_task_type
 from app.modules.user.training import events_service, service, train_spec
+from app.modules.user.training.persist import TRAINING
 from app.modules.user.training.constants import (
     AuditAction,
     EntityType,
@@ -122,6 +123,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         if not created:  # lost a race with the same key: that one is the run
             return _replay(row, body)
         await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.TRAINING_RUN, run_id)
+        await job_lifecycle.emit(conn, TRAINING, tenant_id, project_id, run_id, row["status"])
 
     try:
         await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret)

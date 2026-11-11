@@ -60,8 +60,15 @@ def moves(env):
     return [a for sql, a in env.conn.calls if sql.startswith("UPDATE deployments SET status")]
 
 
+AUDIT_ARGS, EVENT_ARGS = 6, 5  # audit.record: tenant, project, actor, action, entity_type, entity_id; outbox: tenant, project, kind, entity, status
+
+
 def audited(env):
-    return [(a[3], a[4], a[5]) for a in env.conn.executed]
+    return [(a[3], a[4], a[5]) for a in env.conn.executed if len(a) == AUDIT_ARGS]
+
+
+def events(env):
+    return [(a[2], a[4]) for a in env.conn.executed if len(a) == EVENT_ARGS]
 
 
 def run(coro):
@@ -75,6 +82,7 @@ def test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key(env):
     (args,) = moves(env)
     assert (args[2], args[3], args[5]) == (S.STOPPED, [S.ACTIVE], False)  # only an active one; the key is not cleared
     assert audited(env) == [(AuditAction.STOP, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
+    assert events(env) == [("deployment.stopped", "stopped")]
     assert env.removed == []  # shared serving: nothing to remove
 
 
