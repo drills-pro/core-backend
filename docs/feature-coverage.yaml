@@ -674,12 +674,13 @@ entries:
   area: deployment
   title: ETag and If-Match on deployments and settings
   source: planning/05 Conventions (Concurrency)
-  status: missing
+  status: built
   weight: 1
   old: F10
-  code: []
-  tests: []
-  gap: No ETag or If-Match handling anywhere in app/.
+  code: [core-api/app/modules/user/deployments/etag.py, core-api/app/modules/user/deployments/routes.py]
+  tests:
+    - core-api/tests/modules/user/deployments/test_etag.py::test_a_stop_with_a_stale_tag_is_412_and_changes_nothing
+  note: ETag on GET deployment and on stop and start; If-Match on stop, start and delete answers 412 when stale. Deployments have no settings endpoint yet. The check and the move are not one transaction.
 - id: DEP-10
   area: deployment
   title: Audit rows for deployment actions

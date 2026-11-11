@@ -16,12 +16,12 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 |---|---|---|---|---|---|
 | training | 22 | 8 | 3 | 4 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
-| deployment | 14 | 2 | 1 | 2 | 19 |
+| deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 1 | 1 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 11 | 10 | 5 | 1 | 27 |
 | datasets | 24 | 2 | 2 | 3 | 31 |
-| **all** | 111 | 34 | 12 | 14 | 171 |
+| **all** | 112 | 34 | 11 | 14 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 82% of 157.
 
@@ -61,7 +61,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 1 | missing | DAT-21 | datasets | Perceptual-hash warning for near-duplicates across splits | Not built. |
 | 1 | missing | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | Import staging is purged on commit, discard and expiry; training and package prefixes have no lifecycle (unverified: a bucket lifecycle rule in the k8s repo may cover it). |
-| 1 | missing | DEP-09 | deployment | ETag and If-Match on deployments and settings | No ETag or If-Match handling anywhere in app/. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
 | 1 | missing | SRV-12 | serving | Predict gateway as a separate streaming service (ADR-017) | Predict runs inside core-api (planning/24 implements it there); the doc 07 gateway, its 30 s key cache and streaming proxy do not exist. The design docs disagree. |
@@ -200,7 +199,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-06 | partial | Deployment states and the reconciler that follows legacy deployments to active or failed | planning/03 Deployment state machine; planning/09 Reconciler design | 2 |
 | DEP-07 | built | One live deployment per model version and per run (unique index, 409 deployment_exists) | planning/24 One active deployment per model version | 3 |
 | DEP-08 | built | Plan limit on active deployments (429 before any deploy) | planning/14 Plans | 2 |
-| DEP-09 | missing | ETag and If-Match on deployments and settings | planning/05 Conventions (Concurrency) | 0 |
+| DEP-09 | built | ETag and If-Match on deployments and settings | planning/05 Conventions (Concurrency) | 1 |
 | DEP-10 | built | Audit rows for deployment actions | planning/19 E1; planning/18 | 2 |
 | DEP-11 | built | Try it with the user session (no predict key in the console) and a recent-calls log | planning/05 Predict API (Try it) | 3 |
 | DEP-12 | built | Deploy models of every servable task (classification, detection, text) | planning/06 Task types and runtimes | 2 |

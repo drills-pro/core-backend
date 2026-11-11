@@ -14,11 +14,13 @@ from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH,
 from app.core.metrics import predict as predict_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import lineage, model_predict, prediction_service, service
+from app.modules.user.deployments import etag, lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
     ACCEPT_HEADER,
     DEPRECATION_ACTIVE,
     DEPRECATION_HEADER,
+    ETAG_HEADER,
+    IF_MATCH_HEADER,
     MODEL_ID_HEADER,
     IDEMPOTENCY_KEY_PATTERN,
     LAST_EVENT_ID_HEADER,
@@ -89,9 +91,19 @@ async def list_deployments(project_id: uuid.UUID, ctx: AuthzContext = Depends(re
 async def get_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
 ):
-    return await service.get_deployment(ctx, project_id, deployment_id)
+    detail = await service.get_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
+
+
+async def _precondition(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, if_match: str | None) -> None:
+    """`If-Match` is checked against the row as it is now; a change between this read and the move is the move's own
+    compare-and-set to settle (ponytail: not one transaction, add a version column if two writers must be serialised)."""
+    if if_match is not None:
+        etag.check_if_match(if_match, await service.get_deployment(ctx, project_id, deployment_id))
 
 
 @router.get("/v1/projects/{project_id}/deployments/{deployment_id}/schema", response_model=DeploymentSchema)
@@ -109,29 +121,41 @@ async def get_deployment_schema(
 async def stop_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine."""
-    return await service.stop_deployment(ctx, project_id, deployment_id)
+    await _precondition(ctx, project_id, deployment_id, if_match)
+    detail = await service.stop_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/start", response_model=DeploymentDetail)
 async def start_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Serve a stopped deployment again: same row, same predict key."""
-    return await service.start_deployment(ctx, project_id, deployment_id)
+    await _precondition(ctx, project_id, deployment_id, if_match)
+    detail = await service.start_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
 
 
 @router.delete("/v1/projects/{project_id}/deployments/{deployment_id}", status_code=204)
 async def delete_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list."""
+    await _precondition(ctx, project_id, deployment_id, if_match)
     await service.delete_deployment(ctx, project_id, deployment_id)
 
 
