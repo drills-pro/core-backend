@@ -2,7 +2,7 @@
 from enum import StrEnum
 from http import HTTPStatus
 
-from app.core.enums import PlanTier
+from app.core.enums import PlanTier, TaskType
 from app.integrations.serve_client import ServeErrorCode
 
 
@@ -104,6 +104,12 @@ TOO_MANY_REQUESTS_DETAIL = "too many concurrent requests for this deployment"
 TARGET_CACHE_SIZE = 1024  # (deployment, run) pairs whose model URLs core-api remembers
 
 DEPLOY_RISK_DETAIL = "this run has no test dataset, so its metrics were not measured on unseen data; deploy again with acknowledge_risk=true to accept that"
+DEPLOY_BELOW_FLOOR_DETAIL = "this run's {metric} is {value:.2f}, under the {floor:.2f} floor for the task; deploy again with acknowledge_risk=true to accept that"
+# The score a run should reach before it is served without a warning: (metric the trainer reports, floor). A task not listed has no floor.
+METRIC_FLOORS: dict[TaskType, tuple[str, float]] = {
+    TaskType.IMAGE_CLASSIFICATION: ("top1", 0.5),
+    TaskType.OBJECT_DETECTION: ("map50", 0.3),
+}
 NOT_DEPLOYABLE_DETAIL = (
     "training run has no deployable model (only a succeeded run of a servable task type can be served)"
 )

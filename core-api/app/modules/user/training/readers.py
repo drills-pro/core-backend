@@ -1,6 +1,7 @@
 """What other contexts may ask of training, and the gateway's ownership check (data_plane.access). Each reader takes
 the caller's connection, so it is one more query in the caller's transaction, under the same RLS."""
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from app.modules.user.training.schemas import LineageRun
 # The report's `classes` are the model's class names (every task); a run reported before that field has only the
 # classification confusion-matrix labels, which are the same names.
 _RUN_MODEL = (
-    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'classes', report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names, test_dataset_id "
+    "SELECT id, status, mlflow_run_id, COALESCE(report -> 'classes', report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names, test_dataset_id, metrics "
     "FROM training_runs WHERE id = $1 AND project_id = $2"
 )
 _OWNED = "SELECT 1 FROM training_runs WHERE id = $1 AND project_id = $2 AND tenant_id = $3"
@@ -24,6 +25,7 @@ class RunModel(BaseModel):
     mlflow_run_id: str | None
     class_names: list[str] = Field(default_factory=list)
     test_dataset_id: uuid.UUID | None = None
+    metrics: dict[str, Any] | None = None
 
     @property
     def has_test_split(self) -> bool:
