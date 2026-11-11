@@ -86,7 +86,7 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
     n = len(ds.classes)
     model = RTDetrV2ForObjectDetection.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
-        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
+        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), collate, loss, evaluate, MONITOR), spec)
     if done is None:
         return None

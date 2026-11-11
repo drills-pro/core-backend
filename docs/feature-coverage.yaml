@@ -329,8 +329,8 @@ entries:
   tests:
     - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
-  note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model and shows on the model card.
-  gap: The trainer calls from_pretrained(repo_id, revision) against the Hub; no mirror, the licence is not written to model.json, no safetensors-only admission.
+  note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model, shows on the model card and is written to model.json. The trainers load weights with use_safetensors=True so a pickled checkpoint is refused.
+  gap: The trainer still calls from_pretrained(repo_id, revision) against the Hub; no platform mirror.
 - id: TRN-29
   area: training
   title: Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI

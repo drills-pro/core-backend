@@ -65,7 +65,7 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
     n = len(ds.classes)
     model = model or AutoModelForImageClassification.from_pretrained(  # a model is passed by the smoke job only
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
-        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
+        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), None, loss, evaluate), spec)
     if done is None:
         return None
