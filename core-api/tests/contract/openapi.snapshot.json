@@ -1902,6 +1902,9 @@
             "title": "Id",
             "type": "string"
           },
+          "metrics": {
+            "title": "Metrics"
+          },
           "mlflow_run_id": {
             "anyOf": [
               {
@@ -1912,6 +1915,17 @@
               }
             ],
             "title": "Mlflow Run Id"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
           },
           "reproduction_group_id": {
             "anyOf": [
@@ -1928,6 +1942,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
           },
           "test_dataset_id": {
             "anyOf": [
@@ -2171,6 +2196,88 @@
           "roles"
         ],
         "title": "MemberRoles",
+        "type": "object"
+      },
+      "ModelCard": {
+        "description": "The facts a person needs before trusting a model, assembled from its run: what it was trained on, how it was scored, what it is.",
+        "properties": {
+          "dataset_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_test_split": {
+            "title": "Has Test Split",
+            "type": "boolean"
+          },
+          "metrics": {
+            "title": "Metrics"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineageModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "test_dataset_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Dataset Version"
+          },
+          "training_run_id": {
+            "format": "uuid",
+            "title": "Training Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "training_run_id",
+          "task",
+          "preset",
+          "metrics",
+          "dataset_version",
+          "test_dataset_version",
+          "has_test_split",
+          "model_version"
+        ],
+        "title": "ModelCard",
         "type": "object"
       },
       "ModelStage": {
@@ -14376,6 +14483,108 @@
         "summary": "Cancel Training Run",
         "tags": [
           "training"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/training-runs/{run_id}/card": {
+      "get": {
+        "description": "The model card of a run: task, preset, scores, dataset version and whether a test dataset was used.",
+        "operationId": "get_model_card_v1_projects__project_id__training_runs__run_id__card_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Model Card",
+        "tags": [
+          "deployments"
         ]
       }
     },

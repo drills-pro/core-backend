@@ -72,6 +72,19 @@ class TrainingRunLineage(BaseModel):
     deployment: RunDeployment | None
 
 
+class ModelCard(BaseModel):
+    """The facts a person needs before trusting a model, assembled from its run: what it was trained on, how it was scored, what it is."""
+
+    training_run_id: uuid.UUID
+    task: str | None
+    preset: str | None
+    metrics: Any
+    dataset_version: VersionRef | None
+    test_dataset_version: str | None
+    has_test_split: bool
+    model_version: LineageModel | None
+
+
 class PredictRequest(BaseModel):
     """POST /v1/predict body. Closed: an unknown top-level key is a 422. `input` goes to the model as sent."""
 

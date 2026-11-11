@@ -150,3 +150,6 @@ class LineageRun(BaseModel):
     reproduction_group_id: uuid.UUID | None
     config: Any
     created_at: datetime
+    task: str | None = None
+    preset: str | None = None
+    metrics: Any = None

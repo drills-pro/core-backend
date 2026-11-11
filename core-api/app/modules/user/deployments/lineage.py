@@ -7,7 +7,7 @@ from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.modules.user.datasets import get_version_ref
 from app.modules.user.deployments.readers import get_run_deployment
-from app.modules.user.deployments.schemas import LineageModel, TrainingRunLineage
+from app.modules.user.deployments.schemas import LineageModel, ModelCard, TrainingRunLineage
 from app.modules.user.model_registry import get_run_version
 from app.modules.user.training import get_run_lineage
 
@@ -26,3 +26,12 @@ async def get_lineage(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUI
         model_version=LineageModel.model_validate(model.model_dump()) if model else None,
         deployment=deployment,
     )
+
+
+async def get_card(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> ModelCard:
+    """The model card of a run: its lineage reduced to what a deploy decision needs, plus the scores."""
+    found = await get_lineage(ctx, project_id, run_id)
+    run = found.training_run
+    return ModelCard(
+        training_run_id=run.id, task=run.task, preset=run.preset, metrics=run.metrics, dataset_version=found.dataset_version,
+        test_dataset_version=run.test_dataset_version, has_test_split=run.test_dataset_id is not None, model_version=found.model_version)
