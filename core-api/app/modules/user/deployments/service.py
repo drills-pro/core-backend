@@ -21,6 +21,7 @@ from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_foun
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import calls, shared, snippets
+from app.modules.user.deployments.tasks import DEPLOYMENTS
 from app.modules.user.deployments.constants import (
     INPUT_FIELD_BY_ENCODER,
     OUTPUT_ITEM_BY_POSTPROCESS,
@@ -216,6 +217,7 @@ async def _write_deployment(
                 if row is None:
                     raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
                 await audit.record_for(conn, ctx, project_id, AuditAction.REDEPLOY, EntityType.DEPLOYMENT, deployment_id)
+                await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, row["status"])
                 return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
             # Shown once — this is the credential a customer's downstream
@@ -231,6 +233,7 @@ async def _write_deployment(
             if not created:  # lost a race with the same key: that one is the deployment
                 return _replay(row, training_run_id)
             await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DEPLOYMENT, deployment_id)
+            await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, row["status"])
     except asyncpg.UniqueViolationError:  # only a unique index on the version or the run is left (deployments_one_active_per_version, deployments_one_live_per_run): the idempotency key conflict is DO NOTHING above
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
@@ -472,6 +475,7 @@ async def _move(
         )
         if row is not None:
             await audit.record_for(conn, ctx, project_id, action, EntityType.DEPLOYMENT, deployment_id)
+            await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, to)
             return dict(row), True
         row = await conn.fetchrow(
             f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",  # noqa: S608

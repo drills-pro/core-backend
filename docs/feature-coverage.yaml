@@ -1386,7 +1386,8 @@ entries:
   code: ["GET /v1/projects/{project_id}/events", core-api/migrations/20261111221500_events_outbox.sql, core-api/app/integrations/job_lifecycle.py, core-api/app/modules/user/job_events/service.py]
   tests:
     - core-api/tests/modules/user/job_events/test_events_route.py::test_a_viewer_reads_events_after_a_cursor
-  gap: Events are written in the same transaction as each state move and listed by cursor; there is no dispatcher or webhook delivery, and training cancel paths that bypass advance emit no event.
+    - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
+  gap: Events are written in the same transaction as each state move and listed by cursor; creation and every status move (advance, deployment stop, start, delete) emit; there is no dispatcher or webhook delivery.
 - id: JOB-17
   area: jobs
   title: Reconciler wake-up through LISTEN/NOTIFY

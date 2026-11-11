@@ -44,7 +44,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
 | 2 | partial | JOB-12 | jobs | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
 | 2 | partial | JOB-14 | jobs | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | Detection is by Ray state and a fixed deadline (LOST_JOB_GRACE_SECONDS); there are no heartbeats to go silent, so a hung job is found only at the deadline. |
-| 2 | partial | JOB-16 | jobs | Transactional outbox, dispatcher and webhooks | Events are written in the same transaction as each state move and listed by cursor; there is no dispatcher or webhook delivery, and training cancel paths that bypass advance emit no event. |
+| 2 | partial | JOB-16 | jobs | Transactional outbox, dispatcher and webhooks | Events are written in the same transaction as each state move and listed by cursor; creation and every status move (advance, deployment stop, start, delete) emit; there is no dispatcher or webhook delivery. |
 | 2 | partial | JOB-23 | jobs | Per-plan limits stored as data and edited by an operator (imports, runs, archives, images, tables, predict, deployments) | Limits are counts and sizes; no GPU-minute allowance, no replica caps, no per-plan retention (planning/14). |
 | 2 | partial | JOB-25 | jobs | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo. |
 | 2 | partial | JOB-27 | jobs | Customer-facing events for jobs (job.queued .. job.succeeded) and notifications | Kinds are <job>.<status> (training, import, deployment), readable by cursor; no notifications module and no webhook delivery (JOB-16). |
@@ -285,7 +285,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | JOB-13 | built | Results from report.json written by a shared runner that cannot skip it | planning/06 Job runtime contract (Entry, Results) | 3 |
 | JOB-14 | partial | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | planning/06 Job runtime contract (Heartbeats); planning/09 Failure modes | 2 |
 | JOB-15 | missing | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | planning/06 Job spec rules; planning/19 C6 | 0 |
-| JOB-16 | partial | Transactional outbox, dispatcher and webhooks | planning/03 Idempotency and events; planning/13 ADR-005; planning/05 Events and webhooks | 1 |
+| JOB-16 | partial | Transactional outbox, dispatcher and webhooks | planning/03 Idempotency and events; planning/13 ADR-005; planning/05 Events and webhooks | 2 |
 | JOB-17 | missing | Reconciler wake-up through LISTEN/NOTIFY | planning/09 Reconciler design | 0 |
 | JOB-18 | built | Bounded per-tenant concurrency and failure isolation in sweeps | planning/09 Reconciler design | 2 |
 | JOB-19 | built | Resources declared in the spec, never inferred; runtime limit enforced | planning/06 Job spec rules; planning/07 Timeouts | 2 |

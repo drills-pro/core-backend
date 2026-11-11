@@ -163,6 +163,7 @@ async def create_import(
             )
             if created:
                 await audit.record_for(conn, ctx, project_id, AuditAction.IMPORT_CREATED, EntityType.DATASET_IMPORT, import_id)
+                await job_lifecycle.emit(conn, IMPORTS, ctx.tenant_id, project_id, import_id, row["status"])
     if not created:
         replay(row, lambda r: _same_request(r, body), ProblemCode.IDEMPOTENCY_MISMATCH)
     if created:
