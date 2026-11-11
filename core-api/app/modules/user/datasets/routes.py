@@ -26,7 +26,7 @@ router = APIRouter(prefix="/v1/projects/{project_id}/datasets", tags=["datasets"
 async def create_dataset(
     project_id: uuid.UUID, body: DatasetCreate, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
 ):
-    return await service.create_dataset(ctx, project_id, body.name)
+    return await service.create_dataset(ctx, project_id, body.name, body.data_categories)
 
 
 @router.get("", response_model=Page[DatasetSummary])

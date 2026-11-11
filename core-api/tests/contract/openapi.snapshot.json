@@ -614,6 +614,16 @@
         "title": "CreatedTenant",
         "type": "object"
       },
+      "DataCategory": {
+        "description": "What the customer declares a dataset holds (planning/18). Stored only. Mirrors datasets_data_categories_check.",
+        "enum": [
+          "personal_data",
+          "biometric",
+          "other_sensitive"
+        ],
+        "title": "DataCategory",
+        "type": "string"
+      },
       "DataKind": {
         "enum": [
           "images",
@@ -625,6 +635,14 @@
       },
       "DatasetCreate": {
         "properties": {
+          "data_categories": {
+            "description": "what the dataset holds, declared by the customer",
+            "items": {
+              "$ref": "#/components/schemas/DataCategory"
+            },
+            "title": "Data Categories",
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "title": "Name",
@@ -760,6 +778,13 @@
             "title": "Created At",
             "type": "string"
           },
+          "data_categories": {
+            "items": {
+              "$ref": "#/components/schemas/DataCategory"
+            },
+            "title": "Data Categories",
+            "type": "array"
+          },
           "deleted_at": {
             "anyOf": [
               {
@@ -810,7 +835,8 @@
           "task_type",
           "created_at",
           "deleted_at",
-          "published_version_id"
+          "published_version_id",
+          "data_categories"
         ],
         "title": "DatasetSummary",
         "type": "object"
