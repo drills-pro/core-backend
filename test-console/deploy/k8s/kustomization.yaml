@@ -1,5 +1,0 @@
-# frontend-test's Flux Kustomizations, to be included from clusters/homelab/kustomization.yaml.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-- flux.yaml
