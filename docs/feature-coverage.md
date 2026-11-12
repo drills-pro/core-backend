@@ -74,7 +74,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | TRN-29 | training | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI. |
 | 1 | deferred | DAT-26 | datasets | Tombstoning dataset versions for erasure inside immutable history | Designed with the erasure flow. |
 | 1 | deferred | DAT-27 | datasets | Labeling (Label Studio behind core-api) | Stretch slot in planning/20. |
-| 1 | deferred | DAT-28 | datasets | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | Plus GET /v1/catalog/models and /v1/catalog/datasets and the catalog tables, none of which exist. |
+| 1 | deferred | DAT-28 | datasets | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | Plus GET /v1/catalog/datasets and the catalog tables, which do not exist (GET /v1/catalog/models lists the presets' base models). |
 | 1 | deferred | DEP-19 | deployment | Blue/green rollout, traffic split, serve-torch runtime | Later feature in the design. |
 | 1 | deferred | JOB-09 | jobs | RayJob per run on ephemeral clusters with Kueue queues and priority classes | Staging uses a shared cluster; the rayjob backend exists but Kueue does not. |
 | 1 | deferred | PRD-18 | predict | Streaming mode (Accept text/event-stream) with delta, done and error frames | No adapter declares streaming, so the route answers 406 not_acceptable (tested); streaming needs an LLM-style adapter first (planning/24 Q4). |
@@ -150,7 +150,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
 | TRN-26 | built | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
 | TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 4 |
-| TRN-28 | deferred | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
+| TRN-28 | deferred | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 3 |
 | TRN-29 | partial | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | planning/13 ADR-016; planning/17 Licence policy | 0 |
 | TRN-30 | built | Lineage view - dataset version, run, model version, active deployment | planning/22 Lineage and pipeline view | 2 |
 | TRN-31 | built | Task type decides what can train; untrainable and mismatched tasks refused before any job | planning/06 Task types and runtimes | 2 |
