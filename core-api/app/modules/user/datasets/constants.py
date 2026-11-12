@@ -48,7 +48,16 @@ IMPORT_REVIEW_TTL = timedelta(days=7)  # an import nobody committed or discarded
 SYSTEM_ACTOR = "system"  # audit actor for what the background sweeps do
 
 
+class DataCategory(StrEnum):
+    """What the customer declares a dataset holds (planning/18). Stored only. Mirrors datasets_data_categories_check."""
+
+    PERSONAL_DATA = "personal_data"
+    BIOMETRIC = "biometric"
+    OTHER_SENSITIVE = "other_sensitive"
+
+
 class AuditAction(StrEnum):
+    CREATE = "create"
     DELETE = "delete"
     RESTORE = "restore"
     PUBLISH = "publish"

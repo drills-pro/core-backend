@@ -35,9 +35,12 @@ from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
     api_keys,
     auth,
+    catalog,
     datasets,
     deployments,
     health,
+    job_events,
+    notifications,
     model_registry,
     projects,
     public,
@@ -45,6 +48,7 @@ from app.modules.user import (
     tenant_members,
     tenants,
     training,
+    webhooks,
     usage,
 )
 from app.modules.user.datasets import pipeline_log
@@ -65,6 +69,10 @@ ROUTERS = (
     # listing's own /v1/admin/tenants/summary.
     admin_tenants.detail_router,
     projects.router,
+    job_events.router,
+    notifications.router,
+    catalog.router,
+    webhooks.router,
     datasets.router,
     deployments.router,
     auth.router,

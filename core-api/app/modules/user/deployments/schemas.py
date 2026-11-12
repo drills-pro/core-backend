@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.task_catalog import TrainBaseModel
 from app.modules.user.datasets import VersionRef
 from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_TOO_LARGE_DETAIL, PredictionStatus
 from app.modules.user.training import LineageRun
@@ -72,6 +73,21 @@ class TrainingRunLineage(BaseModel):
     deployment: RunDeployment | None
 
 
+class ModelCard(BaseModel):
+    """The facts a person needs before trusting a model, assembled from its run: what it was trained on, how it was scored, what it is."""
+
+    training_run_id: uuid.UUID
+    task: str | None
+    preset: str | None
+    base_model: TrainBaseModel | None
+    near_duplicates: int | None  # a score measured on images the model trained on near-copies of is too good; None = not measured
+    metrics: Any
+    dataset_version: VersionRef | None
+    test_dataset_version: str | None
+    has_test_split: bool
+    model_version: LineageModel | None
+
+
 class PredictRequest(BaseModel):
     """POST /v1/predict body. Closed: an unknown top-level key is a 422. `input` goes to the model as sent."""
 
@@ -122,3 +138,20 @@ class PredictOutcome(BaseModel):
     envelope: PredictionEnvelope
     status_code: int = HTTPStatus.OK
     headers: dict[str, str] = Field(default_factory=dict)
+
+
+class DeploymentSnippets(BaseModel):
+    curl: str
+    javascript: str
+    python: str
+
+
+class DeploymentSchema(BaseModel):
+    """What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets."""
+
+    task_type: str
+    model_id: uuid.UUID
+    model_revision: str
+    input: dict[str, Any]
+    output: dict[str, Any]
+    snippets: DeploymentSnippets

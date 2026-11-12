@@ -12,13 +12,14 @@ from app.modules.user.datasets.constants import (
     DATASET_RETENTION_DAYS,
     NOT_DELETED_DETAIL,
     AuditAction,
+    DataCategory,
     EntityType,
     ProblemCode,
 )
 from app.modules.user.datasets.schemas import DatasetSummary, DatasetVersion
 from app.modules.user.projects import get_task_type
 
-_COLUMNS = "id, name, created_at, deleted_at, published_version_id"
+_COLUMNS = "id, name, created_at, deleted_at, published_version_id, data_categories"
 
 
 async def _summary(conn, project_id: uuid.UUID, row) -> DatasetSummary:
@@ -26,15 +27,17 @@ async def _summary(conn, project_id: uuid.UUID, row) -> DatasetSummary:
     return DatasetSummary.model_validate({**dict(row), "task_type": await get_task_type(conn, project_id)})
 
 
-async def create_dataset(ctx: AuthzContext, project_id: uuid.UUID, name: str) -> DatasetSummary:
+async def create_dataset(ctx: AuthzContext, project_id: uuid.UUID, name: str, data_categories: list[DataCategory]) -> DatasetSummary:
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "INSERT INTO datasets (tenant_id, project_id, name) VALUES ($2, $1, $3) "
+            "INSERT INTO datasets (tenant_id, project_id, name, data_categories) VALUES ($2, $1, $3, $4) "
             f"RETURNING {_COLUMNS}",
             project_id,
             ctx.tenant_id,
             name,
+            [str(c) for c in data_categories],
         )
+        await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DATASET, row["id"])
         return await _summary(conn, project_id, row)
 
 

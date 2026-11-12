@@ -44,7 +44,7 @@ class FakeJobTable:
     def seed(self, status, **cols) -> dict:
         """A live row: advance mutates it, so a test reads the outcome from it."""
         self.seq += 1
-        row = {"id": uuid.uuid4(), "tenant_id": self.tenant_id, "status": status, "ray_job_id": "job", "claimed_until": None, "settle_attempts": 0,
+        row = {"id": uuid.uuid4(), "tenant_id": self.tenant_id, "project_id": uuid.uuid4(), "status": status, "ray_job_id": "job", "claimed_until": None, "settle_attempts": 0,
                "created_at": self.now + timedelta(microseconds=self.seq), "completed_at": None, **cols}
         self.rows[row["id"]] = row
         return row
@@ -94,6 +94,12 @@ class FakeJobConn:
 
     async def execute(self, sql, *args):
         t = self.table
+        if sql.startswith("INSERT INTO audit_log"):
+            t.audit = [*getattr(t, "audit", []), args]
+            return
+        if sql == job_lifecycle._EMIT:
+            t.events = [*getattr(t, "events", []), args]
+            return
         assert sql in (job_lifecycle.release_sql(t.job), job_lifecycle.defer_sql(t.job)), sql
         row = t.rows.get(args[0])
         if row is None or row["claimed_until"] != args[1]:  # only the lease this claim took

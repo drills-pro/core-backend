@@ -2,7 +2,7 @@
 from enum import StrEnum
 from http import HTTPStatus
 
-from app.core.enums import PlanTier
+from app.core.enums import PlanTier, TaskType
 from app.integrations.serve_client import ServeErrorCode
 
 
@@ -19,6 +19,7 @@ class ProblemCode(StrEnum):
     BODY_NOT_OBJECT = "body_not_object"
     NOT_DEPLOYABLE = "not_deployable"
     NOT_ACTIVE = "deployment_not_active"
+    PRECONDITION_FAILED = "precondition_failed"
     STOPPED = "deployment_stopped"
     INVALID_TRANSITION = "invalid_deployment_transition"
     NO_SERVABLE_MODEL = "no_servable_model"
@@ -34,6 +35,7 @@ class ProblemCode(StrEnum):
     IDEMPOTENCY_KEY_REUSE = "idempotency_key_reuse"
     REQUEST_IN_PROGRESS = "request_in_progress"
     NOT_ACCEPTABLE = "not_acceptable"
+    DEPLOY_RISK = "deploy_risk_unacknowledged"
 
 
 class PredictionStatus(StrEnum):
@@ -57,6 +59,8 @@ TERMINAL_STATUSES = frozenset({PredictionStatus.COMPLETED, PredictionStatus.FAIL
 
 
 class AuditAction(StrEnum):
+    CREATE = "create"
+    REDEPLOY = "redeploy"
     STOP = "stop"
     START = "start"
     DELETE = "delete"
@@ -94,10 +98,18 @@ TRUNCATED_BYTES_FIELD = "bytes"
 DEPLOYMENT_LOCK_PREFIX = "deployments:"  # advisory-lock key prefix: serialises the quota check and the write per tenant
 DEPLOYMENT_EXISTS_DETAIL = "this training run already has a deployment; use it (start it if it is stopped) or delete it first"
 TOO_MANY_DEPLOYMENTS_DETAIL = "too many active deployments for this plan, stop or delete one first"
+PRECONDITION_FAILED_DETAIL = "the deployment changed since you read it; fetch it again and retry with its new ETag"
 STOPPED_DETAIL = "the deployment is stopped; start it to serve again"
 TOO_MANY_REQUESTS_DETAIL = "too many concurrent requests for this deployment"
 TARGET_CACHE_SIZE = 1024  # (deployment, run) pairs whose model URLs core-api remembers
 
+DEPLOY_RISK_DETAIL = "this run has no test dataset, so its metrics were not measured on unseen data; deploy again with acknowledge_risk=true to accept that"
+DEPLOY_BELOW_FLOOR_DETAIL = "this run's {metric} is {value:.2f}, under the {floor:.2f} floor for the task; deploy again with acknowledge_risk=true to accept that"
+# The score a run should reach before it is served without a warning: (metric the trainer reports, floor). A task not listed has no floor.
+METRIC_FLOORS: dict[TaskType, tuple[str, float]] = {
+    TaskType.IMAGE_CLASSIFICATION: ("top1", 0.5),
+    TaskType.OBJECT_DETECTION: ("map50", 0.3),
+}
 NOT_DEPLOYABLE_DETAIL = (
     "training run has no deployable model (only a succeeded run of a servable task type can be served)"
 )
@@ -133,6 +145,8 @@ LOCATION_HEADER = "Location"
 RETRY_AFTER_HEADER = "Retry-After"
 DEPRECATION_HEADER = "Deprecation"
 SUNSET_HEADER = "Sunset"
+ETAG_HEADER = "ETag"
+IF_MATCH_HEADER = "If-Match"
 DEPRECATION_ACTIVE = "true"
 IDEMPOTENCY_KEY_PATTERN = r"^[\x20-\x7e]+$"  # printable ASCII
 IDEMPOTENCY_KEY_REQUIRED_DETAIL = "background mode needs an Idempotency-Key"
@@ -141,6 +155,7 @@ IN_PROGRESS_DETAIL = "the first request with this Idempotency-Key is still runni
 ABANDONED_DETAIL = "the first request with this Idempotency-Key did not finish; send a new key to run it again"
 IN_PROGRESS_POLL_SECONDS = 0.2
 IN_PROGRESS_RETRY_AFTER_SECONDS = 1
+COLD_START_RETRY_AFTER_SECONDS = 5  # a timed-out call is usually a replica still loading the model: tell the caller when to retry
 PREDICT_PATH = "/v1/predict"
 # The status a stored failure is replayed with: the failures that reached Serve (the only ones stored).
 STORED_ERROR_STATUS = {
@@ -162,3 +177,14 @@ ACCEPT_HEADER = "Accept"
 JSON_ACCEPTABLE = ("application/json", "application/*", "*/*")  # an Accept entry that lets the sync JSON answer through
 NOT_STREAMABLE_DETAIL = "no model can stream yet (no serve adapter declares streaming); send Accept: application/json, or Prefer: respond-async"
 LAST_EVENT_ID_HEADER = "Last-Event-ID"
+
+
+# What a deployment's callers send and get back, by what the task type's encoder and postprocess functions read and write
+# (ray_serving/inputs.py, ray_serving/postprocess.py); the keys are those function names.
+INPUT_FIELD_BY_ENCODER = {"image_encoder": "image_base64", "text_encoder": "text"}
+OUTPUT_ITEM_BY_POSTPROCESS = {
+    "classify": {"class": "string", "probability": "number"},
+    "detect": {"class": "string", "probability": "number", "box": {"x": "number", "y": "number", "width": "number", "height": "number"}},
+}
+SNIPPET_KEY_PLACEHOLDER = "<YOUR_API_KEY>"
+SNIPPET_INPUT_PLACEHOLDER = "<BASE64_IMAGE>"

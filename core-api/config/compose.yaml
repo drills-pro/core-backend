@@ -12,6 +12,7 @@ secrets:
   ingest: /var/app-secret/app-backend/ingest.json
   zitadel: /var/app-secret/app-backend/zitadel.json
   zoho: /var/app-secret/app-backend/zoho.json
+  webhooks: /var/app-secret/app-backend/webhooks.json
 ray:
   dashboard: http://ray-head:8265
 mlflow:

@@ -35,7 +35,7 @@ def test_put_writes_the_row_as_the_actor_and_returns_it(call):
     res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
     sql, args = conn.calls[-1]
     assert res.status_code == 200 and res.json()["updated_by"] == "ops" and sql.startswith("INSERT INTO task_presets")
-    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0)
+    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None, None)
 
 
 def test_list_returns_the_tasks_presets(call):
@@ -60,3 +60,36 @@ def test_a_bad_body_is_422(call):
 def test_an_augmentation_the_task_has_no_trainer_for_is_422(call):
     res = call("PUT", f"{URL}/image-classification/x", FakeConn(), json={**BODY, "augmentation": "flip"})
     assert res.status_code == 422 and res.json()["code"] == routes.INVALID_RECIPE
+
+
+@pytest.fixture
+def hub_on(monkeypatch):
+    monkeypatch.setattr(routes.settings.training, "hub_url", "https://hub.test")
+
+
+def test_put_refuses_a_model_the_policy_rejects_and_writes_nothing(call, hub_on, monkeypatch):
+    async def fetch(repo, rev):
+        return routes.hub.ModelFacts(license="cc-by-nc-4.0", safetensors_files=1, total_bytes=1, custom_code=False)
+
+    monkeypatch.setattr(routes.hub, "fetch", fetch)
+    conn = FakeConn(row=preset_row())
+    res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
+    assert res.status_code == 422 and res.json()["code"] == routes.MODEL_NOT_ADMITTED and conn.calls == []
+
+
+def test_put_records_the_licence_the_hub_declares(call, hub_on, monkeypatch):
+    async def fetch(repo, rev):
+        return routes.hub.ModelFacts(license="mit", safetensors_files=1, total_bytes=1, custom_code=False)
+
+    monkeypatch.setattr(routes.hub, "fetch", fetch)
+    conn = FakeConn(row=preset_row())
+    assert call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY).status_code == 200
+    assert conn.calls[-1][1][-1] == "mit" and BODY["base_model"].get("license") != "mit"
+
+
+def test_put_is_502_when_the_hub_cannot_be_reached(call, hub_on, monkeypatch):
+    async def fetch(repo, rev):
+        raise routes.hub.HubUnavailable("down")
+
+    monkeypatch.setattr(routes.hub, "fetch", fetch)
+    assert call("PUT", f"{URL}/image-classification/tiny", FakeConn(), json=BODY).status_code == 502

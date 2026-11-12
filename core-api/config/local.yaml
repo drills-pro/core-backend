@@ -27,3 +27,4 @@ secrets:
   ingest: ../.local/secrets-host/ingest.json
   zitadel: ../.local/secrets-host/zitadel.json
   zoho: ../.local/secrets-host/zoho.json
+  webhooks: ../.local/secrets-host/webhooks.json

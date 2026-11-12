@@ -46,5 +46,5 @@ def test_a_dataset_of_a_project_without_a_task_type_still_serialises():
 
     from app.modules.user.datasets.schemas import DatasetSummary
 
-    row = {"id": uuid.uuid4(), "name": "d", "task_type": None, "created_at": datetime.now(UTC), "deleted_at": None, "published_version_id": None}
+    row = {"id": uuid.uuid4(), "name": "d", "task_type": None, "created_at": datetime.now(UTC), "deleted_at": None, "published_version_id": None, "data_categories": []}
     assert DatasetSummary.model_validate(row).task_type is None

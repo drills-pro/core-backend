@@ -19,7 +19,7 @@ NOW = datetime.now()
 
 def ds_row(**kw):
     return {"id": DS, "name": "d", "task_type": TaskType.IMAGE_CLASSIFICATION, "created_at": NOW, "deleted_at": None,
-            "published_version_id": None, **kw}
+            "published_version_id": None, "data_categories": [], **kw}
 
 
 VERSION = {"id": uuid.uuid4(), "number": 1, "import_id": uuid.uuid4(), "stats": {}, "created_at": NOW}
@@ -85,9 +85,16 @@ def test_foreign_tenant_dataset_id_is_404(call, method, path):
 def test_create_takes_task_type_from_the_project(call):
     r = call(access(roles=["editor"]), "POST", "", {"name": "x"})
     assert (r.status_code, r.json()["task_type"]) == (201, "image-classification")
-    insert, read = r.conn.calls[-2:]
-    assert "FROM projects" not in insert[0] and len(insert[1]) == 3  # no task type is stored or passed in
+    insert, read = r.conn.calls[-3], r.conn.calls[-1]  # the audit row sits between them
+    assert "FROM projects" not in insert[0] and len(insert[1]) == 4 and insert[1][3] == []  # tenant, project, name, categories: no task type is stored or passed in
     assert "FROM projects" in read[0] and read[1] == (PROJECT,)
+
+
+def test_create_audits(call):
+    executed = []
+    r = call(access(roles=["editor"]), "POST", "", {"name": "x"}, executed=executed)
+    assert r.status_code == 201
+    assert audited(executed) == [(AuditAction.CREATE, EntityType.DATASET, str(DS))]
 
 
 def test_create_needs_a_name(call):

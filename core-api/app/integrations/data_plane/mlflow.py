@@ -43,6 +43,7 @@ class ModelStage(StrEnum):
     NONE = "None"
     STAGING = "Staging"
     PRODUCTION = "Production"
+    ARCHIVED = "Archived"
 
 
 class StartedRun(BaseModel):
@@ -188,6 +189,24 @@ async def run_model_url(tenant_id: str, project_id: str, mlflow_run_id: str) -> 
         run = await _require_run(client, tenant_id, project_id, mlflow_run_id)
     root = run["info"]["artifact_uri"].removeprefix(_SCHEME).strip("/")
     return artifact_url(f"{root}/{MODEL_DIR}/{layout.MODEL_KEY}")
+
+
+async def open_model_file(tenant_id: str, project_id: str, mlflow_run_id: str, name: str) -> tuple[httpx.AsyncClient, httpx.Response]:
+    """A run's published model file as an open streamed response; the caller closes both. 404 when the run is not this project's
+    or the file is absent. Streaming keeps a multi-hundred-MB model out of memory."""
+    await access.project(tenant_id, project_id)
+    client = httpx.AsyncClient(timeout=_UPLOAD_TIMEOUT)
+    try:
+        run = await _require_run(client, tenant_id, project_id, mlflow_run_id)
+        root = run["info"]["artifact_uri"].removeprefix(_SCHEME).strip("/")
+        resp = await client.send(client.build_request("GET", artifact_url(f"{root}/{MODEL_DIR}/{name}")), stream=True)
+        if resp.status_code != httpx.codes.OK:
+            await resp.aclose()
+            raise not_found()
+    except BaseException:
+        await client.aclose()
+        raise
+    return client, resp
 
 
 async def register_model_version(tenant_id: str, project_id: str, model_name: str, run_id: str) -> str:

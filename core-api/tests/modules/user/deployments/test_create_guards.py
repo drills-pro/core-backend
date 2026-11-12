@@ -12,15 +12,15 @@ from fastapi import HTTPException
 from app.core.enums import TaskType
 from app.core.settings import settings
 from app.modules.user.deployments import routes, service
-from app.modules.user.deployments.constants import SETTING_DEPLOY_STRATEGY, DeployStrategy, ProblemCode
+from app.modules.user.deployments.constants import SETTING_DEPLOY_STRATEGY, AuditAction, DeployStrategy, EntityType, ProblemCode
 from app.modules.user.deployments.status import LIVE_STATUSES, QUOTA_STATUSES, DeploymentStatus
 from app.modules.user.training import TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_deployments_quota_idempotency.sql")).read_text().split("-- migrate:down")[0]
-CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()))
+CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 RUN, OTHER_RUN, KEY = uuid.uuid4(), uuid.uuid4(), "key-1"
-SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"]}
+SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"], "test_dataset_id": uuid.uuid4()}
 CREATED = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 10, "training_run_id": RUN}
 
 
@@ -99,7 +99,13 @@ def test_a_create_that_loses_the_race_for_the_same_key_returns_the_winner(env):
 def test_the_key_is_stored_with_the_new_deployment_and_the_insert_skips_a_taken_key(env):
     out = create()
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert args[-1] == KEY and "ON CONFLICT (project_id, idempotency_key)" in sql and out.predict_key
+    assert args[-2] == KEY and "ON CONFLICT (project_id, idempotency_key)" in sql and out.predict_key
+
+
+def test_a_new_deployment_writes_a_create_audit_row(env):
+    create()
+    audits = [a for s, a in env.conn.calls if s.startswith("INSERT INTO audit_log")]
+    assert [a[3:5] for a in audits] == [(AuditAction.CREATE, EntityType.DEPLOYMENT)]
 
 
 def test_a_second_live_deployment_of_the_run_is_409_deployment_exists(env):
@@ -192,3 +198,32 @@ def _plan(limit):
     from tests.core.test_plan_limits import row
 
     return row(deployments={"max_active_deployments": limit}, updated_at=datetime.now(UTC))
+
+
+def test_a_failing_cleanup_of_the_stray_serve_app_does_not_hide_the_409(env, monkeypatch):
+    env.shared = False
+    env.conn.fail = ("INSERT INTO deployments",)
+
+    async def remove(**kw):
+        raise RuntimeError("ray head is down")
+
+    monkeypatch.setattr(service.serve_client, "remove", remove)
+    with pytest.raises(HTTPException) as e:
+        create()
+    assert e.value.code == ProblemCode.DEPLOYMENT_EXISTS
+
+
+def test_a_shared_create_that_loses_to_the_index_has_no_serve_app_to_remove(env):
+    env.conn.fail = ("INSERT INTO deployments",)
+    with pytest.raises(HTTPException):
+        create()
+    assert env.removed == [] and env.deployed == []
+
+
+def test_a_main_create_that_loses_leaves_the_shared_main_app_to_the_winner(env):
+    env.shared = False
+    env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
+    env.conn.fail = ("INSERT INTO deployments",)
+    with pytest.raises(HTTPException):
+        create()
+    assert env.removed == []

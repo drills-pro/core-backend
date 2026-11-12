@@ -46,6 +46,7 @@ class PresetBody(BaseModel):
     cpu: float = Field(gt=0)
     memory_bytes: int = Field(gt=0)
     gpu: float = Field(ge=0)
+    vram_gb: float | None = Field(default=None, gt=0)  # GPU memory the run may hold, in GiB; the trainer caps itself at it
     max_runtime_s: int = Field(gt=0)
     hyperparameters: HyperparameterLimits
     lr_schedule: LrSchedule = LrSchedule.CONSTANT
@@ -78,10 +79,10 @@ _SELECT = "SELECT * FROM task_presets"
 _UPSERT = (
     "INSERT INTO task_presets (task, name, base_model_repo, base_model_revision, learning_rate, preprocessing, cpu, "
     "memory_bytes, gpu, max_runtime_s, hyperparameters, updated_by, lr_schedule, warmup_fraction, augmentation, "
-    "early_stopping_patience) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) "
+    "early_stopping_patience, vram_gb, base_model_license) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) "
     "ON CONFLICT (task, name) DO UPDATE SET base_model_repo = EXCLUDED.base_model_repo, "
     "base_model_revision = EXCLUDED.base_model_revision, learning_rate = EXCLUDED.learning_rate, "
-    "preprocessing = EXCLUDED.preprocessing, cpu = EXCLUDED.cpu, memory_bytes = EXCLUDED.memory_bytes, gpu = EXCLUDED.gpu, "
+    "preprocessing = EXCLUDED.preprocessing, cpu = EXCLUDED.cpu, memory_bytes = EXCLUDED.memory_bytes, gpu = EXCLUDED.gpu, vram_gb = EXCLUDED.vram_gb, base_model_license = EXCLUDED.base_model_license, "
     "max_runtime_s = EXCLUDED.max_runtime_s, hyperparameters = EXCLUDED.hyperparameters, "
     "lr_schedule = EXCLUDED.lr_schedule, warmup_fraction = EXCLUDED.warmup_fraction, augmentation = EXCLUDED.augmentation, "
     "early_stopping_patience = EXCLUDED.early_stopping_patience, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
@@ -90,7 +91,7 @@ _UPSERT = (
 
 def _model(row) -> TaskPreset:
     r = dict(row)
-    r["base_model"] = {"repo_id": r.pop("base_model_repo"), "revision": r.pop("base_model_revision")}
+    r["base_model"] = {"repo_id": r.pop("base_model_repo"), "revision": r.pop("base_model_revision"), "license": r.pop("base_model_license", None)}
     return TaskPreset.model_validate(r)
 
 
@@ -108,7 +109,7 @@ async def put(conn, task: TaskType, name: str, body: PresetBody, actor: str) -> 
         _UPSERT, task, name, body.base_model.repo_id, body.base_model.revision, body.learning_rate,
         body.preprocessing.model_dump(mode="json"), body.cpu, body.memory_bytes, body.gpu, body.max_runtime_s,
         body.hyperparameters.model_dump(mode="json"), actor,
-        body.lr_schedule, body.warmup_fraction, body.augmentation, body.early_stopping_patience)
+        body.lr_schedule, body.warmup_fraction, body.augmentation, body.early_stopping_patience, body.vram_gb, body.base_model.license)
     return _model(row)
 
 

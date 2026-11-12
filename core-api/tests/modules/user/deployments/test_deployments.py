@@ -83,10 +83,10 @@ MODEL_ROW = {"id": VERSION, "mlflow_model_name": "t.p.model", "mlflow_version": 
 DEPLOYMENT_ROW = {"id": DEPLOYMENT, "status": "active", "route_prefix": "/predict/x"}
 
 
-def lineage(monkeypatch, dev_headers, rows):
+def lineage(monkeypatch, dev_headers, rows, url=LINEAGE):
     conn = FakeConn(access(), rows=rows)
     patch_tenant_conn(monkeypatch, conn, lineage_module)
-    return make_client(routes.router, raise_server_exceptions=False).get(LINEAGE), conn
+    return make_client(routes.router, raise_server_exceptions=False).get(url), conn
 
 
 def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_headers):
@@ -96,6 +96,25 @@ def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_hea
     assert r.status_code == 200
     assert (body["training_run"]["id"], body["model_version"]["stage"], body["deployment"]["route_prefix"]) == (str(RUN), "Staging", "/predict/x")
     assert (body["dataset_version"]["id"], body["dataset_version"]["number"]) == (str(DATASET_VERSION), 3)
+
+
+def test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag(monkeypatch, dev_headers):
+    run = {**RUN_ROW, "task": "image_classification", "preset": "small", "metrics": {"top1": 0.9},
+           "base_model": {"repo_id": "org/vit", "revision": "abc", "license": "apache-2.0"}, "near_duplicates": 7}
+    rows = {"FROM training_runs": run, "FROM dataset_versions": DATASET_VERSION_ROW, "FROM model_versions": MODEL_ROW, "FROM deployments": None}
+    r, _ = lineage(monkeypatch, dev_headers, rows, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
+    body = r.json()
+    assert r.status_code == 200 and (body["metrics"], body["task"], body["preset"]) == ({"top1": 0.9}, "image_classification", "small")
+    assert body["near_duplicates"] == 7
+    assert body["base_model"] == {"repo_id": "org/vit", "revision": "abc", "license": "apache-2.0"}
+    assert (body["has_test_split"], body["dataset_version"]["number"], body["model_version"]["stage"]) == (False, 3, "Staging")
+    r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": {**run, "test_dataset_id": uuid.uuid4()}}, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
+    assert r.json()["has_test_split"] is True
+
+
+def test_the_card_of_an_unknown_run_is_404(monkeypatch, dev_headers):
+    r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": None}, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
+    assert r.status_code == 404
 
 
 def test_lineage_of_a_run_without_a_dataset_version_skips_the_version_lookup(monkeypatch, dev_headers):

@@ -20,9 +20,14 @@ KEY = {"X-Predict-Key": "k"}
 
 @pytest.fixture
 def legacy(monkeypatch):
-    state = SimpleNamespace(counted=[], outcome={"predictions": [1]})
+    state = SimpleNamespace(authenticated=[], counted=[], outcome={"predictions": [1]})
 
-    async def predict(deployment_id, key, body):
+    async def authenticate(deployment_id, key):
+        state.authenticated.append(key)
+        if isinstance(state.outcome, Problem) and state.outcome.code == ProblemCode.INVALID_PREDICT_KEY:
+            raise state.outcome
+
+    async def serve_authenticated(row, deployment_id, body):
         if isinstance(state.outcome, Exception):
             raise state.outcome
         return state.outcome
@@ -31,7 +36,8 @@ def legacy(monkeypatch):
         def add(self, value, labels):
             state.counted.append((value, labels))
 
-    monkeypatch.setattr(service, "predict", predict)
+    monkeypatch.setattr(service, "authenticate", authenticate)
+    monkeypatch.setattr(service, "serve_authenticated", serve_authenticated)
     monkeypatch.setattr(routes.predict_metrics, "legacy_calls", Counter())
     state.post = lambda: make_client(routes.router).post(URL, json={}, headers=KEY)
     return state
@@ -59,3 +65,9 @@ def test_a_wrong_key_is_marked_but_not_counted_so_the_label_cannot_be_filled_by_
     legacy.outcome = Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid")
     r = legacy.post()
     assert r.status_code == 401 and r.headers["Deprecation"] == "true" and not legacy.counted
+
+
+def test_a_wrong_key_is_refused_before_the_body_is_read(legacy):
+    legacy.outcome = Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid")
+    r = make_client(routes.router).post(URL, content=b"not json", headers={**KEY, "Content-Type": "application/json"})
+    assert r.status_code == HTTPStatus.UNAUTHORIZED

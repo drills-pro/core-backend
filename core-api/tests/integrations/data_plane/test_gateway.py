@@ -25,6 +25,7 @@ ARGS = {
     "version_id": VERSION, "project_id": PROJECT, "run_id": RUN, "path": "objects/a.jpg", "message": "m",
     "spec": None, "kind": None, "limits": settings.dataset_limits, "column": "path", "paths": ["objects/a.jpg"], "ttl_seconds": 60, "mlflow_run_id": "mlflow-run",
     "key": layout.INDEX_KEY, "limit": 5, "data_kind": DataKind.IMAGES, "model_name": "clf", "version": "1", "stage": "Staging", "package_sha256": "a" * 64, "events_token": None, "status": RunStatus.FINISHED,
+    "name": layout.MODEL_KEY,
 }
 
 
@@ -251,6 +252,14 @@ def test_delete_repo_tolerates_a_missing_repo_and_still_purges_the_namespace(own
     # The blockstore is purged with the `staging` credentials; docs/runtime-contract.md requires them to cover that bucket.
     assert purged == [(settings.data_plane.lakefs_blockstore_bucket, f"{TENANT}/{DATASET}/", "staging")]
     assert secrets == ["staging"]
+
+
+def test_purge_train_prefix_deletes_the_run_prefix_with_the_staging_credentials(owned, monkeypatch):
+    purged = []
+    monkeypatch.setattr(lakefs, "_delete_prefix", lambda bucket, prefix, client: purged.append((bucket, prefix, client)))
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: secret)
+    asyncio.run(data_plane.purge_train_prefix(TENANT, PROJECT, RUN))
+    assert purged == [(settings.data_plane.staging_bucket, layout.train_prefix(TENANT, PROJECT, RUN), "staging")]
 
 
 def _mlflow_stub(monkeypatch, run_tags):

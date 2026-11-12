@@ -116,6 +116,9 @@ class Training(_Section):
     driver_cpus: float  # the CPU-pool driver that starts that task
     max_runtime_seconds: int  # ceiling of every preset's max_runtime_s; presigned data reads outlive it
     events_base_url: str  # where a trainer reaches this API to post progress (no trailing path); "" = runs report no progress
+    hub_url: str  # Hugging Face Hub origin an admin's base model is checked against when a preset is written; "" = no check
+    model_license_allowlist: list[str]  # lower-case SPDX ids a base model may carry (docs 17, licence policy)
+    model_max_bytes: int  # a base model's files together; larger is refused at admission
 
 
 class ServingApp(_Section):
@@ -195,6 +198,7 @@ class SecretPaths(_Section):
     ingest: Path  # same shape as staging, but limited to the staging bucket: the ingest job runs hostile input with it
     zitadel: Path
     zoho: Path  # {"Servername", "Port", "Username", "Password"}: ZeptoMail SMTP (Vault app-secret/app-backend/zoho)
+    webhooks: Path  # {"signing_key"}; optional: without the file webhook endpoints cannot be created or delivered to
 
 
 class Settings(BaseSettings):

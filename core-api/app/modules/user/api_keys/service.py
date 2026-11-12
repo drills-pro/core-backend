@@ -19,7 +19,7 @@ _INSERT_MODELS = (
     "SELECT $1, $2, m.id FROM models m WHERE m.project_id = $4 AND m.id = ANY($3::uuid[]) RETURNING 1) SELECT count(*) FROM i"
 )
 _LIST = (
-    "SELECT k.id, k.name, k.prefix, k.created_by, k.created_at, k.expires_at, k.revoked_at, k.rate_limit_per_minute, "
+    "SELECT k.id, k.name, k.prefix, k.created_by, k.created_at, k.expires_at, k.revoked_at, k.last_used_at, k.rate_limit_per_minute, "
     "COALESCE((SELECT array_agg(scope ORDER BY scope) FROM api_key_scopes WHERE key_id = k.id), '{}') AS scopes, "
     "COALESCE((SELECT array_agg(model_id ORDER BY model_id) FROM api_key_models WHERE key_id = k.id), '{}') AS model_ids "
     "FROM api_keys k WHERE k.project_id = $1 ORDER BY k.created_at"

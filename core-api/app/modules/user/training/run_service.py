@@ -1,14 +1,17 @@
 """Training-run reads and cancel. Status transitions stay in service.py; cancel goes through service.cancel()."""
+import logging
 import uuid
 from http import HTTPStatus
 
+from app.core import audit
 from app.core.authz import AuthzContext
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.core.problem import Problem, not_found
 from app.modules.user.model_registry import ModelVersion, register_run
 from app.modules.user.training import events_service, service
-from app.modules.user.training.constants import CANCELLABLE, LOG_TAIL_CHARS, NOT_REGISTRABLE_DETAIL, ProblemCode
+from app.modules.user.training.constants import (
+    CANCEL_FAILED_DETAIL, CANCELLABLE, LOG_TAIL_CHARS, AuditAction, EntityType, NOT_REGISTRABLE_DETAIL, ProblemCode)
 from app.modules.user.training.readers import get_run_model
 from app.modules.user.training.schemas import (
     RunLogRef,
@@ -17,6 +20,7 @@ from app.modules.user.training.schemas import (
     TrainingRunSummary,
 )
 
+logger = logging.getLogger(__name__)
 
 
 async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[TrainingRunSummary]:
@@ -67,8 +71,15 @@ async def cancel_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID
         raise not_found()
     if row["status"] not in CANCELLABLE:
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run already {row['status']}")
-    await compute.stop(row["ray_job_id"])
-    return TrainingRun.model_validate(await service.cancel(ctx.tenant_id, dict(row)))
+    try:
+        await compute.stop(row["ray_job_id"])
+    except Exception as e:  # noqa: BLE001 - compute is down: leave the run as it is so the caller can retry, not a 500
+        logger.error("could not stop training job %s", row["ray_job_id"], exc_info=e)
+        raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.CANCEL_FAILED, CANCEL_FAILED_DETAIL) from e
+    cancelled = await service.cancel(ctx.tenant_id, dict(row))
+    async with TenantConn(ctx.tenant_id) as conn:
+        await audit.record_for(conn, ctx, project_id, AuditAction.CANCEL, EntityType.TRAINING_RUN, run_id)
+    return TrainingRun.model_validate(cancelled)
 
 
 async def register_model(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID, name: str) -> ModelVersion:

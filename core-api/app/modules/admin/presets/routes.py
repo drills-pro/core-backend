@@ -6,6 +6,8 @@ from http import HTTPStatus
 from fastapi import APIRouter, Depends, Path
 
 from app.core import presets, task_types
+from app.core.settings import settings
+from app.integrations import hub
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
 from app.core.enums import TaskType
@@ -18,6 +20,8 @@ router = APIRouter(prefix="/v1/admin/training-presets", tags=["admin"])
 
 TASK_NOT_TRAINABLE = "task_type_not_trainable"
 INVALID_RECIPE = "invalid_training_recipe"
+MODEL_NOT_ADMITTED = "model_not_admitted"
+HUB_UNAVAILABLE = "hub_unavailable"
 
 
 async def _trainable(conn, task: TaskType) -> TaskType:
@@ -25,6 +29,18 @@ async def _trainable(conn, task: TaskType) -> TaskType:
     if info is None or not info.trainable:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, TASK_NOT_TRAINABLE, f"task type '{task}' has no trainer, so it has no presets")
     return task
+
+
+async def _admit(body: PresetBody) -> PresetBody:
+    """Check the pinned base model against the admission policy and record the licence the Hub declares for it."""
+    base = body.base_model
+    try:
+        facts = await hub.fetch(base.repo_id, base.revision)
+    except hub.HubUnavailable as e:
+        raise Problem(HTTPStatus.BAD_GATEWAY, HUB_UNAVAILABLE, str(e))
+    if reasons := hub.refusals(facts):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, MODEL_NOT_ADMITTED, f"{base.repo_id}: " + "; ".join(reasons))
+    return body.model_copy(update={"base_model": base.model_copy(update={"license": facts.license})})
 
 
 @router.get("/{task}", response_model=list[TaskPreset])
@@ -40,6 +56,8 @@ async def put_preset(task: TaskType, body: PresetBody, name: str = Path(pattern=
         body.check_task(task)
     except ValueError as e:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_RECIPE, str(e))
+    if settings.training.hub_url:
+        body = await _admit(body)
     async with (await get_pool()).acquire() as conn:
         row = await presets.put(conn, await _trainable(conn, task), name, body, actor)
     logger.info("training preset %s/%s set by %s", task, name, actor)

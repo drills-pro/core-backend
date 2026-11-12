@@ -34,6 +34,7 @@ class TrainSpec:
     memory_bytes: int
     gpu: float  # resources.gpu: the Ray Train workers, one GPU each (a fraction = one worker holding that share)
     max_runtime_s: int  # resources.max_runtime_s, 0 = none
+    vram_gb: float | None  # resources.vram_gb: GiB of GPU memory the run may hold, None = the GPU share decides
     bucket: str
     prefix: str
     task: str  # a task_types slug; data.py looks its loader up by slug (LOADERS)
@@ -58,6 +59,7 @@ class TrainSpec:
     early_stopping_patience: int = 0  # 0 = off
     events_url: str | None = None  # reporting.events_url: where to post progress; None = post nothing
     events_token_env: str | None = None  # reporting.token_env: the environment variable that holds the token (never in the spec)
+    base_license: str | None = None  # the base model's SPDX licence as the preset recorded it, copied to model.json
 
 
 def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
@@ -80,7 +82,7 @@ def parse_spec(text: str) -> TrainSpec:
     return TrainSpec(
         job_id=doc["job_id"], tenant_id=doc["tenant_id"],
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
-        max_runtime_s=doc["resources"].get("max_runtime_s", 0),
+        max_runtime_s=doc["resources"].get("max_runtime_s", 0), vram_gb=doc["resources"].get("vram_gb"),
         bucket=p["bucket"], prefix=p["prefix"], task=task, trainer=p["trainer"], preset=preset,
         base_model=base["repo_id"], base_revision=base.get("revision"),
         index_url=data.get("index_url"), manifest_url=data.get("manifest_url"), data_url=data.get("data_url"),
@@ -92,5 +94,5 @@ def parse_spec(text: str) -> TrainSpec:
         lr_schedule=LrSchedule(p.get("lr_schedule", LrSchedule.CONSTANT)), warmup_fraction=p.get("warmup_fraction", 0.0),
         augmentation=Augmentation(p.get("augmentation", Augmentation.NONE)),
         early_stopping_patience=p.get("early_stopping_patience", 0),
-        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"),
+        events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"), base_license=base.get("license"),
     )

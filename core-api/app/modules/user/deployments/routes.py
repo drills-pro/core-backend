@@ -14,11 +14,13 @@ from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH,
 from app.core.metrics import predict as predict_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import lineage, model_predict, prediction_service, service
+from app.modules.user.deployments import etag, lineage, model_predict, prediction_service, service
 from app.modules.user.deployments.constants import (
     ACCEPT_HEADER,
     DEPRECATION_ACTIVE,
     DEPRECATION_HEADER,
+    ETAG_HEADER,
+    IF_MATCH_HEADER,
     MODEL_ID_HEADER,
     IDEMPOTENCY_KEY_PATTERN,
     LAST_EVENT_ID_HEADER,
@@ -34,11 +36,13 @@ from app.modules.user.deployments.constants import (
     ProblemCode,
 )
 from app.modules.user.deployments.schemas import (
+    DeploymentSchema,
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
     PredictionEnvelope,
     PredictRequest,
+    ModelCard,
     TrainingRunLineage,
     TestCall,
     TestCallResult,
@@ -72,11 +76,12 @@ async def create_deployment(
     project_id: uuid.UUID,
     training_run_id: uuid.UUID,
     idempotency_key: IdempotencyKey,
+    acknowledge_risk: bool = False,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
-    """Deploy a training run. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
+    """Deploy a training run. A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
     the predict key, which is shown once); the same key with another run is 409."""
-    return await service.create_deployment(ctx, project_id, training_run_id, idempotency_key)
+    return await service.create_deployment(ctx, project_id, training_run_id, idempotency_key, acknowledge_risk)
 
 
 @router.get("/v1/projects/{project_id}/deployments", response_model=list[DeploymentListItem])
@@ -88,38 +93,71 @@ async def list_deployments(project_id: uuid.UUID, ctx: AuthzContext = Depends(re
 async def get_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
 ):
-    return await service.get_deployment(ctx, project_id, deployment_id)
+    detail = await service.get_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
+
+
+async def _precondition(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, if_match: str | None) -> None:
+    """`If-Match` is checked against the row as it is now; a change between this read and the move is the move's own
+    compare-and-set to settle (ponytail: not one transaction, add a version column if two writers must be serialised)."""
+    if if_match is not None:
+        etag.check_if_match(if_match, await service.get_deployment(ctx, project_id, deployment_id))
+
+
+@router.get("/v1/projects/{project_id}/deployments/{deployment_id}/schema", response_model=DeploymentSchema)
+async def get_deployment_schema(
+    project_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    request: Request,
+    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
+):
+    """What to send to POST /v1/predict and what comes back, with curl, JavaScript and Python snippets (the key is a placeholder)."""
+    return await service.get_schema(ctx, project_id, deployment_id, str(request.base_url))
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/stop", response_model=DeploymentDetail)
 async def stop_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine."""
-    return await service.stop_deployment(ctx, project_id, deployment_id)
+    await _precondition(ctx, project_id, deployment_id, if_match)
+    detail = await service.stop_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/start", response_model=DeploymentDetail)
 async def start_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    response: Response,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Serve a stopped deployment again: same row, same predict key."""
-    return await service.start_deployment(ctx, project_id, deployment_id)
+    await _precondition(ctx, project_id, deployment_id, if_match)
+    detail = await service.start_deployment(ctx, project_id, deployment_id)
+    response.headers[ETAG_HEADER] = etag.etag_of(detail)
+    return detail
 
 
 @router.delete("/v1/projects/{project_id}/deployments/{deployment_id}", status_code=204)
 async def delete_deployment(
     project_id: uuid.UUID,
     deployment_id: uuid.UUID,
+    if_match: str | None = Header(default=None, alias=IF_MATCH_HEADER),
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
     """Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list."""
+    await _precondition(ctx, project_id, deployment_id, if_match)
     await service.delete_deployment(ctx, project_id, deployment_id)
 
 
@@ -129,6 +167,12 @@ async def get_training_run_lineage(
 ):
     """One endpoint joining dataset commit -> training run -> model registry entry -> active deployment."""
     return await lineage.get_lineage(ctx, project_id, run_id)
+
+
+@router.get("/v1/projects/{project_id}/training-runs/{run_id}/card", response_model=ModelCard)
+async def get_model_card(project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))):
+    """The model card of a run: task, preset, scores, dataset version and whether a test dataset was used."""
+    return await lineage.get_card(ctx, project_id, run_id)
 
 
 @router.post("/v1/projects/{project_id}/deployments/{deployment_id}/test", response_model=TestCallResult)
@@ -155,14 +199,15 @@ async def list_test_calls(
 @router.post("/v1/predict/{deployment_id}", dependencies=[Depends(public)])
 async def predict(
     deployment_id: uuid.UUID,
-    body: dict = Depends(capped_body),
+    request: Request,
     x_predict_key: str = Header(..., alias=PREDICT_KEY_HEADER),
     response: Response = None,
 ):
     """Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment."""
     marks = {DEPRECATION_HEADER: DEPRECATION_ACTIVE, SUNSET_HEADER: format_datetime(settings.predict.legacy_sunset, usegmt=True)}
     try:
-        result = await service.predict(deployment_id, x_predict_key, body)
+        row = await service.authenticate(deployment_id, x_predict_key)  # the key is checked before the body is read
+        result = await service.serve_authenticated(row, deployment_id, await capped_body(request))
     except HTTPException as e:
         e.headers = {**(e.headers or {}), **marks}
         if getattr(e, "code", None) != ProblemCode.INVALID_PREDICT_KEY:  # a wrong key says nothing about the deployment: no unbounded label values

@@ -168,6 +168,14 @@ def settle_backoff(attempts: int) -> float:
     return min(SETTLE_BACKOFF_BASE_SECONDS * SETTLE_BACKOFF_FACTOR ** (attempts - 1), SETTLE_BACKOFF_MAX_SECONDS)
 
 
+_EMIT = "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) VALUES ($1, $2, $3, $4, $5)"
+
+
+async def emit(conn, job: JobTable, tenant_id, project_id, entity_id, status) -> None:
+    """The outbox row for a job entering `status`; call it inside the transaction that wrote the row."""
+    await conn.execute(_EMIT, tenant_id, project_id, f"{job.name}.{status}", entity_id, str(status))
+
+
 def advance_sql(job: JobTable, columns: list[str], stamp_completed: bool) -> str:
     sets = ["status = $3", "claimed_until = NULL", "settle_attempts = 0"] + [f"{c} = ${i}" for i, c in enumerate(columns, start=4)]
     if stamp_completed:
@@ -196,7 +204,11 @@ async def advance(conn, job: JobTable, row: dict, to: str, **cols: Any) -> dict 
     if stamp:
         args.append(datetime.now(UTC))
     moved = await conn.fetchrow(advance_sql(job, list(cols), stamp), *args)
-    return dict(moved) if moved is not None else None
+    if moved is None:
+        return None
+    # The outbox row rides the same transaction as the move: no event without the change, none lost after it.
+    await emit(conn, job, moved["tenant_id"], moved["project_id"], moved["id"], to)
+    return dict(moved)
 
 
 async def _write_lease(job: JobTable, row: dict, sql: str, *args) -> None:

@@ -76,6 +76,14 @@ async def read_train_report(tenant_id: str, project_id: str, run_id: str) -> Tra
     return TrainReport.model_validate_json(await asyncio.to_thread(obj["Body"].read))
 
 
+async def purge_train_prefix(tenant_id: str, project_id: str, run_id: str) -> None:
+    """Delete everything under the run's prefix once the run has ended and its model is in MLflow: the manifest holds
+    presigned reads of the customer's data, and nothing reads the prefix after the settle."""
+    await access.training_run(tenant_id, project_id, run_id)
+    prefix = layout.train_prefix(tenant_id, project_id, run_id)
+    await asyncio.to_thread(lakefs._delete_prefix, settings.data_plane.staging_bucket, prefix, lakefs.s3_client(secret_files.STAGING))
+
+
 async def read_model_meta(tenant_id: str, project_id: str, run_id: str) -> dict | None:
     """The job's model.json (what publish_run_model copies into MLflow), or None when the run has none."""
     await access.training_run(tenant_id, project_id, run_id)

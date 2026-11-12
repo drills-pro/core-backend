@@ -72,7 +72,7 @@ def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
     tokenizer = AutoTokenizer.from_pretrained(spec.base_model, revision=spec.base_revision)
     model = AutoModelForSequenceClassification.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
-        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
+        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Texts(train_set), Texts(held_out), collator(tokenizer, pre), loss, evaluate), spec)
     if done is None:
         return None

@@ -1,6 +1,6 @@
 """The job spec: the one document core-api hands every Ray job (planning 06 "Job spec v1", generalised).
 
-An envelope every job shares (who, what it may use) plus a `payload` that depends on `kind`: `ingest` or `train`. The job reads this document and nothing
+An envelope every job shares (who, what it may use) plus a `payload` that depends on `kind`: `ingest`, `train` or `predict_batch`. The job reads this document and nothing
 else; secrets are never in it (a train spec carries presigned reads, which expire). It is stored verbatim for audit and replay, and its JSON Schema is committed as
 `contracts/job-spec.v1.json` (tests/integrations/test_job_spec.py keeps the two equal).
 
@@ -9,7 +9,7 @@ that a running job reads = a new `spec_version`; the job refuses versions it doe
 """
 import uuid
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
@@ -24,6 +24,7 @@ SPEC_VERSION = 1
 class JobKind(StrEnum):
     INGEST = "ingest"
     TRAIN = "train"
+    PREDICT_BATCH = "predict_batch"
 
 
 class Resources(BaseModel):
@@ -32,6 +33,7 @@ class Resources(BaseModel):
     cpu: float = Field(gt=0)
     memory_bytes: int = Field(gt=0)
     gpu: float = Field(default=0, ge=0)
+    vram_gb: float | None = Field(default=None, gt=0)  # GiB of GPU memory the job may hold (the trainer caps itself); None = the GPU share decides
     max_runtime_s: int = Field(default=0, ge=0)  # 0 = unlimited
 
 
@@ -120,6 +122,46 @@ class TrainPayload(BaseModel):
         return self
 
 
+# ---- predict_batch ----
+
+DEFAULT_PREDICT_CONCURRENCY, MAX_PREDICT_CONCURRENCY = 2, 32  # Ray Data actors, each holding the model once
+DEFAULT_PREDICT_BATCH_SIZE, MAX_PREDICT_BATCH_SIZE = 16, 256  # items per map_batches call
+
+
+class BatchModel(BaseModel):
+    """The model to serve, field for field `ray_serving.model.ModelSpec` and `serve_client.ServedModel` (contract-tested).
+    The urls are the model's own artifact urls; the job loads them as the Serve replica does, so a batch answer equals a live one."""
+
+    model_url: str = Field(min_length=1)
+    manifest_url: str = Field(min_length=1)
+    tokenizer_url: str  # "" for an image model
+    class_names: list[str]
+    params: dict[str, Any]
+    providers: list[str]
+    encoder: str
+    postprocess: str
+
+
+class BatchData(BaseModel):
+    """Presigned reads of the image dataset version to predict on, valid past `resources.max_runtime_s` (same shape as TrainData)."""
+
+    index_url: str = Field(min_length=1)  # index.parquet (columns layout.INDEX_COLUMNS)
+    manifest_url: str = Field(min_length=1)  # JSON object {index path: presigned GET of that image}, staged under `prefix`
+    version_id: uuid.UUID
+    lakefs_commit: str
+
+
+class BatchPredictPayload(BaseModel):
+    """What the batch runner reads. It writes `predictions.jsonl` and `report.json` under `prefix` in `bucket`."""
+
+    bucket: str  # staging bucket; the job writes only under `prefix`
+    prefix: str
+    data: BatchData
+    model: BatchModel
+    concurrency: int = Field(default=DEFAULT_PREDICT_CONCURRENCY, ge=1, le=MAX_PREDICT_CONCURRENCY)
+    batch_size: int = Field(default=DEFAULT_PREDICT_BATCH_SIZE, ge=1, le=MAX_PREDICT_BATCH_SIZE)
+
+
 # ---- the document ----
 
 class _Envelope(BaseModel):
@@ -148,5 +190,10 @@ class TrainSpec(_Envelope):
     payload: TrainPayload  # resources.gpu = Ray Train workers, one GPU each (a fraction: one worker on that share); the driver holds none
 
 
-AnyJobSpec = Annotated[IngestSpec | TrainSpec, Field(discriminator="kind")]
-SPEC_ADAPTER: TypeAdapter[IngestSpec | TrainSpec] = TypeAdapter(AnyJobSpec)  # its JSON Schema is contracts/job-spec.v1.json
+class BatchPredictSpec(_Envelope):
+    kind: Literal[JobKind.PREDICT_BATCH] = JobKind.PREDICT_BATCH
+    payload: BatchPredictPayload  # CPU pool, no GPU yet; the runner is ray_serving.entrypoints.predict_batch
+
+
+AnyJobSpec = Annotated[IngestSpec | TrainSpec | BatchPredictSpec, Field(discriminator="kind")]
+SPEC_ADAPTER: TypeAdapter[IngestSpec | TrainSpec | BatchPredictSpec] = TypeAdapter(AnyJobSpec)  # its JSON Schema is contracts/job-spec.v1.json

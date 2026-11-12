@@ -20,9 +20,16 @@ from app.core.metrics import inference as inference_metrics, usage as usage_metr
 from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
-from app.modules.user.deployments import calls, shared
+from app.modules.user.deployments import calls, shared, snippets
+from app.modules.user.deployments.tasks import DEPLOYMENTS
 from app.modules.user.deployments.constants import (
+    INPUT_FIELD_BY_ENCODER,
+    OUTPUT_ITEM_BY_POSTPROCESS,
+    SNIPPET_INPUT_PLACEHOLDER,
     DEFAULT_COMPUTE_TARGET,
+    DEPLOY_BELOW_FLOOR_DETAIL,
+    DEPLOY_RISK_DETAIL,
+    METRIC_FLOORS,
     DEPLOYMENT_EXISTS_DETAIL,
     DEPLOYMENT_LOCK_PREFIX,
     AuditAction,
@@ -34,6 +41,8 @@ from app.modules.user.deployments.constants import (
     ProblemCode,
     PLAN_TIER_RATE_LIMITS,
     PREDICT_KEY_BYTES,
+    RATE_LIMIT_WINDOW_SECONDS,
+    RETRY_AFTER_HEADER,
     SERVE_TIMEOUT_SECONDS,
     STOPPED_DETAIL,
     TOO_MANY_DEPLOYMENTS_DETAIL,
@@ -47,6 +56,7 @@ from app.modules.user.deployments.constants import (
     Serving,
 )
 from app.modules.user.deployments.schemas import (
+    DeploymentSchema,
     DeploymentCreated,
     DeploymentDetail,
     DeploymentListItem,
@@ -98,8 +108,8 @@ _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key =
 _VERSION_OF_RUN = "(SELECT id FROM model_versions WHERE training_run_id = {run} ORDER BY created_at DESC, id LIMIT 1)"
 _INSERT = (
     "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
-    "rate_limit_per_minute, serving, status, idempotency_key, model_version_id) "
-    f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, {_VERSION_OF_RUN.format(run='$4')}) "
+    "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id) "
+    f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, {_VERSION_OF_RUN.format(run='$4')}) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
     "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id"
 )
@@ -130,7 +140,9 @@ async def _drop_stray_app(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             logger.warning("could not remove the Serve app of deployment %s", deployment_id)
 
 
-async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str) -> DeploymentCreated:
+async def create_deployment(
+    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, acknowledge_risk: bool = False,
+) -> DeploymentCreated:
     # The Serve deploy is slow and external: read what it needs, release the connection, deploy, then write.
     async with TenantConn(ctx.tenant_id) as conn:
         existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
@@ -143,6 +155,14 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
         info = None if task is None else await task_types.get(conn, task)
         if info is None or not info.enabled or not info.servable or not run.servable:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
+        risk = None if run.has_test_split else DEPLOY_RISK_DETAIL
+        metric, floor = METRIC_FLOORS.get(task, (None, 0.0))
+        score = (run.metrics or {}).get(metric)
+        if risk is None and isinstance(score, int | float) and score < floor:
+            risk = DEPLOY_BELOW_FLOOR_DETAIL.format(metric=metric, value=score, floor=floor)
+        risky = risk is not None
+        if risky and not acknowledge_risk:  # a warning with an acknowledgement, not a block (planning/06 Quality gates)
+            raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOY_RISK, risk)
 
         settings = await get_settings(conn, project_id)
         deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
@@ -178,7 +198,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
     try:
         return await _write_deployment(
             ctx, project_id, training_run_id, idempotency_key, deployment_id, existing_main is not None,
-            ray_job_id, route_prefix, serving, status, plan_tier)
+            ray_job_id, route_prefix, serving, status, plan_tier, risky)
     except Exception:  # ponytail: a create that loses an Idempotency-Key race returns normally and leaves its legacy app to the winner's reconcile
         if existing_main is None:
             await _drop_stray_app(ctx, project_id, deployment_id, serving, deploy_strategy)
@@ -187,7 +207,7 @@ async def create_deployment(ctx: AuthzContext, project_id: uuid.UUID, training_r
 
 async def _write_deployment(
     ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, deployment_id: uuid.UUID,
-    in_place: bool, ray_job_id, route_prefix, serving, status, plan_tier,
+    in_place: bool, ray_job_id, route_prefix, serving, status, plan_tier, risk_acknowledged: bool = False,
 ) -> DeploymentCreated:
     """The write half of a deploy, under the tenant's deployments lock. One live deployment per run is the unique index's rule:
     a violation is 409. A `main` re-deploy moves the one row to the new run (and takes the new key)."""
@@ -197,7 +217,7 @@ async def _write_deployment(
             if in_place:
                 row = await conn.fetchrow(
                     "UPDATE deployments SET training_run_id = $2, ray_job_id = $3, status = $4, serving = $5, idempotency_key = $7, "
-                    f"model_version_id = {_VERSION_OF_RUN.format(run='$2')} "
+                    f"risk_acknowledged = $8, model_version_id = {_VERSION_OF_RUN.format(run='$2')} "
                     "WHERE id = $1 AND status <> $6 RETURNING id, status, route_prefix, rate_limit_per_minute",
                     deployment_id,
                     training_run_id,
@@ -206,9 +226,12 @@ async def _write_deployment(
                     serving,
                     DeploymentStatus.STOPPED,  # stopped since the read: a deploy never resurrects it
                     idempotency_key,
+                    risk_acknowledged,
                 )
                 if row is None:
                     raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
+                await audit.record_for(conn, ctx, project_id, AuditAction.REDEPLOY, EntityType.DEPLOYMENT, deployment_id)
+                await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, row["status"])
                 return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
 
             # Shown once — this is the credential a customer's downstream
@@ -218,11 +241,13 @@ async def _write_deployment(
             row, created = await insert_once(
                 conn, _INSERT,
                 (deployment_id, ctx.tenant_id, project_id, training_run_id, ray_job_id, route_prefix, hash_key(predict_key),
-                 rate_limit_for(plan_tier), serving, status, idempotency_key),
+                 rate_limit_for(plan_tier), serving, status, idempotency_key, risk_acknowledged),
                 _BY_KEY, (project_id, idempotency_key),
             )
             if not created:  # lost a race with the same key: that one is the deployment
                 return _replay(row, training_run_id)
+            await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DEPLOYMENT, deployment_id)
+            await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, row["status"])
     except asyncpg.UniqueViolationError:  # only a unique index on the version or the run is left (deployments_one_active_per_version, deployments_one_live_per_run): the idempotency key conflict is DO NOTHING above
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
@@ -254,6 +279,28 @@ async def get_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_id
     if row is None:
         raise not_found()
     return DeploymentDetail.model_validate(dict(row))
+
+
+async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID, base_url: str) -> DeploymentSchema:
+    """The input and output shape for POST /v1/predict on this deployment, from its task type's encoder and postprocess, and call snippets."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT mv.model_id, mv.mlflow_version FROM deployments d JOIN model_versions mv ON mv.id = d.model_version_id "
+            "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3",
+            deployment_id, project_id, DeploymentStatus.DELETED,
+        )
+        task = await get_task_type(conn, project_id)
+        info = None if task is None else await task_types.get(conn, task)
+    if row is None or info is None:
+        raise not_found()
+    field = INPUT_FIELD_BY_ENCODER.get(info.encoder)
+    body_input = {field: SNIPPET_INPUT_PLACEHOLDER} if field else {}
+    item = OUTPUT_ITEM_BY_POSTPROCESS.get(info.postprocess, {})
+    return DeploymentSchema(
+        task_type=task, model_id=row["model_id"], model_revision=row["mlflow_version"],
+        input={field: "string"} if field else {}, output={"predictions": [item]},
+        snippets=snippets.build(base_url, str(project_id), str(row["model_id"]), row["mlflow_version"], {"input": body_input}),
+    )
 
 
 def _require_active(status: str) -> None:
@@ -336,7 +383,9 @@ async def list_test_calls(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
     return [TestCall.model_validate(dict(r)) for r in rows]
 
 
-async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dict:
+async def authenticate(deployment_id: uuid.UUID, predict_key: str):
+    """The deployment row for a valid predict key, or the Problem that refuses the call (401, suspended tenant, not active, 429). Runs
+    before the route reads the body, so an unauthenticated caller makes it buffer nothing."""
     # req/04: "separate auth scope from management API — this is what the
     # customer's own downstream systems call." Genuinely separate: no
     # tenant/JWT credential accepted here at all, just the per-deployment
@@ -352,11 +401,20 @@ async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dic
         raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, KernelProblemCode.TENANT_SUSPENDED, "this tenant is not active")
     _require_active(row["status"])
     if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
-        raise Problem(
+        problem = Problem(
             HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED,
             f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)",
         )
+        problem.headers = {RETRY_AFTER_HEADER: str(RATE_LIMIT_WINDOW_SECONDS - int(time.time()) % RATE_LIMIT_WINDOW_SECONDS)}
+        raise problem
+    return row
 
+
+async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dict:
+    return await serve_authenticated(await authenticate(deployment_id, predict_key), deployment_id, body)
+
+
+async def serve_authenticated(row, deployment_id: uuid.UUID, body: dict) -> dict:
     # FR6: an optional `metadata` passthrough field, popped before
     # forwarding to Serve (the model was never trained to expect it) and
     # echoed back alongside the prediction.
@@ -431,6 +489,7 @@ async def _move(
         )
         if row is not None:
             await audit.record_for(conn, ctx, project_id, action, EntityType.DEPLOYMENT, deployment_id)
+            await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, to)
             return dict(row), True
         row = await conn.fetchrow(
             f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3",  # noqa: S608

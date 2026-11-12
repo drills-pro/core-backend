@@ -23,10 +23,28 @@ class Result:
     signature: dict  # model.json: inputs, outputs, preprocessing
     confusion: dict | None = None  # classification: {"labels": [...], "matrix": [[...]]}
     extra_files: dict[str, Path] = field(default_factory=dict)  # uploaded beside the model under this name (a tokenizer)
+    near_duplicates: int | None = None  # image tasks: held-out images with a near twin in the training set (near_duplicates.py); None = not measured
+
+
+GIB = 1024**3
 
 
 def device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def cap_gpu_share(gpu: float, vram_gb: float | None = None) -> bool:
+    """A job may not use more GPU memory than it declared, so neighbours sharing the card are not starved by one job's allocator:
+    its fraction of the card, or `vram_gb` when that is smaller. True when a cap was set (a whole GPU with no declaration, or the CPU, is left alone)."""
+    if not torch.cuda.is_available() or gpu <= 0:
+        return False
+    share = gpu if gpu < 1 else 1.0
+    if vram_gb:
+        share = min(share, vram_gb * GIB / torch.cuda.get_device_properties(0).total_memory)
+    if share >= 1:
+        return False
+    torch.cuda.set_per_process_memory_fraction(share)
+    return True
 
 
 def seed_everything(seed: int) -> None:

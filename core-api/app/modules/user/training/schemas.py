@@ -44,6 +44,7 @@ class PresetSummary(BaseModel):
     cpu: float
     memory_bytes: int
     gpu: float
+    vram_gb: float | None = None
     max_runtime_s: int
     hyperparameters: HyperparameterLimits
     lr_schedule: LrSchedule
@@ -150,3 +151,8 @@ class LineageRun(BaseModel):
     reproduction_group_id: uuid.UUID | None
     config: Any
     created_at: datetime
+    task: str | None = None
+    preset: str | None = None
+    metrics: Any = None
+    near_duplicates: int | None = None  # held-out images with a near twin in the training set; None = not measured
+    base_model: TrainBaseModel | None = None  # the checkpoint frozen into the run's spec; None for runs from before it was recorded

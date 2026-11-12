@@ -13,6 +13,7 @@ from ray_training.constants import CONFUSION_TOP_K, Augmentation
 from ray_training.data import Dataset, Sample, split_for_training
 from ray_training.loop import Kit, fit
 from ray_training.metrics import classification_metrics
+from ray_training.near_duplicates import count_near_duplicates
 from ray_training.recipe import flip_crop
 from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
 from ray_training.spec import Preprocessing, TrainSpec
@@ -64,7 +65,7 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
     n = len(ds.classes)
     model = model or AutoModelForImageClassification.from_pretrained(  # a model is passed by the smoke job only
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
-        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True)
+        label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), None, loss, evaluate), spec)
     if done is None:
         return None
@@ -74,4 +75,4 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
         "inputs": [{"name": INPUT_NAME, "shape": ["batch", 3, spec.image_size, spec.image_size], "dtype": "float32"}],
         "outputs": [{"name": "logits", "shape": ["batch", n], "dtype": "float32"}],
         "preprocessing": preprocessing(spec), "top_k": min(CONFUSION_TOP_K, n)}
-    return Result(ds.classes, done.metrics, done.history, onnx, signature, {"labels": ds.classes, "matrix": done.confusion})
+    return Result(ds.classes, done.metrics, done.history, onnx, signature, {"labels": ds.classes, "matrix": done.confusion}, near_duplicates=count_near_duplicates(ds))

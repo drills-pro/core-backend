@@ -10,6 +10,176 @@
       "title": "Augmentation",
       "type": "string"
     },
+    "BatchData": {
+      "description": "Presigned reads of the image dataset version to predict on, valid past `resources.max_runtime_s` (same shape as TrainData).",
+      "properties": {
+        "index_url": {
+          "minLength": 1,
+          "title": "Index Url",
+          "type": "string"
+        },
+        "lakefs_commit": {
+          "title": "Lakefs Commit",
+          "type": "string"
+        },
+        "manifest_url": {
+          "minLength": 1,
+          "title": "Manifest Url",
+          "type": "string"
+        },
+        "version_id": {
+          "format": "uuid",
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index_url",
+        "manifest_url",
+        "version_id",
+        "lakefs_commit"
+      ],
+      "title": "BatchData",
+      "type": "object"
+    },
+    "BatchModel": {
+      "description": "The model to serve, field for field `ray_serving.model.ModelSpec` and `serve_client.ServedModel` (contract-tested).\nThe urls are the model's own artifact urls; the job loads them as the Serve replica does, so a batch answer equals a live one.",
+      "properties": {
+        "class_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Class Names",
+          "type": "array"
+        },
+        "encoder": {
+          "title": "Encoder",
+          "type": "string"
+        },
+        "manifest_url": {
+          "minLength": 1,
+          "title": "Manifest Url",
+          "type": "string"
+        },
+        "model_url": {
+          "minLength": 1,
+          "title": "Model Url",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "postprocess": {
+          "title": "Postprocess",
+          "type": "string"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Providers",
+          "type": "array"
+        },
+        "tokenizer_url": {
+          "title": "Tokenizer Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_url",
+        "manifest_url",
+        "tokenizer_url",
+        "class_names",
+        "params",
+        "providers",
+        "encoder",
+        "postprocess"
+      ],
+      "title": "BatchModel",
+      "type": "object"
+    },
+    "BatchPredictPayload": {
+      "description": "What the batch runner reads. It writes `predictions.jsonl` and `report.json` under `prefix` in `bucket`.",
+      "properties": {
+        "batch_size": {
+          "default": 16,
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "bucket": {
+          "title": "Bucket",
+          "type": "string"
+        },
+        "concurrency": {
+          "default": 2,
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "data": {
+          "$ref": "#/$defs/BatchData"
+        },
+        "model": {
+          "$ref": "#/$defs/BatchModel"
+        },
+        "prefix": {
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bucket",
+        "prefix",
+        "data",
+        "model"
+      ],
+      "title": "BatchPredictPayload",
+      "type": "object"
+    },
+    "BatchPredictSpec": {
+      "properties": {
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "predict_batch",
+          "default": "predict_batch",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BatchPredictPayload"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "spec_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "tenant_id",
+        "resources",
+        "payload"
+      ],
+      "title": "BatchPredictSpec",
+      "type": "object"
+    },
     "DataKind": {
       "enum": [
         "images",
@@ -450,6 +620,19 @@
           "exclusiveMinimum": 0,
           "title": "Memory Bytes",
           "type": "integer"
+        },
+        "vram_gb": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vram Gb"
         }
       },
       "required": [
@@ -509,6 +692,19 @@
     "TrainBaseModel": {
       "description": "A pretrained checkpoint on the Hugging Face Hub, pinned to a commit.",
       "properties": {
+        "license": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
         "repo_id": {
           "title": "Repo Id",
           "type": "string"
@@ -729,6 +925,7 @@
   "discriminator": {
     "mapping": {
       "ingest": "#/$defs/IngestSpec",
+      "predict_batch": "#/$defs/BatchPredictSpec",
       "train": "#/$defs/TrainSpec"
     },
     "propertyName": "kind"
@@ -739,6 +936,9 @@
     },
     {
       "$ref": "#/$defs/TrainSpec"
+    },
+    {
+      "$ref": "#/$defs/BatchPredictSpec"
     }
   ]
 }

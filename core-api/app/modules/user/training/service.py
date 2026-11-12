@@ -44,6 +44,7 @@ async def settle(row: dict, verdict: job_lifecycle.Verdict) -> None:
         return
     if not TRANSITIONS[outcome.status]:
         usage_metrics.training_runs.add(1, {"status": outcome.status})
+        await effects.purge_run_files(tenant_id, row)
     if verdict.timed_out:
         await job_lifecycle.stop_quietly(row["ray_job_id"])
 
@@ -62,12 +63,13 @@ async def cancel(tenant_id: str, row: dict) -> dict:
             return dict(current)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, f"run is no longer {row['status']}")
     usage_metrics.training_runs.add(1, {"status": TrainingStatus.CANCELLED})
+    await effects.purge_run_files(tenant_id, row)
     return moved
 
 
 async def fail_unstarted(tenant_id: str, run_id: uuid.UUID, mlflow_run_id: str, project_id: uuid.UUID) -> None:
     """The job never started: end the run as failed so it stops counting against the quota."""
-    row = {"id": run_id, "status": TrainingStatus.SUBMITTED, "project_id": project_id, "mlflow_run_id": mlflow_run_id}
+    row = {"id": run_id, "tenant_id": tenant_id, "status": TrainingStatus.SUBMITTED, "project_id": project_id, "mlflow_run_id": mlflow_run_id}
     report = decide.failed_report(FailureCode.INTERNAL, "the training job could not be started")
     outcome = decide.Outcome(status=TrainingStatus.FAILED, report=report)
     async with TenantConn(tenant_id) as conn:
