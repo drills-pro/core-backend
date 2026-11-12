@@ -27,6 +27,10 @@ class TenantSummary(BaseModel):
     capabilities: list[str] = Field(description="Tenant-level actions the role holds")
 
 
+class EmailVerificationStatus(BaseModel):
+    verified: bool = Field(description="Zitadel's current answer, which may be newer than the caller's token")
+
+
 class Me(BaseModel):
     sub: str
     email: str | None
