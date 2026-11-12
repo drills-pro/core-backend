@@ -282,3 +282,27 @@ async def get_org_owner(client: httpx.AsyncClient, org_id: str) -> OrgOwner | No
         display_name=owner.get("displayName") or owner.get("preferredLoginName"),
         login_name=owner.get("preferredLoginName"),
     )
+
+
+# --- Email verification for the customer SPA (app/modules/user/auth) --------
+# The v2 user service acting on another user needs user.read / user.write on that user's org.
+
+
+async def email_verified(client: httpx.AsyncClient, user_id: str) -> bool:
+    """Whether Zitadel has the user's email as verified right now (a token can be older than the verification).
+    Raises on any failure."""
+    resp = await client.get(f"{ISSUER}/v2/users/{user_id}", headers=auth_header())
+    resp.raise_for_status()
+    return ((resp.json().get("user") or {}).get("human") or {}).get("email", {}).get("isVerified") is True
+
+
+async def send_email_verification(client: httpx.AsyncClient, user_id: str, url_template: str) -> None:
+    """Have Zitadel mail the user a fresh verification code, through the instance's active SMTP provider and its
+    "Verify email" message text. The link is `url_template` with {{.UserID}}, {{.Code}} and {{.OrgID}} filled in; a
+    new code replaces any earlier link. Raises on any failure."""
+    resp = await client.post(
+        f"{ISSUER}/v2/users/{user_id}/email/send",
+        headers=auth_header(),
+        json={"sendCode": {"urlTemplate": url_template}},
+    )
+    resp.raise_for_status()

@@ -5,7 +5,7 @@ from http import HTTPStatus
 from fastapi import APIRouter, Depends, Header, Request
 
 from app.core import rate_limit
-from app.core.auth import Claims, get_profile_claims
+from app.core.auth import Claims, get_claims, get_profile_claims
 from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
 from app.core.idempotency import IDEMPOTENCY_HEADER
@@ -17,9 +17,13 @@ from app.modules.user.auth.constants import (
     TENANT_CREATE_IP_RATE_KEY,
     TENANT_CREATE_USER_LIMIT,
     TENANT_CREATE_USER_RATE_KEY,
+    VERIFY_SEND_USER_LIMIT,
+    VERIFY_SEND_USER_RATE_KEY,
+    VERIFY_STATUS_USER_LIMIT,
+    VERIFY_STATUS_USER_RATE_KEY,
     ProblemCode,
 )
-from app.modules.user.auth.schemas import Me, TenantCreate, TenantCreated, TenantSummary
+from app.modules.user.auth.schemas import EmailVerificationStatus, Me, TenantCreate, TenantCreated, TenantSummary
 
 router = APIRouter(prefix="/v1", tags=["auth"])
 
@@ -43,6 +47,22 @@ async def me(claims: Claims = Depends(get_profile_claims)):
         sub=claims.subject, email=claims.email, email_verified=claims.email_verified, name=claims.display_name,
         tenants=[TenantSummary(**dict(t), capabilities=_capabilities(t["role"])) for t in tenants],
     )
+
+
+@router.get("/me/email-verification", dependencies=[Depends(public)], response_model=EmailVerificationStatus)  # self-scoped
+async def email_verification_status(claims: Claims = Depends(get_claims)):
+    """Live from Zitadel, for the SPA to poll while the user opens the mail."""
+    if not await rate_limit.check(VERIFY_STATUS_USER_RATE_KEY.format(claims.subject), VERIFY_STATUS_USER_LIMIT):
+        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_ATTEMPTS, "too many attempts")
+    return await service.verification_status(claims)
+
+
+@router.post("/me/email-verification", status_code=204, dependencies=[Depends(public)])  # self-scoped: the caller's own email
+async def send_email_verification(claims: Claims = Depends(get_profile_claims)):
+    """Zitadel mails the caller a verification link, unless the email is verified already (409 email_already_verified)."""
+    if not await rate_limit.check(VERIFY_SEND_USER_RATE_KEY.format(claims.subject), VERIFY_SEND_USER_LIMIT):
+        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_ATTEMPTS, "an email was just sent; wait a minute")
+    await service.send_verification(claims)
 
 
 @router.post("/tenants", status_code=201, dependencies=[Depends(public)], response_model=TenantCreated)  # creates the caller's own tenant

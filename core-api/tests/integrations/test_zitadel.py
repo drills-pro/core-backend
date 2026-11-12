@@ -242,3 +242,34 @@ def test_the_owner_lookup_degrades_to_none(handler):
 def test_an_org_less_tenant_has_no_owner_and_asks_nobody(org_id):
     found, api = run(lambda c: zitadel.get_org_owner(c, org_id), ok({}))
     assert found is None and api.calls == []
+
+
+# --- email verification ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body, verified", [
+    ({"user": {"human": {"email": {"email": "a@b.co", "isVerified": True}}}}, True),
+    ({"user": {"human": {"email": {"email": "a@b.co"}}}}, False),
+    ({"user": {"machine": {}}}, False),
+])
+def test_email_verified_reads_the_users_current_email_state(body, verified):
+    out, api = run(lambda c: zitadel.email_verified(c, "u1"), ok(body))
+    assert out is verified
+    assert api.calls == [("GET", "/v2/users/u1", None, None)] and api.auth == ["Bearer pat-1"]
+
+
+@pytest.mark.parametrize("handler", [refuse(404), refuse(500), down])
+def test_email_verified_raises_when_zitadel_cannot_answer(handler):
+    with pytest.raises(httpx.HTTPError):
+        run(lambda c: zitadel.email_verified(c, "u1"), handler)
+
+
+def test_send_email_verification_has_zitadel_mail_its_link_template():
+    template = "https://auth.example/ui/v2/login/verify?userId={{.UserID}}&code={{.Code}}"
+    _, api = run(lambda c: zitadel.send_email_verification(c, "u1", template), ok({"details": {}}))
+    assert api.calls == [("POST", "/v2/users/u1/email/send", None, {"sendCode": {"urlTemplate": template}})]
+
+
+@pytest.mark.parametrize("handler", [refuse(400), refuse(503), down])
+def test_send_email_verification_raises_when_zitadel_refuses(handler):
+    with pytest.raises(httpx.HTTPError):
+        run(lambda c: zitadel.send_email_verification(c, "u1", "t"), handler)

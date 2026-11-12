@@ -1218,6 +1218,20 @@
         "title": "DownloadFile",
         "type": "string"
       },
+      "EmailVerificationStatus": {
+        "properties": {
+          "verified": {
+            "description": "Zitadel's current answer, which may be newer than the caller's token",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verified"
+        ],
+        "title": "EmailVerificationStatus",
+        "type": "object"
+      },
       "EventAck": {
         "properties": {
           "duplicate": {
@@ -8724,6 +8738,97 @@
           }
         },
         "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/me/email-verification": {
+      "get": {
+        "description": "Live from Zitadel, for the SPA to poll while the user opens the mail.",
+        "operationId": "email_verification_status_v1_me_email_verification_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailVerificationStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Email Verification Status",
+        "tags": [
+          "auth"
+        ]
+      },
+      "post": {
+        "description": "Zitadel mails the caller a verification link, unless the email is verified already (409 email_already_verified).",
+        "operationId": "send_email_verification_v1_me_email_verification_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Email Verification",
         "tags": [
           "auth"
         ]

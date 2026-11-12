@@ -1,20 +1,30 @@
-"""Sign-in bookkeeping and tenant creation for /v1/me and POST /v1/tenants; routes.py only translates HTTP."""
+"""Sign-in bookkeeping, email verification and tenant creation for /v1/me, /v1/me/email-verification and
+POST /v1/tenants; routes.py only translates HTTP."""
+import logging
 import uuid
 from http import HTTPStatus
 
 import asyncpg
+import httpx
 
+from app.core import secret_files
 from app.core.auth import Claims
 from app.core.authz import TenantRole
 from app.core.db import get_pool
 from app.core.problem import Problem
 from app.core.schemas import slugify
+from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
-from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT, ProblemCode
-from app.modules.user.auth.schemas import TenantCreate, TenantCreated
+from app.integrations import zitadel
+from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT, ZITADEL_VERIFY_URL_TEMPLATE, ProblemCode
+from app.modules.user.auth.schemas import EmailVerificationStatus, TenantCreate, TenantCreated
 from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 from app.modules.user.tenant_members import add_member, upsert_principal
 from app.modules.user.tenants import get_ref, insert_tenant, slug_taken
+
+logger = logging.getLogger(__name__)
+# Zitadel unreachable or answering nonsense, or the service key unreadable: the caller can only retry.
+_ZITADEL_FAILURES = (httpx.HTTPError, OSError, KeyError, ValueError, secret_files.SecretError)
 
 _MY_TENANTS = "SELECT id, name, slug, role, status FROM my_tenants($1)"
 _REPLAY = "SELECT new_tenant FROM tenant_create_keys WHERE user_sub = $1 AND key = $2"
@@ -64,3 +74,32 @@ async def create_tenant(claims: Claims, body: TenantCreate, idempotency_key: str
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.SLUG_TAKEN, "slug already taken") from None
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.REQUEST_IN_PROGRESS, "request in progress, retry") from None  # same key in flight
     return TenantCreated(id=tenant_id, name=body.name, slug=created_slug)
+
+
+def _verify_url_template() -> str:
+    return settings.zitadel.issuer + ZITADEL_VERIFY_URL_TEMPLATE
+
+
+async def verification_status(claims: Claims) -> EmailVerificationStatus:
+    """Zitadel's live answer: the caller's token says what was true when it was issued."""
+    try:
+        async with zitadel.client() as client:
+            return EmailVerificationStatus(verified=await zitadel.email_verified(client, claims.subject))
+    except _ZITADEL_FAILURES:
+        logger.warning("zitadel user lookup failed for sub %s", claims.subject, exc_info=True)
+        raise Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.IDENTITY_UNAVAILABLE, "could not check the email; try again") from None
+
+
+async def send_verification(claims: Claims) -> None:
+    """Check the caller's email in Zitadel and, if it is not verified, have Zitadel mail the verification link.
+    409 email_already_verified when it already is: the SPA then signs in again for a token that says so."""
+    if not claims.email:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_EMAIL, "this account has no email address")
+    if (await verification_status(claims)).verified:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.EMAIL_ALREADY_VERIFIED, "email already verified; sign in again")
+    try:
+        async with zitadel.client() as client:
+            await zitadel.send_email_verification(client, claims.subject, _verify_url_template())
+    except _ZITADEL_FAILURES:
+        logger.warning("zitadel email code failed for sub %s", claims.subject, exc_info=True)
+        raise Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.IDENTITY_UNAVAILABLE, "could not send the email; try again") from None
