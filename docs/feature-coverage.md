@@ -149,7 +149,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-24 | built | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | planning/17 GPU sharing | 2 |
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
 | TRN-26 | built | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
-| TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 2 |
+| TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 4 |
 | TRN-28 | deferred | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
 | TRN-29 | partial | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | planning/13 ADR-016; planning/17 Licence policy | 0 |
 | TRN-30 | built | Lineage view - dataset version, run, model version, active deployment | planning/22 Lineage and pipeline view | 2 |

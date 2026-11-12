@@ -63,6 +63,9 @@ training:                    # app/modules/user/training; a task's cpu and memor
   driver_cpus: 1
   max_runtime_seconds: 14400            # 4 h
   events_base_url: ""                   # origin the trainer posts progress to; "" = off (compose and local set it, prod needs the k8s side first)
+  hub_url: https://huggingface.co        # admission reads a base model's licence, files and size here when a preset is written; "" = skip
+  model_license_allowlist: [apache-2.0, mit, bsd-3-clause, bsd-2-clause, cc-by-4.0]
+  model_max_bytes: 5368709120           # 5 GiB
 
 serving:                     # app/integrations/serve_client.py: the two shared predictor apps
   max_models_per_replica: 8

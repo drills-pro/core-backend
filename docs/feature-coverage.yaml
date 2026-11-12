@@ -314,8 +314,11 @@ entries:
   source: planning/17 Admission policy; planning/06 Job spec rules
   status: built
   old: F19
-  code: [core-api/app/core/presets.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_training/spec.py]
+  code: [core-api/app/core/presets.py, core-api/app/integrations/hub.py, core-api/app/modules/admin/presets/routes.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_training/spec.py]
+  note: Writing a preset reads the Hub model-info at the pinned commit and refuses a model with no safetensors weights, a config with auto_map, a licence outside training.model_license_allowlist, or files over training.model_max_bytes; the Hub licence is stored on the preset. training.hub_url empty skips the check.
   tests:
+  - core-api/tests/integrations/test_hub.py::test_each_rule_refuses_on_its_own
+  - core-api/tests/modules/admin/test_presets.py::test_put_refuses_a_model_the_policy_rejects_and_writes_nothing
   - core-api/tests/core/test_presets.py::test_a_bad_preset_is_refused
   - core-api/tests/modules/user/training/test_training.py::test_create_builds_the_spec_stores_it_and_submits_it
 - id: TRN-28

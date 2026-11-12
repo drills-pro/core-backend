@@ -14,3 +14,5 @@ secrets:
   ingest: /nonexistent/ingest.json
   zitadel: /nonexistent/zitadel.json
   webhooks: /nonexistent/webhooks.json
+training:
+  hub_url: ""   # no Hub in tests; admission tests pass facts in directly
