@@ -43,6 +43,7 @@ Config never holds a secret value. `secrets:` in `base.yaml` names a file per se
 | `staging` | `/var/app-secret/app-backend/staging` | `endpoint`, `access_key`, `secret_key` |
 | `ingest` | `/var/app-secret/app-backend/ingest` | `endpoint`, `access_key`, `secret_key` (staging bucket only; see Datasets) |
 | `zitadel` | `/var/app-secret/app-backend/zitadel` | `USER_ID`, `KEY_ID`, `PRIVATE_KEY` |
+| `zoho` | `/var/app-secret/app-backend/zoho` | `Servername`, `Port`, `Username`, `Password` (ZeptoMail SMTP; `apikey` is unused). Read only when `mail.enabled` (prod.yaml), at each send |
 
 In the cluster the Vault Agent Injector renders one file per key under `app-secret/app-backend/*`
 (k8s `apps/_components/vault-agent`, derived from the ServiceAccount `app-backend`). Locally `scripts/secrets-init.sh` and the bootstrap scripts write the same
@@ -84,7 +85,7 @@ until the `staging` file exists):
 
 - Probes are `tcpSocket` today. `/health` (liveness) and `/health/deps` exist; the auth plan adds `/ready`.
 - Postgres is the per-app CNPG cluster `pg-backend` (host in `prod.yaml`); Vault's `core-app` role must point at the same cluster or logins fail with "password authentication failed".
-- Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Zitadel.
+- Egress used: Postgres, OTel gateway (the Vault agent sidecar, not core-api, talks to Vault), Ray dashboard, lakeFS, MLflow, Zitadel, and SMTP to ZeptoMail (`smtp.zeptomail.com:587`, invitation emails).
 - Migrations: see the next section.
 
 ## Migrations: `/migrations` in the image

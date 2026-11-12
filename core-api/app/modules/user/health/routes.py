@@ -47,6 +47,7 @@ def _check_secrets() -> str:
     # Every mounted secret file loads and has the keys its consumers rely on; the lakeFS and staging
     # files are checked by the data plane's own health probe.
     skip = secret_files.DATA_PLANE + (("zitadel",) if settings.env != "prod" else ())  # local Zitadel uses the PAT volume
+    skip += () if settings.mail.enabled else (secret_files.ZOHO,)  # no mail, no SMTP credential to mount
     bad = secret_files.problems(skip)
     return "ok" if not bad else "error: " + "; ".join(bad)
 

@@ -17,6 +17,7 @@ STAGING = "staging"
 INGEST = "ingest"  # the Ray ingest job's own credential: the staging bucket only, never the lakeFS blockstore
 # Read only by app/integrations/data_plane, which also reports their health (tests/architecture).
 DATA_PLANE = (LAKEFS, STAGING, INGEST)
+ZOHO = "zoho"  # ZeptoMail SMTP; read only by app/integrations/mailer.py, and only when settings.mail.enabled
 
 REQUIRED: dict[str, tuple[str, ...]] = {
     "db": ("username", "password"),
@@ -24,6 +25,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     STAGING: ("endpoint", "access_key", "secret_key"),
     INGEST: ("endpoint", "access_key", "secret_key"),
     "zitadel": ("USER_ID", "KEY_ID", "PRIVATE_KEY"),
+    ZOHO: ("Servername", "Port", "Username", "Password"),
 }
 
 # Not in REQUIRED, so readiness does not depend on them: the feature that reads one is off while its file is missing.

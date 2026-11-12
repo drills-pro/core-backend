@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.authz import TenantRole
+from app.core.settings import settings
+from app.integrations import mailer
 from app.modules.user.tenant_members import routes, service
 from app.modules.user.tenant_members.constants import ProblemCode
 from tests.support import TENANT, FakeConn, access, make_client, patch_tenant_conn
@@ -75,9 +77,67 @@ def test_invitation_stores_only_the_hash_and_cannot_grant_owner(monkeypatch, dev
     c, conn = client(monkeypatch, dev_headers, ADMIN, row=row)
     inv = f"/v1/tenants/{TENANT}/invitations"
     assert c.post(inv, json={"email": "a@b.co", "role": "owner"}).status_code == 422
-    token = c.post(inv, json={"email": "a@b.co", "role": "member"}).json()["token"]
+    created = c.post(inv, json={"email": "a@b.co", "role": "member"}).json()
+    assert created["email_sent"] is False  # mail is off in tests: the link comes back to the inviter
+    token = created["token"]
     sql, args = next(call for call in conn.calls if "INSERT INTO tenant_invitations" in call[0])
     assert hashlib.sha256(token.encode()).hexdigest() in args and token not in args
+
+
+INVITE_ROW = {"id": uuid.uuid4(), "expires_at": datetime.now(timezone.utc), "email": "new@b.co", "role": "member"}
+ABOUT = {"tenant_name": "Acme <ML>", "inviter_name": "Somchai", "inviter_email": "somchai@b.co"}
+
+
+@pytest.fixture
+def mail_on(monkeypatch):
+    """Mail enabled, with the SMTP send replaced: the list collects what would have gone out."""
+    sent = []
+
+    async def fake_send(mail):
+        sent.append(mail)
+
+    monkeypatch.setattr(settings.mail, "enabled", True)
+    monkeypatch.setattr(mailer, "send", fake_send)
+    return sent
+
+
+def mail_client(monkeypatch):
+    conn = FakeConn(access(ADMIN), row=INVITE_ROW, rows={"FROM tenants t": ABOUT})
+    patch_tenant_conn(monkeypatch, conn, service)
+    return make_client(routes.router), conn
+
+
+def test_mailed_invitation_sends_the_link_to_the_invitee_and_not_to_the_inviter(monkeypatch, dev_headers, mail_on):
+    c, conn = mail_client(monkeypatch)
+    r = c.post(f"/v1/tenants/{TENANT}/invitations", json={"email": " new@b.co ", "role": "member"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["email_sent"] is True and body["token"] is None
+    [mail] = mail_on
+    assert mail.to == "new@b.co" and "Somchai" in mail.subject
+    assert (mail.on_behalf_of, mail.reply_to) == ("Somchai", "somchai@b.co")  # shown as the inviter, replies reach them
+    link = next(w for w in mail.text.split() if w.startswith(settings.mail.app_url))
+    token = link.rsplit("/", 1)[1]
+    _, args = next(call for call in conn.calls if "INSERT INTO tenant_invitations" in call[0])
+    assert hashlib.sha256(token.encode()).hexdigest() in args and token not in args
+    assert "Acme &lt;ML&gt;" in mail.html and "Acme <ML>" not in mail.html  # the workspace name is escaped
+
+
+def test_invitation_that_cannot_be_mailed_is_a_502(monkeypatch, dev_headers, mail_on):
+    async def failing_send(mail):
+        raise mailer.MailError("SMTPAuthenticationError")
+
+    monkeypatch.setattr(mailer, "send", failing_send)
+    c, _ = mail_client(monkeypatch)
+    r = c.post(f"/v1/tenants/{TENANT}/invitations", json={"email": "new@b.co", "role": "member"})
+    assert (r.status_code, r.json()["code"]) == (502, ProblemCode.MAIL_NOT_SENT)
+
+
+@pytest.mark.parametrize("email", ["not-an-email", "a@b.co\r\nBcc: x@evil.co", "a" * 250 + "@b.co"])
+def test_invitation_refuses_a_malformed_address(monkeypatch, dev_headers, email):
+    c, conn = client(monkeypatch, dev_headers, ADMIN)
+    assert c.post(f"/v1/tenants/{TENANT}/invitations", json={"email": email, "role": "member"}).status_code == 422
+    assert not any("INSERT INTO tenant_invitations" in s for s, _ in conn.calls)
 
 
 @pytest.mark.parametrize("role", [MEMBER])

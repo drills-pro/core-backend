@@ -1,9 +1,13 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from app.core.authz import InviteRole, TenantRole
+from app.modules.user.tenant_members.constants import EMAIL_MAX_LENGTH, EMAIL_PATTERN
+
+Email = Annotated[str, StringConstraints(strip_whitespace=True, max_length=EMAIL_MAX_LENGTH, pattern=EMAIL_PATTERN)]
 
 
 class RoleBody(BaseModel):
@@ -11,7 +15,7 @@ class RoleBody(BaseModel):
 
 
 class InvitationBody(BaseModel):
-    email: str
+    email: Email
     role: InviteRole
 
 
@@ -37,7 +41,16 @@ class Invitation(BaseModel):
 
 
 class InvitationCreated(Invitation):
-    token: str  # the one time the plaintext exists server-side
+    email_sent: bool  # true: the link went to the invitee's mailbox, and only there
+    token: str | None = None  # only when mail is off (dev): the inviter passes the link on by hand
+
+
+class InviteContext(BaseModel):
+    """What the invitation email names: the workspace and the person who sent it."""
+
+    tenant_name: str
+    inviter_name: str | None
+    inviter_email: str | None
 
 
 class InvitationAccepted(BaseModel):

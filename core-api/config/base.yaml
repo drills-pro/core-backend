@@ -99,6 +99,13 @@ predict:                     # app/modules/user/deployments: stored predictions 
   inline_max_bytes: 262144             # 256 KB: a larger input or output goes to the staging bucket (predictions/<tenant>/<project>/<id>/)
   legacy_sunset: 2026-12-31T23:59:59Z  # Sunset header of the old POST /v1/predict/{deployment_id} (planning/24, migration phase 1)
 
+mail:                        # app/integrations/mailer.py
+  enabled: false             # prod.yaml turns it on; elsewhere invitations return their link instead
+  from_address: noreply@drills.pro
+  from_name: drills.pro
+  app_url: http://localhost:5173
+  timeout_seconds: 15
+
 observability:
 
 public:                      # browser-facing, not the in-network names
@@ -111,4 +118,5 @@ secrets:                     # paths of JSON files, mounted into the pod (Vault 
   staging: /var/app-secret/app-backend/staging
   ingest: /var/app-secret/app-backend/ingest
   zitadel: /var/app-secret/app-backend/zitadel
+  zoho: /var/app-secret/app-backend/zoho   # ZeptoMail SMTP; read only when mail.enabled
   webhooks: /var/app-secret/app-backend/webhooks   # {"signing_key"}: optional, webhook delivery is off without it

@@ -172,6 +172,16 @@ class Predict(_Section):
     in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
 
 
+class Mail(_Section):
+    """Outgoing mail (app/integrations/mailer.py): SMTP through ZeptoMail, credentials in the `zoho` secret file."""
+
+    enabled: bool  # false: nothing is sent and invitations hand their link back to the inviter (dev, tests)
+    from_address: str  # must be on a domain verified in ZeptoMail
+    from_name: str
+    app_url: str  # the customer SPA's origin, no trailing slash: links in mail point here
+    timeout_seconds: float  # connect and each SMTP command
+
+
 class Observability(_Section):
     otlp_endpoint: str
 
@@ -187,6 +197,7 @@ class SecretPaths(_Section):
     staging: Path  # {"endpoint", "access_key", "secret_key"} of the S3 store holding the staging bucket
     ingest: Path  # same shape as staging, but limited to the staging bucket: the ingest job runs hostile input with it
     zitadel: Path
+    zoho: Path  # {"Servername", "Port", "Username", "Password"}: ZeptoMail SMTP (Vault app-secret/app-backend/zoho)
     webhooks: Path  # {"signing_key"}; optional: without the file webhook endpoints cannot be created or delivered to
 
 
@@ -206,6 +217,7 @@ class Settings(BaseSettings):
     training: Training
     serving: Serving
     predict: Predict
+    mail: Mail
     observability: Observability
     public: Public
     secrets: SecretPaths
