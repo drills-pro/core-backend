@@ -322,7 +322,7 @@ entries:
   area: training
   title: Base model served from the platform mirror, never the Hub at run time; licence recorded
   source: planning/17 Catalog; planning/06 Job spec rules
-  status: partial
+  status: deferred
   weight: 2
   old: F20
   code: [core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]

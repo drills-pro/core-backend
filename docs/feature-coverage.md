@@ -14,16 +14,16 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
-| training | 24 | 9 | 0 | 4 | 37 |
+| training | 24 | 8 | 0 | 5 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 13 | 8 | 3 | 3 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 117 | 34 | 3 | 17 | 171 |
+| **all** | 117 | 33 | 3 | 18 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 87% of 154.
+Built share of the features that are due (partial counts half, deferred excluded): 87% of 153.
 
 ## Gaps, most important first
 
@@ -51,10 +51,10 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-14 | training | Trainer events API (idempotent by seq, only a running run takes events) | Route is per training run with a random per-run token (sha256 at rest), not POST /internal/v1/jobs/{id}/events with a signed per-job JWT carrying attempt; no attempt fencing (see JOB-17). |
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
-| 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision. |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | deferred | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Deliberately per-context tables on one shared lifecycle engine (ADR-007 amended 2026-11-12). A jobs table and /operations resource wait until the per-table shape costs more than it saves. |
+| 2 | deferred | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
@@ -150,7 +150,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | planning/06 Quality gates | 2 |
 | TRN-26 | built | Deploy gate with acknowledge_risk, model card, near-duplicate warning | planning/06 Quality gates | 3 |
 | TRN-27 | built | Base model pinned by commit, copied into the spec | planning/17 Admission policy; planning/06 Job spec rules | 2 |
-| TRN-28 | partial | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
+| TRN-28 | deferred | Base model served from the platform mirror, never the Hub at run time; licence recorded | planning/17 Catalog; planning/06 Job spec rules | 2 |
 | TRN-29 | partial | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | planning/13 ADR-016; planning/17 Licence policy | 0 |
 | TRN-30 | built | Lineage view - dataset version, run, model version, active deployment | planning/22 Lineage and pipeline view | 2 |
 | TRN-31 | built | Task type decides what can train; untrainable and mismatched tasks refused before any job | planning/06 Task types and runtimes | 2 |
