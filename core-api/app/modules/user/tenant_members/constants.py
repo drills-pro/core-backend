@@ -2,6 +2,9 @@ from datetime import timedelta
 from enum import StrEnum
 
 INVITATION_TTL = timedelta(days=7)
+INVITE_PATH = "/invite/{token}"  # the customer SPA's accept page (customer-frontend src/modules/members/routes.tsx)
+EMAIL_MAX_LENGTH = 254  # RFC 5321 path limit
+EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"  # the SPA's check; the mailbox proves the rest
 OWNERSHIP_OFFER_TTL = timedelta(days=7)
 
 
@@ -29,3 +32,4 @@ class ProblemCode(StrEnum):
     ALREADY_OWNER = "already_owner"
     OFFER_PENDING = "ownership_offer_pending"
     OFFER_STALE = "ownership_offer_stale"
+    MAIL_NOT_SENT = "mail_not_sent"

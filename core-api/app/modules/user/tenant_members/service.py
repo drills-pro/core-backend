@@ -2,16 +2,21 @@
 import hashlib
 import secrets
 from datetime import datetime, timezone
+from http import HTTPStatus
 
 import asyncpg
 
 from app.core import audit
 from app.core.auth import ZITADEL_ISSUER
-from app.core.authz import Action, AuthzContext, TenantRole
+from app.core.authz import Action, AuthzContext, InviteRole, TenantRole
 from app.core.db import get_pool
 from app.core.problem import Problem, not_found
+from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
+from app.integrations import mailer
+from app.modules.user.tenant_members import invitation_mail
 from app.modules.user.tenant_members.hooks import member_removed
+from app.modules.user.tenant_members.invitation_mail import InvitationMail
 from app.modules.user.tenant_members.constants import (
     INVITATION_TTL,
     OWNERSHIP_OFFER_TTL,
@@ -24,9 +29,16 @@ from app.modules.user.tenant_members.schemas import (
     InvitationAccepted,
     InvitationBody,
     InvitationCreated,
+    InviteContext,
     Member,
     MemberRole,
     OwnershipOffer,
+)
+
+# The tenant is visible under the caller's RLS; principals is not tenant data (no RLS).
+_INVITE_CONTEXT = (
+    "SELECT t.name AS tenant_name, p.display_name AS inviter_name, p.email AS inviter_email FROM tenants t "
+    "LEFT JOIN principals p ON p.sub = $2 AND p.issuer = $3 WHERE t.id = $1"
 )
 
 
@@ -103,17 +115,40 @@ async def leave(ctx: AuthzContext) -> None:
         await _delete_member(conn, ctx, ctx.actor, AuditAction.LEAVE)
 
 
+async def _invite_context(conn, ctx: AuthzContext) -> InviteContext:
+    row = await conn.fetchrow(_INVITE_CONTEXT, ctx.tenant_id, ctx.actor, ZITADEL_ISSUER)
+    return InviteContext.model_validate(dict(row))
+
+
+async def _mail_invitation(conn, ctx: AuthzContext, email: str, role: InviteRole, token: str) -> None:
+    about = await _invite_context(conn, ctx)
+    inviter = about.inviter_name or about.inviter_email or ctx.actor
+    try:
+        await mailer.send(invitation_mail.build(
+            InvitationMail(to=email, tenant_name=about.tenant_name, inviter=inviter, inviter_email=about.inviter_email,
+                           role=role, token=token)
+        ))
+    except mailer.MailError:
+        raise Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.MAIL_NOT_SENT, "the invitation email could not be sent; try again") from None
+
+
 async def invite(ctx: AuthzContext, body: InvitationBody) -> InvitationCreated:
-    # ponytail: returns the raw token (no email service yet), like project invitations; swap for a "sent" ack later.
+    """The link goes to the invitee's mailbox only: accepting needs the token and a sign-in as that verified address.
+    With mail off (dev, tests) the token comes back to the inviter instead."""
     token = secrets.token_urlsafe(32)
+    mail_on = settings.mail.enabled
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "INSERT INTO tenant_invitations (tenant_id, email, role, token_hash, invited_by, expires_at) "
             "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, role, expires_at",
-            ctx.tenant_id, body.email.strip(), body.role, hash_token(token), ctx.actor, datetime.now(timezone.utc) + INVITATION_TTL,
+            ctx.tenant_id, body.email, body.role, hash_token(token), ctx.actor, datetime.now(timezone.utc) + INVITATION_TTL,
         )
         await audit.record_for(conn, ctx, None, AuditAction.INVITE, EntityType.TENANT_INVITATION, row["id"])
-    return InvitationCreated.model_validate({**dict(row), "token": token})
+        if mail_on:
+            # Sent before the commit: a mail that fails rolls the invitation back, so no live token exists that
+            # nobody received, and the inviter simply tries again.
+            await _mail_invitation(conn, ctx, row["email"], body.role, token)
+    return InvitationCreated.model_validate({**dict(row), "email_sent": mail_on, "token": None if mail_on else token})
 
 
 async def list_pending_invitations(ctx: AuthzContext) -> list[Invitation]:

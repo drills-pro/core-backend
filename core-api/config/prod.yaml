@@ -16,6 +16,9 @@ mlflow:
   url: http://mlflow.platform.svc.cluster.local:5000
 training:
   events_base_url: http://backend.platform.svc.cluster.local:8000   # where Ray jobs post progress; needs k8s apps/platform-base allow-ray-to-backend
+mail:
+  enabled: true
+  app_url: https://app.drills.pro   # k8s apps/frontend-user ingress
 observability:
   otlp_endpoint: http://otel-gateway.monitoring.svc.cluster.local:4317
 data_plane:
