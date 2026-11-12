@@ -403,6 +403,52 @@
         "title": "Body_set_tenant_status_v1_admin_tenants__tenant_id__status_post",
         "type": "object"
       },
+      "CatalogModel": {
+        "properties": {
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "presets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Presets",
+            "type": "array"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskType"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "repo_id",
+          "revision",
+          "license",
+          "tasks",
+          "presets"
+        ],
+        "title": "CatalogModel",
+        "type": "object"
+      },
       "ComputeTarget": {
         "description": "Where a deployment runs; also the project setting `compute_target`.",
         "enum": [
@@ -8474,6 +8520,92 @@
         "summary": "Put Preset",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/v1/catalog/models": {
+      "get": {
+        "description": "The base models training can start from, with the licence recorded at admission.",
+        "operationId": "list_catalog_models_v1_catalog_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogModel"
+                  },
+                  "title": "Response List Catalog Models V1 Catalog Models Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Catalog Models",
+        "tags": [
+          "catalog"
         ]
       }
     },

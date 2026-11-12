@@ -328,8 +328,9 @@ entries:
   status: deferred
   weight: 2
   old: F20
-  code: [core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]
+  code: ["GET /v1/catalog/models", core-api/app/modules/user/catalog/service.py, core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]
   tests:
+    - core-api/tests/modules/user/catalog/test_catalog.py::test_lists_each_base_model_once_with_its_tasks_and_presets
     - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
   note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model, shows on the model card and is written to model.json. The trainers load weights with use_safetensors=True so a pickled checkpoint is refused.
@@ -1819,7 +1820,7 @@ entries:
   old: F19
   code: []
   tests: []
-  gap: Plus GET /v1/catalog/models and /v1/catalog/datasets and the catalog tables, none of which exist.
+  gap: Plus GET /v1/catalog/datasets and the catalog tables, which do not exist (GET /v1/catalog/models lists the presets' base models).
 - id: DAT-29
   area: datasets
   title: Adapter contract - only typed ids, names derived, ownership resolved under RLS first, fails closed

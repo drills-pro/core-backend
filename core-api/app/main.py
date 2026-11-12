@@ -35,6 +35,7 @@ from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
     api_keys,
     auth,
+    catalog,
     datasets,
     deployments,
     health,
@@ -70,6 +71,7 @@ ROUTERS = (
     projects.router,
     job_events.router,
     notifications.router,
+    catalog.router,
     webhooks.router,
     datasets.router,
     deployments.router,
