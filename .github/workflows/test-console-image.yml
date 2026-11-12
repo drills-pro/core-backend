@@ -42,7 +42,7 @@ jobs:
           cache-from: type=gha,scope=test-console
           cache-to: type=gha,mode=max,scope=test-console
 
-  # Needs apps/frontend-test in the k8s repo (drafts in test-console/deploy/k8s).
+  # Deploys apps/frontend-admin (console.drills.pro) in the k8s repo.
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
@@ -50,7 +50,7 @@ jobs:
       contents: write
     uses: drills-pro/k8s/.github/workflows/bump-image.yml@main
     with:
-      app: frontend-test
+      app: frontend-admin
       image: ghcr.io/drills-pro/core-backend/test-console
       digest: ${{ needs.build.outputs.digest }}
       tag: ${{ github.sha }}

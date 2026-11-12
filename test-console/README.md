@@ -1,7 +1,7 @@
 # test-console
 
 Staff console for testing the pipeline **on prod inside an internal test tenant**: import a dataset (Hugging Face or a
-file upload), train, deploy, send a test call, and promote or retire job packages. Served at `test.drills.pro`.
+file upload), train, deploy, send a test call, and promote or retire job packages. Served at `console.drills.pro`.
 
 It looks deliberately unlike the customer app: Chakra's default theme with an orange header showing the API host.
 
@@ -25,13 +25,11 @@ It looks deliberately unlike the customer app: Chakra's default theme with an or
    ```
 
 2. In Zitadel project `Drills.Pro`, add a **User Agent (SPA)** app: PKCE, auth token type **JWT**, redirect URIs
-   `https://test.drills.pro/auth/callback` and `http://localhost:5174/auth/callback`, post-logout `<origin>/login`.
+   `https://console.drills.pro/auth/callback` and `http://localhost:5174/auth/callback`, post-logout `<origin>/login`.
    Turn on "assert roles on authentication" so `platform_admin` reaches the token. Put its client id in the GitHub repo
    variable `TEST_CONSOLE_ZITADEL_CLIENT_ID` and in `.env.local` for local runs.
-3. Uploads go from the browser straight to the staging bucket: its CORS must allow `PUT` from `https://test.drills.pro`.
-4. k8s: copy `deploy/k8s/` to the k8s repo as `apps/frontend-test/`, include it from `clusters/homelab/kustomization.yaml`,
-   set the first image digest, and point DNS for `test.drills.pro` at the ingress. After that, each push to `main` that
-   touches `test-console/` builds the image and bumps it through `bump-image.yml` (`.github/workflows/test-console-image.yml`).
+3. Uploads go from the browser straight to the staging bucket: its CORS must allow `PUT` from `https://console.drills.pro`.
+4. k8s: `apps/frontend-admin` in the k8s repo serves it at console.drills.pro. Point DNS for `console.drills.pro` at the ingress. Each push to `main` that touches `test-console/` builds the image and bumps `frontend-admin` through `bump-image.yml` (`.github/workflows/test-console-image.yml`). The first time, run the workflow by hand and replace the `REPLACE_WITH_THE_FIRST_IMAGE_DIGEST` placeholder in `apps/frontend-admin/app/kustomization.yaml` with its digest before pushing the k8s repo.
 
 ## Develop
 
