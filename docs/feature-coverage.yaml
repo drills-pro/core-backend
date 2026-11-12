@@ -330,7 +330,7 @@ entries:
     - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
   note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model, shows on the model card and is written to model.json. The trainers load weights with use_safetensors=True so a pickled checkpoint is refused.
-  gap: The trainer still calls from_pretrained(repo_id, revision) against the Hub; no platform mirror.
+  gap: The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision.
 - id: TRN-29
   area: training
   title: Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI
@@ -1433,12 +1433,12 @@ entries:
   area: jobs
   title: Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS)
   source: planning/16 What a trainer receives; planning/10 T19
-  status: missing
+  status: deferred
   weight: 3
   old: F20
   code: []
   tests: []
-  gap: Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker).
+  gap: Deferred by decision 2026-11-12 until the sprint 4 credential broker; the accepted risk E6 in planning/07 stands.
 - id: JOB-21
   area: jobs
   title: credential_issuances ledger of minted credentials
@@ -1515,7 +1515,7 @@ entries:
     - core-api/tests/modules/user/notifications/test_notifications.py::test_a_viewer_reads_the_unread_count_and_the_newest_events
     - core-api/tests/modules/user/notifications/test_notifications.py::test_marking_read_moves_the_cursor_with_greatest_so_it_never_goes_back
     - core-api/tests/modules/user/job_events/test_events_route.py::test_a_project_the_caller_cannot_see_is_404
-  note: Kinds are <job>.<status>, readable by cursor and delivered by webhook (JOB-16). In-app notifications are each member's unread view of those events (a per-member cursor). Email is deliberately not built until a mail provider is chosen, the channel would read the same outbox.
+  note: Kinds are <job>.<status>, readable by cursor and delivered by webhook (JOB-16). In-app notifications are each member's unread view of those events. The email channel is deferred by decision 2026-11-12 until a mail provider is chosen, it would read the same outbox.
 # ------------------------------------------------------------------ DATASETS
 - id: DAT-01
   area: datasets

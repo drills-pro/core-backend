@@ -19,11 +19,11 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | deployment | 15 | 2 | 0 | 2 | 19 |
 | serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
-| jobs | 13 | 8 | 4 | 2 | 27 |
+| jobs | 13 | 8 | 3 | 3 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 117 | 34 | 4 | 16 | 171 |
+| **all** | 117 | 34 | 3 | 17 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 86% of 155.
+Built share of the features that are due (partial counts half, deferred excluded): 87% of 154.
 
 ## Gaps, most important first
 
@@ -31,8 +31,8 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 
 | Weight | Status | Id | Area | Feature | Gap |
 |---|---|---|---|---|---|
-| 3 | missing | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Every job holds one bucket-wide staging key, so a compromised job can touch any tenant's staged data (accepted risk E6 in planning/07; planned for sprint 4 credential broker). |
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
+| 3 | deferred | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Deferred by decision 2026-11-12 until the sprint 4 credential broker; the accepted risk E6 in planning/07 stands. |
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
@@ -51,7 +51,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | TRN-14 | training | Trainer events API (idempotent by seq, only a running run takes events) | Route is per training run with a random per-run token (sha256 at rest), not POST /internal/v1/jobs/{id}/events with a signed per-job JWT carrying attempt; no attempt fencing (see JOB-17). |
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
-| 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The trainer still calls from_pretrained(repo_id, revision) against the Hub; no platform mirror. |
+| 2 | partial | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision. |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | deferred | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Deliberately per-context tables on one shared lifecycle engine (ADR-007 amended 2026-11-12). A jobs table and /operations resource wait until the per-table shape costs more than it saves. |
@@ -280,7 +280,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | JOB-17 | missing | Reconciler wake-up through LISTEN/NOTIFY | planning/09 Reconciler design | 0 |
 | JOB-18 | built | Bounded per-tenant concurrency and failure isolation in sweeps | planning/09 Reconciler design | 2 |
 | JOB-19 | built | Resources declared in the spec, never inferred; runtime limit enforced | planning/06 Job spec rules; planning/07 Timeouts | 2 |
-| JOB-20 | missing | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | planning/16 What a trainer receives; planning/10 T19 | 0 |
+| JOB-20 | deferred | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | planning/16 What a trainer receives; planning/10 T19 | 0 |
 | JOB-21 | missing | credential_issuances ledger of minted credentials | planning/16 Control mapping | 0 |
 | JOB-22 | partial | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | planning/14 Billing states; planning/19 A-04 | 1 |
 | JOB-23 | partial | Per-plan limits stored as data and edited by an operator (imports, runs, archives, images, tables, predict, deployments) | planning/14 Plans | 3 |
