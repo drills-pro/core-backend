@@ -154,7 +154,7 @@ T9 = uuid.uuid4()
 
 
 def test_accept_invitation_joins_the_invited_tenant(monkeypatch):
-    conn = FakeConn(row={"tenant_id": T9, "role": "admin"})
+    conn = FakeConn(row={"tenant_id": T9, "role": "admin", "joined": True})
 
     async def pool():
         return Pool(conn)
@@ -164,3 +164,20 @@ def test_accept_invitation_joins_the_invited_tenant(monkeypatch):
     out = asyncio.run(member_routes.accept_invitation("tok", Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     assert out.tenant_id == T9 and out.role == "admin"
     assert "accept_tenant_invitation" in conn.calls[0][0]
+    assert len(conn.calls) > 1  # the join is audited
+
+
+def test_accepting_again_returns_the_workspace_and_audits_nothing(monkeypatch):
+    conn = FakeConn(row={"tenant_id": T9, "role": "member", "joined": False})
+
+    async def pool():
+        return Pool(conn)
+
+    def no_tenant_conn(_):
+        raise AssertionError("a repeated accept changes nothing, so it writes no audit row")
+
+    monkeypatch.setattr(member_service, "get_pool", pool)
+    monkeypatch.setattr(member_service, "TenantConn", no_tenant_conn)
+    out = asyncio.run(member_routes.accept_invitation("tok", Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
+    assert (out.tenant_id, out.role) == (T9, "member")
+    assert len(conn.calls) == 1

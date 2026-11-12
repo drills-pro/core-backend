@@ -161,13 +161,16 @@ async def list_pending_invitations(ctx: AuthzContext) -> list[Invitation]:
 
 
 async def accept(token: str, email: str, user_sub: str) -> InvitationAccepted:
-    """Every refusal is the same 404, so a probe learns nothing about which part was wrong."""
+    """Every refusal is the same 404, so a probe learns nothing about which part was wrong. The person who already
+    accepted this link gets the workspace again (a second click, a repeated request), so the SPA can open it."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        joined = await conn.fetchrow("SELECT * FROM accept_tenant_invitation($1, $2, $3)", hash_token(token), email, user_sub)
-    if joined is None:
+        row = await conn.fetchrow("SELECT * FROM accept_tenant_invitation($1, $2, $3)", hash_token(token), email, user_sub)
+    if row is None:
         raise not_found()
-    out = InvitationAccepted.model_validate(dict(joined))
+    out = InvitationAccepted.model_validate(dict(row))
+    if not row["joined"]:  # joined before: nothing changed, so nothing to audit
+        return out
     async with TenantConn(str(out.tenant_id)) as conn:
         await audit.record(conn, tenant_id=str(out.tenant_id), project_id=None, actor=user_sub,
                            action=AuditAction.ACCEPT_INVITATION, entity_type=EntityType.TENANT_MEMBER, entity_id=user_sub)
