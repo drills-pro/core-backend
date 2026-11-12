@@ -1668,6 +1668,8 @@
       "InvitationBody": {
         "properties": {
           "email": {
+            "maxLength": 254,
+            "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
             "title": "Email",
             "type": "string"
           },
@@ -1700,6 +1702,10 @@
             "title": "Email",
             "type": "string"
           },
+          "email_sent": {
+            "title": "Email Sent",
+            "type": "boolean"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
@@ -1714,8 +1720,15 @@
             "$ref": "#/components/schemas/InviteRole"
           },
           "token": {
-            "title": "Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
           }
         },
         "required": [
@@ -1723,7 +1736,7 @@
           "email",
           "role",
           "expires_at",
-          "token"
+          "email_sent"
         ],
         "title": "InvitationCreated",
         "type": "object"
