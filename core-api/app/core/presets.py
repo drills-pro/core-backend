@@ -71,6 +71,7 @@ class PresetBody(BaseModel):
 class TaskPreset(PresetBody):
     task: TaskType
     name: str
+    enabled: bool = True  # a switched-off preset is neither listed to tenants nor accepted for a new run
     updated_by: str
     updated_at: datetime
 

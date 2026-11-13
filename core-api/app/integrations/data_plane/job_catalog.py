@@ -22,3 +22,4 @@ SMOKE_ENTRYPOINTS = {  # one per package: a tiny run through the package's own e
     JobPackageName.RAY_TRAINING: "ray_training.entrypoints.smoke",
     JobPackageName.RAY_SERVING: "ray_serving.entrypoints.smoke",
 }
+BUNDLE_SMOKE_ENTRYPOINT = "ray_training.entrypoints.bundle_smoke"  # in the core: runs a task bundle's own smoke function

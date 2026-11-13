@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
+from app.core.enums import JobPackageName, PackageAuditAction, PackageKind, PackageStatus, SmokeStatus
 
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"  # mirrors job_packages_sha256_check
@@ -48,6 +48,26 @@ async def register(conn, name: JobPackageName, sha256: str, s3_key: str, actor: 
     """A candidate for this content, or the row that already exists for it."""
     await conn.execute(_INSERT, name, sha256, s3_key, actor)
     return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
+
+
+_INSERT_BUNDLE = (
+    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, kind, manifest) VALUES ($1, $2, $3, $4, $4, $5, $6) "
+    "ON CONFLICT (name, sha256) DO NOTHING RETURNING true"
+)
+_AUDIT = "INSERT INTO job_package_audit (name, sha256, action, actor) VALUES ($1, $2, $3, $4)"
+
+
+async def record(conn, name: str, sha256: str, action: PackageAuditAction, actor: str) -> None:
+    """Append one job_package_audit row; call it in the transaction of the change it records."""
+    await conn.execute(_AUDIT, name, sha256, action, actor)
+
+
+async def register_bundle(conn, name: str, sha256: str, s3_key: str, manifest: dict, actor: str) -> JobPackage:
+    """A task bundle candidate with its manifest, audited when new; the row that already exists for this content otherwise."""
+    async with conn.transaction():
+        if await conn.fetchval(_INSERT_BUNDLE, name, sha256, s3_key, actor, PackageKind.TASK, manifest):
+            await record(conn, name, sha256, PackageAuditAction.REGISTER, actor)
+        return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
 
 
 async def get(conn, name: JobPackageName, sha256: str) -> JobPackage | None:

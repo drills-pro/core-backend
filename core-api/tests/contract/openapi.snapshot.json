@@ -4273,6 +4273,17 @@
       "TaskInfo": {
         "additionalProperties": false,
         "properties": {
+          "bundle_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Sha256"
+          },
           "data_kind": {
             "$ref": "#/components/schemas/DataKind"
           },
@@ -4374,6 +4385,11 @@
             "minimum": 0.0,
             "title": "Early Stopping Patience",
             "type": "integer"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
           },
           "gpu": {
             "minimum": 0.0,
@@ -7400,6 +7416,82 @@
           }
         },
         "summary": "Put Plan Limits",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/register": {
+      "post": {
+        "description": "Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records\na candidate and starts its smoke on the stable core.",
+        "operationId": "register_bundle_v1_admin_task_bundles_register_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobPackage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Bundle",
         "tags": [
           "admin"
         ]

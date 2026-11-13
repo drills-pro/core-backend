@@ -22,7 +22,7 @@ from botocore.exceptions import ClientError
 
 from app.core import job_packages, secret_files
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
+from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
 from app.core.settings import settings
@@ -46,6 +46,7 @@ MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a pack
 _S3_NOT_FOUND = "404"
 _S3_NO_SUCH_KEY = "NoSuchKey"
 NO_PACKAGE_SOURCE = "no_package_source"
+CORE_FALLBACK = JobPackageName.RAY_TRAINING  # the core bundles run on while no ray_core is stable (resolve_core)
 _uploaded: set[str] = set()
 
 
@@ -152,10 +153,18 @@ async def start_smoke(package: JobPackage, attempt: str = "") -> JobPackage:
         return package
     name, job_id = package.name, "-".join(filter(None, (_smoke_base_id(package), attempt)))
     spec = {"job_id": job_id, "bucket": settings.data_plane.staging_bucket, "prefix": layout.smoke_prefix(name, package.sha256, attempt)}
+    metadata = {"package": name, "sha256": package.sha256}
+    if package.kind == PackageKind.TASK:  # the stable core runs the bundle's own smoke function, both zips on the path
+        core = await resolve_core()
+        spec["smoke"] = package.manifest["smoke"]
+        metadata["core_sha256"] = core.sha256
+        urls = {"package_url": await presigned_url(core.name, core.sha256), "bundle_url": await presigned_url(name, package.sha256)}
+        module = job_catalog.BUNDLE_SMOKE_ENTRYPOINT
+    else:
+        urls, module = {"package_url": await presigned_url(name, package.sha256)}, job_catalog.SMOKE_ENTRYPOINTS[name]
     await job_submit.submit(
-        package_url=await presigned_url(name, package.sha256), module=job_catalog.SMOKE_ENTRYPOINTS[name], spec_json=json.dumps(spec),
-        job_id=job_id, metadata={"package": name, "sha256": package.sha256}, num_cpus=settings.training.driver_cpus,
-        timeout_seconds=SMOKE_TIMEOUT_SECONDS)
+        **urls, module=module, spec_json=json.dumps(spec), job_id=job_id, metadata=metadata,
+        num_cpus=settings.training.driver_cpus, timeout_seconds=SMOKE_TIMEOUT_SECONDS)
     async with (await get_pool()).acquire() as conn:
         await job_packages.start_smoke(conn, name, package.sha256, job_id)
         return await job_packages.get(conn, name, package.sha256)
@@ -215,6 +224,14 @@ async def resolve_stable(name: JobPackageName) -> JobPackage:
     if stable is None:
         raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, NO_STABLE_PACKAGE, f"no stable {name} package is published")
     return stable
+
+
+async def resolve_core() -> JobPackage:
+    """The core a task bundle runs on: the stable ray_core, else CORE_FALLBACK (ray_training, which carries the same
+    contract until the split of planning/25 step 3 ships a ray_core zip), so bundles run before that split lands."""
+    async with (await get_pool()).acquire() as conn:
+        core = await job_packages.latest_stable(conn, JobPackageName.RAY_CORE)
+    return core or await resolve_stable(CORE_FALLBACK)
 
 
 async def presigned_url(name: JobPackageName, sha256: str, ttl_seconds: int | None = None) -> str:

@@ -12,6 +12,7 @@ from app.integrations.data_plane.job_package import register_staged as register_
 from app.integrations.data_plane.job_package import refresh_smoke as refresh_package_smoke  # noqa: F401 - used by the admin job-packages routes, not a tenant operation
 from app.integrations.data_plane.job_package import start_smoke as start_package_smoke  # noqa: F401 - used by the admin job-packages routes, not a tenant operation
 from app.integrations.data_plane.job_package import retry_smoke as retry_package_smoke  # noqa: F401 - used by the admin job-packages routes, not a tenant operation
+from app.integrations.data_plane.task_bundle import register_staged as register_staged_bundle  # noqa: F401 - used by the admin task-bundles routes, not a tenant operation
 from app.integrations.data_plane.job_package import resolve_stable as resolve_stable_package  # noqa: F401 - used by the training module, not a tenant operation
 from app.integrations.data_plane.lakefs import (
     commit_staged,

@@ -60,6 +60,7 @@ class TaskTypeBody(BaseModel):
 
 class TaskInfo(TaskTypeBody):
     slug: TaskType
+    bundle_sha256: str | None = None  # the task bundle whose promotion wrote this row; None = a row from before bundles
     updated_by: str
     updated_at: datetime
 
