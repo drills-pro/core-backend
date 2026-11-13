@@ -5,14 +5,23 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
+from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"  # mirrors job_packages_sha256_check
+TASK_PACKAGE_PREFIX = "task_"
+TASK_PACKAGE_PATTERN = r"^task_[a-z][a-z0-9-]*$"  # mirrors the task half of job_packages_name_check
+
+
+def task_package_name(slug: str) -> str:
+    """The job_packages name of the bundle that trains `slug`."""
+    return f"{TASK_PACKAGE_PREFIX}{slug}"
 
 
 class JobPackage(BaseModel):
-    name: JobPackageName
+    name: str  # a JobPackageName for a runtime package, task_<slug> for a task bundle
+    kind: PackageKind = PackageKind.RUNTIME
+    manifest: dict | None = None  # the bundle's manifest.json; None for a runtime package
     sha256: str
     s3_key: str
     status: PackageStatus

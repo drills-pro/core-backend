@@ -19,6 +19,7 @@ ISOLATION = re.compile(rf"{TENANT_COLUMN}\s*=\s*current_setting\(\s*'{re.escape(
 # platform data that only the /v1/admin routes write.
 UNSCOPED = frozenset({
     "tenants", "principals", "tenant_create_keys", "rate_limits", "job_packages", "plan_limits", "task_presets", "task_types",
+    "job_package_audit", "task_bundle_settings",
 })
 
 _TOKEN = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'|\$(\w*)\$.*?\$\1\$|;|[^;'$/-]+|.", re.S)

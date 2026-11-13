@@ -1872,8 +1872,25 @@
       },
       "JobPackage": {
         "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/PackageKind",
+            "default": "runtime"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
           "name": {
-            "$ref": "#/components/schemas/JobPackageName"
+            "title": "Name",
+            "type": "string"
           },
           "published_by": {
             "title": "Published By",
@@ -1933,7 +1950,8 @@
         "enum": [
           "ray_jobs",
           "ray_training",
-          "ray_serving"
+          "ray_serving",
+          "ray_core"
         ],
         "title": "JobPackageName",
         "type": "string"
@@ -2787,6 +2805,15 @@
         ],
         "title": "OwnershipOfferBody",
         "type": "object"
+      },
+      "PackageKind": {
+        "description": "Mirrors the job_packages_kind_check constraint: a runtime package (a JobPackageName) or a task bundle (task_<slug>).",
+        "enum": [
+          "runtime",
+          "task"
+        ],
+        "title": "PackageKind",
+        "type": "string"
       },
       "PackageStatus": {
         "description": "Mirrors the job_packages_status_check constraint. Runs use `stable` packages only.",

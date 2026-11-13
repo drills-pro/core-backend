@@ -45,7 +45,15 @@ _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
 MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
 _S3_NOT_FOUND = "404"
 _S3_NO_SUCH_KEY = "NoSuchKey"
+NO_PACKAGE_SOURCE = "no_package_source"
 _uploaded: set[str] = set()
+
+
+def _package_dir(name: JobPackageName) -> Path:
+    """Where `name`'s source sits; a runtime name with no source in this build yet (ray_core) is a 422, not a crash."""
+    if name not in PACKAGE_DIRS:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, NO_PACKAGE_SOURCE, f"this build ships no source for {name} yet")
+    return PACKAGE_DIRS[name]
 
 
 @functools.cache
@@ -80,7 +88,7 @@ def _upload_once(data: bytes, key: str) -> None:
 
 async def publish(name: JobPackageName, actor: str) -> JobPackage:
     """Stage the bundled source of `name` if this version is not in staging yet and register it (a candidate when new)."""
-    data, key = build(PACKAGE_DIRS[name])
+    data, key = build(_package_dir(name))
     await asyncio.to_thread(_upload_once, data, key)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register(conn, name, hashlib.sha256(data).hexdigest(), key, actor)
@@ -96,7 +104,7 @@ def _check_upload(name: JobPackageName, data: bytes, sha256: str) -> None:
         names = zipfile.ZipFile(io.BytesIO(data)).namelist()
     except zipfile.BadZipFile:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body is not a zip archive") from None
-    root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
+    root = f"{ZIP_ROOT}/{_package_dir(name).name}/"
     if not names or any(not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/") for n in names):
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"every file must be a .py under {root}")
 
@@ -118,9 +126,10 @@ def _read_staged(key: str) -> bytes:
 async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobPackage:
     """Register a zip CI already put in staging (`jobs/<dir>-<sha256>.zip`) as a candidate. The key must be the one the
     package's name and hash give, and the object is read back and checked, so a key proves nothing by itself."""
-    match = re.fullmatch(rf"{re.escape(package_key(PACKAGE_DIRS[name], '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
+    package_dir = _package_dir(name)
+    match = re.fullmatch(rf"{re.escape(package_key(package_dir, '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
     if match is None:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(PACKAGE_DIRS[name], '<sha256>')}")
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(package_dir, '<sha256>')}")
     sha256 = match.group(1)
     _check_upload(name, await asyncio.to_thread(_read_staged, s3_key), sha256)
     async with (await get_pool()).acquire() as conn:

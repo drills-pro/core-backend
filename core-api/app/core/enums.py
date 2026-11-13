@@ -53,6 +53,22 @@ class JobPackageName(StrEnum):
     RAY_JOBS = "ray_jobs"
     RAY_TRAINING = "ray_training"
     RAY_SERVING = "ray_serving"
+    RAY_CORE = "ray_core"  # the training contract task bundles run on (planning/25); ray_training stands in until it ships
+
+
+class PackageKind(StrEnum):
+    """Mirrors the job_packages_kind_check constraint: a runtime package (a JobPackageName) or a task bundle (task_<slug>)."""
+
+    RUNTIME = "runtime"
+    TASK = "task"
+
+
+class PackageAuditAction(StrEnum):
+    """Mirrors the job_package_audit_action_check constraint: what was done to a task bundle."""
+
+    REGISTER = "register"
+    PROMOTE = "promote"
+    RETIRE = "retire"
 
 
 class PackageStatus(StrEnum):
