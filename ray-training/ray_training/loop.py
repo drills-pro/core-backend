@@ -46,6 +46,9 @@ class Session:
     rank = ROOT_RANK
     world_size = 1
 
+    def device(self) -> torch.device:
+        return device()
+
     def prepare_model(self, model: torch.nn.Module) -> torch.nn.Module:
         return model
 
@@ -82,7 +85,7 @@ def _cpu_state(module: torch.nn.Module) -> dict:
 
 def fit(kit: Kit, spec: TrainSpec) -> Fit | None:
     """Train `kit.model` for spec.epochs and evaluate it. Returns None on every rank but the root one, which owns the export."""
-    dev = device()
+    dev = session.device()
     cap_gpu_share(getattr(spec, "gpu", 0), getattr(spec, "vram_gb", None))  # the test doubles carry no GPU share: uncapped
     model = session.prepare_model(kit.model.to(dev))
     inner = _unwrapped(model)

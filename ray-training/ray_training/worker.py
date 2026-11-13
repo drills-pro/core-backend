@@ -32,6 +32,10 @@ class RaySession(loop.Session):
         ctx = ray.train.get_context()
         self.rank, self.world_size = ctx.get_world_rank(), ctx.get_world_size()
 
+    def device(self):
+        # Ray Train places the model and batches here; a worker with no GPU of its own sees cuda on a GPU node but trains on cpu
+        return ray.train.torch.get_device()
+
     def prepare_model(self, model):
         return ray.train.torch.prepare_model(model)
 
@@ -46,7 +50,7 @@ class RaySession(loop.Session):
             return torch.load(Path(d) / STATE_FILE, map_location="cpu")
 
     def agree(self, stop):
-        flag = torch.tensor([float(stop and self.rank == ROOT_RANK)], device=loop.device())
+        flag = torch.tensor([float(stop and self.rank == ROOT_RANK)], device=self.device())
         torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
         return bool(flag.item())
 
