@@ -6696,6 +6696,90 @@
         ]
       }
     },
+    "/v1/admin/job-packages/{name}/{sha256}/smoke": {
+      "post": {
+        "description": "Run the smoke job again for a candidate whose smoke failed (after the Ray image was fixed). Anything else is a 409.",
+        "operationId": "retry_package_smoke_v1_admin_job_packages__name___sha256__smoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/JobPackageName"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobPackage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Package Smoke",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/v1/admin/job-packages/{name}/{sha256}/status": {
       "put": {
         "description": "Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.",

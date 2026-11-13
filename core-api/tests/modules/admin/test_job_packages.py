@@ -76,3 +76,45 @@ def test_a_package_whose_smoke_has_not_passed_cannot_be_promoted(call):
     res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
     assert res.status_code == 409 and res.json()["code"] == routes.SMOKE_NOT_PASSED
     assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops")), json={"status": "retired"}).status_code == 200
+
+
+def _retry_stub(monkeypatch, result):
+    seen = []
+
+    async def retry(name, sha256):
+        seen.append((name, sha256))
+        return result
+
+    monkeypatch.setattr(routes.data_plane, "retry_package_smoke", retry)
+    return seen
+
+
+def _failed(status=PackageStatus.CANDIDATE, smoke=SmokeStatus.FAILED):
+    return package_row("ray_jobs", SHA, "jobs/x.zip", "ops", status) | {"smoke_status": smoke, "smoke_job_id": "smoke-1"}
+
+
+def test_a_failed_candidate_is_smoked_again(call, monkeypatch):
+    again = routes.JobPackage.model_validate(_failed(smoke=SmokeStatus.PENDING) | {"smoke_job_id": "smoke-2"})
+    seen = _retry_stub(monkeypatch, again)
+    res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=_failed()))
+    assert res.status_code == 200 and seen == [("ray_jobs", SHA)] and res.json()["smoke_status"] == "pending" and res.json()["smoke_job_id"] == "smoke-2"
+
+
+def test_retrying_an_unknown_package_is_404(call, monkeypatch):
+    seen = _retry_stub(monkeypatch, None)
+    assert call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=None)).status_code == 404 and seen == []
+    assert call("POST", f"{URL}/ray_jobs/nothex/smoke", FakeConn()).status_code == 422
+
+
+@pytest.mark.parametrize("row", [
+    _failed(PackageStatus.STABLE), _failed(PackageStatus.RETIRED), _failed(smoke=SmokeStatus.PENDING), _failed(smoke=SmokeStatus.PASSED)])
+def test_only_a_failed_candidate_can_be_retried(call, monkeypatch, row):
+    seen = _retry_stub(monkeypatch, None)
+    res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=row))
+    assert res.status_code == 409 and res.json()["code"] == routes.SMOKE_NOT_RETRYABLE and seen == []
+
+
+def test_a_retry_another_request_won_is_409(call, monkeypatch):
+    _retry_stub(monkeypatch, None)  # the compare-and-set found the smoke no longer failed
+    res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=_failed()))
+    assert res.status_code == 409 and res.json()["code"] == routes.SMOKE_NOT_RETRYABLE

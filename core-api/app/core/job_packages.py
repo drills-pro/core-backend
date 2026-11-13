@@ -30,6 +30,10 @@ _INSERT = (
 )
 _SET_STATUS = "UPDATE job_packages SET status = $3, updated_by = $4, updated_at = now() WHERE name = $1 AND sha256 = $2 RETURNING *"
 
+_RESET_FAILED_SMOKE = (
+    "UPDATE job_packages SET smoke_status = $5, smoke_job_id = NULL WHERE name = $1 AND sha256 = $2 AND status = $3 AND smoke_status = $4 RETURNING *"
+)
+
 
 async def register(conn, name: JobPackageName, sha256: str, s3_key: str, actor: str) -> JobPackage:
     """A candidate for this content, or the row that already exists for it."""
@@ -63,3 +67,10 @@ async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> N
 async def set_smoke(conn, name: JobPackageName, sha256: str, smoke: SmokeStatus) -> JobPackage:
     row = await conn.fetchrow("UPDATE job_packages SET smoke_status = $3 WHERE name = $1 AND sha256 = $2 RETURNING *", name, sha256, smoke)
     return JobPackage.model_validate(dict(row))
+
+
+async def reset_failed_smoke(conn, name: JobPackageName, sha256: str) -> JobPackage | None:
+    """Compare-and-set: a candidate whose smoke failed goes back to pending with no job. None when it is not in that state
+    (unknown, promoted or retired, or another retry got there first), so concurrent retries start one job."""
+    row = await conn.fetchrow(_RESET_FAILED_SMOKE, name, sha256, PackageStatus.CANDIDATE, SmokeStatus.FAILED, SmokeStatus.PENDING)
+    return None if row is None else JobPackage.model_validate(dict(row))

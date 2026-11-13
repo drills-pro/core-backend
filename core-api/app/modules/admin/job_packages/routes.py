@@ -15,6 +15,7 @@ from app.core.problem import Problem, not_found
 from app.integrations import data_plane
 
 SMOKE_NOT_PASSED = "smoke_not_passed"
+SMOKE_NOT_RETRYABLE = "smoke_not_retryable"
 
 logger = logging.getLogger(__name__)
 
@@ -69,4 +70,21 @@ async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str
     if package is None:
         raise not_found()
     logger.info("job package %s %s set to %s by %s", name, sha256, body.status, actor)
+    return package
+
+
+@router.post("/{name}/{sha256}/smoke", response_model=JobPackage)
+async def retry_package_smoke(name: JobPackageName, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
+    """Run the smoke job again for a candidate whose smoke failed (after the Ray image was fixed). Anything else is a 409."""
+    async with (await get_pool()).acquire() as conn:
+        current = await job_packages.get(conn, name, sha256)
+    if current is None:
+        raise not_found()
+    not_retryable = Problem(HTTPStatus.CONFLICT, SMOKE_NOT_RETRYABLE, "only a candidate package whose smoke job failed can be smoked again")
+    if current.status != PackageStatus.CANDIDATE or (await data_plane.refresh_package_smoke(current)).smoke_status != SmokeStatus.FAILED:
+        raise not_retryable
+    package = await data_plane.retry_package_smoke(name, sha256)
+    if package is None:  # another retry or a promotion got there first
+        raise not_retryable
+    logger.info("job package %s %s smoke retried by %s as %s", name, sha256, actor, package.smoke_job_id)
     return package

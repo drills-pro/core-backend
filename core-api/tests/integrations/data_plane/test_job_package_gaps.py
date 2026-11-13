@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import io
 import json
+import re
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -147,6 +148,56 @@ def test_a_package_that_already_has_a_smoke_job_is_not_submitted_again(db, monke
     monkeypatch.setattr(job_package.job_submit, "submit", lambda **kw: pytest.fail("submitted twice"))
     started = package(smoke_job_id="smoke-1")
     assert asyncio.run(job_package.start_smoke(started)) is started and db == []
+
+
+def test_a_retried_smoke_gets_a_new_job_id_and_result_prefix(db, monkeypatch):
+    sent = {}
+
+    async def submit(**kw):
+        sent.update(kw)
+
+    async def reset(conn, name, sha):
+        db.append(("reset", name, sha))
+        return package()
+
+    async def url(name, sha256):
+        return "http://ray/x"
+
+    monkeypatch.setattr(job_package.job_submit, "submit", submit)
+    monkeypatch.setattr(job_package, "presigned_url", url)
+    monkeypatch.setattr(job_package.job_packages, "reset_failed_smoke", reset)
+    result = asyncio.run(job_package.retry_smoke(JobPackageName.RAY_JOBS, SHA))
+    attempt = sent["job_id"].removeprefix(f"smoke-ray-jobs-{SHA[:12]}-")
+    assert re.fullmatch(r"\d{14}", attempt) and result.smoke_job_id == sent["job_id"]
+    assert json.loads(sent["spec_json"])["prefix"] == layout.smoke_prefix(JobPackageName.RAY_JOBS, SHA, attempt) != layout.smoke_prefix(JobPackageName.RAY_JOBS, SHA)
+    assert job_package._smoke_attempt(package(smoke_job_id=sent["job_id"])) == attempt and job_package._smoke_attempt(package(smoke_job_id="smoke-ray-jobs-" + SHA[:12])) == ""
+
+
+def test_a_retry_that_lost_the_compare_and_set_submits_nothing(db, monkeypatch):
+    async def reset(conn, name, sha):
+        return None
+
+    monkeypatch.setattr(job_package.job_submit, "submit", lambda **kw: pytest.fail("submitted"))
+    monkeypatch.setattr(job_package.job_packages, "reset_failed_smoke", reset)
+    assert asyncio.run(job_package.retry_smoke(JobPackageName.RAY_JOBS, SHA)) is None
+
+
+def test_a_retry_ray_refuses_leaves_the_package_failed(db, monkeypatch):
+    async def reset(conn, name, sha):
+        return package()
+
+    async def submit(**kw):
+        raise httpx.ConnectError("ray down")
+
+    async def url(name, sha256):
+        return "http://ray/x"
+
+    monkeypatch.setattr(job_package.job_submit, "submit", submit)
+    monkeypatch.setattr(job_package, "presigned_url", url)
+    monkeypatch.setattr(job_package.job_packages, "reset_failed_smoke", reset)
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(job_package.retry_smoke(JobPackageName.RAY_JOBS, SHA))
+    assert db == [("set", SmokeStatus.FAILED)]
 
 
 @pytest.mark.parametrize("pkg", [package(smoke_job_id="j", smoke_status=SmokeStatus.PASSED), package(smoke_job_id=None)])
