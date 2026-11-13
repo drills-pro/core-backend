@@ -20,5 +20,5 @@ RUN echo 'protobuf<6' > /tmp/ray-training/constraints.txt \
     && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
     && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/ray-training/requirements.txt \
     && pip uninstall -y onnxruntime && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt onnxruntime-gpu \
-    && python -c "import ray.serve, ray.train.torch, torch, transformers, onnx, onnxruntime; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'onnx', onnx.__version__, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
+    && python -c "import ray.serve, ray.train.torch, torch, transformers, onnx, onnxruntime, xgboost, onnxmltools; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'onnx', onnx.__version__, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
     && rm -rf /tmp/ray-training
