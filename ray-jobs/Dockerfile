@@ -10,10 +10,13 @@ ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe98543
 FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/ray-jobs/pyproject.toml
-RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('/tmp/ray-jobs/pyproject.toml', 'rb'))['project']['dependencies']))" \
+# Ray first, then the rest under a protobuf<6 constraint: ray[serve] pins protobuf 5.x and the newest onnx needs 6.31+. Installed the
+# other way round, Ray downgrades protobuf and `import onnx` fails with a gencode/runtime version error (same fix as ray-training/Dockerfile).
+RUN echo 'protobuf<6' > /tmp/ray-jobs/constraints.txt \
+    && python -c "import tomllib; print('\\n'.join(tomllib.load(open('/tmp/ray-jobs/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-jobs/requirements.txt \
-    && pip install --no-cache-dir -r /tmp/ray-jobs/requirements.txt \
-    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
-    && python -c "import ray.serve, ray.train.torch, boto3, pyarrow, PIL, onnxruntime, tokenizers; print('boto3', boto3.__version__, 'pyarrow', pyarrow.__version__, 'Pillow', PIL.__version__)" \
+    && pip install --no-cache-dir -c /tmp/ray-jobs/constraints.txt -r /tmp/ray-jobs/requirements.txt \
+    && pip install --no-cache-dir -c /tmp/ray-jobs/constraints.txt --index-url https://download.pytorch.org/whl/cpu torch \
+    && python -c "import ray.serve, ray.train.torch, torch, boto3, pyarrow, PIL, onnx, onnxruntime, tokenizers; print('boto3', boto3.__version__, 'pyarrow', pyarrow.__version__, 'Pillow', PIL.__version__, 'onnx', onnx.__version__)" \
     && rm -rf /tmp/ray-jobs
