@@ -1,42 +1,38 @@
 name: Build the Ray trainer image
 
-# The cluster's Ray image (cu128) plus the ray_training dependencies (ray-training/Dockerfile), for the GPU worker group. Not deployed from here: put the digest
-# in k8s apps/ray/app/raycluster.yaml by hand, because that restarts the Ray head and the GPU worker.
+# The cluster's GPU Ray image (cu128) plus the ray_training dependencies (ray-training/Dockerfile). Built, smoke-tested inside
+# the image (scripts/ray-image-smoke.py, including a real Ray Train run on CPU), pushed, and then pinned by a pull request in
+# drills-pro/k8s (see ray-image.yml). A pull request only builds and tests. The k8s PR is not merged from here: merging it
+# restarts the Ray head and the GPU worker.
 on:
   push:
     paths:
       - "ray-training/Dockerfile"
       - "ray-training/pyproject.toml"
       - ".github/workflows/ray-training-image.yml"
+      - ".github/workflows/ray-image.yml"
+      - "scripts/ray-image-smoke.py"
+  pull_request:
+    paths:
+      - "ray-training/**"
+      - "ray-serving/**"
+      - ".github/workflows/ray-training-image.yml"
+      - ".github/workflows/ray-image.yml"
+      - "scripts/ray-image-smoke.py"
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  image:
     permissions:
       contents: read
       packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Free runner disk
-        # torch and the CUDA libraries need more than the runner's free space (the first build died with ENOSPC)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: sha
-        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: ./ray-training
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}/ray-training:${{ steps.sha.outputs.tag }}
-          cache-from: type=gha,scope=ray-training
-          cache-to: type=gha,mode=max,scope=ray-training
+    uses: ./.github/workflows/ray-image.yml
+    with:
+      name: ray-training
+      free-disk: true  # torch and the CUDA libraries need more than the runner's free space (the first build died with ENOSPC)
+      smoke-args: >-
+        --imports onnx onnxruntime torch ray.serve ray.train.torch transformers timm torchvision boto3 pyarrow PIL tokenizers
+        --packages ray_training ray_serving
+        --serving-check --training-smoke
+    secrets:
+      k8s-token: ${{ secrets.K8S_REPO_PAT }}
