@@ -84,9 +84,22 @@ async def list_for(conn, name: JobPackageName) -> list[JobPackage]:
     return [JobPackage.model_validate(dict(r)) for r in await conn.fetch(f"{_SELECT} WHERE name = $1 ORDER BY updated_at DESC", name)]
 
 
+async def list_kind(conn, kind: PackageKind, status: PackageStatus | None = None) -> list[JobPackage]:
+    """Every package of `kind` (in `status` when given), oldest change first."""
+    rows = await conn.fetch(f"{_SELECT} WHERE kind = $1 AND ($2::text IS NULL OR status = $2) ORDER BY name, updated_at", kind, status)
+    return [JobPackage.model_validate(dict(r)) for r in rows]
+
+
 async def set_status(conn, name: JobPackageName, sha256: str, status: PackageStatus, actor: str) -> JobPackage | None:
     row = await conn.fetchrow(_SET_STATUS, name, sha256, status, actor)
     return None if row is None else JobPackage.model_validate(dict(row))
+
+
+async def retire_stable_except(conn, name: str, sha256: str, actor: str) -> None:
+    """The flip half of a promotion: the stable row of `name` other than `sha256` (one per bundle) becomes retired."""
+    await conn.execute(
+        "UPDATE job_packages SET status = $4, updated_by = $5, updated_at = now() WHERE name = $1 AND status = $2 AND sha256 <> $3",
+        name, PackageStatus.STABLE, sha256, PackageStatus.RETIRED, actor)
 
 
 async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> None:

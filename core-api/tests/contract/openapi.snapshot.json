@@ -403,6 +403,80 @@
         "title": "Body_set_tenant_status_v1_admin_tenants__tenant_id__status_post",
         "type": "object"
       },
+      "BundleSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_promote": {
+            "title": "Auto Promote",
+            "type": "boolean"
+          },
+          "slug": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "auto_promote",
+          "slug"
+        ],
+        "title": "BundleSettings",
+        "type": "object"
+      },
+      "BundleSettingsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_promote": {
+            "title": "Auto Promote",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_promote"
+        ],
+        "title": "BundleSettingsBody",
+        "type": "object"
+      },
+      "BundleStatusBody": {
+        "additionalProperties": false,
+        "description": "stable promotes the bundle (and rewrites the task's row and presets from its manifest); retired takes it out of use.",
+        "properties": {
+          "status": {
+            "enum": [
+              "stable",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "BundleStatusBody",
+        "type": "object"
+      },
       "CatalogModel": {
         "properties": {
           "license": {
@@ -1321,7 +1395,8 @@
         "type": "object"
       },
       "HyperparameterOverrides": {
-        "description": "What a caller changes; a field left out keeps the preset's default, and the preset's bounds apply.",
+        "additionalProperties": true,
+        "description": "What a caller changes; a field left out keeps the preset's default, and the preset's bounds apply. A task trained by\na bundle also takes the keys of the bundle's hyperparameter JSON Schema, which the request is validated against.",
         "properties": {
           "batch_size": {
             "anyOf": [
@@ -7492,6 +7567,255 @@
           }
         },
         "summary": "Register Bundle",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/{slug}/settings": {
+      "get": {
+        "operationId": "get_bundle_settings_v1_admin_task_bundles__slug__settings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Bundle Settings",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a PUT .../status.",
+        "operationId": "put_bundle_settings_v1_admin_task_bundles__slug__settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundleSettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Bundle Settings",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/{slug}/{sha256}/status": {
+      "put": {
+        "description": "Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and\npresets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.",
+        "operationId": "set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundleStatusBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobPackage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Bundle Status",
         "tags": [
           "admin"
         ]

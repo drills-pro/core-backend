@@ -99,6 +99,26 @@ async def put(conn, task: TaskType, body: TaskTypeBody, actor: str) -> TaskInfo:
     return TaskInfo.model_validate(dict(row))
 
 
+_APPLY_BUNDLE = (
+    "INSERT INTO task_types (slug, data_kind, trainer, servable, bundle_sha256, updated_by) VALUES ($1, $2, $3, false, $5, $6) "
+    "ON CONFLICT (slug) DO UPDATE SET data_kind = EXCLUDED.data_kind, trainer = EXCLUDED.trainer, "
+    "servable = $4 AND task_types.encoder IS NOT NULL AND task_types.postprocess IS NOT NULL, "
+    "bundle_sha256 = EXCLUDED.bundle_sha256, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+)
+
+
+async def apply_bundle(conn, slug: TaskType, data_kind: DataKind, trainer: str, servable: bool, sha256: str, actor: str) -> TaskInfo:
+    """Write the row a promoted bundle's manifest describes. `enabled` and the serving functions stay as they are: until
+    serving loads adapters from the bundle (planning/25 step 5) a task is servable only where those functions are set."""
+    return TaskInfo.model_validate(dict(await conn.fetchrow(_APPLY_BUNDLE, slug, data_kind, trainer, servable, sha256, actor)))
+
+
+async def set_enabled(conn, task: TaskType, enabled: bool, actor: str) -> TaskInfo | None:
+    row = await conn.fetchrow(
+        "UPDATE task_types SET enabled = $2, updated_by = $3, updated_at = now() WHERE slug = $1 RETURNING *", task, enabled, actor)
+    return None if row is None else TaskInfo.model_validate(dict(row))
+
+
 async def require_supported(conn, task: TaskType) -> TaskInfo:
     """The task's row, or a 422 when the platform has none for it or it is switched off."""
     info = await get(conn, task)

@@ -116,3 +116,15 @@ async def put(conn, task: TaskType, name: str, body: PresetBody, actor: str) -> 
 
 async def delete(conn, task: TaskType, name: str) -> bool:
     return await conn.fetchval("DELETE FROM task_presets WHERE task = $1 AND name = $2 RETURNING true", task, name) is True
+
+
+async def delete_others(conn, task: TaskType, keep: list[str]) -> None:
+    """Drop the task's presets not in `keep`: a promoted bundle's manifest is the whole preset list."""
+    await conn.execute("DELETE FROM task_presets WHERE task = $1 AND NOT (name = ANY($2::text[]))", task, keep)
+
+
+async def set_enabled(conn, task: TaskType, name: str, enabled: bool, actor: str) -> TaskPreset | None:
+    row = await conn.fetchrow(
+        "UPDATE task_presets SET enabled = $3, updated_by = $4, updated_at = now() WHERE task = $1 AND name = $2 RETURNING *",
+        task, name, enabled, actor)
+    return None if row is None else _model(row)

@@ -71,6 +71,14 @@ def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch
     assert call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "k", "extra": 1}).status_code == 422
 
 
+def test_a_core_is_not_promoted_while_a_stable_bundle_has_not_been_smoked_against_it(call):
+    core = package_row("ray_core", SHA, "jobs/x.zip", "ops", PackageStatus.STABLE) | {"smoke_status": SmokeStatus.PASSED}
+    bundle = package_row("task_image-classification", SHA, "k", "ci", PackageStatus.STABLE) | {"kind": "task", "manifest": {}}
+    res = call("PUT", f"{URL}/ray_core/{SHA}/status", FakeConn(row=core, rowset=[bundle]), json={"status": "stable"})
+    assert res.status_code == 409 and res.json()["code"] == routes.CORE_MATRIX_NOT_RUN
+    assert call("PUT", f"{URL}/ray_core/{SHA}/status", FakeConn(row=core), json={"status": "stable"}).status_code == 200
+
+
 def test_a_package_whose_smoke_has_not_passed_cannot_be_promoted(call):
     conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops"))  # smoke_status pending
     res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
