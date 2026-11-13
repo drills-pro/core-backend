@@ -88,8 +88,9 @@ def prediction_prefix(tenant_id: str, project_id: str, prediction_id: str) -> st
     return f"{PREDICTIONS_ROOT}/{tenant_id}/{project_id}/{prediction_id}/"
 
 
-def smoke_prefix(name: str, sha256: str) -> str:
-    return f"{JOB_PACKAGE_ROOT}/smoke/{name}-{sha256}/"
+def smoke_prefix(name: str, sha256: str, attempt: str = "") -> str:
+    """Where a package's smoke job writes; a retry (attempt = its suffix) gets its own prefix so the failed run's result is not read again."""
+    return f"{JOB_PACKAGE_ROOT}/smoke/{name}-{sha256}{f'-{attempt}' if attempt else ''}/"
 
 
 def repo_name(dataset_id: str) -> str:

@@ -12,6 +12,7 @@ import io
 import json
 import re
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from http import HTTPStatus
@@ -38,6 +39,7 @@ SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api r
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
 INVALID_PACKAGE = "invalid_package"
+SMOKE_ATTEMPT_FORMAT = "%Y%m%d%H%M%S"  # the suffix of a retried smoke job id: when the retry started
 SMOKE_TIMEOUT_SECONDS = 600  # a tiny run: this is only the ceiling for a stuck one
 _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
 MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
@@ -125,12 +127,22 @@ async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobP
         return await job_packages.register(conn, name, sha256, s3_key, actor)
 
 
-async def start_smoke(package: JobPackage) -> JobPackage:
-    """Submit the package's smoke job (once: a package that has one is returned as it is)."""
+def _smoke_base_id(package: JobPackage) -> str:
+    return f"smoke-{package.name.replace('_', '-')}-{package.sha256[:12]}"
+
+
+def _smoke_attempt(package: JobPackage) -> str:
+    """The suffix of a retried smoke job's id ('' for the first run), which also names its result prefix."""
+    return (package.smoke_job_id or "").removeprefix(_smoke_base_id(package)).lstrip("-")
+
+
+async def start_smoke(package: JobPackage, attempt: str = "") -> JobPackage:
+    """Submit the package's smoke job (once: a package that has one is returned as it is). A retry passes an `attempt`
+    suffix because Ray rejects a reused submission id."""
     if package.smoke_job_id is not None:
         return package
-    name, job_id = package.name, f"smoke-{package.name.replace('_', '-')}-{package.sha256[:12]}"
-    spec = {"job_id": job_id, "bucket": settings.data_plane.staging_bucket, "prefix": layout.smoke_prefix(name, package.sha256)}
+    name, job_id = package.name, "-".join(filter(None, (_smoke_base_id(package), attempt)))
+    spec = {"job_id": job_id, "bucket": settings.data_plane.staging_bucket, "prefix": layout.smoke_prefix(name, package.sha256, attempt)}
     await job_submit.submit(
         package_url=await presigned_url(name, package.sha256), module=job_catalog.SMOKE_ENTRYPOINTS[name], spec_json=json.dumps(spec),
         job_id=job_id, metadata={"package": name, "sha256": package.sha256}, num_cpus=settings.training.driver_cpus,
@@ -138,6 +150,21 @@ async def start_smoke(package: JobPackage) -> JobPackage:
     async with (await get_pool()).acquire() as conn:
         await job_packages.start_smoke(conn, name, package.sha256, job_id)
         return await job_packages.get(conn, name, package.sha256)
+
+
+async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage | None:
+    """Start a new smoke job for a candidate whose smoke failed; None when it is no longer in that state. When Ray
+    refuses the job the package goes back to failed, so the retry can be repeated."""
+    async with (await get_pool()).acquire() as conn:
+        reset = await job_packages.reset_failed_smoke(conn, name, sha256)
+    if reset is None:
+        return None
+    try:
+        return await start_smoke(reset, datetime.now(UTC).strftime(SMOKE_ATTEMPT_FORMAT))
+    except Exception:
+        async with (await get_pool()).acquire() as conn:
+            await job_packages.set_smoke(conn, name, sha256, SmokeStatus.FAILED)
+        raise
 
 
 def _read_smoke(key: str) -> bytes | None:
@@ -153,7 +180,7 @@ async def refresh_smoke(package: JobPackage) -> JobPackage:
     """Settle a pending smoke from what the job left: its smoke.json, else a dead Ray job means failed, else still pending."""
     if package.smoke_status != SmokeStatus.PENDING or package.smoke_job_id is None:
         return package
-    written = await asyncio.to_thread(_read_smoke, layout.smoke_prefix(package.name, package.sha256) + layout.SMOKE_KEY)
+    written = await asyncio.to_thread(_read_smoke, layout.smoke_prefix(package.name, package.sha256, _smoke_attempt(package)) + layout.SMOKE_KEY)
     if written is not None:
         outcome = SmokeStatus.PASSED if json.loads(written)["ok"] else SmokeStatus.FAILED
     else:

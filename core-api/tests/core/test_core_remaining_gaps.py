@@ -168,6 +168,18 @@ def test_settling_a_smoke_returns_the_updated_package():
     assert package.smoke_status == SmokeStatus.PASSED and conn.calls[0][1][2] == SmokeStatus.PASSED
 
 
+def test_a_failed_smoke_is_reset_by_a_compare_and_set_on_candidate_and_failed():
+    conn = FakeConn(row=row())
+    package = asyncio.run(job_packages.reset_failed_smoke(conn, JobPackageName.RAY_JOBS, "a" * 64))
+    sql, args = conn.calls[0]
+    assert package.smoke_job_id is None and "smoke_job_id = NULL" in sql and "status = $3 AND smoke_status = $4" in sql
+    assert args == (JobPackageName.RAY_JOBS, "a" * 64, PackageStatus.CANDIDATE, SmokeStatus.FAILED, SmokeStatus.PENDING)
+
+
+def test_a_smoke_that_is_not_failed_is_not_reset():
+    assert asyncio.run(job_packages.reset_failed_smoke(FakeConn(row=None), JobPackageName.RAY_JOBS, "a" * 64)) is None
+
+
 # --- metrics and tracing outside the test environment ---------------------------------------------------------------
 
 @pytest.mark.parametrize("name", ["Bad.Name.x", "only_one_segment", "has-dash.ns.name", "9starts.ns.name", "trailing."])
