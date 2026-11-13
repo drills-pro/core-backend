@@ -1,15 +1,16 @@
-"""A trainer for test_driver: classification that loses its worker once, right after the first epoch's checkpoint."""
+"""A trainer for test_driver: tests.tiny that loses its worker once, right after the first epoch's checkpoint."""
 import tempfile
 from pathlib import Path
 
-from ray_training import classification, loop
+from ray_core import loop
+from tests import tiny
 
 
 def crash_marker(job_id: str) -> Path:
     return Path(tempfile.gettempdir()) / f"crashy-{job_id}"
 
 
-def train(spec, ds, work):
+def train(spec, work, get):
     marker = crash_marker(spec.job_id)
     real = loop.session.report
 
@@ -20,4 +21,4 @@ def train(spec, ds, work):
             raise RuntimeError("worker lost")
 
     loop.session.report = report_then_crash
-    return classification.train(spec, ds, work)
+    return tiny.train(spec, work, get)

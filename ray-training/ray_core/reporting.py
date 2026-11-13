@@ -11,8 +11,8 @@ import os
 from numbers import Real
 from urllib.request import Request, urlopen
 
-from ray_training.constants import EVENTS_TIMEOUT_SECONDS, EventType
-from ray_training.spec import TrainSpec
+from ray_core.constants import EVENTS_TIMEOUT_SECONDS, EventType
+from ray_core.spec import TrainSpec
 
 logger = logging.getLogger(__name__)
 

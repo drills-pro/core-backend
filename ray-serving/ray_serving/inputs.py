@@ -13,7 +13,7 @@ MAX_IMAGE_PIXELS = 25_000_000  # width * height of the image a caller sends; lar
 
 def image_encoder(pre, tokenizer_url, input_name):
     """Body {"image_base64": ...}. What the trainer did to every training image, read from model.json
-    (ray_training.result.load_image)."""
+    (ray_core.result.load_image)."""
     import base64
     import io
 

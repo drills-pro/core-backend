@@ -1,4 +1,4 @@
-"""What runs inside a Ray Train worker: the loop of ray_training.loop with data parallelism, one checkpoint and report per
+"""What runs inside a Ray Train worker: the loop of ray_core.loop with data parallelism, one checkpoint and report per
 epoch, and resuming from the last checkpoint. Imports torch, so only the GPU workers and the driver's image load it.
 
 Every rank loads the dataset and trains; the root rank alone evaluates, exports and uploads (the trainer returns None
@@ -14,13 +14,12 @@ import ray.train.torch
 import torch
 from ray.train import Checkpoint
 
-from ray_training import loop, reporting
-from ray_training.constants import ROOT_RANK, STATE_FILE
-from ray_training.data import load_dataset
-from ray_training.registry import trainer_for
-from ray_training.runner import upload
-from ray_training.spec import parse_spec
-from ray_training.store import store_from_env
+from ray_core import loop, reporting
+from ray_core.constants import ROOT_RANK, STATE_FILE
+from ray_core.registry import load
+from ray_core.runner import upload
+from ray_core.spec import parse_spec
+from ray_core.store import http_get, store_from_env
 
 REPORT_FIELD = "report"  # the final report's key in the metrics the root rank reports
 REPORT_FILE = "final.json"  # marks the last checkpoint, which holds no state
@@ -72,7 +71,7 @@ def train_loop(config: dict) -> None:
     report = None
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        result = trainer_for(spec.trainer)(spec, load_dataset(spec, work), work)
+        result = load(spec.trainer)(spec, work, http_get)
         if result is not None:
             report = upload(spec, store_from_env(spec.bucket, spec.prefix), result)
     if report is None:

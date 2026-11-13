@@ -2,7 +2,7 @@
 checkpoint and a report per epoch, and resuming from the last checkpoint after a worker was lost.
 
 A trainer describes its task as a `Kit` and calls `fit`. Outside Ray Train (tests, a local run) the default `Session`
-does nothing extra and `fit` is a plain single-process loop; ray_training.worker installs the Ray one.
+does nothing extra and `fit` is a plain single-process loop; ray_core.worker installs the Ray one.
 """
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -10,10 +10,10 @@ from typing import Any, Callable
 import torch
 from torch.utils.data import DataLoader
 
-from ray_training.constants import ROOT_RANK
-from ray_training.recipe import EarlyStopping, make_scheduler
-from ray_training.result import NUM_WORKERS_GPU, cap_gpu_share, device
-from ray_training.spec import TrainSpec
+from ray_core.constants import ROOT_RANK
+from ray_core.recipe import EarlyStopping, make_scheduler
+from ray_core.result import NUM_WORKERS_GPU, cap_gpu_share, device
+from ray_core.spec import TrainSpec
 
 Batch = Any
 EvaluateFn = Callable[[torch.nn.Module, DataLoader, torch.device], tuple[dict, Any]]  # (metrics, confusion matrix or None)
@@ -41,7 +41,7 @@ class Fit:
 
 
 class Session:
-    """Where a run is executed: one process here; ray_training.worker.RaySession inside a Ray Train worker."""
+    """Where a run is executed: one process here; ray_core.worker.RaySession inside a Ray Train worker."""
 
     rank = ROOT_RANK
     world_size = 1

@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ray_training.constants import ONNX_OPSET
-from ray_training.spec import Preprocessing, TrainSpec
+from ray_core.constants import ONNX_OPSET
+from ray_core.spec import Preprocessing, TrainSpec
 
 INPUT_NAME = "pixel_values"
 NUM_WORKERS_GPU = 4  # data loading workers when a GPU waits on them; 0 on CPU (CI)

@@ -1,14 +1,19 @@
+import numpy as np
 import pytest
 
-from ray_training.constants import Col, Split
-from ray_training.data import hash_split, load_dataset, split_for_training
-from ray_training.errors import BadData, Unsupported
-from ray_training.spec import parse_spec
+from ray_core.constants import Col, Split
+from ray_core.data import hash_split, load_image_dataset, split_for_training
+from ray_core.errors import BadData
+from ray_core.spec import parse_spec
 from tests.support import MemStore, classification_rows, detection_rows, fake_get, spec_text  # noqa: F401
 
 
 def spec_for(rows, task="image-classification"):
     return parse_spec(spec_text(task, "m", rows))
+
+
+def load_dataset(spec, work, get):
+    return load_image_dataset(spec, work, get, detection=spec.task == "object-detection")
 
 
 def test_hash_split_is_deterministic_and_roughly_80_10_10():
@@ -48,7 +53,13 @@ def test_training_needs_both_sides(tmp_path):
         split_for_training(load_dataset(spec_for(rows), tmp_path, fake_get(rows, files)))
 
 
-def test_a_task_without_a_loader_is_unsupported(tmp_path):
-    rows, files = classification_rows()
-    with pytest.raises(Unsupported):
-        load_dataset(spec_for(rows, "image-segmentation"), tmp_path, fake_get(rows, files))
+def test_load_image_applies_the_specs_normalisation(tmp_path):
+    from ray_core.result import load_image
+    from tests.support import SIZE, png
+
+    file = tmp_path / "gray.png"
+    file.write_bytes(png((51, 51, 51)))  # 51 / 255 = 0.2
+    pre = spec_for(classification_rows()[0]).preprocessing
+    tensor, w, h = load_image(file, 8, pre)
+    assert (w, h, tuple(tensor.shape)) == (SIZE, SIZE, (3, 8, 8))
+    assert np.allclose(tensor.numpy(), (0.2 - 0.5) / 0.25, atol=1e-5)  # PREPROCESSING: mean 0.5, std 0.25

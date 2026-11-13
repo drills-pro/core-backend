@@ -1,9 +1,10 @@
 """The staging bucket (S3, write only) and presigned HTTP reads. boto3 is imported lazily."""
+import base64
 import os
 from pathlib import Path
 from urllib.request import urlopen
 
-from ray_training.constants import HTTP_TIMEOUT_SECONDS, TRAIN_STATE_DIR
+from ray_core.constants import HTTP_TIMEOUT_SECONDS, TRAIN_STATE_DIR
 
 
 class S3Store:
@@ -17,6 +18,11 @@ class S3Store:
 
     def put(self, key: str, data: bytes) -> None:
         self.client.put_object(Bucket=self.bucket, Key=self.prefix + key, Body=data)
+
+
+def data_url(data: bytes) -> str:
+    """A `data:` URL http_get serves: how a smoke spec carries its fixture, so any node can read it."""
+    return "data:application/octet-stream;base64," + base64.b64encode(data).decode()
 
 
 def http_get(url: str) -> bytes:

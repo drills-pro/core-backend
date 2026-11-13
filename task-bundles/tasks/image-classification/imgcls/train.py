@@ -9,14 +9,14 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoModelForImageClassification
 
-from ray_training.constants import CONFUSION_TOP_K, Augmentation
-from ray_training.data import Dataset, Sample, split_for_training
-from ray_training.loop import Kit, fit
-from ray_training.metrics import classification_metrics
-from ray_training.near_duplicates import count_near_duplicates
-from ray_training.recipe import flip_crop
-from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
-from ray_training.spec import Preprocessing, TrainSpec
+from ray_core.constants import CONFUSION_TOP_K, Augmentation
+from ray_core.data import Dataset, Get, Sample, load_image_dataset, split_for_training
+from ray_core.loop import Kit, fit
+from ray_core.metrics import classification_metrics
+from ray_core.near_duplicates import count_near_duplicates
+from ray_core.recipe import flip_crop
+from ray_core.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
+from ray_core.spec import Preprocessing, TrainSpec
 
 
 class Images(TorchDataset):
@@ -55,8 +55,8 @@ def loss(model, batch, dev):
     return model(pixel_values=x.to(dev), labels=y.to(dev)).loss, len(y)
 
 
-def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
-    return train_model(spec, ds, work)
+def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
+    return train_model(spec, load_image_dataset(spec, work, get, detection=False), work)
 
 
 def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module | None = None) -> Result | None:

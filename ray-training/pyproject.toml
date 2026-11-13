@@ -1,7 +1,7 @@
 [project]
 name = "ray-training"
 version = "0.1.0"
-description = "Ray training jobs of the drills.pro trainer: image classification, object detection and text classification, trained with Ray Train (python -m ray_training.entrypoints.train)"
+description = "The trainer image of drills.pro (these dependencies) and ray_core, the training contract task bundles run on with Ray Train (python -m ray_core.entrypoints.train)"
 requires-python = ">=3.11"  # the Ray image runs 3.11
 dependencies = [
     "torch>=2.7,<2.12",  # the cu128 wheel index ends at 2.11; a newer PyPI wheel targets another CUDA
@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ray_training"]
+packages = ["ray_core"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

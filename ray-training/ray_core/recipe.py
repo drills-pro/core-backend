@@ -6,7 +6,7 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
-from ray_training.constants import CROP_PAD_DIVISOR, FLIP_PROBABILITY, LrSchedule
+from ray_core.constants import CROP_PAD_DIVISOR, FLIP_PROBABILITY, LrSchedule
 
 
 def lr_factor(schedule: LrSchedule, warmup_fraction: float, total_steps: int) -> Callable[[int], float]:

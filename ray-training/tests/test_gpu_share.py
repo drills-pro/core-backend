@@ -2,7 +2,7 @@
 import pytest
 import torch
 
-from ray_training.result import GIB, cap_gpu_share
+from ray_core.result import GIB, cap_gpu_share
 
 
 @pytest.mark.parametrize(("available", "gpu", "capped"), [(True, 0.25, True), (True, 1, False), (True, 0, False), (True, 2, False), (False, 0.25, False)])

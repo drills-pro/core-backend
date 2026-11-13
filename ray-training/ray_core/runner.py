@@ -9,13 +9,13 @@ import math
 import tempfile
 from pathlib import Path
 
-from ray_training.constants import (
+from ray_core.constants import (
     MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION, TRAINER_VERSION, FailCode, Outcome)
-from ray_training.data import Get, load_dataset
-from ray_training.errors import TrainFailure
-from ray_training.registry import Trainer, trainer_for
-from ray_training.spec import TrainSpec
-from ray_training.store import http_get
+from ray_core.data import Get
+from ray_core.errors import TrainFailure
+from ray_core.registry import Trainer, load
+from ray_core.spec import TrainSpec
+from ray_core.store import http_get
 
 
 def failure_code(e: BaseException) -> FailCode:
@@ -61,7 +61,7 @@ def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None
     try:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            result = (trainer or trainer_for(spec.trainer))(spec, load_dataset(spec, work, get), work)
+            result = (trainer or load(spec.trainer))(spec, work, get)
             return upload(spec, store, result)
     except Exception as e:  # noqa: BLE001 - the report must always be written
         return failed_report(spec, failure_code(e), f"{type(e).__name__}: {e}")

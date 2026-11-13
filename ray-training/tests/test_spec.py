@@ -4,9 +4,9 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from ray_training.constants import (
+from ray_core.constants import (
     DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, Augmentation, FailCode, LrSchedule, Outcome, Resample)
-from ray_training.spec import parse_spec
+from ray_core.spec import parse_spec
 from tests.support import LEARNING_RATE, PREPROCESSING, VERSION_ID, classification_rows, spec_doc
 
 ROWS = classification_rows()[0]
@@ -21,6 +21,13 @@ def test_payload_fields_and_hyperparameter_defaults():
     spec = parse_spec(json.dumps(doc))
     assert (spec.epochs, spec.batch_size, spec.image_size) == (30, 16, 224)
     assert (spec.bucket, spec.version_id, spec.lakefs_commit, spec.seed, spec.base_model) == ("b", VERSION_ID, "c0ffee", 42, "m")
+
+
+def test_a_bundles_own_hyperparameters_and_an_empty_preprocessing_reach_the_trainer():
+    doc = spec_doc("tabular-classification", "m", ROWS, preprocessing={})
+    doc["payload"]["hyperparameters"] = {"target": "species", "n_estimators": 5}
+    spec = parse_spec(json.dumps(doc))
+    assert spec.hyperparameters == {"target": "species", "n_estimators": 5} and spec.preprocessing is None
 
 
 def test_learning_rate_and_preprocessing_come_from_the_spec():
@@ -47,8 +54,8 @@ def test_an_unknown_version_or_kind_is_refused(over):
 
 def test_the_trainer_is_the_one_the_spec_names():
     doc = spec_doc("image-classification", "m", ROWS)
-    doc["payload"]["trainer"] = "ray_training.detection:train"
-    assert parse_spec(json.dumps(doc)).trainer == "ray_training.detection:train"
+    doc["payload"]["trainer"] = "objdet.train:train"
+    assert parse_spec(json.dumps(doc)).trainer == "objdet.train:train"
 
 
 def test_a_spec_validates_against_the_committed_contract():

@@ -1,4 +1,4 @@
-"""Tiny fixtures: 8 classification images, 4 COCO-style detection images, tiny random models. All CPU, no network."""
+"""Tiny fixtures: 8 classification images, 4 COCO-style detection images. All CPU, no network."""
 import io
 import json
 from pathlib import Path
@@ -7,7 +7,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 
-from ray_training.constants import LABEL_COLUMN, TEXT_COLUMN, Box, Col
+from ray_core.constants import Box, Col
+from tests.tiny import TRAINER
 
 REPO = Path(__file__).resolve().parents[2]
 REPORT_SCHEMA_FILE = REPO / "core-api/app/integrations/data_plane/train_report.schema.json"
@@ -58,32 +59,6 @@ def detection_rows() -> tuple[list[dict], dict[str, bytes]]:
     return rows, files
 
 
-TEXT_VOCAB = ["great", "good", "love", "awful", "bad", "hate", "movie", "film"]
-TEXT_DATA_URL = "mem://data.parquet"
-MAX_LENGTH = 8
-
-
-def text_rows() -> list[dict]:
-    """8 short texts, 2 classes; split column set: 6 train, 2 validation."""
-    rows = []
-    for i in range(8):
-        good = i % 2 == 0
-        rows.append({TEXT_COLUMN: f"{'great love' if good else 'awful hate'} {'movie' if i % 4 < 2 else 'film'}",
-                     LABEL_COLUMN: "pos" if good else "neg", Col.SPLIT: "validation" if i >= 6 else "train"})
-    return rows
-
-
-def text_get(rows):
-    sink = io.BytesIO()
-    pq.write_table(pa.Table.from_pylist([{str(k.value if hasattr(k, "value") else k): v for k, v in r.items()} for r in rows]), sink)
-    return lambda url: {TEXT_DATA_URL: sink.getvalue()}[url]
-
-
-def text_spec_text(base_model, **payload) -> str:
-    return spec_text("text-classification", base_model, [], preprocessing={"max_length": MAX_LENGTH},
-                     data={"data_url": TEXT_DATA_URL, "version_id": VERSION_ID, "lakefs_commit": "c0ffee"}, **payload)
-
-
 def parquet(rows: list[dict]) -> bytes:
     sink = io.BytesIO()
     pq.write_table(pa.Table.from_pylist([{k.value: v for k, v in r.items()} for r in rows], schema=SCHEMA), sink)
@@ -101,16 +76,12 @@ def fake_get(rows, files, manifest_rows=None):
     return lambda url: served[url]
 
 
-TRAINERS = {"image-classification": "ray_training.classification:train", "object-detection": "ray_training.detection:train",
-            "text-classification": "ray_training.text_classification:train"}  # core-api task_types seed
-
-
 def spec_doc(task, base_model, rows, kind="train", **payload) -> dict:
     return {
         "spec_version": 1, "kind": kind, "job_id": "job-1", "tenant_id": "9d1ad1c3-6e0e-4f54-8f0b-2c7a3a1d5b10",
         "resources": {"cpu": 1, "memory_bytes": 2**30, "gpu": 1, "max_runtime_s": 0},
         "payload": {
-            "bucket": "b", "prefix": "trainings/t/p/r/", "task": task, "trainer": TRAINERS.get(task, "ray_training.classification:train"), "data_kind": "images", "preset": "small",
+            "bucket": "b", "prefix": "trainings/t/p/r/", "task": task, "trainer": TRAINER, "data_kind": "images", "preset": "small",
             "base_model": {"repo_id": str(base_model), "revision": "0" * 40},
             "learning_rate": LEARNING_RATE, "preprocessing": PREPROCESSING,
             "data": {"index_url": INDEX_URL, "manifest_url": MANIFEST_URL, "version_id": VERSION_ID, "lakefs_commit": "c0ffee"},

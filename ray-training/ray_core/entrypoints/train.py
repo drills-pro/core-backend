@@ -1,6 +1,6 @@
 """Driver of a training job: starts a Ray Train run (a TorchTrainer) and writes report.json from what it returns.
 
-    python -m ray_training.entrypoints.train '<job spec json>'      # STAGING_* credentials in the environment
+    python -m ray_core.entrypoints.train '<job spec json>'      # STAGING_* credentials in the environment
 
 Submit it with entrypointNumGpus=0: the GPUs belong to the Train workers, not to the driver. The driver imports torch
 (ray.train.torch does), so it runs where the image has it. Exit code 1 when the report is failed.
@@ -15,12 +15,12 @@ import ray
 from ray.train import CheckpointConfig, FailureConfig, RunConfig, ScalingConfig
 from ray.train.torch import TorchTrainer
 
-from ray_training.constants import LOCAL_GPUS_ENV, TRAIN_ATTEMPTS, TRAIN_STATE_KEEP, FailCode, Outcome
-from ray_training.errors import Unsupported
-from ray_training.runner import failed_report, failure_code, write_report
-from ray_training.spec import TrainSpec, parse_spec
-from ray_training.store import store_from_env, train_state_storage
-from ray_training.worker import REPORT_FIELD, train_loop
+from ray_core.constants import LOCAL_GPUS_ENV, TRAIN_ATTEMPTS, TRAIN_STATE_KEEP, FailCode, Outcome
+from ray_core.errors import Unsupported
+from ray_core.runner import failed_report, failure_code, write_report
+from ray_core.spec import TrainSpec, parse_spec
+from ray_core.store import store_from_env, train_state_storage
+from ray_core.worker import REPORT_FIELD, train_loop
 
 
 def scaling(spec: TrainSpec) -> ScalingConfig:

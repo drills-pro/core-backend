@@ -10,12 +10,12 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ray_training.constants import CONFUSION_TOP_K, TOKENIZER_KEY
-from ray_training.data import Dataset, Sample, split_for_training
-from ray_training.loop import Kit, fit
-from ray_training.metrics import classification_metrics
-from ray_training.result import Result, export_onnx_inputs, seed_everything
-from ray_training.spec import TextPreprocessing, TrainSpec
+from ray_core.constants import CONFUSION_TOP_K, TOKENIZER_KEY
+from ray_core.data import Dataset, Get, Sample, load_text_dataset, split_for_training
+from ray_core.loop import Kit, fit
+from ray_core.metrics import classification_metrics
+from ray_core.result import Result, export_onnx_inputs, seed_everything
+from ray_core.spec import TextPreprocessing, TrainSpec
 
 INPUT_IDS, ATTENTION_MASK = "input_ids", "attention_mask"
 
@@ -64,13 +64,17 @@ def loss(model, batch, dev):
     return model(input_ids=ids.to(dev), attention_mask=mask.to(dev), labels=y.to(dev)).loss, len(y)
 
 
-def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
+def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
+    return train_model(spec, load_text_dataset(spec, get), work)
+
+
+def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module | None = None, tokenizer=None) -> Result | None:
     seed_everything(spec.seed)
     pre: TextPreprocessing = spec.preprocessing
     train_set, held_out = split_for_training(ds)
     n = len(ds.classes)
-    tokenizer = AutoTokenizer.from_pretrained(spec.base_model, revision=spec.base_revision)
-    model = AutoModelForSequenceClassification.from_pretrained(
+    tokenizer = tokenizer or AutoTokenizer.from_pretrained(spec.base_model, revision=spec.base_revision)  # both passed by the smoke job only
+    model = model or AutoModelForSequenceClassification.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Texts(train_set), Texts(held_out), collator(tokenizer, pre), loss, evaluate), spec)

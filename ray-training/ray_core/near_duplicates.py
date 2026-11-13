@@ -5,7 +5,7 @@ A difference hash (dHash) per image, compared by Hamming distance. Image tasks o
 import numpy as np
 from PIL import Image
 
-from ray_training.data import Dataset, Sample, split_for_training
+from ray_core.data import Dataset, Sample, split_for_training
 
 HASH_SIDE = 8  # a HASH_SIDE x HASH_SIDE grid of left-to-right brightness comparisons = 64 bits
 MAX_DISTANCE = 4  # bits that may differ for two images to count as the same picture

@@ -1,6 +1,7 @@
-"""Closed sets and named values of the trainer. Layout and slugs mirror core-api / ray_jobs (test_spec.py checks the spec)."""
+"""Closed sets and named values of the trainer contract. Layout mirrors core-api / ray_jobs (test_spec.py checks the spec)."""
 from enum import StrEnum
 
+CONTRACT = 1  # the contract a task bundle declares in manifest.json (`contract`); a bundle runs only on a ray_core serving it
 SPEC_VERSION = 1  # job spec version this code reads (core-api app/integrations/job_spec.py)
 REPORT_SCHEMA_VERSION = 1
 TRAINER_VERSION = "0.1.0"
@@ -16,8 +17,6 @@ TRAIN_STATE_KEEP = 1  # checkpoints kept per run
 STATE_FILE = "state.pt"  # the resume state inside a checkpoint
 CONFUSION_TOP_K = 5
 ONNX_OPSET = 17
-MAP_IOU_THRESHOLDS = tuple(0.5 + 0.05 * i for i in range(10))  # COCO: 0.50..0.95
-MAP_RECALL_POINTS = 101
 SPLIT_BUCKETS = 100  # hash split: bucket = int(sha256[:8], 16) % 100
 SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW = 80, 90  # 80 / 10 / 10
 HASH_HEX_CHARS = 8
@@ -38,14 +37,6 @@ class EventType(StrEnum):
     """The events core-api takes (app.modules.user.training.constants.EventType)."""
 
     PROGRESS = "progress"
-
-
-class Task(StrEnum):
-    """The task slugs the data loader reads differently (core-api TaskType); which trainer runs a task comes from the spec."""
-
-    IMAGE_CLASSIFICATION = "image-classification"
-    OBJECT_DETECTION = "object-detection"
-    TEXT_CLASSIFICATION = "text-classification"
 
 
 class Resample(StrEnum):

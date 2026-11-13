@@ -6,9 +6,9 @@ from urllib.error import HTTPError, URLError
 import jsonschema
 import pytest
 
-from ray_training import reporting
-from ray_training.constants import EVENTS_TIMEOUT_SECONDS
-from ray_training.spec import parse_spec
+from ray_core import reporting
+from ray_core.constants import EVENTS_TIMEOUT_SECONDS
+from ray_core.spec import parse_spec
 from tests.support import classification_rows, spec_doc
 from tests.test_spec import CONTRACT
 
@@ -87,7 +87,7 @@ def test_a_missing_token_variable_or_an_epochless_entry_is_swallowed_too(monkeyp
 
 
 def test_the_ray_session_posts_after_the_checkpoint_and_a_failing_post_does_not_fail_the_epoch(monkeypatch):
-    worker = pytest.importorskip("ray_training.worker")
+    worker = pytest.importorskip("ray_core.worker")
     order = []
     monkeypatch.setattr(worker.ray.train, "get_context", lambda: SimpleNamespace(get_world_rank=lambda: 0, get_world_size=lambda: 1))
     monkeypatch.setattr(worker.ray.train, "report", lambda *a, **k: order.append("checkpoint"))

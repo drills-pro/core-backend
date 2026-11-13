@@ -9,14 +9,14 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from transformers import RTDetrV2ForObjectDetection
 
-from ray_training.constants import Augmentation
-from ray_training.data import Dataset, Sample, split_for_training
-from ray_training.loop import Kit, fit
-from ray_training.metrics import detection_metrics
-from ray_training.near_duplicates import count_near_duplicates
-from ray_training.recipe import flip_with_boxes
-from ray_training.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
-from ray_training.spec import Preprocessing, TrainSpec
+from ray_core.constants import Augmentation
+from ray_core.data import Dataset, Get, Sample, load_image_dataset, split_for_training
+from ray_core.loop import Kit, fit
+from objdet.metrics import detection_metrics
+from ray_core.near_duplicates import count_near_duplicates
+from ray_core.recipe import flip_with_boxes
+from ray_core.result import INPUT_NAME, Result, export_onnx, load_image, preprocessing, seed_everything
+from ray_core.spec import Preprocessing, TrainSpec
 
 MAX_DETECTIONS = 100  # kept per image when scoring
 MONITOR = "map50_95"  # what early stopping watches
@@ -80,11 +80,15 @@ def loss(model, batch, dev):
     return model(pixel_values=x.to(dev), labels=labels).loss, len(labels)
 
 
-def train(spec: TrainSpec, ds: Dataset, work: Path) -> Result | None:
+def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
+    return train_model(spec, load_image_dataset(spec, work, get, detection=True), work)
+
+
+def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module | None = None) -> Result | None:
     seed_everything(spec.seed)
     train_set, held_out = split_for_training(ds)
     n = len(ds.classes)
-    model = RTDetrV2ForObjectDetection.from_pretrained(
+    model = model or RTDetrV2ForObjectDetection.from_pretrained(  # a model is passed by the smoke job only
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
     done = fit(Kit(model, Images(train_set, spec.image_size, spec.preprocessing, spec.augmentation), Images(held_out, spec.image_size, spec.preprocessing), collate, loss, evaluate, MONITOR), spec)

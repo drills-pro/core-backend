@@ -1,4 +1,5 @@
-"""LR schedule, augmentation and early stopping: the pieces (ray_training.recipe) and how loop.fit uses them. CPU, no Ray."""
+"""LR schedule, augmentation and early stopping: the pieces (ray_core.recipe) and how loop.fit uses them. CPU, no Ray.
+How each task applies its augmentation is tested in its bundle."""
 import copy
 import json
 import math
@@ -7,14 +8,11 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from ray_training import loop
-from ray_training.constants import Augmentation, LrSchedule
-from ray_training.classification import Images
-from ray_training.detection import Images as DetectionImages
-from ray_training.loop import Kit, Session, fit
-from ray_training.recipe import EarlyStopping, flip_crop, flip_with_boxes, lr_factor
-from ray_training.spec import Preprocessing, parse_spec
-from ray_training.constants import Resample
+from ray_core import loop
+from ray_core.constants import Augmentation, LrSchedule
+from ray_core.loop import Kit, Session, fit
+from ray_core.recipe import EarlyStopping, flip_crop, flip_with_boxes, lr_factor
+from ray_core.spec import parse_spec
 from tests.support import classification_rows, spec_doc
 
 LR = 0.1
@@ -57,30 +55,6 @@ def test_early_stopping_counts_epochs_without_improvement_and_zero_is_off():
     again = EarlyStopping(2)
     again.load_state_dict(s.state_dict())
     assert again.stopped
-
-
-def test_only_the_train_split_is_augmented(monkeypatch):
-    pre = Preprocessing((0.0,) * 3, (1.0,) * 3, 1.0, Resample.BILINEAR)
-    calls = []
-    monkeypatch.setattr("ray_training.classification.flip_crop", lambda im: calls.append(1) or im)
-    monkeypatch.setattr("ray_training.classification.load_image", lambda *a: (torch.zeros(3, 4, 4), 4, 4))
-    fake = [SimpleNamespace(file="x", label=1)]
-    Images(fake, 4, pre)[0]
-    Images(fake, 4, pre, Augmentation.NONE)[0]
-    assert calls == []
-    Images(fake, 4, pre, Augmentation.FLIP_CROP)[0]
-    assert calls == [1]
-
-
-def test_detection_flip_moves_the_boxes_with_the_image(monkeypatch):
-    pre = Preprocessing((0.0,) * 3, (1.0,) * 3, 1.0, Resample.BILINEAR)
-    monkeypatch.setattr("ray_training.detection.load_image", lambda *a: (torch.zeros(3, 4, 4), 100, 100))
-    monkeypatch.setattr("ray_training.recipe.random.random", lambda: 0.0)  # always flip
-    sample = SimpleNamespace(file="x", boxes=[(0, 10, 20, 20, 40)])  # x, y, w, h in pixels: cx = 0.2
-    _, plain = DetectionImages([sample], 4, pre)[0]
-    _, flipped = DetectionImages([sample], 4, pre, Augmentation.FLIP)[0]
-    assert plain["boxes"][0, 0].item() == pytest.approx(0.2) and flipped["boxes"][0, 0].item() == pytest.approx(0.8)
-    assert flipped["boxes"][0, 1:].tolist() == pytest.approx(plain["boxes"][0, 1:].tolist())
 
 
 # ---- loop.fit ----

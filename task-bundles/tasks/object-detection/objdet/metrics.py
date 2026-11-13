@@ -1,17 +1,8 @@
-"""Fixed metrics: classification top-1, top-5 and confusion matrix; detection mAP50 and mAP50-95 (COCO style)."""
+"""Detection mAP50 and mAP50-95 (COCO style)."""
 import numpy as np
 
-from ray_training.constants import CONFUSION_TOP_K, MAP_IOU_THRESHOLDS, MAP_RECALL_POINTS
-
-
-def classification_metrics(logits: np.ndarray, targets: np.ndarray, num_classes: int) -> tuple[dict, list[list[int]]]:
-    """Returns ({top1, top5}, confusion[true][predicted]). top5 is top-min(5, classes)."""
-    k = min(CONFUSION_TOP_K, num_classes)
-    top = np.argsort(-logits, axis=1)[:, :k]
-    confusion = np.zeros((num_classes, num_classes), dtype=int)
-    np.add.at(confusion, (targets, top[:, 0]), 1)
-    return ({"top1": float((top[:, 0] == targets).mean()), "top5": float((top == targets[:, None]).any(axis=1).mean())},
-            confusion.tolist())
+MAP_IOU_THRESHOLDS = tuple(0.5 + 0.05 * i for i in range(10))  # COCO: 0.50..0.95
+MAP_RECALL_POINTS = 101
 
 
 def _iou(box: np.ndarray, others: np.ndarray) -> np.ndarray:

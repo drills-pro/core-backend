@@ -2,9 +2,9 @@
 
 The trainer keeps no preset table: base model, learning rate and preprocessing all come from the spec (core-api's task_catalog)."""
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from ray_training.constants import (
+from ray_core.constants import (
     DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, Augmentation, JobKind, LrSchedule,
     Resample)
 
@@ -37,8 +37,8 @@ class TrainSpec:
     vram_gb: float | None  # resources.vram_gb: GiB of GPU memory the run may hold, None = the GPU share decides
     bucket: str
     prefix: str
-    task: str  # a task_types slug; data.py looks its loader up by slug (LOADERS)
-    trainer: str  # "module:function" of the function that trains it (registry.trainer_for)
+    task: str  # a task_types slug, the bundle's manifest `slug`
+    trainer: str  # "module:attr" of the bundle function that trains it (registry.load)
     preset: str  # a task_presets name in core-api; only recorded, the spec carries the values it stood for
     base_model: str
     base_revision: str | None
@@ -51,7 +51,7 @@ class TrainSpec:
     batch_size: int
     image_size: int
     learning_rate: float
-    preprocessing: Preprocessing | TextPreprocessing
+    preprocessing: Preprocessing | TextPreprocessing | None  # None: the task transforms nothing (tabular)
     seed: int
     lr_schedule: LrSchedule = LrSchedule.CONSTANT  # the preset's recipe, as the spec carries it; the defaults are the old behaviour
     warmup_fraction: float = 0.0
@@ -60,9 +60,12 @@ class TrainSpec:
     events_url: str | None = None  # reporting.events_url: where to post progress; None = post nothing
     events_token_env: str | None = None  # reporting.token_env: the environment variable that holds the token (never in the spec)
     base_license: str | None = None  # the base model's SPDX licence as the preset recorded it, copied to model.json
+    hyperparameters: dict = field(default_factory=dict)  # as the spec carries them: a bundle reads its own (its manifest's JSON Schema)
 
 
-def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing:
+def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing | None:
+    if not pre:  # a task whose input needs no transform (tabular): the key is still required, empty
+        return None
     if "max_length" in pre:
         return TextPreprocessing(pre["max_length"])
     return Preprocessing(tuple(pre["mean"]), tuple(pre["std"]), pre["rescale"], Resample(pre["resample"]))
@@ -73,7 +76,7 @@ def parse_spec(text: str) -> TrainSpec:
     if doc.get("spec_version") != SPEC_VERSION:
         raise ValueError(f"job spec version {doc.get('spec_version')!r} not supported, expected {SPEC_VERSION}")
     if doc.get("kind") != JobKind.TRAIN:
-        raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_training")
+        raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_core")
     p, data = doc["payload"], doc["payload"]["data"]
     task, preset = p["task"], p["preset"]
     base, hp = p["base_model"], p.get("hyperparameters") or {}
@@ -95,4 +98,5 @@ def parse_spec(text: str) -> TrainSpec:
         augmentation=Augmentation(p.get("augmentation", Augmentation.NONE)),
         early_stopping_patience=p.get("early_stopping_patience", 0),
         events_url=reporting.get("events_url"), events_token_env=reporting.get("token_env"), base_license=base.get("license"),
+        hyperparameters=hp,
     )

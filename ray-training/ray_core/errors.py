@@ -1,5 +1,5 @@
 """Failures a trainer raises on purpose; anything else becomes `internal` (or `oom`) in the runner."""
-from ray_training.constants import FailCode
+from ray_core.constants import FailCode
 
 
 class TrainFailure(Exception):

@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-training" / "ray_training",
+DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-training" / "ray_core",  # the ray_training job package holds ray_core
         "ray_serving": ROOT / "ray-serving" / "ray_serving"}
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)

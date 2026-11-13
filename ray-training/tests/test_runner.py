@@ -4,10 +4,10 @@ import json
 import jsonschema
 import pytest
 
-from ray_training.constants import REPORT_KEY, FailCode
-from ray_training.errors import BadData, Unsupported
-from ray_training.runner import failure_code, run
-from ray_training.spec import parse_spec
+from ray_core.constants import REPORT_KEY, FailCode
+from ray_core.errors import BadData, Unsupported
+from ray_core.runner import failure_code, run
+from ray_core.spec import parse_spec
 from tests.support import MemStore, classification_rows, fake_get, spec_text
 
 

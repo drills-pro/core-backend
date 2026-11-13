@@ -1,4 +1,4 @@
-# The cu128 Ray image plus what ray_training imports: the image of the cluster's GPU worker group (the trainer-vision
+# The cu128 Ray image plus what ray_core and the task bundles import: the image of the cluster's GPU worker group (the trainer-vision
 # image of docs/trainer-plan.md step 6). The base is the same Ray version as k8s apps/ray/app/raycluster.yaml (head and
 # workers must run one Ray version); keep the two in step. Built by .github/workflows/ray-training-image.yml (not run yet).
 # predictor-gpu (ray_serving, Ray Serve) runs on this group too: ray[serve] and onnxruntime-gpu (it replaces the CPU build
