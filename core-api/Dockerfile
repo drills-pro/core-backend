@@ -1,10 +1,13 @@
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /usr/local/bin/uv
+# The environment is built from uv.lock (a stale lock fails the build) without the dev group, and `uv run`/`uv sync` never
+# touch it again at start. Bytecode is compiled at build time so a pod does not pay for it on every start.
+ENV UV_FROZEN=1 UV_NO_DEV=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
-COPY core-api/pyproject.toml .
-RUN uv sync --no-install-project
+COPY core-api/pyproject.toml core-api/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --no-install-project
 
 COPY core-api/app ./app
 COPY core-api/config ./config
@@ -18,10 +21,9 @@ COPY ray-serving/ray_serving /ray-serving/ray_serving
 # Read by the cluster's backend-migrate Job: an init container runs `cp -R /migrations/. /work/` and
 # dbmate (its own image) applies them. This image ships no migration runner.
 COPY core-api/migrations /migrations
-RUN uv sync
 
 # The image is the production one; compose and local runs override this (config/*.yaml).
 ENV APP_ENV=prod
 
 EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
