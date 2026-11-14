@@ -25,7 +25,7 @@ from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
-from app.core.requirements import RequirementsError, parse_lock
+from app.core.requirements import RequirementsError, parse_lock, requirements_sha256
 from app.core.settings import settings
 from app.integrations import compute
 from app.integrations.data_plane import job_catalog, job_submit, layout, lakefs
@@ -169,13 +169,16 @@ async def start_smoke(package: JobPackage, attempt: str = "") -> JobPackage:
     elif name == CORE:  # a core runs every stable bundle's smoke: the core x bundle gate of planning/25
         async with (await get_pool()).acquire() as conn:
             bundles = await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.STABLE)
+    requirements = job_packages.merged_requirements(core, *bundles)  # what a real run on these packages installs
+    if requirements:
+        metadata["requirements_sha256"] = requirements_sha256(requirements)
     if core.name == CORE:  # smoke_all: none stable yet = nothing to break, the core passes
         spec["bundles"] = [{"smoke": b.manifest["smoke"], "requires": b.manifest["requires"]} for b in bundles]
         metadata["core_sha256"] = core.sha256
     await job_submit.submit(
         package_url=await presigned_url(core.name, core.sha256), bundle_urls=[await presigned_url(b.name, b.sha256) for b in bundles],
         module=job_catalog.SMOKE_ENTRYPOINTS[core.name], spec_json=json.dumps(spec), job_id=job_id, metadata=metadata,
-        num_cpus=settings.training.driver_cpus, timeout_seconds=SMOKE_TIMEOUT_SECONDS)
+        num_cpus=settings.training.driver_cpus, timeout_seconds=SMOKE_TIMEOUT_SECONDS, requirements=requirements)
     async with (await get_pool()).acquire() as conn:
         await job_packages.start_smoke(conn, name, package.sha256, job_id)
         return await job_packages.get(conn, name, package.sha256)

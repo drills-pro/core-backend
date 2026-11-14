@@ -2,11 +2,15 @@
 whether runs may use it (candidate -> stable -> retired). Platform data, written only through /v1/admin/job-packages.
 """
 from datetime import datetime
+from http import HTTPStatus
 
 from pydantic import BaseModel
 
 from app.core.enums import JobPackageName, PackageAuditAction, PackageKind, PackageStatus, SmokeStatus
+from app.core.problem import Problem
+from app.core.requirements import RequirementsError, merge_requirements
 
+REQUIREMENTS_CONFLICT = "requirements_conflict"  # two packages of one run pin the same distribution differently
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"  # mirrors job_packages_sha256_check
 TASK_PACKAGE_PREFIX = "task_"
@@ -31,6 +35,15 @@ class JobPackage(BaseModel):
     updated_at: datetime
     smoke_status: SmokeStatus
     smoke_job_id: str | None
+
+
+def merged_requirements(*packages: JobPackage) -> list[str]:
+    """What Ray installs for a run on these packages together (the core and its bundle, or a package alone): the union of
+    their pins, sorted. The same pin in two packages merges; two different pins for one distribution are a 409."""
+    try:
+        return merge_requirements(*(p.requirements for p in packages))
+    except RequirementsError as e:
+        raise Problem(HTTPStatus.CONFLICT, REQUIREMENTS_CONFLICT, f"{' + '.join(p.name for p in packages)}: {e}") from None
 
 
 _SELECT = "SELECT * FROM job_packages"

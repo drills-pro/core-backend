@@ -12,7 +12,9 @@ from pydantic import ValidationError
 
 from app.core.authz import Role, TenantRole
 from app.core.enums import JobPackageName, TaskType
+from app.core.job_packages import REQUIREMENTS_CONFLICT
 from app.core.problem import Problem
+from app.core.requirements import requirements_sha256
 from app.core.settings import settings
 from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
@@ -129,8 +131,9 @@ class Gateway:
     """The calls create_run makes outside Postgres, recorded."""
 
     def __init__(self, monkeypatch, fail_submit=False):
-        self.spec = self.stopped = self.finished = None
+        self.spec = self.stopped = self.finished = self.requirements = None
         self.started = []
+        self.package_requirements = []
 
         async def start_run(*ids):
             self.started.append(ids)
@@ -142,10 +145,11 @@ class Gateway:
 
         async def resolve_stable(name):
             self.package_name = name
-            return SimpleNamespace(sha256=PACKAGE_SHA, name=name)
+            return SimpleNamespace(sha256=PACKAGE_SHA, name=name, requirements=self.package_requirements)
 
-        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None, *, bundle_name):
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None, *, bundle_name, requirements=None):
             self.spec, self.package_sha, self.events_token, self.bundle_name = spec, package_sha256, events_token, bundle_name
+            self.requirements = requirements
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -235,6 +239,35 @@ def test_a_task_on_a_bundle_runs_on_the_core_with_both_shas_pinned(monkeypatch):
     assert (p.trainer, p.hyperparameters.epochs, p.hyperparameters.batch_size) == ("imgcls.train:train", 5, 16)  # the preset's defaults fill in
     (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
     assert (insert[14], insert[16], insert[7]["epochs"]) == (PACKAGE_SHA, BUNDLE_SHA, 5)
+
+
+def test_a_run_installs_the_cores_and_the_bundles_pins_merged_and_records_their_hash(monkeypatch):
+    gw = Gateway(monkeypatch)
+    gw.package_requirements = ["torch==2.11.0", "numpy==2.1.0"]
+    conn = _on_a_bundle(monkeypatch)
+    conn.rows["FROM job_packages"]["requirements"] = ["numpy==2.1.0", "xgboost==3.2.0"]
+    create({**BODY, "hyperparameters": {"epochs": 5}})
+    merged = ["numpy==2.1.0", "torch==2.11.0", "xgboost==3.2.0"]
+    assert gw.requirements == merged and gw.spec.payload.requirements_sha256 == requirements_sha256(merged)
+    (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
+    assert insert[13]["payload"]["requirements_sha256"] == requirements_sha256(merged)  # stored in the run's spec, next to the shas
+
+
+def test_a_run_without_pins_records_no_requirements_hash(monkeypatch):
+    gw = Gateway(monkeypatch)
+    make_conn(monkeypatch)
+    create()
+    assert gw.requirements == [] and gw.spec.payload.requirements_sha256 is None
+
+
+def test_a_core_and_bundle_that_pin_one_package_differently_start_nothing(monkeypatch):
+    gw = Gateway(monkeypatch)
+    gw.package_requirements = ["numpy==2.1.0"]
+    conn = _on_a_bundle(monkeypatch)
+    conn.rows["FROM job_packages"]["requirements"] = ["numpy==2.2.0"]
+    with pytest.raises(Problem) as err:
+        create()
+    assert (err.value.status_code, err.value.code) == (409, REQUIREMENTS_CONFLICT) and not gw.started and gw.spec is None
 
 
 def test_a_bundle_schema_refuses_a_bad_hyperparameter_with_422_and_nothing_starts(monkeypatch):

@@ -7,6 +7,7 @@ from typing import Any
 from app.core.bundle_manifest import hyperparameter_errors
 from app.core.presets import HyperparameterRange, TaskPreset
 from app.core.problem import Problem
+from app.core.requirements import requirements_sha256
 from app.core.settings import settings
 from app.core.task_types import TaskInfo
 from app.integrations import data_plane
@@ -63,8 +64,10 @@ def bundle_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides, m
 async def build(
     tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskInfo, body: TrainingRunCreate,
     preset: TaskPreset, hyperparameters: Hyperparameters | dict[str, Any], reporting: Reporting | None = None, pins: tuple[str, str] | None = None,
+    requirements: list[str] | None = None,
 ) -> TrainSpec:
-    """`pins` is (core sha256, bundle sha256) for a task trained by a bundle; the spec records both."""
+    """`pins` is (core sha256, bundle sha256) for a task trained by a bundle; the spec records both, and the hash of the
+    merged `requirements` the run installs."""
     ids = (tenant_id, str(project_id))
     data = await data_plane.prepare_train_data(
         *ids, str(dataset_id), str(body.dataset_version_id), str(run_id), min(horizon_seconds(), MAX_PRESIGN_SECONDS),
@@ -93,6 +96,7 @@ async def build(
             seed=body.seed,
             core_sha256=pins and pins[0],
             bundle_sha256=pins and pins[1],
+            requirements_sha256=requirements_sha256(requirements) if requirements else None,
         ),
         resources=Resources(cpu=preset.cpu, memory_bytes=preset.memory_bytes, gpu=preset.gpu, vram_gb=preset.vram_gb, max_runtime_s=preset.max_runtime_s),
     )

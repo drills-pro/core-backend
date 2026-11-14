@@ -118,6 +118,7 @@ class TrainPayload(BaseModel):
     seed: int = DEFAULT_SEED
     core_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # a run on a task bundle: the core zip it runs on
     bundle_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # ... and the bundle zip; both are pinned at submit
+    requirements_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # the merged pins Ray installed for the run (app.core.requirements); None = none, the baked image
 
     @model_validator(mode="after")
     def _data_fits_the_task(self):
