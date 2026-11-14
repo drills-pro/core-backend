@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "slug": "text-classification",
+  "display_name": "Text classification",
+  "data_kind": "text",
+  "contract": 1,
+  "trainer": "textcls.train:train",
+  "smoke": "textcls.smoke:spec_doc",
+  "serving": {
+    "encoder": "text_encoder",
+    "postprocess": "classify"
+  },
+  "servable": true,
+  "monitor": "top1",
+  "hyperparameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "epochs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 30,
+        "description": "Passes over the training split."
+      },
+      "batch_size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512,
+        "default": 16,
+        "description": "Samples per optimizer step, per worker."
+      },
+      "image_size": {
+        "type": "integer",
+        "minimum": 32,
+        "maximum": 1536,
+        "default": 224,
+        "description": "Side of the square the images are resized to (image tasks)."
+      }
+    }
+  },
+  "presets": [
+    {
+      "name": "small",
+      "base_model": {
+        "repo_id": "distilbert/distilbert-base-uncased",
+        "revision": "12040accade4e8a0f71eabdb258fecc2e7e948be"
+      },
+      "learning_rate": 2e-05,
+      "preprocessing": {
+        "max_length": 256
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "medium",
+      "base_model": {
+        "repo_id": "google-bert/bert-base-uncased",
+        "revision": "86b5e0934494bd15c9632b12f734a8a67f723594"
+      },
+      "learning_rate": 2e-05,
+      "preprocessing": {
+        "max_length": 256
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "large",
+      "base_model": {
+        "repo_id": "FacebookAI/roberta-base",
+        "revision": "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
+      },
+      "learning_rate": 1e-05,
+      "preprocessing": {
+        "max_length": 256
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    }
+  ],
+  "requires": [
+    "torch",
+    "transformers",
+    "tokenizers",
+    "numpy",
+    "pyarrow",
+    "onnx"
+  ]
+}

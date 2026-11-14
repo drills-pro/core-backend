@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "slug": "tabular-classification",
+  "display_name": "Tabular classification (XGBoost)",
+  "data_kind": "tabular",
+  "contract": 1,
+  "trainer": "xgbtab.train:train",
+  "smoke": "xgbtab.smoke:spec_doc",
+  "servable": false,
+  "monitor": "top1",
+  "hyperparameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "default": "label",
+        "description": "The column of data.parquet to predict."
+      },
+      "n_estimators": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 200,
+        "description": "Boosting rounds (trees)."
+      },
+      "max_depth": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 6,
+        "description": "Deepest a tree may grow."
+      }
+    }
+  },
+  "presets": [
+    {
+      "name": "small",
+      "learning_rate": 0.3,
+      "preprocessing": {},
+      "cpu": 4,
+      "memory_bytes": 8589934592,
+      "gpu": 0,
+      "max_runtime_s": 3600,
+      "hyperparameters": {
+        "target": "label",
+        "n_estimators": 200,
+        "max_depth": 6
+      }
+    },
+    {
+      "name": "large",
+      "learning_rate": 0.1,
+      "preprocessing": {},
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 0,
+      "max_runtime_s": 14400,
+      "hyperparameters": {
+        "target": "label",
+        "n_estimators": 1000,
+        "max_depth": 8
+      }
+    }
+  ],
+  "requires": [
+    "xgboost",
+    "onnxmltools",
+    "numpy",
+    "pyarrow",
+    "onnx"
+  ]
+}

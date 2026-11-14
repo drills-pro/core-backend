@@ -1,0 +1,149 @@
+name: Task bundles
+
+# Tests every task bundle (task-bundles/tasks/<slug>, planning/25-task-bundles.md) against this commit's ray_core, and on main
+# publishes the bundles the push changed: scripts/build-bundle.sh builds jobs/<slug>-<sha256>.zip, it is copied to the staging
+# bucket, core-api registers it as a candidate (POST /v1/admin/task-bundles/register reads it back, checks hash and manifest, and
+# submits its smoke job on Ray with the stable ray_core), and this job waits for the smoke. core-api promotes a bundle whose smoke
+# passed (auto-promote); a failed smoke fails this job. No k8s change is involved: a bundle is data, not an image.
+#
+# Needs the same settings as job-packages.yml:
+#   vars.STAGING_BUCKET, vars.GCP_WORKLOAD_IDENTITY_PROVIDER, vars.GCP_SERVICE_ACCOUNT, vars.CORE_API_URL, vars.ZITADEL_ISSUER,
+#   vars.ZITADEL_PROJECT_ID, secrets.ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET (a machine user with the platform_admin role)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "task-bundles/**"
+      - "ray-training/ray_core/**"  # a contract change must still run every bundle
+      - "scripts/build-bundle.sh"
+      - ".github/workflows/task-bundles.yml"
+  pull_request:
+    paths:
+      - "task-bundles/**"
+      - "ray-training/ray_core/**"
+      - "scripts/build-bundle.sh"
+      - ".github/workflows/task-bundles.yml"
+  workflow_dispatch:  # publishes every bundle
+
+permissions:
+  contents: read
+
+env:
+  SMOKE_WAIT_SECONDS: "1800"  # core-api times a stuck smoke out sooner; this only bounds the wait
+  SMOKE_POLL_SECONDS: "15"
+
+jobs:
+  test:
+    name: task bundle tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk  # torch and its CUDA wheels need more than the runner's free space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.11"  # the Ray image runs 3.11 (ray-training/pyproject.toml)
+          cache-dependency-glob: ray-training/uv.lock
+      - name: Install ray_core and the trainer image's libraries
+        working-directory: ray-training
+        run: uv sync --locked --group dev
+      - name: Test each bundle (its own directory and ray_core on the path, as its zip and the job would have them)
+        run: |
+          for dir in task-bundles/tasks/*/; do
+            echo "::group::${dir}"
+            (cd "$dir" && PYTHONPATH=".:${GITHUB_WORKSPACE}/ray-training" "${GITHUB_WORKSPACE}/ray-training/.venv/bin/python" -m pytest tests -q)
+            echo "::endgroup::"
+          done
+
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: task-bundles-publish
+    permissions:
+      contents: read
+      id-token: write  # for the Google workload identity federation below
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # to diff against the push's previous commit
+      - name: Build the changed bundles
+        id: build
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = push ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            slugs=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- task-bundles/tasks | cut -d/ -f3 | sort -u)
+          else
+            slugs=$(ls task-bundles/tasks)
+          fi
+          keys=""
+          for slug in $slugs; do
+            [ -f "task-bundles/tasks/${slug}/manifest.json" ] || continue  # a deleted bundle
+            keys="${keys} $(scripts/build-bundle.sh "task-bundles/tasks/${slug}" dist)"
+          done
+          echo "built:${keys:- nothing}"
+          echo "keys=${keys}" >> "$GITHUB_OUTPUT"
+      - uses: google-github-actions/auth@v2
+        if: steps.build.outputs.keys != ''
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.build.outputs.keys != ''
+      - name: Copy the zips to the staging bucket
+        if: steps.build.outputs.keys != ''
+        env:
+          BUCKET: ${{ vars.STAGING_BUCKET }}
+          KEYS: ${{ steps.build.outputs.keys }}
+        run: |
+          for key in $KEYS; do
+            gcloud storage cp "dist/${key}" "gs://${BUCKET}/${key}"
+          done
+      - name: Get a platform_admin token
+        if: steps.build.outputs.keys != ''
+        id: token
+        env:
+          ISSUER: ${{ vars.ZITADEL_ISSUER }}
+          PROJECT_ID: ${{ vars.ZITADEL_PROJECT_ID }}
+          CLIENT_ID: ${{ secrets.ZITADEL_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ZITADEL_CLIENT_SECRET }}
+        run: |
+          token=$(curl -fsS -u "${CLIENT_ID}:${CLIENT_SECRET}" "${ISSUER}/oauth/v2/token" \
+            -d grant_type=client_credentials \
+            --data-urlencode "scope=openid urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud urn:zitadel:iam:org:projects:roles" \
+            | jq -er .access_token)
+          echo "::add-mask::${token}"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
+      - name: Register the candidates and wait for their smoke
+        if: steps.build.outputs.keys != ''
+        env:
+          API: ${{ vars.CORE_API_URL }}
+          TOKEN: ${{ steps.token.outputs.token }}
+          KEYS: ${{ steps.build.outputs.keys }}
+        run: |
+          call() {  # method path [json body]
+            curl -fsS -X "$1" "${API}$2" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" ${3:+-d "$3"}
+          }
+          registered=""
+          for key in $KEYS; do  # core-api reads the object back and checks it against the sha256 in the key and the manifest inside
+            row=$(call POST /v1/admin/task-bundles/register "{\"s3_key\": \"${key}\"}")
+            echo "$row" | jq -c '{slug, sha256, status, smoke_status}'
+            registered="${registered} $(echo "$row" | jq -er '.slug + "/" + .sha256')"
+          done
+          failed=0
+          for bundle in $registered; do
+            deadline=$(( $(date +%s) + SMOKE_WAIT_SECONDS ))
+            while :; do
+              row=$(call GET "/v1/admin/task-bundles/${bundle}")
+              smoke=$(echo "$row" | jq -r .smoke_status)
+              case "$smoke" in
+                passed) echo "ok   ${bundle}: smoke passed, status $(echo "$row" | jq -r .status)"; break ;;
+                failed) echo "::error::${bundle}: smoke failed"; failed=1; break ;;
+              esac
+              if [ "$(date +%s)" -ge "$deadline" ]; then echo "::error::${bundle}: smoke still ${smoke} after ${SMOKE_WAIT_SECONDS}s"; failed=1; break; fi
+              sleep "$SMOKE_POLL_SECONDS"
+            done
+          done
+          exit "$failed"

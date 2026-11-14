@@ -15,7 +15,7 @@ on:
     paths:
       - "ray-jobs/**"
       - "ray-serving/**"
-      - "ray-training/ray_training/**"
+      - "ray-training/ray_core/**"
       - ".github/workflows/ray-jobs-image.yml"
       - ".github/workflows/ray-image.yml"
       - "scripts/ray-image-smoke.py"
@@ -30,11 +30,11 @@ jobs:
     with:
       name: ray-jobs
       # This group runs the ingest jobs, Ray Serve (predictor-cpu) and the training *driver*, which never loads the trainers
-      # (so no transformers here): it imports the driver and the smoke entrypoint, not every ray_training module.
+      # (so no transformers here): it imports the driver and the smoke entrypoint, not every ray_core module or any task bundle.
       smoke-args: >-
         --imports onnx onnxruntime torch ray.serve ray.train.torch boto3 pyarrow PIL tokenizers
         --packages ray_jobs ray_serving
-        --modules ray_training.entrypoints.train ray_training.entrypoints.smoke
+        --modules ray_core.entrypoints.train ray_core.entrypoints.smoke
         --serving-check
     secrets:
       k8s-token: ${{ secrets.K8S_REPO_PAT }}

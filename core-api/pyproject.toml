@@ -18,6 +18,7 @@ dependencies = [
     "pydantic-settings>=2.16.0",
     "pyyaml>=6.0.3",
     "pyarrow>=15",  # preview reads the head of index.parquet / data.parquet
+    "jsonschema>=4.26.0",
 ]
 
 [dependency-groups]
@@ -30,7 +31,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "../ray-jobs", "../ray-training", "../ray-serving"]  # ray_jobs, ray_training, ray_serving: the contract tests import the job packages (ray_training without torch)
+pythonpath = [".", "../ray-jobs", "../ray-training", "../ray-serving"]  # ray_jobs, ray_core, ray_serving: the contract tests import the job packages (ray_core without torch)
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
 

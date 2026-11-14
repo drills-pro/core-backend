@@ -10,10 +10,11 @@ from functools import partial
 from http import HTTPStatus
 
 
-from app.core import audit, plan_limits, presets, task_types
+from app.core import audit, job_packages, plan_limits, presets, task_types
 from app.core.authz import AuthzContext
 from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
+from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
@@ -39,8 +40,8 @@ _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
 _INSERT = (
     "INSERT INTO training_runs (id, tenant_id, project_id, idempotency_key, ray_job_id, mlflow_run_id, dataset_ref, "
-    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) "
+    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash, bundle_sha256) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
 )
 
@@ -62,11 +63,17 @@ async def _task_of(conn, project_task: str | None, body: TrainingRunCreate) -> T
     return info
 
 
+async def _bundle_of(conn, info: TaskInfo) -> JobPackage | None:
+    """The stable bundle that trains the task, as the promotion that wrote its row recorded it; None for a row from before bundles."""
+    return None if info.bundle_sha256 is None else await job_packages.get(conn, task_package_name(info.slug), info.bundle_sha256)
+
+
 def _same_request(row, body: TrainingRunCreate) -> bool:
     return (
         row["dataset_version_id"] == body.dataset_version_id
         and row["preset"] == body.preset
-        and all(row["config"][k] == v for k, v in body.hyperparameters.model_dump(exclude_none=True).items())  # the rest was the preset's default then
+        # the rest was the preset's default then; a key the task ignores (no bundle) was not stored and is not compared
+        and all(row["config"].get(k, v) == v for k, v in body.hyperparameters.model_dump(exclude_none=True).items())
         and row["spec"]["payload"]["seed"] == body.seed
     )
 
@@ -96,9 +103,11 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         if version is None:  # another project's or tenant's version is indistinguishable from a missing one
             raise not_found()
         preset = await presets.get(conn, task, body.preset)
-        if preset is None:
+        if preset is None or not preset.enabled:
             raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.UNKNOWN_PRESET, f"task type '{task}' has no preset '{body.preset}'")
-        hyperparameters = train_spec.resolve_hyperparameters(preset, body.hyperparameters)
+        bundle = await _bundle_of(conn, info)
+        hyperparameters = (train_spec.bundle_hyperparameters(preset, body.hyperparameters, bundle.manifest) if bundle
+                           else train_spec.resolve_hyperparameters(preset, body.hyperparameters))
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
@@ -106,7 +115,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
     try:
         package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
         started = await data_plane.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters, token and token.reporting)
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters,
+                                      token and token.reporting, bundle and (package.sha256, bundle.sha256))
     except Exception as e:
         raise job_lifecycle.start_failed(e, ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}")
 
@@ -116,8 +126,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         row, created = await insert_once(
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
-             hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-             task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash),
+             spec.payload.model_dump(mode="json")["hyperparameters"], version.dataset_id, version.lakefs_commit, body.dataset_version_id,
+             task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash, bundle and bundle.sha256),
             _BY_KEY, (project_id, idempotency_key),
         )
         if not created:  # lost a race with the same key: that one is the run
@@ -126,7 +136,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         await job_lifecycle.emit(conn, TRAINING, tenant_id, project_id, run_id, row["status"])
 
     await job_lifecycle.start(  # on failure: stop the job (Ray may have accepted it), then fail the run
-        partial(data_plane.submit_train, tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret), spec.job_id,
+        partial(data_plane.submit_train, tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
+                bundle_name=bundle and bundle.name), spec.job_id,
         partial(_fail_unstarted, ctx, run_id, started.run_id, project_id),
         ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}",
     )

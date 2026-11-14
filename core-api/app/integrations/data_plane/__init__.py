@@ -26,6 +26,7 @@ from app.integrations.data_plane.job_package import register_staged as register_
 from app.integrations.data_plane.job_package import resolve_stable as resolve_stable_package
 from app.integrations.data_plane.job_package import retry_smoke as retry_package_smoke
 from app.integrations.data_plane.job_package import start_smoke as start_package_smoke
+from app.integrations.data_plane.task_bundle import register_staged as register_staged_bundle
 from app.integrations.data_plane.lakefs import (
     commit_staged,
     create_dataset_repo,
@@ -83,7 +84,7 @@ __all__ = [
     "PredictionPayload", "store_prediction_payload", "load_prediction_payload", "delete_prediction_payloads",
     # platform operations: no tenant (job packages, health)
     "publish_package", "register_staged_package", "refresh_package_smoke", "start_package_smoke", "retry_package_smoke",
-    "resolve_stable_package", "presigned_package_url", "lakefs_health", "mlflow_health", "mlflow_artifact_url",
+    "resolve_stable_package", "register_staged_bundle", "presigned_package_url", "lakefs_health", "mlflow_health", "mlflow_artifact_url",
     # ownership checks, registered by the contexts that own the tables
     "OwnedResource", "register_ownership_check",
     # the staging and model layout, the job catalog

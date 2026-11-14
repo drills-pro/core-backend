@@ -11,11 +11,12 @@ import uuid
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
 from app.core.task_catalog import Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.job_packages import SHA256_PATTERN
 from app.core.task_types import TRAINER_PATTERN
 
 SPEC_VERSION = 1
@@ -76,7 +77,10 @@ DEFAULT_SEED = 42
 
 
 class Hyperparameters(BaseModel):
-    """What a caller may tune; every field has the platform default, so a request names only what it changes."""
+    """What a caller may tune on a task from before bundles; every field has the platform default, so a request names only
+    what it changes. A run on a task bundle carries a plain object instead, which the bundle's JSON Schema validated."""
+
+    model_config = ConfigDict(extra="forbid")
 
     epochs: int = Field(default=DEFAULT_EPOCHS, ge=1, le=MAX_EPOCHS)
     batch_size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=MAX_BATCH_SIZE)
@@ -99,19 +103,21 @@ class TrainPayload(BaseModel):
     bucket: str  # staging bucket; the job writes only under `prefix`
     prefix: str
     task: TaskType
-    trainer: str = Field(pattern=TRAINER_PATTERN)  # "module:function" in the ray_training package: the task_types row's trainer
+    trainer: str = Field(pattern=TRAINER_PATTERN)  # "module:function": the task_types row's trainer, in the task's bundle
     data_kind: DataKind  # which urls `data` carries
     preset: str  # the task_presets row's name; the values it stood for are in the fields below
-    base_model: TrainBaseModel
+    base_model: TrainBaseModel | None  # None: a bundle preset that trains from scratch (tabular)
     learning_rate: float = Field(gt=0)  # the catalog's value for this (task, preset): the trainer keeps no table of its own
-    preprocessing: Preprocessing | TextPreprocessing  # likewise; the trainer applies it and records it in model.json
+    preprocessing: Preprocessing | TextPreprocessing | None  # likewise; the trainer applies it and records it in model.json. None: tabular
     lr_schedule: LrSchedule = LrSchedule.CONSTANT  # the preset's recipe, copied here so a past run never changes
     warmup_fraction: float = Field(default=0, ge=0, lt=1)
     augmentation: Augmentation = Augmentation.NONE  # train split only
     early_stopping_patience: int = Field(default=0, ge=0)  # 0 = off
     data: TrainData
-    hyperparameters: Hyperparameters
+    hyperparameters: Hyperparameters | dict[str, Any] = Field(union_mode="left_to_right")  # dict: a bundle's, by its own schema
     seed: int = DEFAULT_SEED
+    core_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # a run on a task bundle: the core zip it runs on
+    bundle_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # ... and the bundle zip; both are pinned at submit
 
     @model_validator(mode="after")
     def _data_fits_the_task(self):
@@ -119,6 +125,8 @@ class TrainPayload(BaseModel):
         have = (self.data.data_url,) if self.data_kind is not DataKind.IMAGES else (self.data.index_url, self.data.manifest_url)
         if not all(have):
             raise ValueError(f"the data of a {self.task} run is missing a url")
+        if self.bundle_sha256 is None and isinstance(self.hyperparameters, dict):  # only a bundle's schema may widen them
+            raise ValueError("a run on no bundle takes epochs, batch_size and image_size within the platform bounds")
         return self
 
 

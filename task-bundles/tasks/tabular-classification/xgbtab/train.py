@@ -1,0 +1,90 @@
+"""Tabular classification: XGBoost on a tabular dataset's data.parquet, exported to ONNX (onnxmltools).
+
+data.parquet is the CSV / Hugging Face table as ingest typed it (bool, int64, float64, string columns) plus the nullable `split`
+column. The target column is the `target` hyperparameter. Rows without a split are assigned one from the hash of the row, like
+images and text. Imports nothing of the platform but ray_core: this bundle is the proof that a task needs no core-backend code.
+
+ponytail: numeric and bool features only; string columns are dropped (XGBoost's ONNX converter has no categorical input).
+One-hot or ordinal encoding recorded in model.json when a dataset needs its string columns.
+"""
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+
+from ray_core import loop
+from ray_core.constants import ROOT_RANK, Col, Split
+from ray_core.data import Get, hash_split, read_index
+from ray_core.errors import BadData
+from ray_core.metrics import classification_metrics
+from ray_core.result import Result
+from ray_core.spec import TrainSpec
+
+INPUT_NAME = "features"
+OUTPUTS = ["label", "probabilities"]
+ONNX_OPSET = 15  # the newest the onnxmltools XGBoost converter targets reliably
+DEFAULTS = {"target": "label", "n_estimators": 200, "max_depth": 6}  # mirror manifest.json's hyperparameter defaults
+NUMERIC = (bool, int, float)
+
+
+def row_split(row: dict) -> Split:
+    if row.get(Col.SPLIT):
+        return Split(row[Col.SPLIT])
+    return hash_split(hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).hexdigest())
+
+
+def features_of(rows: list[dict], target: str) -> list[str]:
+    """The columns whose every value is a number, a bool or missing, in table order; the target and the split are not features."""
+    columns = [c for c in rows[0] if c not in (target, Col.SPLIT)]
+    return [c for c in columns if all(r[c] is None or isinstance(r[c], NUMERIC) for r in rows)]
+
+
+def matrix(rows: list[dict], features: list[str]) -> np.ndarray:
+    return np.array([[np.nan if r[c] is None else float(r[c]) for c in features] for r in rows], dtype=np.float32)
+
+
+def export(model, n_features: int, path: Path) -> None:
+    from onnxmltools import convert_xgboost
+    from onnxmltools.convert.common.data_types import FloatTensorType
+
+    onnx = convert_xgboost(model, initial_types=[(INPUT_NAME, FloatTensorType([None, n_features]))], target_opset=ONNX_OPSET)
+    path.write_bytes(onnx.SerializeToString())
+
+
+def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
+    import xgboost
+
+    if loop.session.rank != ROOT_RANK:  # one XGBoost fit, not data parallel: another Ray Train worker has nothing to do
+        return None
+    hp = {**DEFAULTS, **spec.hyperparameters}
+    target = hp["target"]
+    rows = [r for r in read_index(get(spec.data_url)) if r.get(target) is not None]
+    if not rows:
+        raise BadData(f"data.parquet has no rows with a value in the target column {target!r}")
+    features = features_of(rows, target)
+    if not features:
+        raise BadData("data.parquet has no numeric or bool feature column")
+    classes = sorted({str(r[target]) for r in rows})
+    ids = {c: i for i, c in enumerate(classes)}
+    splits = [row_split(r) for r in rows]
+    train_rows = [r for r, s in zip(rows, splits) if s == Split.TRAIN]
+    held_out = [r for r, s in zip(rows, splits) if s == Split.VALIDATION] or [r for r, s in zip(rows, splits) if s == Split.TEST]
+    if not train_rows or not held_out:
+        raise BadData(f"need train and validation/test rows, got {len(train_rows)} train and {len(held_out)} held out")
+    y_train, y_held = (np.array([ids[str(r[target])] for r in part]) for part in (train_rows, held_out))
+    if len(set(y_train.tolist())) != len(classes):
+        raise BadData("every class needs at least one training row")
+    model = xgboost.XGBClassifier(
+        n_estimators=hp["n_estimators"], max_depth=hp["max_depth"], learning_rate=spec.learning_rate, random_state=spec.seed,
+        tree_method="hist")
+    model.fit(matrix(train_rows, features), y_train)
+    metrics, confusion = classification_metrics(model.predict_proba(matrix(held_out, features)), y_held, len(classes))
+    onnx = work / "model.onnx"
+    export(model, len(features), onnx)
+    signature = {
+        "inputs": [{"name": INPUT_NAME, "shape": ["batch", len(features)], "dtype": "float32"}],
+        "outputs": [{"name": OUTPUTS[0], "shape": ["batch"], "dtype": "int64"},
+                    {"name": OUTPUTS[1], "shape": ["batch", len(classes)], "dtype": "float32"}],
+        "preprocessing": {"features": features, "target": target, "missing": "nan"}}
+    return Result(classes, metrics, [{"epoch": 1, **metrics}], onnx, signature, {"labels": classes, "matrix": confusion})

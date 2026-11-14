@@ -66,6 +66,7 @@ training:                    # app/modules/user/training; a task's cpu and memor
   hub_url: https://huggingface.co        # admission reads a base model's licence, files and size here when a preset is written; "" = skip
   model_license_allowlist: [apache-2.0, mit, bsd-3-clause, bsd-2-clause, cc-by-4.0]
   model_max_bytes: 5368709120           # 5 GiB
+  bundle_auto_promote: true             # promote a task bundle once its smoke passed (planning/25 B3); per slug: task_bundle_settings
 
 serving:                     # app/integrations/serve_client.py: the two shared predictor apps
   max_models_per_replica: 8

@@ -1,69 +1,78 @@
-"""The contract between the task_types rows and the trainer package (top-level ray-training/): the spec names the trainer
-function of a task, and the package must hold it, so these tests fail when the two drift. A new trainable task needs a
-trainer module in the package and a task_types row naming it."""
+"""The contract between core-api and the training code: the task bundles in task-bundles/tasks/ (their manifest.json is what
+register validates, their trainer has ray_core's signature) and ray_core's spec parser (it reads what a promoted preset puts
+in the spec). These fail when core-api, ray_core and the bundles drift."""
 import ast
-import importlib.util
+import json
 import uuid
+from pathlib import Path
 
 import pytest
 
-from app.core.enums import TaskType
+from app.core.bundle_manifest import CORE_CONTRACT, BundleManifest, missing_entry_points
+from app.core.presets import TaskPreset
 from app.core.task_catalog import DataKind, Resample, TextPreprocessing
 from app.integrations.job_spec import Resources, TrainData, TrainPayload, TrainSpec
-from ray_training import constants as trainer
-from ray_training.spec import parse_spec
-from tests.support.presets import IMAGENET, preset
-from tests.support.task_types import SEEDED, TRAINABLE
+from ray_core import constants as core
+from ray_core.spec import parse_spec
+
+BUNDLES = sorted((Path(__file__).parents[3] / "task-bundles" / "tasks").glob("*/manifest.json"))
+TRAINER_PARAMS = ["spec", "work", "get"]  # ray_core.registry.Trainer
 
 
-
-TRAINER_PARAMS = ["spec", "ds", "work"]
-
-
-def test_the_trainer_package_knows_only_task_types():
-    assert {t.value for t in trainer.Task} <= {t.value for t in TaskType}
+def _manifest(path: Path) -> BundleManifest:
+    return BundleManifest.model_validate(json.loads(path.read_text()))
 
 
-@pytest.mark.parametrize("task", TRAINABLE)
-def test_every_seeded_trainer_is_a_function_with_the_trainer_signature(task):
-    module, function = SEEDED[task][1].split(":")
-    tree = ast.parse(open(importlib.util.find_spec(module).origin).read())
-    (node,) = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == function]
+def _sources(path: Path) -> dict[str, bytes]:
+    return {p.relative_to(path.parent).as_posix(): p.read_bytes() for p in path.parent.rglob("*.py") if "tests" not in p.parts}
+
+
+def test_there_are_bundles_to_check():
+    assert {p.parent.name for p in BUNDLES} >= {"image-classification", "object-detection", "text-classification", "tabular-classification"}
+
+
+@pytest.mark.parametrize("path", BUNDLES, ids=lambda p: p.parent.name)
+def test_every_bundle_manifest_is_one_register_accepts(path):
+    manifest = _manifest(path)
+    assert manifest.slug == path.parent.name and manifest.contract == CORE_CONTRACT == core.CONTRACT
+    assert missing_entry_points(manifest, _sources(path)) == []
+
+
+@pytest.mark.parametrize("path", BUNDLES, ids=lambda p: p.parent.name)
+def test_every_bundle_trainer_has_the_core_signature(path):
+    module, function = _manifest(path).trainer.split(":")
+    source = _sources(path).get(f"{module.replace('.', '/')}.py")
+    (node,) = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == function]
     assert [a.arg for a in node.args.args] == TRAINER_PARAMS
 
 
-def test_the_trainer_mirrors_the_resample_enum():
-    assert {r.value: r.name for r in trainer.Resample} == {r.value: r.name for r in Resample}
+def test_the_core_mirrors_the_resample_enum():
+    assert {r.value: r.name for r in core.Resample} == {r.value: r.name for r in Resample}
 
 
-def spec_of(task, preset) -> TrainSpec:
-    info = preset
-    kind, trainer_name, _ = SEEDED[task]
+def _spec(manifest: BundleManifest, preset) -> TrainSpec:
+    row = TaskPreset.model_validate({**preset.model_dump(), "task": manifest.slug, "updated_by": "t", "updated_at": "2026-01-01T00:00:00Z"})
     data = TrainData(version_id=uuid.uuid4(), lakefs_commit="c0ffee", **(
-        {"data_url": "http://d"} if kind != DataKind.IMAGES else {"index_url": "http://i", "manifest_url": "http://m"}))
+        {"data_url": "http://d"} if manifest.data_kind != DataKind.IMAGES else {"index_url": "http://i", "manifest_url": "http://m"}))
     payload = TrainPayload(
-        bucket="b", prefix="p/", task=task, trainer=trainer_name, data_kind=kind, preset=info.name, base_model=info.base_model, learning_rate=info.learning_rate,
-        preprocessing=info.preprocessing, lr_schedule=info.lr_schedule, warmup_fraction=info.warmup_fraction, augmentation=info.augmentation,
-        early_stopping_patience=info.early_stopping_patience, data=data, hyperparameters={})
-    return TrainSpec(job_id="j", tenant_id=uuid.uuid4(), payload=payload, resources=Resources(cpu=1, memory_bytes=1, gpu=1))
+        bucket="b", prefix="p/", task=manifest.slug, trainer=manifest.trainer, data_kind=manifest.data_kind, preset=row.name,
+        base_model=row.base_model, learning_rate=row.learning_rate, preprocessing=row.preprocessing, lr_schedule=row.lr_schedule,
+        warmup_fraction=row.warmup_fraction, augmentation=row.augmentation, early_stopping_patience=row.early_stopping_patience,
+        data=data, hyperparameters=row.hyperparameters, core_sha256="a" * 64, bundle_sha256="b" * 64)
+    return TrainSpec(job_id="j", tenant_id=uuid.uuid4(), payload=payload, resources=Resources(cpu=row.cpu, memory_bytes=row.memory_bytes, gpu=row.gpu))
 
 
-def preset_of(task):
-    text = SEEDED[task][0] == DataKind.TEXT
-    return preset(task, preprocessing={"max_length": 256} if text else IMAGENET, lr_schedule="cosine", warmup_fraction=0.1, early_stopping_patience=3)
-
-
-@pytest.mark.parametrize("task", TRAINABLE)
-def test_the_trainer_reads_what_a_preset_says(task):
-    info = preset_of(task)
-    spec = parse_spec(spec_of(task, info).model_dump_json())
-    assert (spec.task, spec.preset) == (task.value, info.name)
-    assert (spec.base_model, spec.base_revision, spec.learning_rate) == (info.base_model.repo_id, info.base_model.revision, info.learning_rate)
-    assert (spec.lr_schedule, spec.warmup_fraction, spec.augmentation, spec.early_stopping_patience) == (
-        info.lr_schedule, info.warmup_fraction, info.augmentation, info.early_stopping_patience)
-    pre = spec.preprocessing
-    if isinstance(info.preprocessing, TextPreprocessing):
-        assert pre.max_length == info.preprocessing.max_length and spec.data_url == "http://d"
-        return
-    assert (pre.mean, pre.std, pre.rescale, pre.resample.value) == (
-        info.preprocessing.mean, info.preprocessing.std, info.preprocessing.rescale, info.preprocessing.resample.value)
+@pytest.mark.parametrize("path", BUNDLES, ids=lambda p: p.parent.name)
+def test_the_core_reads_what_every_bundle_preset_puts_in_the_spec(path):
+    manifest = _manifest(path)
+    for preset in manifest.presets:
+        spec = parse_spec(_spec(manifest, preset).model_dump_json())
+        assert (spec.task, spec.trainer, spec.preset, spec.learning_rate) == (manifest.slug, manifest.trainer, preset.name, preset.learning_rate)
+        assert spec.hyperparameters == preset.hyperparameters
+        assert spec.base_model == (preset.base_model and preset.base_model.repo_id)
+        if isinstance(preset.preprocessing, TextPreprocessing):
+            assert spec.preprocessing.max_length == preset.preprocessing.max_length
+        elif preset.preprocessing is None:
+            assert spec.preprocessing is None
+        else:
+            assert spec.preprocessing.resample.value == preset.preprocessing.resample.value

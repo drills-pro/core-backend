@@ -103,9 +103,9 @@ entries:
   source: planning/06 Task types and runtimes
   status: built
   old: F07
-  code: [ray-training/ray_training/classification.py, ray-training/ray_training/metrics.py]
+  code: [task-bundles/tasks/image-classification/imgcls/train.py, ray-training/ray_core/metrics.py]
   tests:
-  - ray-training/tests/test_trainers.py::test_classification_trains_exports_and_reports
+  - task-bundles/tasks/image-classification/tests/test_train.py::test_classification_trains_exports_and_reports
   - ray-training/tests/test_metrics.py::test_top1_top5_and_confusion
   note: ray-training tests are not run by .github/workflows/tests.yml (see JOB-27).
 - id: TRN-09
@@ -114,19 +114,19 @@ entries:
   source: planning/06 Task types; planning/13 ADR-016
   status: built
   old: F07
-  code: [ray-training/ray_training/detection.py]
+  code: [task-bundles/tasks/object-detection/objdet/train.py]
   tests:
-  - ray-training/tests/test_trainers.py::test_detection_trains_exports_and_reports
-  - ray-training/tests/test_metrics.py::test_map_perfect_wrong_and_shifted
+  - task-bundles/tasks/object-detection/tests/test_train.py::test_detection_trains_exports_and_reports
+  - task-bundles/tasks/object-detection/tests/test_train.py::test_map_perfect_wrong_and_shifted
 - id: TRN-10
   area: training
   title: Text classification trainer (DistilBERT/BERT/RoBERTa), tokenizer served beside the model
   source: planning/06 Task types (not listed there; added by docs/trainer-plan.md)
   status: built
   old: F07
-  code: [ray-training/ray_training/text_classification.py]
+  code: [task-bundles/tasks/text-classification/textcls/train.py]
   tests:
-  - ray-training/tests/test_trainers.py::test_text_classification_trains_exports_and_reports
+  - task-bundles/tasks/text-classification/tests/test_train.py::test_text_classification_trains_exports_and_reports
   - core-api/tests/integrations/test_serve_postprocess.py::test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_beside_the_model
 - id: TRN-11
   area: training
@@ -144,7 +144,7 @@ entries:
   source: planning/17 Task types and trainers
   status: built
   old: F07
-  code: [ray-training/ray_training/recipe.py, core-api/migrations/20261105131400_preset_training_recipe.sql, core-api/app/core/task_catalog.py]
+  code: [ray-training/ray_core/recipe.py, core-api/migrations/20261105131400_preset_training_recipe.sql, core-api/app/core/task_catalog.py]
   tests:
   - ray-training/tests/test_recipe.py::test_cosine_schedule_decays_to_zero
   - ray-training/tests/test_recipe.py::test_early_stopping_ends_training_after_patience_and_keeps_the_last_model
@@ -169,7 +169,7 @@ entries:
   status: partial
   weight: 2
   old: F07
-  code: ["POST /internal/v1/training-runs/{run_id}/events", core-api/app/modules/user/training/events_service.py, ray-training/ray_training/reporting.py]
+  code: ["POST /internal/v1/training-runs/{run_id}/events", core-api/app/modules/user/training/events_service.py, ray-training/ray_core/reporting.py]
   tests:
   - core-api/tests/modules/user/training/test_events.py::test_a_repeated_seq_is_a_200_no_op
   - core-api/tests/modules/user/training/test_events.py::test_only_a_running_run_takes_events
@@ -259,7 +259,7 @@ entries:
   source: planning/16 Fast-start; planning/07 Scheduling
   status: built
   old: F07
-  code: [ray-training/ray_training/loop.py, ray-training/ray_training/entrypoints/train.py]
+  code: [ray-training/ray_core/loop.py, ray-training/ray_core/entrypoints/train.py]
   tests:
   - ray-training/tests/test_driver.py::test_a_lost_worker_resumes_from_the_last_epoch_not_from_scratch
   - ray-training/tests/test_driver.py::test_the_time_limit_cancels_the_task_and_reports_timeout
@@ -269,7 +269,7 @@ entries:
   title: Data-parallel training across workers (Ray Train), only rank 0 uploads
   source: docs/ray-parallelism.md Built
   status: built
-  code: [ray-training/ray_training/entrypoints/train.py, ray-training/ray_training/worker.py]
+  code: [ray-training/ray_core/entrypoints/train.py, ray-training/ray_core/worker.py]
   tests:
   - ray-training/tests/test_driver.py::test_several_workers_train_one_model_and_only_the_root_rank_uploads
   - ray-training/tests/test_scaling.py::test_a_preset_gpu_is_workers_with_one_gpu_each_or_a_share_of_one
@@ -280,7 +280,7 @@ entries:
   status: built
   weight: 1
   old: F07
-  code: [ray-training/ray_training/result.py, ray-training/ray_training/loop.py, ray-training/ray_training/spec.py, core-api/app/core/presets.py, core-api/app/integrations/job_spec.py, core-api/migrations/20261111230743_task_presets_vram.sql]
+  code: [ray-training/ray_core/result.py, ray-training/ray_core/loop.py, ray-training/ray_core/spec.py, core-api/app/core/presets.py, core-api/app/integrations/job_spec.py, core-api/migrations/20261111230743_task_presets_vram.sql]
   tests:
     - ray-training/tests/test_gpu_share.py::test_only_a_fraction_on_a_cuda_machine_is_capped
     - ray-training/tests/test_gpu_share.py::test_a_declared_vram_caps_the_job_at_the_smaller_of_it_and_its_share
@@ -291,7 +291,7 @@ entries:
   source: planning/06 Quality gates
   status: built
   old: F07
-  code: [ray-training/ray_training/data.py]
+  code: [ray-training/ray_core/data.py]
   tests:
   - ray-training/tests/test_data.py::test_hash_split_is_deterministic_and_roughly_80_10_10
   - ray-training/tests/test_data.py::test_the_split_column_wins_and_null_rows_are_hashed
@@ -314,7 +314,7 @@ entries:
   source: planning/17 Admission policy; planning/06 Job spec rules
   status: built
   old: F19
-  code: [core-api/app/core/presets.py, core-api/app/integrations/hub.py, core-api/app/modules/admin/presets/routes.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_training/spec.py]
+  code: [core-api/app/core/presets.py, core-api/app/integrations/hub.py, core-api/app/modules/admin/presets/routes.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_core/spec.py]
   note: Writing a preset reads the Hub model-info at the pinned commit and refuses a model with no safetensors weights, a config with auto_map, a licence outside training.model_license_allowlist, or files over training.model_max_bytes; the Hub licence is stored on the preset. training.hub_url empty skips the check.
   tests:
   - core-api/tests/integrations/test_hub.py::test_each_rule_refuses_on_its_own
@@ -540,7 +540,7 @@ entries:
   status: partial
   weight: 1
   old: F09
-  code: [ray-training/ray_training/result.py, ray-training/ray_training/constants.py]
+  code: [ray-training/ray_core/result.py, ray-training/ray_core/constants.py]
   tests:
   - core-api/tests/integrations/test_mlflow_models.py::test_serving_preprocesses_with_what_the_manifest_records
   gap: Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py).
@@ -1495,7 +1495,7 @@ entries:
   old: F08
   code: [.github/workflows/tests.yml, core-api/tests/integrations/test_trainer_contract.py]
   tests:
-  - core-api/tests/integrations/test_trainer_contract.py::test_the_trainer_package_knows_only_task_types
+  - core-api/tests/integrations/test_trainer_contract.py::test_every_bundle_manifest_is_one_register_accepts
   - core-api/tests/ingest_job/test_contract.py::test_enums_mirror_core_api
   gap: tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo.
 - id: JOB-26
@@ -1740,7 +1740,7 @@ entries:
   status: built
   weight: 1
   old: F06
-  code: [ray-training/ray_training/near_duplicates.py, ray-training/ray_training/classification.py, ray-training/ray_training/detection.py, ray-training/ray_training/runner.py, core-api/app/integrations/data_plane/train_report.py]
+  code: [ray-training/ray_core/near_duplicates.py, task-bundles/tasks/image-classification/imgcls/train.py, task-bundles/tasks/object-detection/objdet/train.py, ray-training/ray_core/runner.py, core-api/app/integrations/data_plane/train_report.py]
   tests:
     - ray-training/tests/test_near_duplicates.py::test_a_noised_copy_counts_and_a_different_picture_does_not
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag

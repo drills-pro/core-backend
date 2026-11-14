@@ -2,9 +2,9 @@
 import numpy as np
 from PIL import Image
 
-from ray_training.constants import Split
-from ray_training.data import Dataset, Sample
-from ray_training.near_duplicates import count_near_duplicates
+from ray_core.constants import Split
+from ray_core.data import Dataset, Sample
+from ray_core.near_duplicates import count_near_duplicates
 
 
 def picture(path, seed, noise=0):

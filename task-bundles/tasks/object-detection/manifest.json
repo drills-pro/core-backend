@@ -1,0 +1,158 @@
+{
+  "schema": 1,
+  "slug": "object-detection",
+  "display_name": "Object detection",
+  "data_kind": "images",
+  "contract": 1,
+  "trainer": "objdet.train:train",
+  "smoke": "objdet.smoke:spec_doc",
+  "serving": {
+    "encoder": "image_encoder",
+    "postprocess": "detect"
+  },
+  "servable": true,
+  "monitor": "map50_95",
+  "hyperparameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "epochs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 30,
+        "description": "Passes over the training split."
+      },
+      "batch_size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512,
+        "default": 16,
+        "description": "Samples per optimizer step, per worker."
+      },
+      "image_size": {
+        "type": "integer",
+        "minimum": 32,
+        "maximum": 1536,
+        "default": 224,
+        "description": "Side of the square the images are resized to (image tasks)."
+      }
+    }
+  },
+  "presets": [
+    {
+      "name": "small",
+      "base_model": {
+        "repo_id": "PekingU/rtdetr_v2_r18vd",
+        "revision": "5650961749fa93567c0d46fc7f43ea4f9e914107"
+      },
+      "learning_rate": 0.0001,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "medium",
+      "base_model": {
+        "repo_id": "PekingU/rtdetr_v2_r34vd",
+        "revision": "5d60d8fb5eb2a3ee5575bf200ecbce4e2cfa420c"
+      },
+      "learning_rate": 0.0001,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "large",
+      "base_model": {
+        "repo_id": "PekingU/rtdetr_v2_r50vd",
+        "revision": "282494075698cab9faa1096ae26856890030c817"
+      },
+      "learning_rate": 5e-05,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    }
+  ],
+  "requires": [
+    "torch",
+    "transformers",
+    "scipy",
+    "numpy",
+    "pillow",
+    "pyarrow",
+    "onnx"
+  ]
+}

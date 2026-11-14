@@ -4,9 +4,9 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from ray_training.constants import (
+from ray_core.constants import (
     DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, Augmentation, FailCode, LrSchedule, Outcome, Resample)
-from ray_training.spec import parse_spec
+from ray_core.spec import parse_spec
 from tests.support import LEARNING_RATE, PREPROCESSING, VERSION_ID, classification_rows, spec_doc
 
 ROWS = classification_rows()[0]
@@ -23,6 +23,13 @@ def test_payload_fields_and_hyperparameter_defaults():
     assert (spec.bucket, spec.version_id, spec.lakefs_commit, spec.seed, spec.base_model) == ("b", VERSION_ID, "c0ffee", 42, "m")
 
 
+def test_a_bundles_own_hyperparameters_and_an_empty_preprocessing_reach_the_trainer():
+    doc = spec_doc("tabular-classification", "m", ROWS, preprocessing={})
+    doc["payload"]["hyperparameters"] = {"target": "species", "n_estimators": 5}
+    spec = parse_spec(json.dumps(doc))
+    assert spec.hyperparameters == {"target": "species", "n_estimators": 5} and spec.preprocessing is None
+
+
 def test_learning_rate_and_preprocessing_come_from_the_spec():
     spec = parse_spec(json.dumps(spec_doc("image-classification", "m", ROWS)))
     pre = spec.preprocessing
@@ -31,12 +38,23 @@ def test_learning_rate_and_preprocessing_come_from_the_spec():
         PREPROCESSING["mean"], PREPROCESSING["std"], PREPROCESSING["rescale"], PREPROCESSING["resample"])
 
 
-@pytest.mark.parametrize("field", ["base_model", "learning_rate", "preprocessing"])
+@pytest.mark.parametrize("field", ["learning_rate", "preprocessing"])
 def test_what_the_trainer_has_no_table_for_must_be_in_the_spec(field):
     doc = spec_doc("image-classification", "m", ROWS)
     del doc["payload"][field]
     with pytest.raises(KeyError):
         parse_spec(json.dumps(doc))
+
+
+@pytest.mark.parametrize("base_model", [None, "absent"])
+def test_a_preset_that_trains_from_scratch_has_no_base_model(base_model):
+    doc = spec_doc("image-classification", "m", ROWS)
+    if base_model is None:
+        doc["payload"]["base_model"] = None
+    else:
+        del doc["payload"]["base_model"]
+    spec = parse_spec(json.dumps(doc))
+    assert (spec.base_model, spec.base_revision) == (None, None)
 
 
 @pytest.mark.parametrize("over", [{"spec_version": 2}, {"kind": "ingest"}])
@@ -47,8 +65,8 @@ def test_an_unknown_version_or_kind_is_refused(over):
 
 def test_the_trainer_is_the_one_the_spec_names():
     doc = spec_doc("image-classification", "m", ROWS)
-    doc["payload"]["trainer"] = "ray_training.detection:train"
-    assert parse_spec(json.dumps(doc)).trainer == "ray_training.detection:train"
+    doc["payload"]["trainer"] = "objdet.train:train"
+    assert parse_spec(json.dumps(doc)).trainer == "objdet.train:train"
 
 
 def test_a_spec_validates_against_the_committed_contract():

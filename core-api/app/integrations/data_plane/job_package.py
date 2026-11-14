@@ -1,4 +1,4 @@
-"""The job packages (`ray-jobs/ray_jobs`, `ray-training/ray_training`) as zips in the staging bucket, named by their content hash.
+"""The job packages (`ray-jobs/ray_jobs`, `ray-training/ray_core` as ray_training, `ray-serving/ray_serving`) as zips in the staging bucket, named by their content hash.
 
 `register_staged` registers the zip CI put in staging and `publish` builds one from the source tree the image ships with; both register it
 as a candidate in `job_packages`, and an admin promotes it to stable (core/job_packages.py). Jobs run a registered package:
@@ -22,7 +22,7 @@ from botocore.exceptions import ClientError
 
 from app.core import job_packages, secret_files
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
+from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
 from app.core.settings import settings
@@ -30,7 +30,7 @@ from app.integrations import compute
 from app.integrations.data_plane import job_catalog, job_submit, layout, lakefs
 
 PACKAGE_DIR = Path(__file__).parents[4] / "ray-jobs" / "ray_jobs"  # /ray-jobs/ray_jobs in the image, <repo>/ray-jobs/ray_jobs in the checkout
-TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_training"  # the train driver and trainer, same layout
+TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_core"  # the train driver and the contract (the ray_training package), same layout
 SERVING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-serving" / "ray_serving"  # the shared Serve apps, same layout
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive, so the package sits one level down
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)  # the zip epoch: the same sources always give the same bytes, hence the same hash
@@ -45,6 +45,7 @@ _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
 MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
 _S3_NOT_FOUND = "404"
 _S3_NO_SUCH_KEY = "NoSuchKey"
+CORE = JobPackageName.RAY_TRAINING  # the package that holds ray_core, the contract every task bundle runs on
 _uploaded: set[str] = set()
 
 
@@ -118,9 +119,10 @@ def _read_staged(key: str) -> bytes:
 async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobPackage:
     """Register a zip CI already put in staging (`jobs/<dir>-<sha256>.zip`) as a candidate. The key must be the one the
     package's name and hash give, and the object is read back and checked, so a key proves nothing by itself."""
-    match = re.fullmatch(rf"{re.escape(package_key(PACKAGE_DIRS[name], '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
+    package_dir = PACKAGE_DIRS[name]
+    match = re.fullmatch(rf"{re.escape(package_key(package_dir, '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
     if match is None:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(PACKAGE_DIRS[name], '<sha256>')}")
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(package_dir, '<sha256>')}")
     sha256 = match.group(1)
     _check_upload(name, await asyncio.to_thread(_read_staged, s3_key), sha256)
     async with (await get_pool()).acquire() as conn:
@@ -143,10 +145,20 @@ async def start_smoke(package: JobPackage, attempt: str = "") -> JobPackage:
         return package
     name, job_id = package.name, "-".join(filter(None, (_smoke_base_id(package), attempt)))
     spec = {"job_id": job_id, "bucket": settings.data_plane.staging_bucket, "prefix": layout.smoke_prefix(name, package.sha256, attempt)}
+    metadata = {"package": name, "sha256": package.sha256}
+    core, bundles = package, []
+    if package.kind == PackageKind.TASK:  # a bundle runs its own smoke on the stable core
+        core, bundles = await resolve_stable(CORE), [package]
+    elif name == CORE:  # a core runs every stable bundle's smoke: the core x bundle gate of planning/25
+        async with (await get_pool()).acquire() as conn:
+            bundles = await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.STABLE)
+    if core.name == CORE:  # smoke_all: none stable yet = nothing to break, the core passes
+        spec["bundles"] = [{"smoke": b.manifest["smoke"], "requires": b.manifest["requires"]} for b in bundles]
+        metadata["core_sha256"] = core.sha256
     await job_submit.submit(
-        package_url=await presigned_url(name, package.sha256), module=job_catalog.SMOKE_ENTRYPOINTS[name], spec_json=json.dumps(spec),
-        job_id=job_id, metadata={"package": name, "sha256": package.sha256}, num_cpus=settings.training.driver_cpus,
-        timeout_seconds=SMOKE_TIMEOUT_SECONDS)
+        package_url=await presigned_url(core.name, core.sha256), bundle_urls=[await presigned_url(b.name, b.sha256) for b in bundles],
+        module=job_catalog.SMOKE_ENTRYPOINTS[core.name], spec_json=json.dumps(spec), job_id=job_id, metadata=metadata,
+        num_cpus=settings.training.driver_cpus, timeout_seconds=SMOKE_TIMEOUT_SECONDS)
     async with (await get_pool()).acquire() as conn:
         await job_packages.start_smoke(conn, name, package.sha256, job_id)
         return await job_packages.get(conn, name, package.sha256)

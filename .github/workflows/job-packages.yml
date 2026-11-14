@@ -1,6 +1,6 @@
 name: Publish the Ray job packages
 
-# Builds ray_jobs, ray_training and ray_serving (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
+# Builds ray_jobs, ray_training (ray-training/ray_core, the contract task bundles run on) and ray_serving (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
 # the staging bucket as jobs/<ray-jobs|ray-training|ray-serving>-<sha256>.zip, then tells core-api the key so it registers a candidate
 # (it reads the object back and checks its hash and contents). Nothing runs a candidate until an admin promotes it to stable
 # (PUT /v1/admin/job-packages/{name}/{sha256}/status), so a push here changes no running or new job by itself.
@@ -18,7 +18,7 @@ on:
     branches: [main]
     paths:
       - "ray-jobs/ray_jobs/**"
-      - "ray-training/ray_training/**"
+      - "ray-training/ray_core/**"
       - "ray-serving/ray_serving/**"
       - "scripts/build-job-package.py"
       - ".github/workflows/job-packages.yml"

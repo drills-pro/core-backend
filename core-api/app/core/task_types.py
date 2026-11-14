@@ -60,6 +60,7 @@ class TaskTypeBody(BaseModel):
 
 class TaskInfo(TaskTypeBody):
     slug: TaskType
+    bundle_sha256: str | None = None  # the task bundle whose promotion wrote this row; None = a row from before bundles
     updated_by: str
     updated_at: datetime
 
@@ -96,6 +97,31 @@ async def put(conn, task: TaskType, body: TaskTypeBody, actor: str) -> TaskInfo:
         _UPSERT, task, body.data_kind, body.trainer, body.servable, body.encoder, body.postprocess,
         body.serving.model_dump(mode="json"), body.enabled, actor)
     return TaskInfo.model_validate(dict(row))
+
+
+_APPLY_BUNDLE = (
+    "INSERT INTO task_types (slug, data_kind, trainer, servable, encoder, postprocess, bundle_sha256, updated_by) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+    "ON CONFLICT (slug) DO UPDATE SET data_kind = EXCLUDED.data_kind, trainer = EXCLUDED.trainer, servable = EXCLUDED.servable, "
+    "encoder = EXCLUDED.encoder, postprocess = EXCLUDED.postprocess, bundle_sha256 = EXCLUDED.bundle_sha256, "
+    "updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+)
+
+
+async def apply_bundle(
+    conn, slug: TaskType, data_kind: DataKind, trainer: str, servable: bool, serving: tuple[str, str] | None, sha256: str, actor: str,
+) -> TaskInfo:
+    """Write the row a promoted bundle's manifest describes (`serving` = its encoder and postprocess). `enabled` and the
+    serving knobs stay as an admin set them."""
+    encoder, postprocess = serving or (None, None)
+    row = await conn.fetchrow(_APPLY_BUNDLE, slug, data_kind, trainer, servable, encoder, postprocess, sha256, actor)
+    return TaskInfo.model_validate(dict(row))
+
+
+async def set_enabled(conn, task: TaskType, enabled: bool, actor: str) -> TaskInfo | None:
+    row = await conn.fetchrow(
+        "UPDATE task_types SET enabled = $2, updated_by = $3, updated_at = now() WHERE slug = $1 RETURNING *", task, enabled, actor)
+    return None if row is None else TaskInfo.model_validate(dict(row))
 
 
 async def require_supported(conn, task: TaskType) -> TaskInfo:

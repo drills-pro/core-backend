@@ -1,6 +1,6 @@
 name: Build the Ray trainer image
 
-# The cluster's GPU Ray image (cu128) plus the ray_training dependencies (ray-training/Dockerfile). Built, smoke-tested inside
+# The cluster's GPU Ray image (cu128) plus the trainer dependencies (ray-training/Dockerfile). Built, smoke-tested inside
 # the image (scripts/ray-image-smoke.py, including a real Ray Train run on CPU), pushed, and then pinned by a pull request in
 # drills-pro/k8s (see ray-image.yml). A pull request only builds and tests. The k8s PR is not merged from here: merging it
 # restarts the Ray head and the GPU worker.
@@ -31,8 +31,8 @@ jobs:
       name: ray-training
       free-disk: true  # torch and the CUDA libraries need more than the runner's free space (the first build died with ENOSPC)
       smoke-args: >-
-        --imports onnx onnxruntime torch ray.serve ray.train.torch transformers timm torchvision boto3 pyarrow PIL tokenizers
-        --packages ray_training ray_serving
+        --imports onnx onnxruntime torch ray.serve ray.train.torch transformers timm torchvision boto3 pyarrow PIL tokenizers xgboost onnxmltools
+        --packages ray_core ray_serving
         --serving-check --training-smoke
     secrets:
       k8s-token: ${{ secrets.K8S_REPO_PAT }}

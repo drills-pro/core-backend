@@ -31,6 +31,7 @@ from app.modules.admin import model_catalog as admin_model_catalog
 from app.modules.admin import models as admin_models
 from app.modules.admin import presets as admin_presets
 from app.modules.admin import plan_limits as admin_plan_limits
+from app.modules.admin import task_bundles as admin_task_bundles
 from app.modules.admin import task_types as admin_task_types
 from app.modules.admin import tenants as admin_tenants
 from app.modules.user import (
@@ -63,6 +64,7 @@ ROUTERS = (
     admin_model_catalog.router,
     admin_models.router,
     admin_presets.router,
+    admin_task_bundles.router,
     admin_task_types.router,
     admin_plan_limits.router,
     admin_tenants.router,

@@ -161,14 +161,14 @@ def _staged(registry, monkeypatch, *names, sha=None):
 
 
 def test_a_staged_package_is_read_back_and_registered_as_a_candidate(registry, monkeypatch):
-    key, sha = _staged(registry, monkeypatch, "package/ray_training/__init__.py", "package/ray_training/spec.py")
+    key, sha = _staged(registry, monkeypatch, "package/ray_core/__init__.py", "package/ray_core/spec.py")
     package = asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
     assert (package.sha256, package.s3_key, package.status, package.published_by) == (sha, key, PackageStatus.CANDIDATE, "ci")
 
 
 @pytest.mark.parametrize("names", [
     ["package/ray_jobs/__init__.py"],  # another package's directory
-    ["package/ray_training/../evil.py"], ["package/ray_training/data.bin"], ["ray_training/__init__.py"], ["setup.py"], []])
+    ["package/ray_core/../evil.py"], ["package/ray_core/data.bin"], ["ray_core/__init__.py"], ["setup.py"], []])
 def test_a_staged_package_must_be_python_files_under_its_own_directory(registry, monkeypatch, names):
     key, _ = _staged(registry, monkeypatch, *names)
     with pytest.raises(Problem) as err:
@@ -177,7 +177,7 @@ def test_a_staged_package_must_be_python_files_under_its_own_directory(registry,
 
 
 def test_the_object_must_hash_to_the_sha_in_its_key(registry, monkeypatch):
-    key, _ = _staged(registry, monkeypatch, "package/ray_training/__init__.py", sha="0" * 64)
+    key, _ = _staged(registry, monkeypatch, "package/ray_core/__init__.py", sha="0" * 64)
     with pytest.raises(Problem) as err:
         asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
     assert err.value.status_code == 422 and not registry.rows

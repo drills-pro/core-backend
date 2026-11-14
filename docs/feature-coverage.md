@@ -95,8 +95,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 
 | Id | Status | Feature | Tests |
 |---|---|---|---|
-| TRN-08 | built | Image classification trainer (HF ConvNeXt) to ONNX with top-1, top-5 and confusion matrix | ray-training/tests/test_trainers.py::test_classification_trains_exports_and_reports, ray-training/tests/test_metrics.py::test_top1_top5_and_confusion |
-| TRN-09 | built | Object detection trainer (RT-DETRv2) to ONNX with mAP50 and mAP50-95 | ray-training/tests/test_trainers.py::test_detection_trains_exports_and_reports, ray-training/tests/test_metrics.py::test_map_perfect_wrong_and_shifted |
 | TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | ray-training/tests/test_driver.py::test_several_workers_train_one_model_and_only_the_root_rank_uploads, ray-training/tests/test_scaling.py::test_a_preset_gpu_is_workers_with_one_gpu_each_or_a_share_of_one |
 | TRN-24 | built | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | ray-training/tests/test_gpu_share.py::test_only_a_fraction_on_a_cuda_machine_is_capped, ray-training/tests/test_gpu_share.py::test_a_declared_vram_caps_the_job_at_the_smaller_of_it_and_its_share |
 | TRN-25 | built | Hash-based splits when none is given, a held-out test split | ray-training/tests/test_data.py::test_hash_split_is_deterministic_and_roughly_80_10_10, ray-training/tests/test_data.py::test_the_split_column_wins_and_null_rows_are_hashed |

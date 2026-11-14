@@ -60,7 +60,9 @@ async def register_package(name: JobPackageName, body: RegisterBody, actor: str 
 
 @router.put("/{name}/{sha256}/status", response_model=JobPackage)
 async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
-    """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs."""
+    """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
+    A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25."""
+    # ponytail: a bundle promoted while the core's smoke ran is not in it; re-smoke the core if that matters
     async with (await get_pool()).acquire() as conn:
         current = await job_packages.get(conn, name, sha256) if body.status == PackageStatus.STABLE else None
     if current is not None and (await data_plane.refresh_package_smoke(current)).smoke_status != SmokeStatus.PASSED:

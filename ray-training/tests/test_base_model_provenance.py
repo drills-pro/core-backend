@@ -1,21 +1,14 @@
-"""The base model's licence rides from the spec into model.json, and the trainers load weights from safetensors only."""
+"""The base model's licence rides from the spec into model.json (each bundle checks it loads weights from safetensors only)."""
 import json
-import re
 from pathlib import Path
 
-from ray_training.spec import parse_spec
+from ray_core.spec import parse_spec
 
 from tests.support import classification_rows, spec_doc, spec_text
 
 ROWS = classification_rows()[0]
 
-SRC = Path(__file__).parent.parent / "ray_training"
-
-
-def test_every_from_pretrained_of_a_model_refuses_pickled_weights():
-    for f in ("classification.py", "detection.py", "text_classification.py"):
-        calls = re.findall(r"(?:Model\w*|ForObjectDetection|ForSequenceClassification)\.from_pretrained\((.*?)\)\n", (SRC / f).read_text(), re.S)
-        assert calls and all("use_safetensors=True" in c for c in calls), f
+SRC = Path(__file__).parent.parent / "ray_core"
 
 
 def test_base_licence_comes_from_the_spec_and_is_written_to_the_manifest():

@@ -3,9 +3,9 @@ import pytest
 
 pytest.importorskip("ray.train")
 
-from ray_training.entrypoints.train import scaling  # noqa: E402
-from ray_training.errors import Unsupported  # noqa: E402
-from ray_training.spec import parse_spec  # noqa: E402
+from ray_core.entrypoints.train import scaling  # noqa: E402
+from ray_core.errors import Unsupported  # noqa: E402
+from ray_core.spec import parse_spec  # noqa: E402
 from tests.support import classification_rows, spec_doc  # noqa: E402
 
 

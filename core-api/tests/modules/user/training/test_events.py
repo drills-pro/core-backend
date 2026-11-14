@@ -26,6 +26,7 @@ from tests.support import FakeConn, TenantCtx, make_client
 
 RUN, TENANT = uuid.uuid4(), uuid.uuid4()
 TOKEN = "t0ken-secret"
+EVENTS_TOKEN_HASH = 15  # its place among the INSERT INTO training_runs arguments
 URL = f"/internal/v1/training-runs/{RUN}/events"
 EVENT = {"type": "progress", "seq": 0, "epoch": 1, "epochs": 3, "metrics": {"train_loss": 0.5, "accuracy": 0.9}}
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -183,9 +184,9 @@ def test_a_run_gets_a_token_whose_hash_is_stored_and_whose_secret_is_in_no_spec(
     assert re.fullmatch(rf"{re.escape(BASE_URL)}/internal/v1/training-runs/[0-9a-f-]{{36}}/events", spec.reporting.events_url)
     assert gw.events_token and len(gw.events_token) >= 43  # token_urlsafe(32)
     (insert,) = [a for sql, a in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert insert[-1] == events_service.hash_token(gw.events_token)
+    assert insert[EVENTS_TOKEN_HASH] == events_service.hash_token(gw.events_token)
     stored = json.dumps(insert[13])  # training_runs.spec
-    assert gw.events_token not in stored and insert[-1] not in stored
+    assert gw.events_token not in stored and insert[EVENTS_TOKEN_HASH] not in stored
     assert gw.events_token not in spec.model_dump_json()
 
 
@@ -205,7 +206,7 @@ def test_without_an_events_url_there_is_no_reporting_and_no_token(monkeypatch):
     create()
     assert gw.spec.reporting is None and gw.events_token is None
     (insert,) = [a for sql, a in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert insert[-1] is None
+    assert insert[EVENTS_TOKEN_HASH] is None
 
 
 def test_the_token_reaches_the_job_environment_not_the_spec(monkeypatch):

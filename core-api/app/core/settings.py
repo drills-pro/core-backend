@@ -119,6 +119,7 @@ class Training(_Section):
     hub_url: str  # Hugging Face Hub origin an admin's base model is checked against when a preset is written; "" = no check
     model_license_allowlist: list[str]  # lower-case SPDX ids a base model may carry (docs 17, licence policy)
     model_max_bytes: int  # a base model's files together; larger is refused at admission
+    bundle_auto_promote: bool  # the poller promotes a task bundle whose smoke passed (a slug opts out in task_bundle_settings); false = by hand only
 
 
 class ServingApp(_Section):

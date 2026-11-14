@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from ray_training.constants import REPORT_KEY
+from ray_core.constants import REPORT_KEY
 from tests.crashy import crash_marker
 from tests.support import classification_rows, parquet, spec_doc
 
@@ -55,20 +55,20 @@ def hang_server():
 
 def drive(staging, doc) -> tuple[subprocess.CompletedProcess, dict]:
     env = {**os.environ, "PYTHONPATH": str(ROOT), "STAGING_ENDPOINT": f"file://{staging}", "TRAIN_NUM_GPUS": "0"}
-    proc = subprocess.run([sys.executable, "-m", "ray_training.entrypoints.train", json.dumps(doc)], env=env,
+    proc = subprocess.run([sys.executable, "-m", "ray_core.entrypoints.train", json.dumps(doc)], env=env,
                           capture_output=True, text=True, timeout=300)
     report = json.loads((staging / doc["payload"]["prefix"] / REPORT_KEY).read_text())
     return proc, report
 
 
-def local_doc(tmp_path, tiny_convnext, drop_last=False, **resources):
+def local_doc(tmp_path, drop_last=False, **resources):
     rows, files = classification_rows()
     data = tmp_path / "data"
     data.mkdir()
     (data / "index.parquet").write_bytes(parquet(rows))
     for path, blob in files.items():
         (data / path.replace("/", "_")).write_bytes(blob)
-    doc = spec_doc("image-classification", tiny_convnext, rows)
+    doc = spec_doc("image-classification", "m", rows)
     doc["payload"]["prefix"] = f"{tmp_path.name}/"
     doc["payload"]["data"]["index_url"] = (data / "index.parquet").as_uri()
     listed = {r["path"]: (data / r["path"].replace("/", "_")).as_uri() for r in rows[:-1 if drop_last else None]}
@@ -78,20 +78,20 @@ def local_doc(tmp_path, tiny_convnext, drop_last=False, **resources):
     return doc
 
 
-def test_driver_runs_the_task_on_ray_and_writes_the_report(head, tmp_path, tiny_convnext):
-    proc, report = drive(head, local_doc(tmp_path, tiny_convnext))
+def test_driver_runs_the_task_on_ray_and_writes_the_report(head, tmp_path):
+    proc, report = drive(head, local_doc(tmp_path))
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert report["status"] == "succeeded" and set(report["metrics"]) == {"top1", "top5"}
     assert (head / f"{tmp_path.name}/model.onnx").stat().st_size > 0
 
 
-def test_a_failure_inside_the_task_still_ends_in_a_report(head, tmp_path, tiny_convnext):
-    proc, report = drive(head, local_doc(tmp_path, tiny_convnext, drop_last=True))
+def test_a_failure_inside_the_task_still_ends_in_a_report(head, tmp_path):
+    proc, report = drive(head, local_doc(tmp_path, drop_last=True))
     assert proc.returncode == 1 and report["status"] == "failed" and report["code"] == "bad_data"
 
 
-def test_the_time_limit_cancels_the_task_and_reports_timeout(head, tmp_path, tiny_convnext, hang_server):
-    doc = local_doc(tmp_path, tiny_convnext, max_runtime_s=3)
+def test_the_time_limit_cancels_the_task_and_reports_timeout(head, tmp_path, hang_server):
+    doc = local_doc(tmp_path, max_runtime_s=3)
     doc["payload"]["data"]["index_url"] = hang_server
     proc, report = drive(head, doc)
     assert proc.returncode == 1 and report["code"] == "timeout"
@@ -102,7 +102,7 @@ def in_process(head, monkeypatch):
     """This process as a driver connected to the head, for the tests that change how the trainer is scaled."""
     import ray
 
-    from ray_training.entrypoints import train as entry
+    from ray_core.entrypoints import train as entry
 
     monkeypatch.setenv("STAGING_ENDPOINT", f"file://{head}")
     ray.init(address="auto", runtime_env={"env_vars": {"PYTHONPATH": str(ROOT)}}, ignore_reinit_error=True)
@@ -116,18 +116,18 @@ def cpu_workers(entry, monkeypatch, n):
     monkeypatch.setattr(entry, "scaling", lambda spec: ScalingConfig(num_workers=n, use_gpu=False, resources_per_worker={"CPU": 1}))
 
 
-def test_several_workers_train_one_model_and_only_the_root_rank_uploads(head, tmp_path, tiny_convnext, in_process, monkeypatch):
+def test_several_workers_train_one_model_and_only_the_root_rank_uploads(head, tmp_path, in_process, monkeypatch):
     cpu_workers(in_process, monkeypatch, 2)
-    doc = local_doc(tmp_path, tiny_convnext)
+    doc = local_doc(tmp_path)
     text = json.dumps(doc)
     report = in_process.fit(in_process.parse_spec(text), text)
     assert report["status"] == "succeeded" and set(report["metrics"]) == {"top1", "top5"}
     assert (head / f"{tmp_path.name}/model.onnx").stat().st_size > 0 and (head / f"{tmp_path.name}/model.json").exists()
 
 
-def test_a_lost_worker_resumes_from_the_last_epoch_not_from_scratch(head, tmp_path, tiny_convnext, in_process, monkeypatch):
+def test_a_lost_worker_resumes_from_the_last_epoch_not_from_scratch(head, tmp_path, in_process, monkeypatch):
     cpu_workers(in_process, monkeypatch, 2)
-    doc = local_doc(tmp_path, tiny_convnext)
+    doc = local_doc(tmp_path)
     doc["job_id"] = f"crash-{tmp_path.name}"
     marker = crash_marker(doc["job_id"])
     marker.unlink(missing_ok=True)

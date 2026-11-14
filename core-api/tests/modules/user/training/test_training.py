@@ -29,6 +29,7 @@ from tests.support.job_table import FakeJobTable, patch
 BASE = f"/v1/projects/{PROJECT}/training-runs"
 RUN = uuid.uuid4()
 PACKAGE_SHA = "b" * 64
+BUNDLE_SHA = "f" * 64
 VERSION, DATASET = uuid.uuid4(), uuid.uuid4()
 BODY = {"dataset_version_id": str(VERSION), "preset": "small"}
 HEADERS = {"Idempotency-Key": "k"}
@@ -141,10 +142,10 @@ class Gateway:
 
         async def resolve_stable(name):
             self.package_name = name
-            return SimpleNamespace(sha256=PACKAGE_SHA)
+            return SimpleNamespace(sha256=PACKAGE_SHA, name=name)
 
-        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None):
-            self.spec, self.package_sha, self.events_token = spec, package_sha256, events_token
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None, *, bundle_name):
+            self.spec, self.package_sha, self.events_token, self.bundle_name = spec, package_sha256, events_token, bundle_name
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -199,7 +200,7 @@ def test_create_builds_the_spec_stores_it_and_submits_it(monkeypatch):
         row["cpu"], row["memory_bytes"], row["gpu"], row["max_runtime_s"])
     assert (gw.package_name, gw.package_sha) == (JobPackageName.RAY_TRAINING, PACKAGE_SHA)  # pinned for the run, and what the job runs
     (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert insert[-2] == PACKAGE_SHA
+    assert (insert[14], insert[16], p.core_sha256, p.bundle_sha256, gw.bundle_name) == (PACKAGE_SHA, None, None, None, None)  # no bundle
     assert gw.ttl >= settings.training.max_runtime_seconds * settings.ray.max_concurrent_training_runs  # outlasts the queue and the run
     insert = next(args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs"))
     assert insert[4] == spec.job_id and insert[5] == "mlflow-1" and insert[8] == DATASET and insert[10] == VERSION  # job id, MLflow run, dataset, version
@@ -211,6 +212,54 @@ def test_hyperparameters_override_only_what_they_name(monkeypatch):
     make_conn(monkeypatch)
     create({**BODY, "hyperparameters": {"epochs": 5}, "seed": 7})
     assert (gw.spec.payload.hyperparameters.epochs, gw.spec.payload.hyperparameters.batch_size, gw.spec.payload.seed) == (5, 16, 7)
+
+
+def _on_a_bundle(monkeypatch):
+    from tests.support.bundles import manifest
+
+    conn = make_conn(monkeypatch)
+    conn.rows["FROM task_types"] = seeded(TaskType.IMAGE_CLASSIFICATION) | {"bundle_sha256": BUNDLE_SHA, "trainer": "imgcls.train:train"}
+    conn.rows["FROM task_presets"] = preset_row(hyperparameters={"epochs": 30, "batch_size": 16, "image_size": 224})  # default values
+    conn.rows["FROM job_packages"] = {
+        "name": "task_image-classification", "kind": "task", "manifest": manifest(), "sha256": BUNDLE_SHA, "s3_key": "k", "status": "stable",
+        "published_by": "ci", "updated_by": "ci", "updated_at": datetime.now(UTC), "smoke_status": "passed", "smoke_job_id": "s"}
+    return conn
+
+
+def test_a_task_on_a_bundle_runs_on_the_core_with_both_shas_pinned(monkeypatch):
+    gw = Gateway(monkeypatch)
+    conn = _on_a_bundle(monkeypatch)
+    create({**BODY, "hyperparameters": {"epochs": 5}})
+    p = gw.spec.payload
+    assert (p.core_sha256, p.bundle_sha256, gw.package_sha, gw.bundle_name) == (PACKAGE_SHA, BUNDLE_SHA, PACKAGE_SHA, "task_image-classification")
+    assert (p.trainer, p.hyperparameters.epochs, p.hyperparameters.batch_size) == ("imgcls.train:train", 5, 16)  # the preset's defaults fill in
+    (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
+    assert (insert[14], insert[16], insert[7]["epochs"]) == (PACKAGE_SHA, BUNDLE_SHA, 5)
+
+
+def test_a_bundle_schema_refuses_a_bad_hyperparameter_with_422_and_nothing_starts(monkeypatch):
+    gw = Gateway(monkeypatch)
+    _on_a_bundle(monkeypatch)
+    for asked in ({"epochs": 501}, {"image_size": 8}):  # outside the bundle schema's bounds
+        with pytest.raises(Problem) as err:
+            create({**BODY, "hyperparameters": asked})
+        assert (err.value.status_code, err.value.code) == (422, ProblemCode.INVALID_HYPERPARAMETERS) and not gw.started
+
+
+def test_a_bundle_key_beyond_the_typed_three_reaches_the_spec(monkeypatch):
+    gw = Gateway(monkeypatch)
+    _on_a_bundle(monkeypatch)
+    create({**BODY, "hyperparameters": {"momentum": 0.9}})  # the bundle's schema leaves its properties open
+    assert gw.spec.payload.hyperparameters["momentum"] == 0.9
+
+
+def test_a_disabled_preset_is_unknown(monkeypatch):
+    gw = Gateway(monkeypatch)
+    conn = make_conn(monkeypatch)
+    conn.rows["FROM task_presets"] = preset_row(enabled=False)
+    with pytest.raises(Problem) as err:
+        create()
+    assert err.value.code == ProblemCode.UNKNOWN_PRESET and not gw.started
 
 
 def test_a_preset_the_task_does_not_have_is_422_and_nothing_starts(monkeypatch):
