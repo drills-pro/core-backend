@@ -23,6 +23,11 @@ on:
       - "scripts/build-job-package.py"
       - ".github/workflows/job-packages.yml"
   workflow_dispatch:
+    inputs:
+      promote_core:
+        description: "After registering, wait for the ray_training (core) smoke and promote it to stable"
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -83,3 +88,27 @@ jobs:
           register ray_jobs "jobs/ray-jobs-${RAY_JOBS}.zip"
           register ray_training "jobs/ray-training-${RAY_TRAINING}.zip"
           register ray_serving "jobs/ray-serving-${RAY_SERVING}.zip"
+      - name: Promote the core once its smoke passed (manual runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.promote_core
+        env:
+          API: ${{ vars.CORE_API_URL }}
+          TOKEN: ${{ steps.token.outputs.token }}
+          RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
+          SMOKE_WAIT_SECONDS: "1800"
+          SMOKE_POLL_SECONDS: "15"
+        run: |
+          call() {  # method path [json body]
+            curl -fsS -X "$1" "${API}$2" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" ${3:+-d "$3"}
+          }
+          deadline=$(( $(date +%s) + SMOKE_WAIT_SECONDS ))
+          while :; do  # the list refreshes each package's smoke state
+            row=$(call GET /v1/admin/job-packages/ray_training | jq -c --arg sha "$RAY_TRAINING" '.[] | select(.sha256 == $sha)')
+            smoke=$(echo "$row" | jq -r .smoke_status)
+            case "$smoke" in
+              passed) break ;;
+              failed) echo "::error::ray_training ${RAY_TRAINING}: smoke failed"; exit 1 ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then echo "::error::ray_training ${RAY_TRAINING}: smoke still ${smoke} after ${SMOKE_WAIT_SECONDS}s"; exit 1; fi
+            sleep "$SMOKE_POLL_SECONDS"
+          done
+          call PUT "/v1/admin/job-packages/ray_training/${RAY_TRAINING}/status" '{"status": "stable"}' | jq -c '{name, sha256, status, smoke_status}'
