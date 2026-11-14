@@ -70,6 +70,33 @@ class PackageAuditAction(StrEnum):
     RETIRE = "retire"
 
 
+class AdminAuditAction(StrEnum):
+    """Mirrors the admin_audit_action_check constraint: what an operator did through /v1/admin."""
+
+    TENANT_CREATE = "tenant.create"
+    TENANT_SET_STATUS = "tenant.set_status"
+    TENANT_UPDATE_SETTINGS = "tenant.update_settings"
+    TASK_TYPE_PUT = "task_type.put"
+    TASK_PRESET_PUT = "task_preset.put"
+    TASK_PRESET_DELETE = "task_preset.delete"
+    MODEL_CATALOG_CREATE = "model_catalog.create"
+    MODEL_CATALOG_UPDATE = "model_catalog.update"
+    MODEL_CATALOG_ENABLE = "model_catalog.enable"
+    MODEL_CATALOG_DISABLE = "model_catalog.disable"
+    MODEL_CATALOG_DELETE = "model_catalog.delete"
+    PLAN_LIMITS_PUT = "plan_limits.put"
+
+
+class AdminAuditEntity(StrEnum):
+    """Mirrors the admin_audit_entity_type_check constraint: what an admin action changed."""
+
+    TENANT = "tenant"
+    TASK_TYPE = "task_type"
+    TASK_PRESET = "task_preset"
+    MODEL_CATALOG = "model_catalog"
+    PLAN_LIMITS = "plan_limits"
+
+
 class PackageStatus(StrEnum):
     """Mirrors the job_packages_status_check constraint. Runs use `stable` packages only."""
 
