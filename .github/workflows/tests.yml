@@ -1,9 +1,9 @@
 name: Tests
 
-# The merge gate: the core-api suite and ruff, the ray-jobs suite, and the database-backed tenant isolation tests
+# The merge gate: the core-api suite and ruff, the ray-jobs suite, the ray-training and ray-serving suites, and the database-backed tenant isolation tests
 # (docs: planning/20-work-breakdown.md, "contract tests are a hard merge gate"). No path filter, so every pull
 # request reports every check below; mark them required in the repo's branch protection:
-#   core-api tests, ray-jobs tests, tenant isolation (Postgres)
+#   core-api tests, ray-jobs tests, ray-training tests, tenant isolation (Postgres)
 # docker-publish.yml calls this workflow before it builds an image (workflow_call), so a red test cannot ship one.
 on:
   pull_request:
@@ -62,6 +62,29 @@ jobs:
       - name: Tests
         working-directory: ray-jobs
         run: .venv/bin/python -m pytest tests -q
+
+  # ray_core's own suite (the task bundles' tests run in task-bundles.yml) and ray-serving's, which has no lock of its own and
+  # needs only libraries the trainer image already holds (onnx, onnxruntime, pyarrow, pillow, tokenizers, ray with pandas).
+  ray-training:
+    name: ray-training tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk  # torch and its CUDA wheels need more than the runner's free space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.11"  # the Ray image runs 3.11 (ray-training/pyproject.toml)
+          cache-dependency-glob: ray-training/uv.lock
+      - name: Install
+        working-directory: ray-training
+        run: uv sync --locked --group dev
+      - name: ray-training tests
+        working-directory: ray-training
+        run: .venv/bin/python -m pytest tests -q -rs
+      - name: ray-serving tests (a skip is printed, not silent)
+        working-directory: ray-serving
+        run: PYTHONPATH=. ../ray-training/.venv/bin/python -m pytest tests -q -rs
 
   # A real Postgres, migrated the way the cluster does it: RLS has to hold for core_app, which the fake connection
   # in the other suites cannot show. scripts/db-tests.sh starts the compose postgres, runs dbmate, then tests/db.

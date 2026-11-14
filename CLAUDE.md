@@ -22,7 +22,7 @@ APP_ENV=local uv run uvicorn app.main:app --reload --port 8090   # services in c
 Services: `docker compose up -d` with every service but `core-api` (or all of them to run it in compose), then
 `./scripts/bootstrap.sh` (idempotent, run after every `up`). Native mode needs OrbStack. Skill: `run-local`.
 
-CI (`.github/workflows/tests.yml`) runs the tests, ruff, the ray-jobs tests and `db-tests.sh` on every pull request,
+CI (`.github/workflows/tests.yml`) runs the tests, ruff, the ray-jobs, ray-training and ray-serving tests and `db-tests.sh` on every pull request,
 and `docker-publish.yml` builds no image until they pass. A new tenant table needs a seed line in
 `core-api/tests/db/schema.py`, or `db-tests.sh` fails.
 
