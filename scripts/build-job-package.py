@@ -16,6 +16,7 @@ DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-
         "ray_serving": ROOT / "ray-serving" / "ray_serving"}
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+LOCK_FILE = "requirements.lock"  # in the package directory; the zip carries it at package/requirements.lock (planning/26)
 
 
 def build(package_dir: Path) -> bytes:
@@ -25,6 +26,11 @@ def build(package_dir: Path) -> bytes:
             info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, path.read_bytes())
+        lock = package_dir / LOCK_FILE
+        if lock.is_file():
+            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, lock.read_bytes())
     return buf.getvalue()
 
 

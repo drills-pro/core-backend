@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 
 from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.problem import Problem
+from app.core.requirements import parse_lock
 from app.integrations.data_plane import job_catalog, job_package, job_submit, layout
 from tests.support import TenantCtx
 
@@ -250,6 +251,25 @@ def test_the_ci_build_script_makes_the_same_zip_as_core_api():
     spec.loader.exec_module(script)
     for name, package_dir in job_package.PACKAGE_DIRS.items():
         assert script.build(script.DIRS[name]) == job_package.build(package_dir)[0], name
+
+
+def test_the_real_ray_training_package_carries_its_lock_and_register_accepts_it(registry, monkeypatch):
+    """The zip CI builds from the source tree: package/requirements.lock holds the core's pins, which register_staged reads."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("build_job_package", Path(__file__).parents[4] / "scripts" / "build-job-package.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    data = script.build(script.DIRS["ray_training"])
+    lock = zipfile.ZipFile(io.BytesIO(data)).read(f"{job_package.ZIP_ROOT}/{job_package.LOCK_FILE}").decode()
+    sha = hashlib.sha256(data).hexdigest()
+    key = job_package.package_key(job_package.PACKAGE_DIRS[JobPackageName.RAY_TRAINING], sha)
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: StagedS3({key: data}))
+    package = asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert package.requirements == parse_lock(lock) and package.requirements
+    assert any(r.startswith("torch==") for r in package.requirements)
+    assert job_package.build(job_package.TRAINING_PACKAGE_DIR)[0] == data  # self-publish outside prod ships the same lock
 
 
 def _pending(job_id="smoke-x"):

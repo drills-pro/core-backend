@@ -54,13 +54,19 @@ _uploaded: set[str] = set()
 
 @functools.cache
 def build(package_dir: Path = PACKAGE_DIR) -> tuple[bytes, str]:
-    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable."""
+    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable.
+    A `requirements.lock` inside the package directory goes to `package/requirements.lock`, next to the package."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
             info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, path.read_bytes())
+        lock = package_dir / LOCK_FILE  # the package's pinned requirements (planning/26), read back by register_staged
+        if lock.is_file():
+            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, lock.read_bytes())
     data = buf.getvalue()
     return data, package_key(package_dir, hashlib.sha256(data).hexdigest())
 
