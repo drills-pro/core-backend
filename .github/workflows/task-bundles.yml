@@ -129,6 +129,9 @@ jobs:
           registered=""
           for key in $KEYS; do  # core-api reads the object back and checks it against the sha256 in the key and the manifest inside
             row=$(call POST /v1/admin/task-bundles/register "{\"s3_key\": \"${key}\"}")
+            if [ "$(echo "$row" | jq -r .smoke_status)" = failed ]; then  # a failed smoke is sticky: run it again (the image or the core was fixed since)
+              row=$(call POST "/v1/admin/task-bundles/$(echo "$row" | jq -er '.slug + "/" + .sha256')/smoke")
+            fi
             echo "$row" | jq -c '{slug, sha256, status, smoke_status}'
             registered="${registered} $(echo "$row" | jq -er '.slug + "/" + .sha256')"
           done
