@@ -29,6 +29,7 @@ jobs:
     uses: ./.github/workflows/ray-image.yml
     with:
       name: ray-training
+      daemon-build: true  # the cu128 base plus torch is about 25 GB: built in the daemon, it exists once on the runner instead of twice
       free-disk: true  # torch and the CUDA libraries need more than the runner's free space (the first build died with ENOSPC)
       smoke-args: >-
         --imports onnx onnxruntime torch ray.serve ray.train.torch transformers timm torchvision boto3 pyarrow PIL tokenizers xgboost onnxmltools

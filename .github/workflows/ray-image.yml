@@ -17,6 +17,10 @@ on:
         description: "Delete preinstalled toolchains first (torch + CUDA need more than the runner's free space)"
         type: boolean
         default: false
+      daemon-build:
+        description: "Build in the runner's Docker daemon instead of a buildx container (no copy of the image into the daemon, no GitHub layer cache): for an image too big to exist twice on the runner"
+        type: boolean
+        default: false
       smoke-args:
         description: "Arguments of scripts/ray-image-smoke.py"
         required: true
@@ -53,6 +57,8 @@ jobs:
           docker builder prune --all --force > /dev/null
           df -h /
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver: ${{ inputs.daemon-build && 'docker' || 'docker-container' }}
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -68,8 +74,8 @@ jobs:
           context: ./${{ inputs.name }}
           load: true
           tags: ${{ env.SMOKE_TAG }}
-          cache-from: type=gha,scope=${{ inputs.name }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.name }}
+          cache-from: ${{ !inputs.daemon-build && format('type=gha,scope={0}', inputs.name) || '' }}
+          cache-to: ${{ !inputs.daemon-build && format('type=gha,mode=max,scope={0}', inputs.name) || '' }}
       - name: Smoke test the image
         # The repo is mounted read-only, so the packages on PYTHONPATH are this commit's source, not a zip. No network, no S3.
         # --shm-size: Ray's object store lives in /dev/shm. The runner has no GPU, so the GPU image runs its CPU path.
