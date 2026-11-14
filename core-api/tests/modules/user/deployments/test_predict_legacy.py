@@ -1,5 +1,5 @@
 """The old POST /v1/predict/{deployment_id} in shadow (planning/24, migration phase 1): Deprecation and Sunset on every answer, one counter
-increment per call that got past the key check, and the body and status as before. service.predict is faked; its own tests are elsewhere."""
+increment per call that got past the key check, and the body and status as before. predict.authenticate and predict.serve_authenticated are faked; its own tests are elsewhere."""
 import uuid
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -9,7 +9,7 @@ import pytest
 
 from app.core.problem import Problem
 from app.core.settings import settings
-from app.modules.user.deployments import routes, service
+from app.modules.user.deployments import predict, routes
 from app.modules.user.deployments.constants import ProblemCode
 from tests.support import make_client
 
@@ -36,8 +36,8 @@ def legacy(monkeypatch):
         def add(self, value, labels):
             state.counted.append((value, labels))
 
-    monkeypatch.setattr(service, "authenticate", authenticate)
-    monkeypatch.setattr(service, "serve_authenticated", serve_authenticated)
+    monkeypatch.setattr(predict, "authenticate", authenticate)
+    monkeypatch.setattr(predict, "serve_authenticated", serve_authenticated)
     monkeypatch.setattr(routes.predict_metrics, "legacy_calls", Counter())
     state.post = lambda: make_client(routes.router).post(URL, json={}, headers=KEY)
     return state

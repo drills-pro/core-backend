@@ -1,11 +1,12 @@
 """Starting a training run: validate the dataset version, stage the data and the spec, record the run, submit the job.
 
-No pooled connection is held across a gateway call (the gateway checks ownership on a connection of its own).
+No pooled connection is held across a gateway call (see app.integrations.data_plane).
 The run id is chosen up front and the Ray submission id derives from it, so a job whose submit answer was lost
 can still be stopped; the row is written before the submit, so the gateway can check it owns the run.
 """
 import logging
 import uuid
+from functools import partial
 from http import HTTPStatus
 
 
@@ -17,8 +18,7 @@ from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
-from app.integrations import compute, data_plane, job_lifecycle
-from app.integrations.data_plane import mlflow
+from app.integrations import data_plane, job_lifecycle
 from app.modules.user.datasets import get_version_source
 from app.modules.user.projects import get_task_type
 from app.modules.user.training import events_service, service, train_spec
@@ -113,12 +113,12 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
     run_id = uuid.uuid4()
     token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
     try:
-        package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned, like the bundle: later promotions change nothing
-        started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
+        package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
+        started = await data_plane.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
         spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters,
                                       token and token.reporting, bundle and (package.sha256, bundle.sha256))
     except Exception as e:
-        raise _start_failed(e, run_id) from e
+        raise job_lifecycle.start_failed(e, ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}")
 
     async with TenantConn(tenant_id) as conn:
         await conn.fetchval(_LOCK_TENANT, f"{TRAINING_LOCK_PREFIX}{tenant_id}")  # a concurrent create waits here, then sees this one
@@ -135,22 +135,10 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.TRAINING_RUN, run_id)
         await job_lifecycle.emit(conn, TRAINING, tenant_id, project_id, run_id, row["status"])
 
-    try:
-        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
-                                      bundle_name=bundle and bundle.name)
-    except Exception as e:
-        try:
-            await compute.stop(spec.job_id)  # Ray may have accepted it
-        except Exception:  # noqa: BLE001 - it may not exist
-            logger.warning("could not stop training job %s", spec.job_id)
-        await _fail_unstarted(ctx, run_id, started.run_id, project_id)
-        raise _start_failed(e, run_id) from e
+    await job_lifecycle.start(  # on failure: stop the job (Ray may have accepted it), then fail the run
+        partial(data_plane.submit_train, tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
+                bundle_name=bundle and bundle.name), spec.job_id,
+        partial(_fail_unstarted, ctx, run_id, started.run_id, project_id),
+        ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}",
+    )
     return TrainingRun.model_validate(dict(row))
-
-
-def _start_failed(e: Exception, run_id: uuid.UUID) -> Exception:
-    """A Problem stays as it is; anything else (storage, MLflow, Ray, the database) becomes a 503 with the cause in the log."""
-    if isinstance(e, Problem):
-        return e
-    logger.error("could not start training run %s", run_id, exc_info=e)
-    return Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.START_FAILED, START_FAILED_DETAIL)

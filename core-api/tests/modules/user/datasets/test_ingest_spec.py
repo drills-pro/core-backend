@@ -32,13 +32,13 @@ def build(task, kind, source=ImportSource.UPLOAD, params=None, base=None):
 
 def test_an_image_import_on_a_base_version_reads_only_that_versions_index(presigned):
     spec, _ = build(TaskType.IMAGE_CLASSIFICATION, DataKind.IMAGES, base=BASE)
-    assert [(a[2], a[3]) for a in presigned] == [(BASE, ingest_spec.LAYOUTS[DataKind.IMAGES].data_key)]
+    assert [(a[2], a[3]) for a in presigned] == [(BASE, ingest_spec.DATA_KIND_LAYOUTS[DataKind.IMAGES].data_key)]
     assert spec.payload.base.index_url.startswith(f"http://s3/{BASE}/") and spec.payload.base.data_url is None
 
 
 def test_a_table_import_on_a_base_version_reads_its_data_and_schema(presigned):
     spec, _ = build(TaskType.TABULAR_REGRESSION, DataKind.TABULAR, base=BASE)
-    assert [a[3] for a in presigned] == [ingest_spec.LAYOUTS[DataKind.TABULAR].data_key, layout.SCHEMA_KEY]
+    assert [a[3] for a in presigned] == [ingest_spec.DATA_KIND_LAYOUTS[DataKind.TABULAR].data_key, layout.SCHEMA_KEY]
     assert spec.payload.base.data_url and spec.payload.base.schema_url and spec.payload.base.index_url is None
 
 

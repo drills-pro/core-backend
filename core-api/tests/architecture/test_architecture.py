@@ -234,6 +234,48 @@ def test_the_backend_rule_catches_what_it_claims_to():
     assert not _reaches_backend("secret_files.problems(secret_files.DATA_PLANE)", "app/x.py")
 
 
+# The data-plane facade (app/integrations/data_plane/__init__.py) is the only way in: outside the package nobody
+# imports a submodule, so the gateway's connection rule sits behind one interface.
+_DATA_PLANE = "app.integrations.data_plane"
+_DATA_PLANE_DIR = APP / "integrations" / "data_plane"
+_DATA_PLANE_SUBMODULES = {p.stem for p in _DATA_PLANE_DIR.glob("*.py") if p.stem != "__init__"}
+
+
+def _data_plane_submodule_imports(source: str, rel: str) -> list[str]:
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names if a.name.startswith(_DATA_PLANE + ".")]
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(_DATA_PLANE + "."):
+            names = [node.module]
+        elif isinstance(node, ast.ImportFrom) and node.module == _DATA_PLANE:
+            names = [f"{_DATA_PLANE}.{a.name}" for a in node.names if a.name in _DATA_PLANE_SUBMODULES]
+        else:
+            continue
+        found += [f"{rel}:{node.lineno} imports {n}; import it from {_DATA_PLANE}" for n in names]
+    return found
+
+
+def test_only_the_data_plane_facade_is_imported():
+    offenders = [
+        v
+        for p in _iter_python_files()
+        if _DATA_PLANE_DIR not in p.parents
+        for v in _data_plane_submodule_imports(p.read_text(encoding="utf-8"), str(p.relative_to(APP.parent)))
+    ]
+    assert not offenders, "\n  ".join(["outside app/integrations/data_plane, import the facade only:", *offenders])
+
+
+def test_the_data_plane_facade_rule_catches_what_it_claims_to():
+    assert _data_plane_submodule_imports("from app.integrations.data_plane.mlflow import ModelStage", "app/x.py")
+    assert _data_plane_submodule_imports("from app.integrations.data_plane import layout", "app/x.py")
+    assert _data_plane_submodule_imports("from app.integrations.data_plane import presign_get, access", "app/x.py")
+    assert _data_plane_submodule_imports("import app.integrations.data_plane.lakefs", "app/x.py")
+    assert not _data_plane_submodule_imports("from app.integrations import data_plane", "app/x.py")
+    assert not _data_plane_submodule_imports("from app.integrations.data_plane import ModelStage, presign_get", "app/x.py")
+    assert not _data_plane_submodule_imports("import app.integrations.data_plane", "app/x.py")
+
+
 # Every error raised in app/ is a Problem with a named code (app/core/problem.py). A bare HTTPException would get a
 # code derived from its status, and a literal code is a magic string; app/core/problem.py itself is the one exception.
 _PROBLEM_MODULE = "app/core/problem.py"
@@ -283,6 +325,8 @@ if __name__ == "__main__":
                   test_removed_legacy_code_is_gone_and_unreferenced,
                   test_only_the_data_plane_reaches_lakefs_and_mlflow,
                   test_the_backend_rule_catches_what_it_claims_to,
+                  test_only_the_data_plane_facade_is_imported,
+                  test_the_data_plane_facade_rule_catches_what_it_claims_to,
                   test_every_error_is_a_problem_with_a_named_code,
                   test_the_error_rule_catches_what_it_claims_to):
         try:

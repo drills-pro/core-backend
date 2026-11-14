@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.integrations import serve_client
 from app.modules.user.deployments import calls, routes, service
 from app.modules.user.deployments.constants import (
     TEST_CALL_STORED_MAX_BYTES,
@@ -49,22 +50,18 @@ def test_a_small_payload_is_kept_and_a_big_one_becomes_a_marker():
 
 
 def test_test_deployment_logs_the_marker_not_the_big_body(monkeypatch):
-    conn = FakeConn(row={"status": "active", "route_prefix": "/p", "serving": "legacy", "training_run_id": uuid.uuid4()})
+    conn = FakeConn(row={"status": "active"})
     patch_tenant_conn(monkeypatch, conn, service)
     big = {"text": "x" * TEST_CALL_STORED_MAX_BYTES}
 
-    class Resp:
-        def raise_for_status(self): ...
-        def json(self):
-            return {"ok": 1}
+    async def answer(tenant_id, project_id, deployment_id, body):
+        prediction = serve_client.Prediction(predictions=[1], cold_load=False)
+        return service.predict.Answered(run_id=uuid.uuid4(), request_bytes=len(json.dumps(body)), prediction=prediction, elapsed_ms=1.0)
 
-    async def post(route_prefix, body):
-        return Resp(), 1.0
-
-    monkeypatch.setattr(service, "_post_to_serve", post)
+    monkeypatch.setattr(service.predict, "answer", answer)
     asyncio.run(service.test_deployment(SimpleNamespace(tenant_id=str(uuid.uuid4())), PROJECT, DEPLOYMENT, big))
     (_, _, request, response, _), = conn.executed
-    assert request[TRUNCATED_FIELD] is True and response == {"ok": 1}
+    assert request[TRUNCATED_FIELD] is True and response == {"predictions": [1]}
 
 
 def test_the_purge_asks_for_the_configured_retention(monkeypatch):

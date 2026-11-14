@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.integrations.data_plane.mlflow import ModelStage
+from app.integrations.data_plane import ModelStage
 
 
 class VersionRef(BaseModel):

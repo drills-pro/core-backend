@@ -16,12 +16,12 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 |---|---|---|---|---|---|
 | training | 24 | 8 | 0 | 5 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
-| deployment | 15 | 2 | 0 | 2 | 19 |
+| deployment | 14 | 2 | 1 | 2 | 19 |
 | serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 13 | 8 | 3 | 3 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 117 | 33 | 3 | 18 | 171 |
+| **all** | 116 | 33 | 4 | 18 | 171 |
 
 Built share of the features that are due (partial counts half, deferred excluded): 87% of 153.
 
@@ -34,6 +34,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | partial | JOB-22 | jobs | Suspending a tenant stops what is already running (jobs, deployments, sweeps) | Predict answers 503 for a suspended tenant (PRD-06), but suspending cancels no job and stops no deployment, and the inflight_*_tenant_ids sweeps do not skip suspended tenants (read from the SQL, not run). |
 | 3 | deferred | JOB-20 | jobs | Per-job prefix-scoped storage credential (Credential Access Boundary or per-import STS) | Deferred by decision 2026-11-12 until the sprint 4 credential broker; the accepted risk E6 in planning/07 stands. |
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
+| 2 | missing | DEP-16 | deployment | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | Retired on purpose (migration drop_legacy_deployments_active); every deployment, a leftover serving = legacy row included, is answered by the shared predictor apps. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
 | 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
@@ -60,7 +61,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | DAT-19 | datasets | Canonical formats - WebDataset shards (vision) and Parquet (tabular) | Images are stored as objects plus a Parquet index and tables as Parquet; no WebDataset shards, so there is nothing for a streaming loader to read yet. |
 | 1 | partial | DAT-20 | datasets | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | No tiny-class or imbalance warning and no near-duplicate detection; exact duplicates are collapsed. |
 | 1 | partial | DAT-31 | datasets | Cleanup of per-run training prefixes in the staging bucket | A failed purge is only logged; no sweep retries it, and no bucket lifecycle rule exists in the k8s repo. |
-| 1 | partial | DEP-06 | deployment | Deployment states and the reconciler that follows legacy deployments to active or failed | Status is the observed state; there is no desired-versus-observed split and no updating or stopping state. |
+| 1 | partial | DEP-06 | deployment | Deployment states and their legal moves, declared once and written only through job_lifecycle.advance | Status is the observed state; there is no desired-versus-observed split and no updating or stopping state. |
 | 1 | partial | JOB-10 | jobs | Job catalog - a JobType names its entrypoint module | Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum. |
 | 1 | partial | JOB-26 | jobs | Journey scripts (import, train and deploy, predict) run against the local stack | Scripts exist and were run by hand on the local stack; no CI job runs them and Schemathesis contract tests are not set up. |
 | 1 | partial | PRD-07 | predict | Rate limits - plan, per key (api_keys.rate_limit_per_minute) and per deployment, 429 with Retry-After | Fixed one-minute windows in Postgres (one upsert per check, the documented ceiling); no RateLimit-Limit / -Remaining / -Reset headers. |
@@ -189,7 +190,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-03 | built | Stop a deployment (predict answers 409, key kept, audited, idempotent) | planning/06 Deployment model; planning/18 Acceptable use enforcement | 2 |
 | DEP-04 | built | Start a stopped deployment again (same row and key, takes a quota slot) | planning/06 Deployment model | 2 |
 | DEP-05 | built | Delete a deployment (soft, key cleared, audited, frees the run) | planning/06 Deployment model | 2 |
-| DEP-06 | partial | Deployment states and the reconciler that follows legacy deployments to active or failed | planning/03 Deployment state machine; planning/09 Reconciler design | 2 |
+| DEP-06 | partial | Deployment states and their legal moves, declared once and written only through job_lifecycle.advance | planning/03 Deployment state machine; planning/09 Reconciler design | 2 |
 | DEP-07 | built | One live deployment per model version and per run (unique index, 409 deployment_exists) | planning/24 One active deployment per model version | 3 |
 | DEP-08 | built | Plan limit on active deployments (429 before any deploy) | planning/14 Plans | 2 |
 | DEP-09 | built | ETag and If-Match on deployments and settings | planning/05 Conventions (Concurrency) | 1 |
@@ -198,9 +199,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-12 | built | Deploy models of every servable task (classification, detection, text) | planning/06 Task types and runtimes | 2 |
 | DEP-13 | partial | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | planning/06 Deployment model (Rollout, Rollback) | 2 |
 | DEP-14 | built | Deployment input/output schema endpoint and generated curl/JS/Python snippets | planning/05 Predict API (Schema, Snippets) | 2 |
-| DEP-15 | built | Active when the Ray job finished (legacy) or at once (shared serving loads on the first request) | planning/03 Deployment state machine | 1 |
-| DEP-16 | built | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | planning/12 Migration mechanics | 2 |
-| DEP-17 | built | CPU or GPU compute target per project (project setting compute_target) | planning/07 Single-node reality | 2 |
+| DEP-15 | built | Active at once (the shared predictor apps load the model on the first request) | planning/03 Deployment state machine | 1 |
+| DEP-16 | missing | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | planning/12 Migration mechanics | 0 |
+| DEP-17 | built | CPU or GPU compute target per project (project setting compute_target) | planning/07 Single-node reality | 1 |
 | DEP-18 | deferred | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | planning/06 Deployment model (Scale) | 0 |
 | DEP-19 | deferred | Blue/green rollout, traffic split, serve-torch runtime | planning/06 Rollout; planning/17 Serving runtimes | 0 |
 

@@ -1,27 +1,15 @@
-"""A Problem raised mid-start keeps its status: only an unexpected error becomes the 503."""
-import uuid
-
+"""Problems: a FastAPI HTTPException, and a bad body is a 422 problem (the start-failure mapping is tested in tests/integrations/test_job_lifecycle.py)."""
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
 from app.core import problem
-from app.core.problem import Problem, ProblemCode, not_found
-from app.modules.user.datasets import import_service
-from app.modules.user.training import create_service
+from app.core.problem import ProblemCode, not_found
 
 
 def test_a_problem_is_a_fastapi_http_exception():
     assert isinstance(not_found(), HTTPException)
-
-
-@pytest.mark.parametrize("start_failed", [create_service._start_failed, import_service._start_failed])
-def test_start_failed_keeps_a_problem_and_wraps_anything_else(start_failed):
-    problem = not_found()
-    assert start_failed(problem, uuid.uuid4()) is problem
-    wrapped = start_failed(RuntimeError("ray is down"), uuid.uuid4())
-    assert isinstance(wrapped, Problem) and wrapped.status_code == 503
 
 
 class Body(BaseModel):

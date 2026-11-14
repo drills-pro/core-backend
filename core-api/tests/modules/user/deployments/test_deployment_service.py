@@ -11,15 +11,15 @@ from app.core.enums import TaskType
 from app.modules.user.deployments import service
 from app.modules.user.deployments.constants import (
     METRIC_FLOORS,
-    DEFAULT_COMPUTE_TARGET,
     PLAN_TIER_RATE_LIMITS,
-    SETTING_COMPUTE_TARGET,
     SETTING_DEPLOY_STRATEGY,
     DeployStrategy,
     PlanTier,
     ProblemCode,
 )
-from app.integrations.serve_client import ComputeTarget
+from app.integrations.serve_client import Prediction
+from app.modules.user.deployments.predict import Answered
+from app.modules.user.deployments.status import DEPLOYMENTS, DeploymentStatus
 from app.modules.user.training import TrainingStatus
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
@@ -40,27 +40,19 @@ SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlf
 
 @pytest.fixture
 def deploy_env(monkeypatch):
-    """create_deployment with a fake database and a fake Serve deploy that fails if a connection is held."""
+    """create_deployment with a fake database."""
     class Env:
         conn = FakeConn(
             rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": None},
             vals={"count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION},
         )
-        deployed = []
+
+        @property
+        def deployed(self):
+            return [args for sql, args in self.conn.calls if sql.startswith(("INSERT INTO deployments", "UPDATE deployments"))]
 
     e = Env()
     e.opened = patch_counted_conn(monkeypatch, e.conn, service)
-
-    async def deploy(**kw):
-        assert e.opened.now == 0, "Serve deploy called while a connection was held"
-        e.deployed.append(kw)
-        return "ray-job-1", f"/predict/{kw['deployment_id']}"
-
-    async def no_shared_apps():
-        return False  # the legacy path; the shared one is in test_shared_deployments.py
-
-    monkeypatch.setattr(service.serve_client, "deploy", deploy)
-    monkeypatch.setattr(service.serve_client, "apps_declared", no_shared_apps)
     return e
 
 
@@ -70,27 +62,23 @@ def inserted(conn):
 
 def test_deploy_mints_a_deployment_and_a_predict_key_shown_once(deploy_env):
     deploy_env.conn.rows["INSERT INTO deployments"] = {
-        "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
+        "id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
     }
     out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    kw = deploy_env.deployed[0]
-    assert (kw["mlflow_run_id"], kw["class_names"], kw["compute_target"], kw["deploy_strategy"]) == (
-        "mlflow-1", ["cat", "dog"], DEFAULT_COMPUTE_TARGET, DeployStrategy.LATEST)
-    assert (out.status, out.plan_tier, out.rate_limit_per_minute) == ("deploying", "pro", PLAN_TIER_RATE_LIMITS[PlanTier.PRO])
+    assert (out.status, out.plan_tier, out.rate_limit_per_minute) == ("active", "pro", PLAN_TIER_RATE_LIMITS[PlanTier.PRO])
     args = inserted(deploy_env.conn)
-    assert args[1:5] == (CTX.tenant_id, PROJECT, RUN, "ray-job-1")
+    assert args[1:6] == (CTX.tenant_id, PROJECT, RUN, None, f"/predict/{args[0]}")
     assert out.predict_key and args[6] == service.hash_key(out.predict_key)  # only the hash is stored
-    assert deploy_env.opened.total == 2  # read, then write: Serve is deployed in between
 
 
 def test_a_main_strategy_redeploy_updates_the_one_deployment_in_place(deploy_env):
     main_id = uuid.uuid4()
-    deploy_env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN, SETTING_COMPUTE_TARGET: ComputeTarget.GPU}
-    deploy_env.conn.rows["FROM deployments"] = {"id": main_id, "status": "active", "predict_key_hash": "h", "rate_limit_per_minute": 10}
-    deploy_env.conn.rows["UPDATE deployments"] = {"id": main_id, "status": "deploying", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
+    deploy_env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
+    deploy_env.conn.rows["FROM deployments"] = {"id": main_id, "status": DeploymentStatus.FAILED}
+    deploy_env.conn.rows["UPDATE deployments"] = {
+        "id": main_id, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
     out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    kw = deploy_env.deployed[0]
-    assert (kw["deployment_id"], kw["deploy_strategy"], kw["compute_target"]) == (str(main_id), DeployStrategy.MAIN, ComputeTarget.GPU)
+    assert deploy_env.deployed[0][:4] == (main_id, DeploymentStatus.FAILED, DeploymentStatus.ACTIVE, RUN)  # compare-and-set
     assert out.id == main_id and out.predict_key is None  # same URL, same key: nothing new is minted
     assert not any(sql.startswith("INSERT INTO deployments") for sql, _ in deploy_env.conn.calls)
 
@@ -162,8 +150,8 @@ def test_a_detection_run_deploys_with_the_class_names_its_report_lists(deploy_en
     deploy_env.conn.rows["INSERT INTO deployments"] = {
         "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
     }
-    asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    assert deploy_env.deployed[-1]["class_names"] == ["person", "car"]
+    assert asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY)).predict_key
+    assert inserted(deploy_env.conn)[3] == RUN  # the predictor apps read the class names from the run on the first request
 
 
 @pytest.mark.parametrize("task", [None, TaskType.TABULAR_CLASSIFICATION, TaskType.TEXT_GENERATION])
@@ -181,24 +169,6 @@ def test_deploy_of_another_projects_run_is_404(deploy_env):
     assert e.value.status_code == 404 and not deploy_env.deployed
 
 
-def test_try_it_calls_serve_at_the_configured_head(monkeypatch):
-    seen = []
-
-    class Client:
-        def __init__(self, **kw): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-
-        async def post(self, url, json):
-            seen.append(url)
-            return "resp"
-
-    monkeypatch.setattr(service.httpx, "AsyncClient", Client)
-    monkeypatch.setattr(service.serve_client, "serve_url", lambda: "http://head:8000")
-    resp, _ = asyncio.run(service._post_to_serve("/predict/x", {}))
-    assert (resp, seen) == ("resp", ["http://head:8000/predict/x"])
-
-
 def test_test_deployment_releases_the_connection_before_calling_serve(monkeypatch):
     open_conns = 0
 
@@ -206,7 +176,7 @@ def test_test_deployment_releases_the_connection_before_calling_serve(monkeypatc
         async def __aenter__(self):
             nonlocal open_conns
             open_conns += 1
-            return FakeConn(row={"status": "active", "route_prefix": "/p", "serving": "legacy", "training_run_id": uuid.uuid4()})
+            return FakeConn(row={"status": "active", "training_run_id": uuid.uuid4()})
 
         async def __aexit__(self, *a):
             nonlocal open_conns
@@ -214,15 +184,16 @@ def test_test_deployment_releases_the_connection_before_calling_serve(monkeypatc
 
     monkeypatch.setattr(service, "TenantConn", lambda tenant_id: Ctx())
 
-    class Resp:
-        def raise_for_status(self): ...
-        def json(self):
-            return {"ok": 1}
-
-    async def fake_post(route_prefix, body):
+    async def answer(*_):
         assert open_conns == 0
-        return Resp(), 1.5
+        return Answered(run_id=uuid.uuid4(), request_bytes=2, prediction=Prediction(predictions={"ok": 1}, cold_load=False), elapsed_ms=1.5)
 
-    monkeypatch.setattr(service, "_post_to_serve", fake_post)
+    monkeypatch.setattr(service.predict, "answer", answer)
     out = asyncio.run(service.test_deployment(CTX, uuid.uuid4(), uuid.uuid4(), {}))
-    assert (out.response, out.latency_ms) == ({"ok": 1}, 1.5)
+    assert (out.response, out.latency_ms) == ({"predictions": {"ok": 1}}, 1.5)
+
+
+def test_every_status_is_declared_and_deleted_is_final():
+    edges = DEPLOYMENTS.transitions
+    assert set(edges) | {t for ts in edges.values() for t in ts} == set(DeploymentStatus)
+    assert DeploymentStatus.DELETED not in edges and all(DeploymentStatus.DELETED in ts for ts in edges.values())

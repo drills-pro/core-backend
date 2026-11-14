@@ -5,8 +5,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.enums import TaskType
-from app.integrations.data_plane.layout import Split
-from app.integrations.data_plane.report import ImportReport
+from app.core.enums import Split
+from app.integrations.data_plane import ImportReport
 from app.modules.user.datasets.constants import (
     HF_REPO_PATTERN,
     HF_REVISION_PATTERN,

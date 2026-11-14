@@ -9,7 +9,8 @@ import pytest
 
 from app.core.authz import KeyContext, Scope
 from app.integrations import serve_client
-from app.modules.user.deployments import prediction_service as service, prediction_worker as worker, shared
+from app.modules.user.deployments import prediction_service as service, prediction_worker as worker
+from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import (
     CANCEL_CHECK_SECONDS,
     SSE_HEARTBEAT_SECONDS,
@@ -125,7 +126,7 @@ def test_a_failure_after_the_cancel_flag_ends_cancelled_not_requeued(env):
 
     def answer(*a):
         row["cancel_requested"] = True
-        raise shared.ServeFailed(serve_client.ServeErrorCode.MODEL_LOAD_FAILED, "x", 1.0)
+        raise ServeFailed(serve_client.ServeErrorCode.MODEL_LOAD_FAILED, "x", 1.0, None, 0)
 
     env.answer = answer
     run(worker.process_predictions())

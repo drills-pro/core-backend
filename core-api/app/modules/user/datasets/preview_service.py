@@ -9,8 +9,7 @@ from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane
-from app.integrations.data_plane import layout
-from app.integrations.data_plane.data_kinds import LAYOUTS
+from app.integrations.data_plane import DATA_KIND_LAYOUTS, OBJECTS_PREFIX
 from app.modules.user.datasets.constants import ImportStatus, ProblemCode
 from app.modules.user.datasets.readers import dataset_task
 from app.modules.user.datasets.schemas import DatasetPreview, FileLink, PreviewRow
@@ -35,7 +34,7 @@ async def _version_task(conn, project_id: uuid.UUID, dataset_id: uuid.UUID, vers
 
 
 def _key(task: TaskInfo) -> str:
-    return LAYOUTS[task.data_kind].data_key
+    return DATA_KIND_LAYOUTS[task.data_kind].data_key
 
 
 async def version_preview(
@@ -45,9 +44,9 @@ async def version_preview(
         task = await _version_task(conn, project_id, dataset_id, version_id)
     tenant, ds, ver = ctx.tenant_id, str(dataset_id), str(version_id)
     rows = await data_plane.read_version_sample(tenant, ds, ver, _key(task), limit)
-    if not LAYOUTS[task.data_kind].has_objects:
+    if not DATA_KIND_LAYOUTS[task.data_kind].has_objects:
         return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
-    paths = [layout.OBJECTS_PREFIX + r["path"] for r in rows]
+    paths = [OBJECTS_PREFIX + r["path"] for r in rows]
     urls = await data_plane.presign_gets(tenant, ds, ver, paths)
     return DatasetPreview(rows=[PreviewRow(data=r, url=urls[p]) for r, p in zip(rows, paths)])
 
@@ -73,5 +72,5 @@ async def file_link(
     """Presigned GET for one image of a version; `path` is the index's `path` column."""
     async with TenantConn(ctx.tenant_id) as conn:
         await _version_task(conn, project_id, dataset_id, version_id)
-    url = await data_plane.presign_get(ctx.tenant_id, str(dataset_id), str(version_id), layout.OBJECTS_PREFIX + path)
+    url = await data_plane.presign_get(ctx.tenant_id, str(dataset_id), str(version_id), OBJECTS_PREFIX + path)
     return FileLink(url=url)

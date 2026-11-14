@@ -23,8 +23,8 @@ def _all_up(monkeypatch):
     async def ok(*a):
         return "ok"
 
-    monkeypatch.setattr(routes.lakefs, "health", ok)
-    monkeypatch.setattr(routes.mlflow, "health", ok)
+    monkeypatch.setattr(routes.data_plane, "lakefs_health", ok)
+    monkeypatch.setattr(routes.data_plane, "mlflow_health", ok)
     monkeypatch.setattr(routes, "_check_http", ok)
 
 

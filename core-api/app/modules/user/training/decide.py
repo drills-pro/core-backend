@@ -6,7 +6,7 @@ how. Success needs both.
 from pydantic import BaseModel, ConfigDict
 
 from app.integrations.compute import JobStatus
-from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
+from app.integrations.data_plane import FailureCode, TrainOutcome, TrainReport
 from app.integrations.job_lifecycle import Verdict
 from app.modules.user.training.constants import TRANSITIONS, TrainingStatus
 

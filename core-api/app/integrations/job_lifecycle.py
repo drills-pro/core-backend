@@ -1,7 +1,8 @@
 """A domain row that follows a Ray job: the one place that polls Ray, judges a deadline and moves the row.
 
-Training runs, deployments and dataset imports each declare a `JobTable` (table, in-flight statuses, legal edges,
-deadline) and a `settle(row, verdict)` step. This module owns the rest:
+Training runs and dataset imports each declare a `JobTable` (table, in-flight statuses, legal edges, deadline) and a
+`settle(row, verdict)` step; deployments declare a `JobTable` only for `advance` (nothing of theirs follows a Ray job,
+so no sweep). This module owns the rest:
 
   claim    a lease on a batch of a tenant's in-flight rows (FOR UPDATE SKIP LOCKED), committed at once, so
            replicas running the same sweep get disjoint rows and no connection is held across a Ray call
@@ -10,6 +11,7 @@ deadline) and a `settle(row, verdict)` step. This module owns the rest:
   backoff  a settle that raises keeps the row leased for an exponential delay (settle_attempts counts them) instead
            of letting the next tick retry it at once
   stop_quietly  the best-effort stop of a job a context ends on its own
+  start    the submit step of a context: on failure it stops the job, undoes the row and maps the error to a 503
   sweep    the tenant loop: claim, then up to SWEEP_CONCURRENCY rows polled and settled at a time
 
 `settle` gets no connection: it decides, runs its effects (gateways, MLflow, S3) with none held, then persists in
@@ -21,11 +23,13 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
+from http import HTTPStatus
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from app.core.db import get_pool
+from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.integrations.compute import JobStatus
@@ -126,6 +130,34 @@ async def stop_quietly(job_id: str) -> None:
         await compute.stop(job_id)
     except Exception:  # noqa: BLE001 - see above
         logger.warning("could not stop ray job %s", job_id)
+
+
+def start_failed(e: Exception, code: StrEnum, detail: str, what: str) -> Exception:
+    """What the caller sees when starting failed: a Problem stays as it is, anything else (storage, MLflow, Ray, the
+    database) becomes a 503 with the context's `code` and `detail`, and the cause in the log and in __cause__."""
+    if isinstance(e, Problem):
+        return e
+    logger.error("could not start %s", what, exc_info=e)
+    problem = Problem(HTTPStatus.SERVICE_UNAVAILABLE, code, detail)
+    problem.__cause__ = e
+    return problem
+
+
+async def start[T](
+    step: Callable[[], Awaitable[T]], job_id: str, compensate: Callable[[], Awaitable[None]],
+    code: StrEnum, detail: str, what: str,
+) -> T:
+    """Run a start `step` (submit to Ray, save the job id). If it raises: stop `job_id` (Ray may have accepted it),
+    run `compensate` (put the row back, best effort), then raise start_failed. `what` names the row in the log."""
+    try:
+        return await step()
+    except Exception as e:
+        await stop_quietly(job_id)
+        try:
+            await compensate()
+        except Exception:  # noqa: BLE001 - the start error is the one the caller must see
+            logger.exception("could not undo the failed start of %s", what)
+        raise start_failed(e, code, detail, what)  # start_failed sets __cause__ and keeps a Problem as is
 
 
 def judge(job: JobTable, row: dict, ray: JobStatus | None, now: datetime) -> Verdict:

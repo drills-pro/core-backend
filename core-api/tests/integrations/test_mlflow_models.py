@@ -3,33 +3,16 @@ and MLflow names are namespaced so tenants cannot reach each other's experiments
 import asyncio
 import base64
 import io
-import re
 
 import httpx
 import pytest
 
-from app.integrations import compute, serve_client
+from app.integrations import data_plane, serve_client
 from tests.support.task_types import task_info
 from app.integrations.data_plane import access, mlflow
 
 T, P = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
 ARTIFACT_PATH = "7/abc123/artifacts"
-
-
-def _script_of(entrypoint: str) -> str:
-    return base64.b64decode(re.search(r"b64decode\('([^']+)'", entrypoint).group(1)).decode()
-
-
-@pytest.fixture
-def scripts(monkeypatch):
-    seen = []
-
-    async def submit(spec):
-        seen.append(_script_of(spec.entrypoint))
-        return "job-1"
-
-    monkeypatch.setattr(compute, "submit", submit)
-    return seen
 
 
 MODEL_URL = f"{mlflow.artifact_url('')}{ARTIFACT_PATH}/model/model.onnx"
@@ -40,25 +23,20 @@ def model_url(monkeypatch):
     async def run_model_url(*_):
         return MODEL_URL
 
-    monkeypatch.setattr(mlflow, "run_model_url", run_model_url)
+    monkeypatch.setattr(data_plane, "run_model_url", run_model_url)
 
 
-def test_serving_downloads_from_the_mlflow_artifact_api(scripts, model_url):
-    asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
-    script = scripts[0]
-    compile(script, "serve", "exec")
-    assert MODEL_URL in script and "['a', 'b']" in script
-    assert MODEL_URL.replace("model.onnx", "model.json") in script  # preprocessing is read from the model's manifest
-    assert "boto3" not in script and "(32, 32)" not in script
+def test_serving_downloads_from_the_mlflow_artifact_api(model_url):
+    model = asyncio.run(serve_client.served_model(task_info(), "abc123", ["a", "b"], T, P))
+    assert (model.model_url, model.class_names) == (MODEL_URL, ["a", "b"])
+    assert model.manifest_url == MODEL_URL.replace("model.onnx", "model.json")  # preprocessing is read from the model's manifest
 
 
-def test_serving_preprocesses_with_what_the_manifest_records(scripts, model_url):
+def test_serving_preprocesses_with_what_the_manifest_records():
     Image = pytest.importorskip("PIL.Image")
     np = pytest.importorskip("numpy")
-    asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a", "b"], tenant_id=T, project_id=P))
-    assert "def image_encoder" in scripts[0]
     scope = {}
-    exec(serve_client._source(serve_client.INPUTS_FILE), scope)  # the part of the script that needs neither ray nor onnxruntime
+    exec(serve_client._source(serve_client.INPUTS_FILE), scope)  # the replica's encoders need neither ray nor onnxruntime
     buf = io.BytesIO()
     Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
     pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}
@@ -134,21 +112,6 @@ def test_serve_url_follows_the_configured_ray_head(monkeypatch):
     from app.core.settings import settings
     monkeypatch.setattr(settings.ray, "dashboard", "http://ray-head-svc.ray.svc:8265")
     assert serve_client.serve_url() == f"http://ray-head-svc.ray.svc:{serve_client.SERVE_HTTP_PORT}"
-
-
-def test_only_a_gpu_target_asks_for_a_gpu(monkeypatch, model_url):
-    seen = []
-
-    async def submit(spec):
-        seen.append(spec.num_gpus)
-        return "job-1"
-
-    monkeypatch.setattr(compute, "submit", submit)
-    for target in serve_client.ComputeTarget:
-        asyncio.run(serve_client.deploy(
-            deployment_id="d", task=task_info(), mlflow_run_id="abc123", class_names=["a"], tenant_id=T, project_id=P, compute_target=target,
-        ))
-    assert seen == [0, 1]
 
 
 def _registry(monkeypatch, existing):

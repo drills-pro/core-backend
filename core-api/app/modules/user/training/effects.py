@@ -6,8 +6,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.integrations import compute, data_plane
-from app.integrations.data_plane import mlflow
-from app.integrations.data_plane.train_report import FailureCode, TrainReport
+from app.integrations.data_plane import FailureCode, RunStatus, TrainReport
 from app.modules.user.model_registry import RegisteredVersion, register_in_mlflow
 from app.modules.user.training import decide
 from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TrainingStatus
@@ -44,19 +43,19 @@ async def close_mlflow(tenant_id: str, row: dict, outcome: decide.Outcome) -> No
     project_id = str(row["project_id"])
     if outcome.status is TrainingStatus.CANCELLED:
         try:
-            await mlflow.finish_run(tenant_id, project_id, run_id, mlflow.RunStatus.KILLED)
+            await data_plane.finish_run(tenant_id, project_id, run_id, RunStatus.KILLED)
         except httpx.HTTPError:
             logger.warning("could not close MLflow run %s as killed", run_id, exc_info=True)
     elif outcome.report is not None:
-        status = mlflow.RunStatus.FINISHED if outcome.status is TrainingStatus.SUCCEEDED else mlflow.RunStatus.FAILED
+        status = RunStatus.FINISHED if outcome.status is TrainingStatus.SUCCEEDED else RunStatus.FAILED
         # scalars only: MLflow's log-metric API takes nothing else; history and the confusion matrix stay in the report
-        await mlflow.finish_run(tenant_id, project_id, run_id, status, outcome.report.metrics)
+        await data_plane.finish_run(tenant_id, project_id, run_id, status, outcome.report.metrics)
 
 
 async def publish_model(tenant_id: str, row: dict) -> None:
     """Put the trained model in MLflow; repeating it for a retry is harmless."""
     if row["mlflow_run_id"] is not None:
-        await mlflow.publish_run_model(tenant_id, str(row["project_id"]), str(row["id"]), row["mlflow_run_id"])
+        await data_plane.publish_run_model(tenant_id, str(row["project_id"]), str(row["id"]), row["mlflow_run_id"])
 
 
 async def purge_run_files(tenant_id: str, row: dict) -> None:

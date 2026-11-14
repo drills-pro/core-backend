@@ -7,7 +7,8 @@ from app.modules.user.deployments.constants import COLD_START_RETRY_AFTER_SECOND
 
 from app.core.authz import TenantStatus
 from app.integrations.serve_client import ServeErrorCode
-from app.modules.user.deployments import routes, shared
+from app.modules.user.deployments import model_predict, routes
+from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import METADATA_MAX_BYTES, PREDICTION_ID_PREFIX
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support.predict_env import BODY, MODEL, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
@@ -103,7 +104,7 @@ def test_503_for_a_suspended_tenant_before_anything_is_read(env):
 )
 def test_serve_failures_map_and_cost_nothing(env, code, status, problem):
     def fail(*a):
-        raise shared.ServeFailed(code, "secret internals " + "x" * 600, 3.0)
+        raise ServeFailed(code, "secret internals " + "x" * 600, 3.0, None, 0)
 
     env.answer = fail
     r = env.post()
@@ -114,3 +115,10 @@ def test_serve_failures_map_and_cost_nothing(env, code, status, problem):
 
 def test_the_legacy_endpoint_is_still_there():
     assert {"/v1/predict", "/v1/predict/{deployment_id}"} <= {r.path for r in routes.router.routes}
+
+
+@pytest.mark.parametrize("code", list(ServeErrorCode))
+def test_serve_problem_maps_every_code_and_only_the_models_refusal_shows_serves_words(code):
+    problem = model_predict.serve_problem(ServeFailed(code, "internal detail", 1.0, None, 0))
+    assert problem.status_code == {ServeErrorCode.BAD_INPUT: 422, ServeErrorCode.TIMEOUT: 504}.get(code, 502)  # unreachable is 502 here, 503 only on the per-deployment-key route
+    assert ("internal detail" in problem.detail) == (code == ServeErrorCode.BAD_INPUT)

@@ -10,7 +10,7 @@ import pytest
 from app.core import plan_limits
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeErrorCode
-from app.modules.user.deployments import calls, service, shared
+from app.modules.user.deployments import calls, predict
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
@@ -26,7 +26,7 @@ def test_the_error_codes_mirror_the_check():
 
 @pytest.fixture
 def predicting(monkeypatch):
-    """service.predict for a shared deployment: the key lookup, rate limit, tenant reads and usage are faked; `log` is the predict_calls conn."""
+    """predict.predict: the key lookup, rate limit, tenant reads, model lookup, Serve call and usage are faked; `log` is the predict_calls conn."""
     lookup = FakeConn(row={"route_prefix": "/p", "status": DeploymentStatus.ACTIVE, "rate_limit_per_minute": 60, "tenant_id": TENANT, "project_id": PROJECT, "tenant_status": "active"})
 
     async def check(*_):
@@ -36,23 +36,26 @@ def predicting(monkeypatch):
         return None
 
     log = FakeConn()
-    reads = FakeConn(row={"serving": "shared", "training_run_id": RUN})
-    patch_counted_conn(monkeypatch, reads, service)
+    reads = FakeConn(val=RUN)
+    patch_counted_conn(monkeypatch, reads, predict)
     patch_counted_conn(monkeypatch, log, calls)
-    monkeypatch.setattr(service, "get_pool", lambda: _pool(lookup))
-    monkeypatch.setattr(service.rate_limit, "check", check)
-    monkeypatch.setattr(service, "record_usage", record_usage)
+    monkeypatch.setattr(predict, "get_pool", lambda: _pool(lookup))
+    monkeypatch.setattr(predict.rate_limit, "check", check)
+    monkeypatch.setattr(predict, "record_usage", record_usage)
     state = SimpleNamespace(log=log, answer=None)
 
-    async def answer(*args):
+    async def target(tenant_id, project_id, deployment_id, run_id):
+        return predict.Target(serve_client.ComputeTarget.CPU, run_id, None)
+
+    async def serve(*args):
         return state.answer(*args)
 
     async def predict_limits(conn, tenant_id):
         return plan_limits.Predict(max_body_bytes=1000, max_inflight_per_deployment=3)
 
-    monkeypatch.setattr(service.plan_limits, "predict_limits", predict_limits)
-
-    monkeypatch.setattr(service.shared, "answer", answer)
+    monkeypatch.setattr(predict.plan_limits, "predict_limits", predict_limits)
+    monkeypatch.setattr(predict, "_target", target)
+    monkeypatch.setattr(predict.serve_client, "predict", serve)
     return state
 
 
@@ -72,21 +75,21 @@ def logged(state):
 
 
 def test_a_successful_shared_call_is_logged_with_its_run_latency_and_cold_load(predicting):
-    predicting.answer = lambda *a: (serve_client.Prediction(predictions=[1], cold_load=True), 12.5)
-    assert asyncio.run(service.predict(DEPLOYMENT, "key", {"text": "x"})) == {"predictions": [1]}
+    predicting.answer = lambda *a: serve_client.Prediction(predictions=[1], cold_load=True)
+    assert asyncio.run(predict.predict(DEPLOYMENT, "key", {"text": "x"})) == {"predictions": [1]}
     (args,) = logged(predicting)
-    assert args[:5] == (TENANT, DEPLOYMENT, RUN, 200, 12.5) and args[5:7] == (True, None) and args[7] == len('{"text": "x"}')
+    assert args[:4] == (TENANT, DEPLOYMENT, RUN, 200) and args[4] >= 0 and args[5:7] == (True, None) and args[7] == len('{"text": "x"}')
 
 
 def test_a_failed_shared_call_is_logged_with_its_code_and_still_raises(predicting):
     def fail(*a):
-        raise shared.ServeFailed(ServeErrorCode.MODEL_LOAD_FAILED, "boom", 3.0)
+        raise serve_client.ServeCallError(ServeErrorCode.MODEL_LOAD_FAILED, "boom")
 
     predicting.answer = fail
-    with pytest.raises(shared.ServeFailed):
-        asyncio.run(service.predict(DEPLOYMENT, "key", {}))
+    with pytest.raises(predict.ServeFailed):
+        asyncio.run(predict.predict(DEPLOYMENT, "key", {}))
     (args,) = logged(predicting)
-    assert args[3:7] == (502, 3.0, None, ServeErrorCode.MODEL_LOAD_FAILED)
+    assert args[2:4] == (RUN, 502) and args[5:8] == (None, ServeErrorCode.MODEL_LOAD_FAILED, len("{}"))
 
 
 def test_a_log_that_cannot_be_written_does_not_fail_the_call(monkeypatch):

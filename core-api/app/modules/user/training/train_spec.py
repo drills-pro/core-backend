@@ -10,7 +10,7 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.task_types import TaskInfo
 from app.integrations import data_plane
-from app.integrations.data_plane import layout
+from app.integrations.data_plane import train_prefix
 from app.integrations.job_spec import Hyperparameters, Reporting, Resources, TrainPayload, TrainSpec
 from app.modules.user.training.constants import (
     JOB_ID_PREFIX,
@@ -76,7 +76,7 @@ async def build(
         reporting=reporting,
         payload=TrainPayload(
             bucket=settings.data_plane.staging_bucket,
-            prefix=layout.train_prefix(*ids, str(run_id)),
+            prefix=train_prefix(*ids, str(run_id)),
             task=task.slug,
             trainer=task.trainer,
             data_kind=task.data_kind,

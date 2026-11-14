@@ -18,7 +18,7 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle
-from app.integrations.data_plane import prediction_payloads
+from app.integrations import data_plane
 from app.modules.user.deployments import model_predict, prediction_store as store
 from app.modules.user.deployments.constants import (
     CANCEL_CHECK_SECONDS,
@@ -40,7 +40,7 @@ WORKER_ID = uuid.uuid4().hex  # who holds a lease: this process, this run
 _TENANTS = "SELECT inflight_prediction_tenant_ids()"
 _EXPIRING_REFS = "SELECT id, tenant_id, project_id FROM expiring_prediction_refs()"
 _PURGE = "SELECT purge_predictions($1::uuid[])"
-_DEPLOYMENT = "SELECT id, status, serving, route_prefix, training_run_id FROM deployments WHERE id = $1"
+_DEPLOYMENT = "SELECT id, status, training_run_id FROM deployments WHERE id = $1"
 
 
 def backoff_seconds(attempt: int) -> float:
@@ -173,7 +173,7 @@ async def purge_stored_predictions() -> None:
     cleaned = []
     for r in expiring:
         try:
-            await prediction_payloads.delete(str(r["tenant_id"]), r["project_id"], r["id"])
+            await data_plane.delete_prediction_payloads(str(r["tenant_id"]), r["project_id"], r["id"])
         except Exception:  # noqa: BLE001 - one prediction's bucket error must not stop the others
             logger.exception("prediction %s: its stored payloads could not be deleted", r["id"])
         else:

@@ -273,11 +273,11 @@ datasets 7 days after deletion.
 `app/modules/deployments/routes.py` + `app/integrations/serve_client.py`: a real Ray Serve deployment,
 not a stub. The default (numpy) training backend now emits its fitted
 weights as a `model:{...}` log line; `POST /v1/projects/{id}/deployments`
-reads that artifact and submits a Ray job whose entrypoint calls
-`serve.run(...)` — Serve deployments are independent Ray actors that
-outlive the submission job, which is the standard way to drive Serve from
-outside the cluster's own process. `POST /v1/predict/{deployment_id}`
-proxies to the deployed HTTP route and records **real** request latency
+writes an `active` row at once: two long-lived Serve apps, predictor-cpu and
+predictor-gpu (the `ray_serving` package, declared by the `serving-ensure`
+poller), load each deployment's model by id on its first request.
+`POST /v1/predict/{deployment_id}` calls the project's app with that model
+and records **real** request latency
 (`app/core/metrics/inference.py::latency`) — this is the actual signal
 behind req/08's "inference p99 latency" alert (see Observability).
 
@@ -294,7 +294,7 @@ curl -X POST "http://localhost:8090/v1/predict/<deployment_id>" -H "X-Tenant-Id:
 
 Ray Serve's HTTP proxy binds to `0.0.0.0:8000` inside the container
 (Serve defaults to `127.0.0.1`, which is unreachable cross-container —
-set explicitly via `serve.start(http_options=...)`), mapped to host
+set explicitly in the declared config's `http_options`), mapped to host
 `8100` (`8000` was already LakeFS's).
 
 Rate limiting is real and per-tenant-plan (req/04 FR4 verbatim: "per

@@ -38,7 +38,7 @@ def test_promoting_a_version_deleted_after_mlflow_moved_is_404(monkeypatch):
     async def transition_stage(*a):
         moved.append(a)
 
-    monkeypatch.setattr(registry.mlflow, "transition_stage", transition_stage)
+    monkeypatch.setattr(registry.data_plane, "transition_stage", transition_stage)
     row = {"mlflow_model_name": "m", "mlflow_version": "1"}
     conn = FakeConn(rows={"FROM model_versions WHERE id": row, "UPDATE model_versions SET stage": None})
     patch_tenant_conn(monkeypatch, conn, registry)

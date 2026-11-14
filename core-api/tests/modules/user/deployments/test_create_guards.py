@@ -39,30 +39,11 @@ class RaisingConn(FakeConn):
 
 @pytest.fixture
 def env(monkeypatch):
-    class Env:
-        removed = []
-        deployed = []
-        shared = True
-
-    e = Env()
+    e = SimpleNamespace()
     e.conn = RaisingConn(
         rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": CREATED},
         vals={"count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_tenant_conn(monkeypatch, e.conn, service)
-
-    async def apps_declared():
-        return e.shared
-
-    async def deploy(**kw):
-        e.deployed.append(kw)
-        return "ray-job-1", f"/predict/{kw['deployment_id']}"
-
-    async def remove(**kw):
-        e.removed.append(kw)
-
-    monkeypatch.setattr(service.serve_client, "apps_declared", apps_declared)
-    monkeypatch.setattr(service.serve_client, "deploy", deploy)
-    monkeypatch.setattr(service.serve_client, "remove", remove)
     return e
 
 
@@ -73,7 +54,7 @@ def create(run=RUN, key=KEY):
 def test_the_same_key_and_run_replays_the_deployment_without_the_key_or_a_deploy(env):
     env.conn.rows["idempotency_key = $2"] = CREATED
     out = create()
-    assert out.id == CREATED["id"] and out.predict_key is None and not env.deployed
+    assert out.id == CREATED["id"] and out.predict_key is None
     assert not any(sql.startswith("INSERT") for sql, _ in env.conn.calls)
 
 
@@ -124,33 +105,16 @@ def test_a_main_redeploy_onto_a_run_another_deployment_holds_is_409(env):
     assert e.value.code == ProblemCode.DEPLOYMENT_EXISTS
 
 
-def test_a_legacy_create_that_loses_to_the_index_removes_its_own_serve_app(env):
-    env.shared = False
-    env.conn.fail = ("INSERT INTO deployments",)
-    with pytest.raises(HTTPException):
-        create()
-    assert [r["deployment_id"] for r in env.removed] == [env.deployed[0]["deployment_id"]]
-
-
-def test_a_main_legacy_create_that_loses_leaves_the_shared_main_app_alone(env):
-    env.shared = False
-    env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
-    env.conn.fail = ("INSERT INTO deployments",)
-    with pytest.raises(HTTPException):
-        create()
-    assert env.removed == []
-
-
-def test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_deploy(env):
-    env.shared = False
+def test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_write(env):
     limit = settings.serving.max_active_deployments_per_tenant  # the YAML fallback applies: no plan_limits row in the fake
     env.conn.vals["count(*) FROM deployments"] = limit - 1
     assert create().predict_key
-    env.deployed.clear()
+    env.conn.calls.clear()
     env.conn.vals["count(*) FROM deployments"] = limit
     with pytest.raises(HTTPException) as e:
         create(key="key-2")
-    assert (e.value.status_code, e.value.code) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS) and not env.deployed
+    assert (e.value.status_code, e.value.code) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS)
+    assert not any(sql.startswith("INSERT INTO deployments") for sql, _ in env.conn.calls)
 
 
 def test_the_plan_row_sets_the_limit(env):
@@ -198,32 +162,3 @@ def _plan(limit):
     from tests.core.test_plan_limits import row
 
     return row(deployments={"max_active_deployments": limit}, updated_at=datetime.now(UTC))
-
-
-def test_a_failing_cleanup_of_the_stray_serve_app_does_not_hide_the_409(env, monkeypatch):
-    env.shared = False
-    env.conn.fail = ("INSERT INTO deployments",)
-
-    async def remove(**kw):
-        raise RuntimeError("ray head is down")
-
-    monkeypatch.setattr(service.serve_client, "remove", remove)
-    with pytest.raises(HTTPException) as e:
-        create()
-    assert e.value.code == ProblemCode.DEPLOYMENT_EXISTS
-
-
-def test_a_shared_create_that_loses_to_the_index_has_no_serve_app_to_remove(env):
-    env.conn.fail = ("INSERT INTO deployments",)
-    with pytest.raises(HTTPException):
-        create()
-    assert env.removed == [] and env.deployed == []
-
-
-def test_a_main_create_that_loses_leaves_the_shared_main_app_to_the_winner(env):
-    env.shared = False
-    env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
-    env.conn.fail = ("INSERT INTO deployments",)
-    with pytest.raises(HTTPException):
-        create()
-    assert env.removed == []

@@ -9,8 +9,8 @@ from app.integrations.serve_client import ServeErrorCode
 class Serving(StrEnum):
     """How a deployment is served. Mirrors the deployments_serving_check constraint."""
 
-    LEGACY = "legacy"  # a Serve app of its own at route_prefix, started by a Ray job
-    SHARED = "shared"  # a model the two long-lived predictor apps load by id
+    LEGACY = "legacy"  # retired (its own Serve app); a leftover row is answered like a shared one. Nothing branches on this
+    SHARED = "shared"  # a model the two long-lived predictor apps load by id; what every new row gets
 
 
 class ProblemCode(StrEnum):
@@ -88,7 +88,6 @@ PREDICT_KEY_BYTES = 32
 PREDICT_KEY_HEADER = "X-Predict-Key"
 METADATA_FIELD = "metadata"
 PREDICTIONS_FIELD = "predictions"
-SERVE_TIMEOUT_SECONDS = 10
 TEST_CALLS_DEFAULT_LIMIT = 20
 TEST_CALLS_MIN_LIMIT = 1
 TEST_CALLS_MAX_LIMIT = 100

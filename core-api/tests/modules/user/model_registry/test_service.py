@@ -43,8 +43,8 @@ def env(monkeypatch):
         assert e.opened.now == 0, "MLflow called while a connection was held"
         e.mlflow_calls.append(("transition", name, version, stage))
 
-    monkeypatch.setattr(service.mlflow, "register_model_version", register_model_version)
-    monkeypatch.setattr(service.mlflow, "transition_stage", transition_stage)
+    monkeypatch.setattr(service.data_plane, "register_model_version", register_model_version)
+    monkeypatch.setattr(service.data_plane, "transition_stage", transition_stage)
     return e
 
 
@@ -98,7 +98,7 @@ def test_a_failed_mlflow_transition_leaves_the_row_alone(env, monkeypatch):
     async def boom(*_):
         raise RuntimeError("mlflow down")
 
-    monkeypatch.setattr(service.mlflow, "transition_stage", boom)
+    monkeypatch.setattr(service.data_plane, "transition_stage", boom)
     with pytest.raises(RuntimeError):
         run(service.promote(CTX, PROJECT, VERSION, ModelStage.PRODUCTION))
     assert not any(sql.startswith("UPDATE") for sql, _ in env.conn.calls)
