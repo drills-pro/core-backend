@@ -6,6 +6,11 @@ import shlex
 from app.core import secret_files
 from app.integrations import compute
 
+# The staging store is S3-compatible, not AWS. boto3 >= 1.36 and the AWS C++ SDK under pyarrow (Ray Train's checkpoint storage) sign a
+# checksum into every upload by default, which it answers with SignatureDoesNotMatch; "when_required" is what older versions did. A job's
+# own processes (Ray Train controller and workers) only see the job's environment, so it is set here and not in the job's code.
+S3_COMPATIBLE_ENV = {"AWS_REQUEST_CHECKSUM_CALCULATION": "when_required", "AWS_RESPONSE_CHECKSUM_VALIDATION": "when_required"}
+
 def command(module: str, spec_json: str) -> str:
     """Shell command Ray runs: the module as __main__, the job spec JSON as its only argument. The package is on the
     import path because the job's runtime_env lists its zip under py_modules."""
@@ -36,6 +41,7 @@ async def submit(
             "STAGING_ENDPOINT": creds["endpoint"],
             "STAGING_ACCESS_KEY": creds["access_key"],
             "STAGING_SECRET_KEY": creds["secret_key"],
+            **S3_COMPATIBLE_ENV,
             **(extra_env or {}),
         },
     ))
