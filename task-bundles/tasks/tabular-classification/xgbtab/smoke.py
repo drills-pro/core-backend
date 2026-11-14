@@ -41,4 +41,4 @@ def spec_doc(arg: dict) -> dict:
         "payload": {
             "bucket": arg["bucket"], "prefix": arg["prefix"], "task": TASK, "trainer": TRAINER, "preset": "smoke",
             "base_model": {"repo_id": "xgboost"}, "learning_rate": LEARNING_RATE, "preprocessing": {},
-            "data": {"data_url": data_url(table())}, "hyperparameters": HYPERPARAMETERS}}
+            "data": {"data_url": data_url(table())}, "hyperparameters": dict(HYPERPARAMETERS)}}  # a copy: callers may edit the spec
