@@ -50,6 +50,12 @@ def normalise_requirements(requirements: list[str]) -> list[str]:
     return list(pins.values())
 
 
+def parse_lock(text: str) -> list[str]:
+    """The pins of a requirements.lock: one per line, `#` comments and blank lines ignored. Normalised and validated."""
+    lines = (line.split("#", 1)[0].strip() for line in text.splitlines())
+    return normalise_requirements([line for line in lines if line])
+
+
 def merge_requirements(*lists: list[str]) -> list[str]:
     """The union of already valid lists, sorted. The same pin in two lists merges; two different pins for one package
     (version or extras) raise RequirementsError."""

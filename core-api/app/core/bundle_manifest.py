@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.enums import TaskType
 from app.core.presets import NAME_PATTERN, REVISION
+from app.core.requirements import Requirements
 from app.core.settings import settings
 from app.core.task_catalog import TASK_AUGMENTATIONS, Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
 from app.core.task_types import IDENTIFIER_PATTERN, TRAINER_PATTERN
@@ -85,6 +86,7 @@ class BundleManifest(BaseModel):
     hyperparameters: dict  # JSON Schema of what a training request may set
     presets: list[ManifestPreset] = Field(min_length=1)
     requires: list[str] = []  # distributions the bundle imports; the smoke checks the image has them
+    requirements: Requirements = []  # exact pins (`name==version`) Ray installs for this bundle's jobs on top of ray_core's; empty = the image's packages
 
     @field_validator("hyperparameters")
     @classmethod

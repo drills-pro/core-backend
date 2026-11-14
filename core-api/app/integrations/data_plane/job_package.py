@@ -25,6 +25,7 @@ from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
+from app.core.requirements import RequirementsError, parse_lock
 from app.core.settings import settings
 from app.integrations import compute
 from app.integrations.data_plane import job_catalog, job_submit, layout, lakefs
@@ -39,6 +40,8 @@ SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api r
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
 INVALID_PACKAGE = "invalid_package"
+INVALID_REQUIREMENTS = "invalid_requirements"  # a requirements.lock or manifest `requirements` that is not exact pins
+LOCK_FILE = "requirements.lock"  # inside ZIP_ROOT, next to the package directory: Ray still unpacks one top-level directory
 SMOKE_ATTEMPT_FORMAT = "%Y%m%d%H%M%S"  # the suffix of a retried smoke job id: when the retry started
 SMOKE_TIMEOUT_SECONDS = 600  # a tiny run: this is only the ceiling for a stuck one
 _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
@@ -98,8 +101,20 @@ def _check_upload(name: JobPackageName, data: bytes, sha256: str) -> None:
     except zipfile.BadZipFile:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body is not a zip archive") from None
     root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
-    if not names or any(not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/") for n in names):
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"every file must be a .py under {root}")
+    if not names or any(n != f"{ZIP_ROOT}/{LOCK_FILE}" and (not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/")) for n in names):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"every file must be a .py under {root} (or {ZIP_ROOT}/{LOCK_FILE})")
+
+
+def _lock_requirements(data: bytes) -> list[str]:
+    """The pins of the zip's `package/requirements.lock`; [] when it has none (the package runs on the baked image)."""
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    path = f"{ZIP_ROOT}/{LOCK_FILE}"
+    if path not in zf.namelist():
+        return []
+    try:
+        return parse_lock(zf.read(path).decode())
+    except (RequirementsError, UnicodeDecodeError) as e:
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_REQUIREMENTS, f"{LOCK_FILE}: {e}") from None
 
 
 def _read_staged(key: str) -> bytes:
@@ -124,9 +139,11 @@ async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobP
     if match is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(package_dir, '<sha256>')}")
     sha256 = match.group(1)
-    _check_upload(name, await asyncio.to_thread(_read_staged, s3_key), sha256)
+    data = await asyncio.to_thread(_read_staged, s3_key)
+    _check_upload(name, data, sha256)
+    requirements = _lock_requirements(data)
     async with (await get_pool()).acquire() as conn:
-        return await job_packages.register(conn, name, sha256, s3_key, actor)
+        return await job_packages.register(conn, name, sha256, s3_key, actor, requirements)
 
 
 def _smoke_base_id(package: JobPackage) -> str:

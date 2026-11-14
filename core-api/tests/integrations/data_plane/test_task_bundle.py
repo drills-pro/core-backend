@@ -43,6 +43,21 @@ def test_a_bad_bundle_is_refused(data, code):
     assert e.value.status_code == 422 and e.value.code == code
 
 
+def test_manifest_requirements_are_validated_and_normalised():
+    data = bundle_zip(manifest(requirements=["Xgboost==3.2.0", "scipy==1.14.0"]))
+    assert task_bundle.check_bundle(data, _sha(data)).requirements == ["xgboost==3.2.0", "scipy==1.14.0"]
+    data = bundle_zip(manifest())
+    assert task_bundle.check_bundle(data, _sha(data)).requirements == []
+
+
+@pytest.mark.parametrize("requirements", [["xgboost>=3"], ["a==1", "A==1"], ["--index-url x"], "xgboost==3.2.0", [1]])
+def test_a_manifest_with_unpinned_requirements_is_refused_with_its_own_code(requirements):
+    data = bundle_zip(manifest(requirements=requirements))
+    with pytest.raises(Problem) as e:
+        task_bundle.check_bundle(data, _sha(data))
+    assert (e.value.status_code, e.value.code) == (422, job_package.INVALID_REQUIREMENTS)
+
+
 def test_a_bundle_without_a_manifest_or_with_a_wrong_hash_is_refused():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -61,8 +76,8 @@ def staged(monkeypatch):
     async def get_pool():
         return SimpleNamespace(acquire=lambda: TenantCtx(None))
 
-    async def register_bundle(conn, name, sha, key, doc, actor):
-        seen.append((name, sha, key, doc["schema"], actor))
+    async def register_bundle(conn, name, sha, key, doc, actor, requirements):
+        seen.append((name, sha, key, doc["schema"], actor, requirements))
         return JobPackage.model_validate(package_row(name, sha, key, actor) | {"kind": PackageKind.TASK, "manifest": doc})
 
     monkeypatch.setattr(task_bundle, "get_pool", get_pool)
@@ -79,7 +94,13 @@ def test_a_staged_bundle_is_registered_as_task_slug(staged):
     stage, seen = staged
     key = stage(bundle_zip())
     package = asyncio.run(task_bundle.register_staged(key, "ci"))
-    assert seen == [(f"task_{SLUG}", package.sha256, key, 1, "ci")] and package.kind == PackageKind.TASK
+    assert seen == [(f"task_{SLUG}", package.sha256, key, 1, "ci", [])] and package.kind == PackageKind.TASK
+
+
+def test_the_manifest_requirements_are_stored_with_the_bundle(staged):
+    stage, seen = staged
+    asyncio.run(task_bundle.register_staged(stage(bundle_zip(manifest(requirements=["xgboost==3.2.0"]))), "ci"))
+    assert seen[0][-1] == ["xgboost==3.2.0"]
 
 
 @pytest.mark.parametrize("key", ["jobs/image-classification.zip", "other/image-classification-" + "a" * 64 + ".zip"])

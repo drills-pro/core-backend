@@ -19,9 +19,10 @@ from app.core.db import get_pool
 from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem
 from app.integrations.data_plane import layout
-from app.integrations.data_plane.job_package import INVALID_PACKAGE, MAX_PACKAGE_BYTES, _read_staged
+from app.integrations.data_plane.job_package import INVALID_PACKAGE, INVALID_REQUIREMENTS, MAX_PACKAGE_BYTES, _read_staged
 
 INVALID_MANIFEST = "invalid_manifest"
+REQUIREMENTS_FIELD = "requirements"
 SOURCE_SUFFIX = ".py"
 BUNDLE_KEY = re.compile(rf"{re.escape(layout.JOB_PACKAGE_ROOT)}/(?P<slug>[a-z][a-z0-9-]*)-(?P<sha256>[0-9a-f]{{64}})\.zip")
 
@@ -50,7 +51,10 @@ def check_bundle(data: bytes, sha256: str) -> BundleManifest:
         raise _invalid(f"the bundle has no {MANIFEST_FILE} at its root", INVALID_MANIFEST)
     try:
         manifest = BundleManifest.model_validate(json.loads(zf.read(MANIFEST_FILE)))
-    except (ValueError, ValidationError) as e:  # JSONDecodeError is a ValueError
+    except ValidationError as e:
+        only_requirements = all(err["loc"][:1] == (REQUIREMENTS_FIELD,) for err in e.errors())
+        raise _invalid(f"{MANIFEST_FILE}: {e}", INVALID_REQUIREMENTS if only_requirements else INVALID_MANIFEST) from None
+    except ValueError as e:  # JSONDecodeError is a ValueError
         raise _invalid(f"{MANIFEST_FILE}: {e}", INVALID_MANIFEST) from None
     if manifest.contract != CORE_CONTRACT:
         raise _invalid(f"the bundle targets contract {manifest.contract}, this core serves {CORE_CONTRACT}", INVALID_MANIFEST)
@@ -72,4 +76,5 @@ async def register_staged(s3_key: str, actor: str) -> JobPackage:
         raise _invalid(f"the key names {slug}, the manifest {manifest.slug}", INVALID_MANIFEST)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register_bundle(
-            conn, task_package_name(slug), sha256, s3_key, manifest.model_dump(mode="json", by_alias=True), actor)
+            conn, task_package_name(slug), sha256, s3_key, manifest.model_dump(mode="json", by_alias=True), actor,
+            manifest.requirements)
