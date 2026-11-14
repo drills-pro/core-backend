@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Alert, Button, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
+import { Button, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, client, unwrap, type Schemas } from '@/api/client';
+import { client, unwrap, type Schemas } from '@/api/client';
 import { CATALOG_ERROR_MESSAGES, CATALOG_SOURCE, CATALOG_STATUSES, CatalogStatus, REVISION_PATTERN, TASK_TYPES } from '@/constants';
-import { ErrorAlert, Section, Select, StatusBadge, when } from '@/ui';
+import { CodedError, ErrorAlert, Section, Select, StatusBadge, when } from '@/ui';
 
 type Entry = Schemas['AdminCatalogModel'];
 type Form = { repo_id: string; revision: string; display_name: string; task: string; license: string; params: string; size_bytes: string };
@@ -13,17 +13,7 @@ const KEY = ['model-catalog'];
 const taskOptions = TASK_TYPES.map((t) => ({ value: t, label: t }));
 const num = (v: string) => (v.trim() === '' ? null : Number(v));
 
-/** A readable message for a known catalog error code; anything else falls back to the API's own text. */
-function CatalogError({ error }: { error: unknown }) {
-  const text = error instanceof ApiError && error.code ? CATALOG_ERROR_MESSAGES[error.code] : undefined;
-  if (!text) return <ErrorAlert error={error} />;
-  return (
-    <Alert.Root status="error" size="sm">
-      <Alert.Indicator />
-      <Alert.Title>{text}</Alert.Title>
-    </Alert.Root>
-  );
-}
+const CatalogError = ({ error }: { error: unknown }) => <CodedError error={error} messages={CATALOG_ERROR_MESSAGES} />;
 
 export function CatalogModelsPage() {
   const qc = useQueryClient();
