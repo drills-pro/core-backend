@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from app.core.enums import JobPackageName
 from app.core.settings import settings
 from app.integrations import compute
+from app.integrations.data_plane import job_submit
 from app.integrations.data_plane import access, job_catalog, lakefs, layout, mlflow, train
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 from app.integrations.job_spec import SPEC_ADAPTER, TrainSpec
@@ -112,7 +113,7 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
     assert SPEC_ADAPTER.validate_json(argv[3]) == spec  # the job reads exactly the spec core-api stored
     assert (sent["num_gpus"], sent["resources"], sent["submission_id"], sent["requirements"]) == (0, {compute.CPU_POOL_RESOURCE: 1}, spec.job_id, [])
     assert sent["timeout_seconds"] == spec.resources.max_runtime_s and sent["package"] == (JobPackageName.RAY_TRAINING, SHA)
-    assert set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
+    assert set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY", *job_submit.S3_COMPATIBLE_ENV}
 
 
 def test_a_run_on_a_bundle_gets_the_core_and_the_pinned_bundle_on_its_path(owned, monkeypatch):

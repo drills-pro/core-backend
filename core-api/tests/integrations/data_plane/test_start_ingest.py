@@ -45,7 +45,7 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     assert spec["kind"] == "ingest" and spec["spec_version"] == 1 and spec["job_id"] == "ingest-1"
     assert job["prefix"] == layout.staging_prefix(TENANT, DATASET, IMPORT) and job["task"] == "tabular-regression"
     assert job["target"] == "y" and job["limits"]["upload_max_bytes"] == settings.dataset_limits.upload_max_bytes
-    assert job["base"] is None and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
+    assert job["base"] is None and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY", *job_submit.S3_COMPATIBLE_ENV}
     assert asked == ["ingest"]  # never the staging secret, which also covers the lakeFS blockstore bucket
     assert sent["submission_id"] == "ingest-1" and sent["requirements"] == ["pandas==2.3.0"]  # the ray_jobs package's own pins
     assert sent["num_cpus"] == settings.dataset_limits.ray_job_cpus
