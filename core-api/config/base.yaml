@@ -30,6 +30,9 @@ compute:                     # app/integrations/compute.py
     cluster_spec: {}
     shutdown_after_finish: true
     ttl_after_finished_seconds: 86400
+  runtime_env:               # pinned requirements of a job or Serve app, installed by Ray's uv runtime env (planning/26)
+    uv_options: [--extra-index-url, "https://download.pytorch.org/whl/cu128", --index-strategy, unsafe-best-match]
+    setup_timeout_seconds: 3600   # Ray's default is far too short: a cold 8 GB environment took 441 s
 
 background:
   pollers_in_api: true       # false when the worker Deployment runs them (docs/runtime-contract.md)
