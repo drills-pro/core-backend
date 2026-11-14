@@ -1,5 +1,5 @@
 """Dataset creation and listing; imports and versioning follow in docs/datasets-plan.md."""
-from app.integrations.data_plane import access
+from app.integrations.data_plane import OwnedResource, register_ownership_check
 from app.modules.user.datasets.readers import (
     VersionRef,
     VersionSource,
@@ -14,9 +14,9 @@ from app.modules.user.datasets.reconcile import expire_stale_imports, purge_dele
 from app.modules.user.datasets.routes import router
 from app.modules.user.projects import register_dataset_check
 
-access.register(access.Resource.DATASET, owns_dataset)
-access.register(access.Resource.IMPORT, owns_import)
-access.register(access.Resource.VERSION, owns_version)
+register_ownership_check(OwnedResource.DATASET, owns_dataset)
+register_ownership_check(OwnedResource.IMPORT, owns_import)
+register_ownership_check(OwnedResource.VERSION, owns_version)
 register_dataset_check(in_project)
 
 __all__ = [

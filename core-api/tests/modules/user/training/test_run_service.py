@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.problem import Problem
-from app.integrations.data_plane import mlflow
+from app.integrations import data_plane
 from app.modules.user.training import persist, run_service, service
 from app.modules.user.training.constants import AuditAction, EntityType, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, patch_tenant_conn
@@ -68,7 +68,7 @@ class Env:
             self.killed.append(status)
 
         monkeypatch.setattr(run_service.compute, "stop", stop)
-        monkeypatch.setattr(mlflow, "finish_run", finish_run)
+        monkeypatch.setattr(data_plane, "finish_run", finish_run)
         monkeypatch.setattr(service, "usage_metrics", SimpleNamespace(training_runs=SimpleNamespace(add=lambda n, a: self.metrics.append(a["status"]))))
 
 
@@ -76,7 +76,7 @@ class Env:
 def test_cancel_stops_the_job_then_settles_the_row_without_holding_a_connection(monkeypatch, status):
     env = Env(monkeypatch, status)
     out = cancel(env.row["id"])
-    assert env.stopped == ["train-1"] and env.killed == [mlflow.RunStatus.KILLED] and env.metrics == [S.CANCELLED]
+    assert env.stopped == ["train-1"] and env.killed == [data_plane.RunStatus.KILLED] and env.metrics == [S.CANCELLED]
     assert env.row["status"] == S.CANCELLED and env.row["completed_at"] is not None and out.status == S.CANCELLED
     assert env.open_during == [0, 0]  # not across compute.stop, not across the MLflow call
 
@@ -128,7 +128,7 @@ def test_a_tracking_hiccup_does_not_block_a_cancel(monkeypatch):
     async def down(*a, **k):
         raise httpx.ConnectError("mlflow down")
 
-    monkeypatch.setattr(mlflow, "finish_run", down)
+    monkeypatch.setattr(data_plane, "finish_run", down)
     assert cancel(env.row["id"]).status == S.CANCELLED
 
 
@@ -186,7 +186,7 @@ def test_a_run_whose_job_never_started_ends_failed_and_is_counted(monkeypatch):
     env = Env(monkeypatch, S.SUBMITTED)
     asyncio.run(service.fail_unstarted(CTX.tenant_id, env.row["id"], "mlflow-1", PROJECT))
     assert env.row["status"] == S.FAILED and env.row["report"]["code"] == "internal"
-    assert env.metrics == [S.FAILED] and env.killed == [mlflow.RunStatus.FAILED]
+    assert env.metrics == [S.FAILED] and env.killed == [data_plane.RunStatus.FAILED]
 
 
 

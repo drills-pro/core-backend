@@ -11,7 +11,8 @@ from app.core.settings import settings
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeErrorCode
 from app.core.problem import Problem
-from app.modules.user.deployments import model_predict, prediction_store as store, shared
+from app.modules.user.deployments import model_predict, prediction_store as store
+from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import PredictionMode, PredictionStatus, ProblemCode
 from app.modules.user.deployments.schemas import PredictRequest
 from tests.support.predict_env import BODY, MODEL, PROJECT, TENANT, build
@@ -137,7 +138,7 @@ def test_the_race_loser_reads_the_winners_row(env):
 )
 def test_a_failed_serve_call_is_stored_and_the_retry_gets_the_same_failure_without_calling_serve(env, code, status, problem):
     def fail(*a):
-        raise shared.ServeFailed(code, "internals", 3.0)
+        raise ServeFailed(code, "internals", 3.0, None, 0)
 
     env.answer = fail
     first = env.post(key=KEY)
@@ -150,7 +151,7 @@ def test_a_failed_serve_call_is_stored_and_the_retry_gets_the_same_failure_witho
 
 def test_a_new_key_runs_the_call_again_after_a_stored_failure(env):
     def fail(*a):
-        raise shared.ServeFailed(ServeErrorCode.UNREACHABLE, "down", 3.0)
+        raise ServeFailed(ServeErrorCode.UNREACHABLE, "down", 3.0, None, 0)
 
     env.answer = fail
     env.post(key="a")

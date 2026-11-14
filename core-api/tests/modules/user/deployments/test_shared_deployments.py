@@ -10,7 +10,7 @@ from app.core import plan_limits
 from app.core.enums import TaskType
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeCallError, ServeErrorCode
-from app.modules.user.deployments import service, shared
+from app.modules.user.deployments import predict, service
 from app.modules.user.deployments.constants import (
     SERVE_ERROR_STATUS,
     SETTING_COMPUTE_TARGET,
@@ -31,8 +31,8 @@ SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlf
 
 @pytest.fixture(autouse=True)
 def fresh_state():
-    shared._targets.clear()
-    shared._inflight.clear()
+    predict._targets.clear()
+    predict._inflight.clear()
 
 
 @pytest.fixture
@@ -41,15 +41,6 @@ def shared_env(monkeypatch):
         rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": None},
         vals={"count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_counted_conn(monkeypatch, conn, service)
-
-    async def apps_declared():
-        return True
-
-    async def deploy(**kw):
-        raise AssertionError("a shared deployment starts no Ray job")
-
-    monkeypatch.setattr(service.serve_client, "apps_declared", apps_declared)
-    monkeypatch.setattr(service.serve_client, "deploy", deploy)
     return conn
 
 
@@ -67,11 +58,12 @@ def test_a_shared_deployment_is_active_at_once_with_no_ray_job(shared_env):
 def test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared(shared_env):
     main_id = uuid.uuid4()
     shared_env.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN, SETTING_COMPUTE_TARGET: "gpu"}
-    shared_env.rows["FROM deployments"] = {"id": main_id, "status": "active", "predict_key_hash": "h", "rate_limit_per_minute": 10}
-    shared_env.rows["UPDATE deployments"] = {"id": main_id, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
+    shared_env.rows["FROM deployments"] = {"id": main_id, "status": "active"}
+    shared_env.rows["UPDATE deployments"] = {
+        "id": main_id, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
     out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     sql, args = next(c for c in shared_env.calls if c[0].startswith("UPDATE deployments"))
-    assert "serving = $5" in sql and args == (main_id, RUN, None, "active", Serving.SHARED, "stopped", KEY, False) and out.predict_key is None
+    assert "serving = $6" in sql and args[:8] == (main_id, "active", "active", RUN, None, Serving.SHARED, KEY, False) and out.predict_key is None
 
 
 @pytest.fixture
@@ -79,15 +71,18 @@ def served(monkeypatch):
     """A deployment whose run, task and settings are in the fake database and whose Serve call is recorded."""
     conn = FakeConn(
         rows={"FROM training_runs": SERVABLE},
-        vals={"SELECT settings": {SETTING_COMPUTE_TARGET: "gpu"}, "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
-    opened = patch_counted_conn(monkeypatch, conn, shared)
-    state = SimpleNamespace(calls=[], urls=0, error=None, conn=conn)
+        vals={"SELECT settings": {SETTING_COMPUTE_TARGET: "gpu"}, "SELECT task_type": TaskType.IMAGE_CLASSIFICATION, "FROM deployments": RUN})
+    opened = patch_counted_conn(monkeypatch, conn, predict)
+    state = SimpleNamespace(calls=[], urls=0, error=None, conn=conn, max_inflight=8)
+
+    async def predict_limits(conn, tenant_id):
+        return plan_limits.Predict(max_body_bytes=1000, max_inflight_per_deployment=state.max_inflight)
 
     async def served_model(task, mlflow_run_id, class_names, tenant_id, project_id):
         state.urls += 1
         return MODEL
 
-    async def predict(app, deployment_id, run_id, model, body):
+    async def predict_(app, deployment_id, run_id, model, body):
         assert opened.now == 0, "Serve called while a connection was held"
         state.calls.append((app, deployment_id, run_id, body))
         if hasattr(state, "gate"):
@@ -96,39 +91,53 @@ def served(monkeypatch):
             raise state.error
         return serve_client.Prediction(predictions=[{"class": "cat"}], cold_load=False)
 
-    monkeypatch.setattr(shared.serve_client, "served_model", served_model)
-    monkeypatch.setattr(shared.serve_client, "predict", predict)
+    monkeypatch.setattr(predict.serve_client, "served_model", served_model)
+    monkeypatch.setattr(predict.serve_client, "predict", predict_)
+    monkeypatch.setattr(predict.plan_limits, "predict_limits", predict_limits)
     return state
 
 
-def answer(run=RUN, body=None, max_inflight=8):
-    return asyncio.run(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, run, body or {"text": "x"}, max_inflight))
+def answer(body=None):
+    return asyncio.run(predict.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, body or {"text": "x"}))
 
 
 def test_a_request_goes_to_the_projects_compute_target_under_the_deployments_run(served):
-    prediction, ms = answer()
+    done = answer()
     assert served.calls == [(serve_client.ComputeTarget.GPU, str(DEPLOYMENT), str(RUN), {"text": "x"})]
-    assert prediction.predictions == [{"class": "cat"}] and ms >= 0
+    assert done.prediction.predictions == [{"class": "cat"}] and done.elapsed_ms >= 0
+    assert (done.run_id, done.request_bytes) == (RUN, len('{"text": "x"}'))
 
 
 def test_the_model_urls_are_looked_up_once_per_run_and_a_new_run_looks_them_up_again(served):
     answer()
     answer()
     assert served.urls == 1
-    answer(run=uuid.uuid4())
+    served.conn.vals["FROM deployments"] = uuid.uuid4()  # a 'main' re-deploy moved the deployment to another run
+    answer()
     assert served.urls == 2
 
 
 def test_the_target_cache_drops_the_least_recently_used_pair_past_its_size(served, monkeypatch):
-    monkeypatch.setattr(shared, "TARGET_CACHE_SIZE", 2)
+    monkeypatch.setattr(predict, "TARGET_CACHE_SIZE", 2)
     a, b, c = (uuid.uuid4() for _ in range(3))
+
+    def answer_with(run):  # the deployment serves `run` now (a 'main' re-deploy moved it)
+        served.conn.vals["FROM deployments"] = run
+        answer()
+
     for run in (a, b):
-        answer(run=run)
-    answer(run=a)  # a is now the newest, so b is the oldest
-    answer(run=c)
-    assert set(shared._targets) == {(DEPLOYMENT, a), (DEPLOYMENT, c)} and served.urls == 3
-    answer(run=b)  # evicted: its model URLs are looked up again
+        answer_with(run)
+    answer_with(a)  # a is now the newest, so b is the oldest
+    answer_with(c)
+    assert set(predict._targets) == {(DEPLOYMENT, a), (DEPLOYMENT, c)} and served.urls == 3
+    answer_with(b)  # evicted: its model URLs are looked up again
     assert served.urls == 4
+
+
+def test_a_body_over_the_plans_cap_is_413_before_serve_is_called(served):
+    with pytest.raises(HTTPException) as err:
+        answer({"text": "x" * 2000})
+    assert err.value.status_code == 413 and not served.calls
 
 
 @pytest.mark.parametrize("code", list(ServeErrorCode))
@@ -149,20 +158,22 @@ def test_a_run_that_cannot_be_served_is_409(served):
 
 def test_requests_over_the_in_flight_cap_get_429_and_free_their_slot(served):
 
+    served.max_inflight = 1
+
     async def run():
         served.gate = asyncio.Event()
-        first = asyncio.create_task(shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1))
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        first = asyncio.create_task(predict.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, {}))
+        while not served.calls:  # the first request holds its slot inside the Serve call
+            await asyncio.sleep(0)
         with pytest.raises(HTTPException) as err:
-            await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1)
+            await predict.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, {})
         assert err.value.status_code == 429
         served.gate.set()
         await first
-        await shared.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, RUN, {}, 1)  # the slot came back
+        await predict.answer(CTX.tenant_id, PROJECT, DEPLOYMENT, {})  # the slot came back
 
     asyncio.run(run())
-    assert not shared._inflight
+    assert not predict._inflight
 
 
 def test_a_body_over_the_cap_is_413_before_it_is_parsed(monkeypatch):
@@ -185,24 +196,16 @@ def test_a_body_over_the_cap_is_413_before_it_is_parsed(monkeypatch):
     assert client.post("/echo", json=[1]).status_code == 422
 
 
-def test_the_test_call_and_key_predict_answer_a_shared_deployment_with_its_predictions(monkeypatch):
+def test_the_test_call_answers_with_the_predictions_and_logs_the_call(monkeypatch):
     seen = []
 
-    async def answer_(tenant_id, project_id, deployment_id, run_id, body, max_inflight):
-        seen.append((tenant_id, run_id, body, max_inflight))
-        return serve_client.Prediction(predictions=[1], cold_load=True), 2.5
+    async def answer_(tenant_id, project_id, deployment_id, body):
+        seen.append((tenant_id, deployment_id, body))
+        return predict.Answered(run_id=RUN, request_bytes=1, prediction=serve_client.Prediction(predictions=[1], cold_load=True), elapsed_ms=2.5)
 
-    async def predict_limits(conn, tenant_id):
-        return plan_limits.Predict(max_body_bytes=1000, max_inflight_per_deployment=3)
-
-    monkeypatch.setattr(service.shared, "answer", answer_)
-    monkeypatch.setattr(service.plan_limits, "predict_limits", predict_limits)
-    row = {"status": "active", "route_prefix": "/p", "serving": "shared", "training_run_id": RUN}
-    conn = FakeConn(row=row)
+    monkeypatch.setattr(service.predict, "answer", answer_)
+    conn = FakeConn(row={"status": "active"})
     patch_counted_conn(monkeypatch, conn, service)
     out = asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x"}))
-    assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, RUN, {"text": "x"}, 3)]
+    assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, DEPLOYMENT, {"text": "x"})]
     assert any(sql.startswith("INSERT INTO deployment_test_calls") for sql, _ in conn.calls)
-    with pytest.raises(HTTPException) as err:  # the plan's body cap
-        asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x" * 2000}))
-    assert err.value.status_code == 413

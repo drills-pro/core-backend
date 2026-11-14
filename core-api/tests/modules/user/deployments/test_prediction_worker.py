@@ -11,7 +11,8 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeErrorCode
-from app.modules.user.deployments import prediction_store as store, prediction_worker as worker, shared
+from app.modules.user.deployments import prediction_store as store, prediction_worker as worker
+from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import RETRY_BACKOFF_SECONDS, PredictionStatus
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support.predict_env import BODY, RESOLVED, TENANT, build
@@ -38,7 +39,7 @@ def run(coro):
 
 def serve_fails(code):
     def fail(*a):
-        raise shared.ServeFailed(code, "internals", 1.0)
+        raise ServeFailed(code, "internals", 1.0, None, 0)
 
     return fail
 
@@ -57,7 +58,7 @@ def test_a_queued_prediction_is_claimed_run_and_completed_with_one_usage_event(e
     (usage,) = env.usage
     assert usage["source_ref"] == str(row["id"])
     (args,) = env.served
-    assert args[4] == BODY["input"] and args[5] == settings.predict.worker_concurrency  # input as stored; reuse of shared.answer
+    assert args[4] == BODY["input"] and args[5] == settings.predict.worker_concurrency  # input as stored; reuse of predict.call
 
 
 def test_the_claim_takes_a_lease_and_counts_the_attempt(env):
@@ -249,7 +250,7 @@ def test_one_predictions_failure_does_not_stop_the_others(env):
 
     def answer(*a):
         if len(env.served) == 2:
-            raise shared.ServeFailed(ServeErrorCode.BAD_INPUT, "no", 1.0)
+            raise ServeFailed(ServeErrorCode.BAD_INPUT, "no", 1.0, None, 0)
         return OK
 
     env.answer = answer

@@ -638,7 +638,7 @@ entries:
   status: built
   code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/start"]
   tests:
-  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_of_a_shared_deployment_is_active_again_without_a_deploy
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_is_active_again_on_the_shared_apps_even_for_a_leftover_legacy_row
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full
 - id: DEP-05
   area: deployment
@@ -651,15 +651,15 @@ entries:
   - core-api/tests/db/test_deployments_db.py::test_a_failed_or_deleted_deployment_releases_its_run
 - id: DEP-06
   area: deployment
-  title: Deployment states and the reconciler that follows legacy deployments to active or failed
+  title: Deployment states and their legal moves, declared once and written only through job_lifecycle.advance
   source: planning/03 Deployment state machine; planning/09 Reconciler design
   status: partial
   weight: 1
   old: F10
-  code: [core-api/app/modules/user/deployments/tasks.py, core-api/app/modules/user/deployments/status.py]
+  code: [core-api/app/modules/user/deployments/status.py, core-api/app/integrations/job_lifecycle.py]
   tests:
-  - core-api/tests/modules/user/deployments/test_tasks.py::test_a_finished_job_settles_the_deployment
-  - core-api/tests/modules/user/deployments/test_tasks.py::test_a_job_still_running_past_the_deadline_fails
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_every_status_is_declared_and_deleted_is_final
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_of_a_deployment_that_is_not_active_is_409
   gap: Status is the observed state; there is no desired-versus-observed split and no updating or stopping state.
 - id: DEP-07
   area: deployment
@@ -680,7 +680,7 @@ entries:
   old: F10
   code: [core-api/app/core/plan_limits.py, core-api/app/modules/user/deployments/service.py]
   tests:
-  - core-api/tests/modules/user/deployments/test_create_guards.py::test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_deploy
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_write
   - core-api/tests/modules/user/deployments/test_create_guards.py::test_the_write_checks_the_quota_under_the_tenants_advisory_lock
 - id: DEP-09
   area: deployment
@@ -714,7 +714,7 @@ entries:
   code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/test", "GET /v1/projects/{project_id}/deployments/{deployment_id}/test-calls", core-api/app/modules/user/deployments/calls.py]
   tests:
   - core-api/tests/modules/user/deployments/test_test_calls.py::test_a_small_payload_is_kept_and_a_big_one_becomes_a_marker
-  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_try_it_calls_serve_at_the_configured_head
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_test_deployment_releases_the_connection_before_calling_serve
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_try_it_on_a_stopped_deployment_is_409_and_on_a_deleted_one_404
   note: Route is /deployments/{id}/test, not the documented /deployments/{id}:try.
 - id: DEP-12
@@ -754,12 +754,12 @@ entries:
   note: The shape comes from the task type's encoder and postprocess, not from a per-model signature captured at registration; that waits for the model card.
 - id: DEP-15
   area: deployment
-  title: Active when the Ray job finished (legacy) or at once (shared serving loads on the first request)
+  title: Active at once (the shared predictor apps load the model on the first request)
   source: planning/03 Deployment state machine
   status: built
   weight: 2
   old: F10
-  code: [core-api/app/integrations/serve_client.py, core-api/app/modules/user/deployments/tasks.py]
+  code: [core-api/app/integrations/serve_client.py, core-api/app/modules/user/deployments/service.py]
   tests:
   - core-api/tests/integrations/test_serve_shared.py::test_the_apps_are_declared_when_they_are_not_there
   note: Decision 2026-11-12 (planning/03 amended). A model that cannot load fails its first call with 502 upstream_error; a per-deployment probe would need a replica per deployment.
@@ -767,21 +767,19 @@ entries:
   area: deployment
   title: Legacy per-deployment Serve app started by a Ray job (deprecated serving mode)
   source: planning/12 Migration mechanics
-  status: built
+  status: missing
   old: F10
-  code: [core-api/app/integrations/serve_client.py, core-api/app/modules/user/deployments/tasks.py]
-  tests:
-  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_of_a_legacy_deployment_redeploys_it_and_waits_for_the_reconciler
-  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_legacy_create_that_loses_to_the_index_removes_its_own_serve_app
+  code: []
+  tests: []
+  gap: Retired on purpose (migration drop_legacy_deployments_active); every deployment, a leftover serving = legacy row included, is answered by the shared predictor apps.
 - id: DEP-17
   area: deployment
   title: CPU or GPU compute target per project (project setting compute_target)
   source: planning/07 Single-node reality
   status: built
-  code: [core-api/app/modules/user/deployments/shared.py]
+  code: [core-api/app/modules/user/deployments/predict.py]
   tests:
   - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_request_goes_to_the_projects_compute_target_under_the_deployments_run
-  - core-api/tests/integrations/test_mlflow_models.py::test_only_a_gpu_target_asks_for_a_gpu
 - id: DEP-18
   area: deployment
   title: Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier
@@ -849,7 +847,7 @@ entries:
   source: planning/07 Limits on the byte stream
   status: built
   old: F10
-  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/modules/user/deployments/routes.py]
+  code: [core-api/app/modules/user/deployments/predict.py, core-api/app/modules/user/deployments/routes.py]
   tests:
   - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_requests_over_the_in_flight_cap_get_429_and_free_their_slot
   - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_body_over_the_cap_is_413_before_it_is_parsed
@@ -860,7 +858,7 @@ entries:
   status: partial
   weight: 2
   old: F10
-  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/modules/user/deployments/calls.py]
+  code: [core-api/app/modules/user/deployments/predict.py, core-api/app/modules/user/deployments/calls.py]
   tests:
   - core-api/tests/modules/user/deployments/test_predict_calls.py::test_a_successful_shared_call_is_logged_with_its_run_latency_and_cold_load
   gap: A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero.
@@ -900,7 +898,7 @@ entries:
   title: Model URLs looked up once per run and cached; model fetched through the MLflow artifact API
   source: docs/runtime-contract.md Models, experiments and MLflow
   status: built
-  code: [core-api/app/modules/user/deployments/shared.py, core-api/app/integrations/data_plane/mlflow.py]
+  code: [core-api/app/modules/user/deployments/predict.py, core-api/app/integrations/data_plane/mlflow.py]
   tests:
   - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_the_model_urls_are_looked_up_once_per_run_and_a_new_run_looks_them_up_again
   - core-api/tests/integrations/test_mlflow_models.py::test_the_model_url_is_under_the_runs_artifact_root

@@ -10,7 +10,7 @@ def test_the_claiming_pollers_are_real_pollers():
 
 
 def test_the_ray_following_reconcilers_are_the_claiming_ones_and_the_cheap_sweeps_elect_a_leader():
-    assert background.CLAIMING == {"training-reconcile", "deployment-reconcile", "import-reconcile"}
+    assert background.CLAIMING == {"training-reconcile", "import-reconcile"}
     assert {"import-expiry", "dataset-purge", "rate-limit-purge"}.isdisjoint(background.CLAIMING)
 
 

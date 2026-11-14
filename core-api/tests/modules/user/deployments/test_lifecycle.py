@@ -1,4 +1,4 @@
-"""Stop, start and delete a deployment: compare-and-set transitions, audit, Serve app removal, what predict and try-it answer."""
+"""Stop, start and delete a deployment: moves along the DEPLOYMENTS edges (status.py), audit and outbox, what predict and try-it answer."""
 import asyncio
 import uuid
 from datetime import datetime, timezone
@@ -10,48 +10,28 @@ from fastapi import HTTPException
 from app.core.authz import Action, Role, TenantStatus
 from app.core.problem import ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import routes, service
-from app.modules.user.deployments.constants import AuditAction, DeployStrategy, EntityType, ProblemCode, Serving
+from app.modules.user.deployments import predict, routes, service
+from app.modules.user.deployments.constants import AuditAction, EntityType, ProblemCode, Serving
 from app.modules.user.deployments.status import DeploymentStatus as S
-from app.modules.user.training import TrainingStatus
 from tests.support import PROJECT, FakeConn, TenantCtx, access, make_client, patch_tenant_conn
 
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="u1")
 DEPLOYMENT, RUN = uuid.uuid4(), uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/deployments/{DEPLOYMENT}"
-_STATE = "id, project_id, training_run_id, status"
 UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into FakeConn.rows
 
 
 def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
     return {
-        "id": DEPLOYMENT, "project_id": PROJECT, "training_run_id": RUN, "status": status, "route_prefix": route_prefix,
+        "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "status": status, "route_prefix": route_prefix,
         "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving,
     }
 
 
 @pytest.fixture
 def env(monkeypatch):
-    class Env:
-        conn = FakeConn(vals={"count(*) FROM deployments": 0})
-        removed, deployed, stopped_jobs = [], [], []
-
-    e = Env()
+    e = SimpleNamespace(conn=FakeConn(vals={"count(*) FROM deployments": 0}))
     patch_tenant_conn(monkeypatch, e.conn, service)
-
-    async def remove(**kw):
-        e.removed.append(kw)
-
-    async def deploy(**kw):
-        e.deployed.append(kw)
-        return "ray-job-2", kw["deployment_id"]
-
-    async def stop_quietly(job_id):
-        e.stopped_jobs.append(job_id)
-
-    monkeypatch.setattr(service.serve_client, "remove", remove)
-    monkeypatch.setattr(service.serve_client, "deploy", deploy)
-    monkeypatch.setattr(service.job_lifecycle, "stop_quietly", stop_quietly)
     return e
 
 
@@ -76,33 +56,20 @@ def run(coro):
 
 
 def test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key(env):
-    env.conn.rows = {UPDATE: row(S.STOPPED)}
+    env.conn.rows = {UPDATE: row(S.STOPPED), SELECT: row(S.ACTIVE)}
     out = run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
     assert out.status == S.STOPPED
     (args,) = moves(env)
-    assert (args[2], args[3], args[5]) == (S.STOPPED, [S.ACTIVE], False)  # only an active one; the key is not cleared
+    assert args == (DEPLOYMENT, S.ACTIVE, S.STOPPED)  # compare-and-set on the status it was read at; the key is not cleared
+    assert any(sql.endswith("FOR UPDATE") for sql, _ in env.conn.calls)  # the row is locked from the read to the move
     assert audited(env) == [(AuditAction.STOP, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
     assert events(env) == [("deployment.stopped", "stopped")]
-    assert env.removed == []  # shared serving: nothing to remove
-
-
-def test_stop_removes_the_serve_app_of_a_legacy_deployment(env):
-    env.conn.rows = {UPDATE: row(S.STOPPED, Serving.LEGACY)}
-    run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert env.removed == [dict(deployment_id=str(DEPLOYMENT), project_id=str(PROJECT), tenant_id=CTX.tenant_id, deploy_strategy=DeployStrategy.LATEST)]
-
-
-def test_a_main_legacy_deployment_removes_the_projects_main_app(env):
-    env.conn.rows = {UPDATE: row(S.STOPPED, Serving.LEGACY, f"/predict/{PROJECT}/main")}
-    run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert env.removed[0]["deploy_strategy"] == DeployStrategy.MAIN
 
 
 def test_stop_of_a_stopped_deployment_is_a_repeat_not_an_error_and_writes_no_audit(env):
-    env.conn.rows = {UPDATE: None, SELECT: row(S.STOPPED, Serving.LEGACY)}
+    env.conn.rows = {UPDATE: None, SELECT: row(S.STOPPED)}
     out = run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert out.status == S.STOPPED and audited(env) == []
-    assert len(env.removed) == 1  # a removal that failed the first time is retried
+    assert out.status == S.STOPPED and audited(env) == [] and moves(env) == []
 
 
 @pytest.mark.parametrize("current", [S.DEPLOYING, S.FAILED])
@@ -121,126 +88,45 @@ def test_a_missing_or_deleted_deployment_is_404(env):
         assert e.value.status_code == 404
 
 
-def test_delete_clears_the_predict_key_and_audits(env):
-    env.conn.rows = {UPDATE: row(S.DELETED, Serving.LEGACY)}
+@pytest.mark.parametrize("current", [S.ACTIVE, S.STOPPED, S.FAILED, S.DEPLOYING])
+def test_delete_clears_the_predict_key_and_audits(env, current):
+    env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(current, Serving.LEGACY)}  # a leftover legacy row has nothing of its own to remove
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("UPDATE deployments SET status"))
-    assert "predict_key_hash = CASE WHEN $6 THEN NULL" in sql
-    assert (args[2], args[3], args[5]) == (S.DELETED, [S.ACTIVE, S.STOPPED, S.FAILED], True)  # never from deploying
+    assert "predict_key_hash = $4" in sql and args == (DEPLOYMENT, current, S.DELETED, None)
     assert audited(env) == [(AuditAction.DELETE, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
-    assert len(env.removed) == 1
 
 
-def test_start_of_a_shared_deployment_is_active_again_without_a_deploy(env):
-    env.conn.rows = {UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
+@pytest.mark.parametrize("serving", list(Serving))
+def test_start_is_active_again_on_the_shared_apps_even_for_a_leftover_legacy_row(env, serving):
+    env.conn.rows = {UPDATE: row(S.ACTIVE, serving), SELECT: row(S.STOPPED, serving)}
     out = run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
     (args,) = moves(env)
-    assert (out.status, args[2], args[3], args[4], args[5]) == (S.ACTIVE, S.ACTIVE, [S.STOPPED], None, False)
-    assert env.deployed == [] and audited(env) == [(AuditAction.START, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
-
-
-def test_start_of_a_legacy_deployment_redeploys_it_and_waits_for_the_reconciler(env, monkeypatch):
-    async def servable_run(conn, project_id, run_id):
-        return SimpleNamespace(status=TrainingStatus.SUCCEEDED, mlflow_run_id="m1", class_names=["a"], servable=True)
-
-    async def task(conn, project_id):
-        return "image-classification"
-
-    async def settings(conn, project_id):
-        return {}
-
-    async def info(conn, task):
-        return SimpleNamespace(enabled=True, servable=True)
-
-    monkeypatch.setattr(service, "get_run_model", servable_run)
-    monkeypatch.setattr(service, "get_task_type", task)
-    monkeypatch.setattr(service, "get_settings", settings)
-    monkeypatch.setattr(service.task_types, "get", info)
-    env.conn.rows = {UPDATE: row(S.DEPLOYING, Serving.LEGACY), SELECT: row(S.STOPPED, Serving.LEGACY)}
-    out = run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
-    (args,) = moves(env)
-    assert (out.status, args[2], args[4]) == (S.DEPLOYING, S.DEPLOYING, "ray-job-2")
-    assert env.deployed[0]["deployment_id"] == str(DEPLOYMENT) and env.stopped_jobs == []
+    assert (out.status, args) == (S.ACTIVE, (DEPLOYMENT, S.STOPPED, S.ACTIVE))
+    assert audited(env) == [(AuditAction.START, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
 
 
 def test_a_repeated_start_does_not_deploy_again(env):
     env.conn.rows = {UPDATE: None, SELECT: row(S.ACTIVE)}
     assert run(service.start_deployment(CTX, PROJECT, DEPLOYMENT)).status == S.ACTIVE
-    assert audited(env) == [] and env.deployed == []
+    assert audited(env) == [] and moves(env) == []
 
 
 def test_start_of_a_failed_deployment_is_409(env):
-    env.conn.rows = {UPDATE: None, SELECT: row(S.FAILED)}
+    env.conn.rows = {UPDATE: row(S.ACTIVE), SELECT: row(S.FAILED)}
     with pytest.raises(HTTPException) as e:
         run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert e.value.status_code == 409
-
-
-def servable_legacy(monkeypatch, *, run_servable=True, task_servable=True):
-    async def run_model(conn, project_id, run_id):
-        return SimpleNamespace(status=TrainingStatus.SUCCEEDED, mlflow_run_id="m1", class_names=["a"], servable=run_servable)
-
-    async def task(conn, project_id):
-        return "image-classification"
-
-    async def settings(conn, project_id):
-        return {}
-
-    async def info(conn, task):
-        return SimpleNamespace(enabled=True, servable=task_servable)
-
-    monkeypatch.setattr(service, "get_run_model", run_model)
-    monkeypatch.setattr(service, "get_task_type", task)
-    monkeypatch.setattr(service, "get_settings", settings)
-    monkeypatch.setattr(service.task_types, "get", info)
-
-
-@pytest.mark.parametrize("run_servable,task_servable", [(False, True), (True, False)])
-def test_start_of_a_legacy_deployment_whose_run_or_task_can_no_longer_be_served_is_409_and_deploys_nothing(env, monkeypatch, run_servable, task_servable):
-    servable_legacy(monkeypatch, run_servable=run_servable, task_servable=task_servable)
-    env.conn.rows = {UPDATE: row(S.DEPLOYING, Serving.LEGACY), SELECT: row(S.STOPPED, Serving.LEGACY)}
-    with pytest.raises(HTTPException) as e:
-        run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert (e.value.status_code, e.value.code) == (409, ProblemCode.NOT_DEPLOYABLE) and env.deployed == [] and moves(env) == []
-
-
-def test_two_starts_of_a_legacy_deployment_leave_one_job_running_and_stop_the_duplicate(env, monkeypatch):
-    servable_legacy(monkeypatch)
-    reads = iter([row(S.STOPPED, Serving.LEGACY)])  # this start read it stopped; by the compare-and-set another start had moved it
-
-    async def fetchrow(sql, *args):
-        if sql.startswith("UPDATE deployments SET status"):
-            return None
-        if sql.startswith("SELECT " + _STATE):
-            return next(reads, row(S.DEPLOYING, Serving.LEGACY))
-        return await original(sql, *args)
-
-    original = env.conn.fetchrow
-    env.conn.fetchrow = fetchrow
-    out = run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert out.status == S.DEPLOYING and env.deployed[0]["deployment_id"] == str(DEPLOYMENT)
-    assert env.stopped_jobs == ["ray-job-2"] and audited(env) == []  # the loser's job is stopped, and the repeat writes no audit
-
-
-def test_stopping_whose_serve_removal_fails_leaves_the_deployment_stopped_for_a_repeat_to_finish(env, monkeypatch):
-    async def remove(**kw):
-        raise RuntimeError("ray head is down")
-
-    monkeypatch.setattr(service.serve_client, "remove", remove)
-    env.conn.rows = {UPDATE: row(S.STOPPED, Serving.LEGACY)}
-    with pytest.raises(RuntimeError):
-        run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert len(moves(env)) == 1 and audited(env) == [(AuditAction.STOP, EntityType.DEPLOYMENT, str(DEPLOYMENT))]  # the move committed first
+    assert (e.value.status_code, e.value.code) == (409, ProblemCode.INVALID_TRANSITION) and moves(env) == []
 
 
 # ---- what the rest of the surface answers ----
 
 def test_a_stopped_deployment_answers_409_with_its_own_code():
     with pytest.raises(HTTPException) as stopped:
-        service._require_active(S.STOPPED)
+        predict.require_active(S.STOPPED)
     with pytest.raises(HTTPException) as failed:
-        service._require_active(S.FAILED)
-    service._require_active(S.ACTIVE)
+        predict.require_active(S.FAILED)
+    predict.require_active(S.ACTIVE)
     assert (stopped.value.status_code, stopped.value.code) == (409, ProblemCode.STOPPED)
     assert (failed.value.status_code, failed.value.code) == (409, ProblemCode.NOT_ACTIVE)
 
@@ -262,11 +148,11 @@ def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(m
     async def pool():
         return SimpleNamespace(acquire=lambda: TenantCtx(conn))
 
-    monkeypatch.setattr(service, "get_pool", pool)
+    monkeypatch.setattr(predict, "get_pool", pool)
     with pytest.raises(HTTPException) as e:
-        run(service.predict(DEPLOYMENT, "key", {}))
+        run(predict.predict(DEPLOYMENT, "key", {}))
     assert (e.value.status_code, e.value.code) == (409, ProblemCode.STOPPED)
-    assert conn.calls[0][1][1] == service.hash_key("key")  # the stored hash is untouched, so the same key matches
+    assert conn.calls[0][1][1] == predict.hash_key("key")  # the stored hash is untouched, so the same key matches
 
 
 @pytest.mark.parametrize("tenant_status", [TenantStatus.SUSPENDED, TenantStatus.PENDING_DELETE])
@@ -279,10 +165,10 @@ def test_predict_for_a_tenant_that_is_not_active_is_503_before_serve(monkeypatch
     async def serve_must_not_run(*_):
         raise AssertionError("Serve was called")
 
-    monkeypatch.setattr(service, "get_pool", pool)
-    monkeypatch.setattr(service, "_post_to_serve", serve_must_not_run)
+    monkeypatch.setattr(predict, "get_pool", pool)
+    monkeypatch.setattr(predict, "call", serve_must_not_run)
     with pytest.raises(HTTPException) as e:
-        run(service.predict(DEPLOYMENT, "key", {}))
+        run(predict.predict(DEPLOYMENT, "key", {}))
     assert (e.value.status_code, e.value.code) == (503, KernelProblemCode.TENANT_SUSPENDED)
 
 
@@ -304,7 +190,7 @@ def call(monkeypatch, dev_headers):
     client = make_client(routes.router, raise_server_exceptions=False)
 
     def go(method, path, acc):
-        patch_tenant_conn(monkeypatch, FakeConn(acc, row=None), service)
+        patch_tenant_conn(monkeypatch, FakeConn(acc, row=None, vals={"count(*) FROM deployments": 0}), service)
         return getattr(client, method)(path)
 
     return go
@@ -328,7 +214,7 @@ def test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full(env):
 
 def test_stop_and_delete_do_not_check_the_quota(env):
     env.conn.vals["count(*) FROM deployments"] = 10**6
-    env.conn.rows = {UPDATE: row(S.STOPPED)}
+    env.conn.rows = {UPDATE: row(S.STOPPED), SELECT: row(S.ACTIVE)}
     run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
-    env.conn.rows = {UPDATE: row(S.DELETED)}
+    env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(S.STOPPED)}
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))

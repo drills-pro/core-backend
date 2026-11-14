@@ -137,14 +137,14 @@ transfer) and core-api is the only door customers have to it.
 - **Trainer upload:** the Ray job `PUT`s `model.onnx` and `model.json` to MLflow's artifact API
   (`/api/2.0/mlflow-artifacts/artifacts/<exp>/<run>/artifacts/model/...`). MLflow's `--serve-artifacts`
   stores them in the bucket, so core-api and the trainers hold no storage credential for models.
-- **Serving:** the deployment script downloads the same artifact path from MLflow's artifact API.
+- **Serving:** the shared predictor apps download the same artifact path from MLflow's artifact API.
 - **k8s:** the `ray` namespace needs a NetworkPolicy allowing ingress to `app=mlflow` on port 5000.
 
 ## Worker mode and compute (RayJob)
 
 One image, two commands. The API (`uvicorn app.main:app`) serves HTTP; the worker (`python -m app.worker`, run as
-`uv run python -m app.worker` in this image) runs only the background loops of `app/background.py`: training,
-deployment and import reconcilers, import expiry, dataset purge, rate-limit purge. Each loop takes a Postgres
+`uv run python -m app.worker` in this image) runs only the background loops of `app/background.py`: training
+and import reconcilers, import expiry, dataset purge, rate-limit purge. Each loop takes a Postgres
 advisory lock per sweep, so any number of replicas is safe and exactly one does each sweep; every state change is a
 compare-and-set. The worker serves no HTTP and needs no Service.
 

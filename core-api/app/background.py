@@ -18,7 +18,6 @@ from app.modules.user.deployments import (
     purge_predict_calls,
     purge_stored_predictions,
     purge_test_calls,
-    reconcile_inflight_deployments,
 )
 from app.modules.user.training import reconcile_inflight_runs
 from app.modules.user.webhooks import dispatch_webhooks
@@ -36,7 +35,6 @@ PREDICTION_WORKER_INTERVAL_SECONDS = 1  # background predictions wait at most th
 # (name, coroutine function, seconds between runs)
 POLLERS = (
     ("training-reconcile", reconcile_inflight_runs, RECONCILE_INTERVAL_SECONDS),
-    ("deployment-reconcile", reconcile_inflight_deployments, RECONCILE_INTERVAL_SECONDS),
     ("import-reconcile", reconcile_inflight_imports, RECONCILE_INTERVAL_SECONDS),
     ("import-expiry", expire_stale_imports, SWEEP_INTERVAL_SECONDS),
     ("dataset-purge", purge_deleted_datasets, PURGE_INTERVAL_SECONDS),
@@ -70,7 +68,7 @@ async def _run_as_leader(name: str, poll) -> None:
 
 # Pollers every replica runs: each claims rows of its own (app/integrations/job_lifecycle.py), so replicas share the work.
 # The rest sweep cheaply and elect one leader.
-CLAIMING = {"training-reconcile", "deployment-reconcile", "import-reconcile"}
+CLAIMING = {"training-reconcile", "import-reconcile"}
 
 
 async def _run_forever(name: str, poll, interval: int) -> None:

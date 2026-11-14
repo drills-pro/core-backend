@@ -13,7 +13,7 @@ from app.core.metrics import usage as usage_metrics
 from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle
-from app.integrations.data_plane.train_report import FailureCode
+from app.integrations.data_plane import FailureCode
 from app.modules.user.training import decide, effects, persist
 from app.modules.user.training.constants import TRANSITIONS, ProblemCode, TrainingStatus
 

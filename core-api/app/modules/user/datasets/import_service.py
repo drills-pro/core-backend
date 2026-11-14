@@ -4,15 +4,15 @@ Every status change is a compare-and-set (`UPDATE ... WHERE status = <from>`) al
 constants.TRANSITIONS, so a retry or a race loses cleanly with 409 instead of acting twice. Commit also takes
 a row lock on the dataset, which serialises version numbering and the stale-base check.
 
-No pooled connection is held across a gateway call (lakeFS, staging, Ray): the gateway checks ownership on a
-connection of its own, so holding one while waiting for it could exhaust the pool. Each step is therefore
-short transactions around the call. A commit is claimed by moving the import to `committing` (one per
+No pooled connection is held across a gateway call (see app.integrations.data_plane) or a Ray call, so each step
+is short transactions around the call. A commit is claimed by moving the import to `committing` (one per
 dataset) and finished by a second transaction; the lakeFS commit carries the import id, so resuming a
 commit that failed in between returns the commit already made instead of making another.
 """
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from http import HTTPStatus
 
 
@@ -26,8 +26,7 @@ from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane, job_lifecycle
-from app.integrations.data_plane import layout
-from app.integrations.data_plane.report import ImportReport
+from app.integrations.data_plane import ImportReport, staging_prefix
 from app.modules.user.datasets.constants import (
     ACTIVE_STATUSES,
     BASE_REQUIRED_DETAIL,
@@ -158,7 +157,7 @@ async def create_import(
                 conn, _INSERT,
                 (import_id, ctx.tenant_id, project_id, dataset_id, body.source, body.base_version_id,
                  body.params.model_dump(mode="json", exclude_none=True),
-                 layout.staging_prefix(ctx.tenant_id, str(dataset_id), str(import_id)),
+                 staging_prefix(ctx.tenant_id, str(dataset_id), str(import_id)),
                  datetime.now(UTC) + IMPORT_UPLOAD_TTL, idempotency_key),
                 _BY_KEY, (dataset_id, idempotency_key),
             )
@@ -200,17 +199,6 @@ async def _unqueue(ctx: AuthzContext, row: dict) -> None:
         logger.exception("could not return import %s to awaiting_upload", row["id"])
 
 
-def _start_failed(e: Exception, imp: str) -> Exception:
-    """What the caller sees when starting failed: a Problem stays as it is, anything else (storage, Ray, the
-    database) becomes a 503 the frontend can show, with the cause in the log."""
-    if isinstance(e, Problem):
-        return e
-    logger.error("could not start import %s", imp, exc_info=e)
-    problem = Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.START_FAILED, START_FAILED_DETAIL)
-    problem.__cause__ = e
-    return problem
-
-
 async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID, import_id: uuid.UUID) -> DatasetImport:
     tenant, ds, imp = ctx.tenant_id, str(dataset_id), str(import_id)
     async with TenantConn(ctx.tenant_id) as conn:
@@ -223,21 +211,23 @@ async def start_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uui
         limits = await plan_limits.dataset_limits(conn, tenant)
         row = await cas(conn, row, ImportStatus.QUEUED, deadline)
     submission_id = f"ingest-{imp}-{uuid.uuid4().hex[:8]}"  # Ray refuses a reused id, and a retry is a new submission; known before the POST, so a lost answer can still be stopped
-    try:
+
+    async def submit() -> str:
         await data_plane.create_dataset_repo(tenant, ds)
         spec, kind = await ingest_spec.build(row, TaskType(task_type), info.data_kind, limits, submission_id)
-        job_id = await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
-    except Exception as e:
-        await job_lifecycle.stop_quietly(submission_id)  # Ray may have accepted it: a retry must not run a second job on this prefix
-        await _unqueue(ctx, row)
-        raise _start_failed(e, imp)
-    try:
+        return await data_plane.submit_ingest(tenant, ds, imp, spec, kind)
+
+    async def save_job_id(job_id: str) -> uuid.UUID | None:
         async with TenantConn(ctx.tenant_id) as conn:
-            tracked = await conn.fetchval(_SET_JOB, import_id, job_id, ImportStatus.QUEUED)
-    except Exception as e:
-        await job_lifecycle.stop_quietly(job_id)  # nothing would track it
-        await _unqueue(ctx, row)
-        raise _start_failed(e, imp)
+            return await conn.fetchval(_SET_JOB, import_id, job_id, ImportStatus.QUEUED)
+
+    unqueue, what = partial(_unqueue, ctx, row), f"import {imp}"
+    # on failure: stop the submission (Ray may have accepted it: a retry must not run a second job on this prefix)
+    job_id = await job_lifecycle.start(submit, submission_id, unqueue, ProblemCode.START_FAILED, START_FAILED_DETAIL, what)
+    # on failure: stop the job, nothing would track it
+    tracked = await job_lifecycle.start(
+        partial(save_job_id, job_id), job_id, unqueue, ProblemCode.START_FAILED, START_FAILED_DETAIL, what
+    )
     if tracked is None:  # cancelled or deleted meanwhile, when there was no job id yet to stop
         await job_lifecycle.stop_quietly(job_id)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, "the import was cancelled while it was starting")

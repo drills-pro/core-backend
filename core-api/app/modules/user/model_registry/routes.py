@@ -8,7 +8,7 @@ from starlette.responses import StreamingResponse
 
 from app.core.authz import Action, AuthzContext, require
 from app.core.problem import Problem
-from app.integrations.data_plane.mlflow import ModelStage
+from app.integrations.data_plane import ModelStage
 from app.modules.user.model_registry import service
 from app.modules.user.model_registry.constants import BAD_STAGE_DETAIL, DOWNLOAD_MEDIA_TYPES, DownloadFile, ProblemCode
 from app.modules.user.model_registry.schemas import ModelVersionItem, PromotedVersion, PublishState

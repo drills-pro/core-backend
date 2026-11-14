@@ -1,18 +1,19 @@
-"""service.predict (the predict-key route, now deprecated): the refusals before Serve is called, the legacy HTTP forward, the metadata echo,
+"""predict.predict (the predict-key route, now deprecated): the refusals before Serve is called, the shared call, the metadata echo,
 and the two poller purges that log what they dropped."""
 import asyncio
 import uuid
 from http import HTTPStatus
 from types import SimpleNamespace
 
-import httpx
 import pytest
 
 from app.core import plan_limits
 from app.core.authz import TenantStatus
 from app.core.problem import Problem
-from app.modules.user.deployments import calls, service
-from app.modules.user.deployments.constants import METADATA_FIELD, ProblemCode, Serving
+from app.integrations import serve_client
+from app.integrations.serve_client import ServeErrorCode
+from app.modules.user.deployments import calls, predict as predict_path
+from app.modules.user.deployments.constants import METADATA_FIELD, ProblemCode
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
@@ -37,7 +38,7 @@ class _Pool:
 
 @pytest.fixture
 def env(monkeypatch):
-    state = SimpleNamespace(lookup=dict(LOOKUP), allowed=True, usage=[], posted=[], reply=httpx.Response(200, json={"predictions": [1]}, request=httpx.Request("POST", "http://serve/p")), checks=[])
+    state = SimpleNamespace(lookup=dict(LOOKUP), allowed=True, usage=[], posted=[], logged=[], fail=None, checks=[])
     lookup = FakeConn()
 
     async def fetchrow(sql, *args):
@@ -55,24 +56,31 @@ def env(monkeypatch):
     async def record_usage(conn, **kw):
         state.usage.append(kw)
 
-    async def post_to_serve(route_prefix, body):
-        state.posted.append((route_prefix, dict(body)))
-        return state.reply, 3.0
+    async def call(tenant_id, project_id, deployment_id, run_id, body, size, max_inflight):
+        state.posted.append((run_id, dict(body)))
+        if state.fail:
+            raise predict_path.ServeFailed(state.fail, "down", 3.0, run_id, size)
+        prediction = serve_client.Prediction(predictions=[1], cold_load=False)
+        return predict_path.Answered(run_id=run_id, request_bytes=size, prediction=prediction, elapsed_ms=3.0)
+
+    async def record(*args, **kw):
+        state.logged.append(kw)
 
     async def predict_limits(conn, tenant_id):
         return plan_limits.Predict(max_body_bytes=1000, max_inflight_per_deployment=3)
 
-    patch_counted_conn(monkeypatch, FakeConn(row={"serving": Serving.LEGACY, "training_run_id": RUN}), service)
-    monkeypatch.setattr(service, "get_pool", get_pool)
-    monkeypatch.setattr(service.rate_limit, "check", check)
-    monkeypatch.setattr(service, "record_usage", record_usage)
-    monkeypatch.setattr(service, "_post_to_serve", post_to_serve)
-    monkeypatch.setattr(service.plan_limits, "predict_limits", predict_limits)
+    patch_counted_conn(monkeypatch, FakeConn(val=RUN), predict_path)
+    monkeypatch.setattr(predict_path, "get_pool", get_pool)
+    monkeypatch.setattr(predict_path.rate_limit, "check", check)
+    monkeypatch.setattr(predict_path, "record_usage", record_usage)
+    monkeypatch.setattr(predict_path, "call", call)
+    monkeypatch.setattr(predict_path.calls, "record", record)
+    monkeypatch.setattr(predict_path.plan_limits, "predict_limits", predict_limits)
     return state
 
 
 def predict(body=None):
-    return asyncio.run(service.predict(DEPLOYMENT, "key", {"text": "x"} if body is None else body))
+    return asyncio.run(predict_path.predict(DEPLOYMENT, "key", {"text": "x"} if body is None else body))
 
 
 def refused(**kw):
@@ -107,21 +115,23 @@ def test_over_the_deployments_rate_limit_is_429_naming_the_limit_and_nothing_is_
     assert 1 <= int(problem.headers["Retry-After"]) <= 60  # seconds left in the fixed minute
 
 
-def test_a_legacy_deployment_gets_the_body_without_metadata_which_is_echoed_back_and_the_call_is_metered(env):
+@pytest.mark.parametrize("serving", ["shared", "legacy"])
+def test_the_run_gets_the_body_without_metadata_which_is_echoed_back_and_the_call_is_logged_and_metered(env, serving):
+    env.lookup["serving"] = serving  # a leftover legacy row is answered by the shared apps like any other
     result = predict({"text": "x", METADATA_FIELD: {"trace": 1}})
     assert result == {"predictions": [1], METADATA_FIELD: {"trace": 1}}
-    assert env.posted == [("/p", {"text": "x"})] and len(env.usage) == 1
+    assert env.posted == [(RUN, {"text": "x"})] and len(env.usage) == 1 and env.logged[0]["status"] == HTTPStatus.OK
 
 
 def test_no_metadata_in_means_none_out(env):
     assert METADATA_FIELD not in predict()
 
 
-def test_a_legacy_5xx_raises_and_is_not_metered(env):
-    env.reply = httpx.Response(500, request=httpx.Request("POST", "http://serve/p"))
-    with pytest.raises(httpx.HTTPStatusError):  # ponytail: the deprecated route lets it surface; /v1/predict maps it to 502
+def test_a_failed_serve_call_is_logged_with_its_code_and_not_metered(env):
+    env.fail = ServeErrorCode.UNREACHABLE
+    with pytest.raises(predict_path.ServeFailed):
         predict()
-    assert not env.usage
+    assert not env.usage and env.logged[0]["error_code"] == ServeErrorCode.UNREACHABLE
 
 
 def test_the_two_purges_log_only_when_something_was_dropped(monkeypatch, caplog):

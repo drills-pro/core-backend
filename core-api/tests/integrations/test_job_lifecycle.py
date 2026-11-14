@@ -4,9 +4,11 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from types import SimpleNamespace
 
 import pytest
 
+from app.core.problem import Problem
 from app.core.settings import load
 from app.integrations import compute, job_lifecycle
 from app.integrations.compute import JobStatus
@@ -429,3 +431,91 @@ def test_claim_sql_picks_once_in_a_materialized_cte():
     job = JobTable(name="x", table="things", tenants_fn="f", inflight=("a",), transitions={}, deadline=lambda row: None)
     sql = job_lifecycle.claim_sql(job)
     assert "WITH picked AS MATERIALIZED" in sql and "FOR UPDATE SKIP LOCKED" in sql and "id IN (" not in sql
+
+
+# ---- start ----
+
+class Code(StrEnum):
+    START_FAILED = "thing_start_failed"
+
+
+START_DETAIL = "the thing could not be started"
+
+
+@pytest.fixture
+def starting(monkeypatch):
+    """compute.stop and the compensation, recorded; `fail_stop` makes the stop raise."""
+    env = SimpleNamespace(calls=[], fail_stop=False)
+
+    async def stop(job_id):
+        env.calls.append(("stop", job_id))
+        if env.fail_stop:
+            raise RuntimeError("no such job")
+
+    async def compensate():
+        env.calls.append(("compensate",))
+
+    monkeypatch.setattr(compute, "stop", stop)
+    env.compensate = compensate
+    return env
+
+
+def _start(starting, step):
+    return run(job_lifecycle.start(step, "job-1", starting.compensate, Code.START_FAILED, START_DETAIL, "thing t1"))
+
+
+def test_start_returns_what_the_step_returns_and_undoes_nothing(starting):
+    async def step():
+        return "ray-1"
+
+    assert _start(starting, step) == "ray-1"
+    assert starting.calls == []
+
+
+def test_a_failed_start_stops_the_job_then_compensates_once_and_becomes_a_503(starting, caplog):
+    cause = RuntimeError("ray is down")
+
+    async def step():
+        raise cause
+
+    with caplog.at_level(logging.ERROR), pytest.raises(Problem) as err:
+        _start(starting, step)
+    assert starting.calls == [("stop", "job-1"), ("compensate",)]
+    assert (err.value.status_code, err.value.code, err.value.detail) == (503, Code.START_FAILED, START_DETAIL)
+    assert err.value.__cause__ is cause
+    assert any(r.exc_info and r.exc_info[1] is cause for r in caplog.records)
+
+
+def test_a_failed_start_keeps_a_problem_as_it_is(starting):
+    problem = Problem(409, Code.START_FAILED, "conflict")
+
+    async def step():
+        raise problem
+
+    with pytest.raises(Problem) as err:
+        _start(starting, step)
+    assert err.value is problem and starting.calls == [("stop", "job-1"), ("compensate",)]
+
+
+def test_a_stop_or_compensation_that_raises_does_not_hide_the_start_error(starting):
+    starting.fail_stop = True
+
+    async def broken():
+        starting.calls.append(("compensate",))
+        raise RuntimeError("db is down")
+
+    async def step():
+        raise RuntimeError("ray is down")
+
+    with pytest.raises(Problem) as err:
+        run(job_lifecycle.start(step, "job-1", broken, Code.START_FAILED, START_DETAIL, "thing t1"))
+    assert err.value.status_code == 503 and str(err.value.__cause__) == "ray is down"
+    assert starting.calls == [("stop", "job-1"), ("compensate",)]
+
+
+def test_start_failed_keeps_a_problem_and_wraps_anything_else():
+    problem = Problem(404, Code.START_FAILED, "missing")
+    assert job_lifecycle.start_failed(problem, Code.START_FAILED, START_DETAIL, "thing t1") is problem
+    cause = RuntimeError("ray is down")
+    wrapped = job_lifecycle.start_failed(cause, Code.START_FAILED, START_DETAIL, "thing t1")
+    assert (wrapped.status_code, wrapped.code, wrapped.__cause__) == (503, Code.START_FAILED, cause)

@@ -7,8 +7,8 @@ from typing import Any
 from app.core.authz import KeyContext
 from app.core.idempotency import insert_once
 from app.core.settings import settings
-from app.integrations.data_plane import prediction_payloads as payloads
-from app.integrations.data_plane.layout import PREDICTION_INPUT_KEY, PREDICTION_OUTPUT_KEY
+from app.integrations import data_plane
+from app.integrations.data_plane import PREDICTION_INPUT_KEY, PREDICTION_OUTPUT_KEY
 from app.modules.user.deployments.constants import (
     PREDICTION_ID_PREFIX,
     PredictionMode,
@@ -90,12 +90,12 @@ async def add_event(conn, row, data: dict[str, Any] | None = None) -> None:
 
 async def begin(
     conn, ctx: KeyContext, deployment_id: uuid.UUID, model_id: uuid.UUID, revision: str, request: PredictRequest, *,
-    mode: PredictionMode, key: str, request_hash: str, prediction_id: uuid.UUID | None = None, stored_input: payloads.Payload | None = None,
+    mode: PredictionMode, key: str, request_hash: str, prediction_id: uuid.UUID | None = None, stored_input: data_plane.PredictionPayload | None = None,
 ):
     """(row, created): the new prediction, or the one an earlier request with this key made. A sync row starts in_progress on its
     first attempt (its handler owns it for a lease); a background row starts queued for the worker.
     An input already offloaded to the bucket (`stored_input`, under `prediction_id`, see stash_input) is kept as its ref."""
-    stored_input = stored_input or payloads.Payload(inline=request.input)
+    stored_input = stored_input or data_plane.PredictionPayload(inline=request.input)
     sync = mode == PredictionMode.SYNC
     args = (
         ctx.tenant_id, ctx.project_id, ctx.key_id, deployment_id, model_id, revision, mode,
@@ -191,16 +191,16 @@ async def abandon_if_expired(conn, row, error: PredictionError):
     return moved
 
 
-async def stash_input(ctx: KeyContext, value: Any) -> tuple[uuid.UUID, payloads.Payload]:
+async def stash_input(ctx: KeyContext, value: Any) -> tuple[uuid.UUID, data_plane.PredictionPayload]:
     """The id of a prediction about to be inserted and where its input goes: inline, or the bucket when it is over predict.inline_max_bytes."""
     prediction_id = uuid.uuid4()
-    return prediction_id, await payloads.store(ctx.tenant_id, ctx.project_id, prediction_id, PREDICTION_INPUT_KEY, value)
+    return prediction_id, await data_plane.store_prediction_payload(ctx.tenant_id, ctx.project_id, prediction_id, PREDICTION_INPUT_KEY, value)
 
 
-async def stash_output(row, value: Any) -> payloads.Payload:
+async def stash_output(row, value: Any) -> data_plane.PredictionPayload:
     """Where the output of the attempt `row` holds goes (the attempt is in the key, so a stale attempt never overwrites the current one's).
     Written before the fenced write-back, outside any transaction; if the fence then drops it the object is left for the retention purge."""
-    return await payloads.store(str(row["tenant_id"]), row["project_id"], row["id"], PREDICTION_OUTPUT_KEY, value, attempt=row["attempt"])
+    return await data_plane.store_prediction_payload(str(row["tenant_id"]), row["project_id"], row["id"], PREDICTION_OUTPUT_KEY, value, attempt=row["attempt"])
 
 
 async def payload(row, column: str) -> Any:
@@ -208,7 +208,7 @@ async def payload(row, column: str) -> Any:
     ref = row[f"{column}_ref"]
     if ref is None:
         return row[column]
-    return await payloads.load(str(row["tenant_id"]), row["project_id"], row["id"], ref)
+    return await data_plane.load_prediction_payload(str(row["tenant_id"]), row["project_id"], row["id"], ref)
 
 
 async def public(row) -> PredictionEnvelope:

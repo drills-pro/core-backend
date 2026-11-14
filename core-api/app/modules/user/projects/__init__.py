@@ -1,6 +1,6 @@
 """Projects, their settings, members and audit log."""
 from app.core.authz import deps as authz_deps
-from app.integrations.data_plane import access
+from app.integrations.data_plane import OwnedResource, register_ownership_check
 from app.modules.user import tenant_members
 from app.modules.user.projects.readers import (
     get_settings,
@@ -14,7 +14,7 @@ from app.modules.user.projects.routes import members_router, router
 from app.modules.user.projects.schemas import CreatedProject
 from app.modules.user.projects.writers import create_project, remove_member_bindings
 
-access.register(access.Resource.PROJECT, owns_project)
+register_ownership_check(OwnedResource.PROJECT, owns_project)
 authz_deps.register_project_exists(exists)
 tenant_members.register_member_removed(remove_member_bindings)
 

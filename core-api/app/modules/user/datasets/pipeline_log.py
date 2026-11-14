@@ -18,7 +18,7 @@ import logging
 from collections.abc import Sequence
 
 from app.core import loki_log
-from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Severity
+from app.integrations.data_plane import ImportReport, Issue, IssueCode, Severity
 from app.modules.user.datasets.constants import PIPELINE_SERVICE_NAME
 from app.modules.user.datasets.constants import PipelineAttribute as A
 from app.modules.user.datasets.constants import PipelineEvent as E

@@ -8,8 +8,7 @@ from app.core import plan_limits
 from app.core.enums import PlanTier
 from app.core.authz import TenantStatus, generate_key, keys
 from app.integrations import serve_client
-from app.modules.user.deployments import calls, model_predict, prediction_service, prediction_store as store, prediction_worker, routes
-from app.modules.user.deployments.constants import Serving
+from app.modules.user.deployments import calls, model_predict, predict, prediction_service, prediction_store as store, prediction_worker, routes
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support import make_client
 from tests.support.counted_conn import patch_counted_conn
@@ -18,7 +17,7 @@ from tests.support.predictions import PredictionsConn
 TENANT, PROJECT, MODEL, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 BODY = {"input": {"text": "hello", "n": 1.0}, "metadata": {"trace": "t1"}}
 RESOLVED = {
-    "id": DEPLOYMENT, "status": DeploymentStatus.ACTIVE, "serving": Serving.SHARED, "route_prefix": "/p", "training_run_id": RUN,
+    "id": DEPLOYMENT, "status": DeploymentStatus.ACTIVE, "training_run_id": RUN,
     "rate_limit_per_minute": 60, "mlflow_version": "3",
 }
 
@@ -77,10 +76,12 @@ def build(monkeypatch):
     async def record_usage(conn, **kw):
         state.usage.append(kw)
 
-    async def answer(*args):
+    async def call(tenant_id, project_id, deployment_id, run_id, body, size, max_inflight):
+        args = (tenant_id, project_id, deployment_id, run_id, body, max_inflight)
         state.served.append(args)
         result = state.answer(*args)
-        return await result if inspect.isawaitable(result) else result
+        prediction, elapsed_ms = await result if inspect.isawaitable(result) else result
+        return predict.Answered(run_id=run_id, request_bytes=size, prediction=prediction, elapsed_ms=elapsed_ms)
 
     state.answer = lambda *a: (serve_client.Prediction(predictions=[{"label": "cat"}], cold_load=False), 12.5)
     monkeypatch.setattr(model_predict.plan_limits, "predict_limits", predict_limits)
@@ -88,7 +89,7 @@ def build(monkeypatch):
     monkeypatch.setattr(model_predict, "get_plan_tier", plan_tier)
     monkeypatch.setattr(model_predict, "record_usage", record_usage)
     monkeypatch.setattr(store, "record_usage", record_usage)
-    monkeypatch.setattr(model_predict.shared, "answer", answer)
+    monkeypatch.setattr(predict, "call", call)
 
     async def tenants(sql):
         return conn.tenants_with_work()

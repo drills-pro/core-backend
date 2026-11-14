@@ -118,7 +118,7 @@ class TrainingRun(TrainingRunSummary):
     tenant_id: uuid.UUID
     project_id: uuid.UUID
     task: str | None
-    report: Any  # the job's report.json (data_plane.train_report.TrainReport); `spec` carries presigned URLs and is never returned
+    report: Any  # the job's report.json (data_plane.TrainReport); `spec` carries presigned URLs and is never returned
     idempotency_key: str
     model_artifact: Any
     dataset_version: str | None

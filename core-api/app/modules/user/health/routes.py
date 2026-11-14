@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from app.core import db, secret_files
 from app.core.authz import public
 from app.core.settings import settings
-from app.integrations.data_plane import lakefs, mlflow
+from app.integrations import data_plane
 
 router = APIRouter(tags=["health"], dependencies=[Depends(public)])
 
@@ -25,10 +25,10 @@ async def health_deps():
     return {
         "postgres": await _check_postgres(),
         "secrets": _check_secrets(),
-        "lakefs_s3": await lakefs.health(),
+        "lakefs_s3": await data_plane.lakefs_health(),
         "zitadel": await _check_http(f"{settings.zitadel.issuer}/.well-known/openid-configuration"),
         "ray": await _check_http(f"{settings.ray.dashboard}/api/version"),
-        "mlflow": await mlflow.health(),
+        "mlflow": await data_plane.mlflow_health(),
     }
 
 

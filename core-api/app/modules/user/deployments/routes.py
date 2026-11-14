@@ -14,7 +14,7 @@ from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH,
 from app.core.metrics import predict as predict_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
 from app.core.settings import settings
-from app.modules.user.deployments import etag, lineage, model_predict, prediction_service, service
+from app.modules.user.deployments import etag, lineage, model_predict, prediction_service, predict as predict_path, service
 from app.modules.user.deployments.constants import (
     ACCEPT_HEADER,
     DEPRECATION_ACTIVE,
@@ -206,8 +206,8 @@ async def predict(
     """Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment."""
     marks = {DEPRECATION_HEADER: DEPRECATION_ACTIVE, SUNSET_HEADER: format_datetime(settings.predict.legacy_sunset, usegmt=True)}
     try:
-        row = await service.authenticate(deployment_id, x_predict_key)  # the key is checked before the body is read
-        result = await service.serve_authenticated(row, deployment_id, await capped_body(request))
+        row = await predict_path.authenticate(deployment_id, x_predict_key)  # the key is checked before the body is read
+        result = await predict_path.serve_authenticated(row, deployment_id, await capped_body(request))
     except HTTPException as e:
         e.headers = {**(e.headers or {}), **marks}
         if getattr(e, "code", None) != ProblemCode.INVALID_PREDICT_KEY:  # a wrong key says nothing about the deployment: no unbounded label values

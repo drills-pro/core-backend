@@ -6,7 +6,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.integrations.data_plane import mlflow
+from app.integrations import data_plane
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 from app.modules.user.training import decide, effects
 from app.modules.user.training.constants import TrainingStatus as S
@@ -29,8 +29,8 @@ def mlflow_calls(monkeypatch):
     async def publish_run_model(*ids):
         calls.append(("published", ids))
 
-    monkeypatch.setattr(mlflow, "finish_run", finish_run)
-    monkeypatch.setattr(mlflow, "publish_run_model", publish_run_model)
+    monkeypatch.setattr(data_plane, "finish_run", finish_run)
+    monkeypatch.setattr(data_plane, "publish_run_model", publish_run_model)
     return calls
 
 
@@ -88,7 +88,7 @@ def test_a_cancel_swallows_a_tracking_error_but_a_finished_run_does_not(monkeypa
     async def down(*a, **k):
         raise httpx.ConnectError("mlflow down")
 
-    monkeypatch.setattr(mlflow, "finish_run", down)
+    monkeypatch.setattr(data_plane, "finish_run", down)
     run(effects.close_mlflow("t", ROW, decide.Outcome(status=S.CANCELLED)))
     with pytest.raises(httpx.ConnectError):
         run(effects.close_mlflow("t", ROW, decide.Outcome(status=S.SUCCEEDED, report=OK)))

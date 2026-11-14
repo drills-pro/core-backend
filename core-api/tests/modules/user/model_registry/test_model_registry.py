@@ -26,7 +26,7 @@ def call(monkeypatch, dev_headers):
     async def transition(*_):
         return None
 
-    monkeypatch.setattr(service.mlflow, "transition_stage", transition)
+    monkeypatch.setattr(service.data_plane, "transition_stage", transition)
 
     def do(method, path, row, found=True, **kw):
         # found=False: RLS hides every child row, so the lookups come back empty.
@@ -101,7 +101,7 @@ def test_download_streams_the_file_audits_and_closes(call, monkeypatch):
         seen.append((project, run, name))
         return client, resp
 
-    monkeypatch.setattr(service.mlflow, "open_model_file", open_file)
+    monkeypatch.setattr(service.data_plane, "open_model_file", open_file)
     r = call("get", f"{BASE}/{MODEL}/download/model.onnx", ADMIN)
     assert (r.status_code, r.content, r.headers["content-type"]) == (200, b"onnx", "application/octet-stream")
     assert seen[0][2] == "model.onnx" and resp.closed and client.closed

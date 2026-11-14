@@ -11,8 +11,8 @@ from app.core import audit
 from app.core.authz import AuthzContext
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
-from app.integrations.data_plane import mlflow
-from app.integrations.data_plane.mlflow import ModelStage
+from app.integrations import data_plane
+from app.integrations.data_plane import ModelStage
 from app.modules.user.model_registry.constants import (
     CUSTOMER_STAGE_LABELS,
     AuditAction,
@@ -66,7 +66,7 @@ def _label(stage: ModelStage) -> str:
 
 def _shown[M: VersionRef](model: M, tenant_id: str, project_id: uuid.UUID) -> M:
     """Customers see the name they chose, not the tenant/project-namespaced MLflow name."""
-    name = mlflow.display_name(model.mlflow_model_name, tenant_id, str(project_id))
+    name = data_plane.display_name(model.mlflow_model_name, tenant_id, str(project_id))
     return model.model_copy(update={"mlflow_model_name": name})
 
 
@@ -74,8 +74,8 @@ async def register_in_mlflow(tenant_id: str, project_id: uuid.UUID, name: str, m
     """Create the MLflow model version; takes no connection."""
     # Registered model names are global in MLflow, so the tenant and project are part of the name.
     return RegisteredVersion(
-        mlflow_model_name=mlflow.registered_model_name(tenant_id, str(project_id), name),
-        mlflow_version=await mlflow.register_model_version(tenant_id, str(project_id), name, mlflow_run_id),
+        mlflow_model_name=data_plane.registered_model_name(tenant_id, str(project_id), name),
+        mlflow_version=await data_plane.register_model_version(tenant_id, str(project_id), name, mlflow_run_id),
     )
 
 
@@ -118,8 +118,8 @@ async def promote(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUI
         row = await conn.fetchrow(_BY_ID, version_id, project_id)
     if row is None:
         raise not_found()
-    name = mlflow.display_name(row["mlflow_model_name"], tenant_id, str(project_id))
-    await mlflow.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], stage)
+    name = data_plane.display_name(row["mlflow_model_name"], tenant_id, str(project_id))
+    await data_plane.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], stage)
     try:
         async with TenantConn(tenant_id) as conn:
             updated = await conn.fetchrow(_SET_STAGE, version_id, stage)
@@ -127,7 +127,7 @@ async def promote(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUI
                 await audit.record_for(conn, ctx, project_id, AuditAction.PROMOTE, EntityType.MODEL_VERSION, version_id)
     except Exception:
         # The row write failed after MLflow moved: put MLflow back so the two do not diverge (audit C-14).
-        await mlflow.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], ModelStage(row["stage"]))
+        await data_plane.transition_stage(tenant_id, str(project_id), name, row["mlflow_version"], ModelStage(row["stage"]))
         raise
     if updated is None:
         raise not_found()
@@ -164,4 +164,4 @@ async def open_download(ctx: AuthzContext, project_id: uuid.UUID, version_id: uu
         if mlflow_run_id is None:
             raise not_found()
         await audit.record_for(conn, ctx, project_id, AuditAction.DOWNLOAD, EntityType.MODEL_VERSION, version_id)
-    return await mlflow.open_model_file(ctx.tenant_id, str(project_id), mlflow_run_id, file)
+    return await data_plane.open_model_file(ctx.tenant_id, str(project_id), mlflow_run_id, file)

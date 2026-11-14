@@ -155,12 +155,12 @@ class Gateway:
         async def finish_run(*a, **k):
             self.finished = a
 
-        monkeypatch.setattr(create_service.mlflow, "start_run", start_run)
-        monkeypatch.setattr(create_service.mlflow, "finish_run", finish_run)
+        monkeypatch.setattr(create_service.data_plane, "start_run", start_run)
+        monkeypatch.setattr(create_service.data_plane, "finish_run", finish_run)
         monkeypatch.setattr(train_spec.data_plane, "prepare_train_data", prepare)
         monkeypatch.setattr(create_service.data_plane, "resolve_stable_package", resolve_stable)
         monkeypatch.setattr(create_service.data_plane, "submit_train", submit)
-        monkeypatch.setattr(create_service.compute, "stop", stop)
+        monkeypatch.setattr(compute, "stop", stop)
 
 
 def make_conn(monkeypatch, *, task=TaskType.IMAGE_CLASSIFICATION, inflight=0, existing=None, version=True):
@@ -385,8 +385,8 @@ class Fx:
 
         monkeypatch.setattr(effects.data_plane, "purge_train_prefix", purge_train_prefix)
         monkeypatch.setattr(effects.data_plane, "read_train_report", read_train_report)
-        monkeypatch.setattr(effects.mlflow, "finish_run", finish_run)
-        monkeypatch.setattr(effects.mlflow, "publish_run_model", publish_run_model)
+        monkeypatch.setattr(effects.data_plane, "finish_run", finish_run)
+        monkeypatch.setattr(effects.data_plane, "publish_run_model", publish_run_model)
         monkeypatch.setattr(effects, "register_in_mlflow", register_in_mlflow)
         monkeypatch.setattr(persist, "record_version", record_version)
         monkeypatch.setattr(persist, "record_usage", record_usage)
@@ -519,17 +519,17 @@ def test_a_gateway_failure_leaves_the_run_in_flight_and_the_next_sweep_settles_i
     fx = Fx(monkeypatch, GOOD)
     row = fx.seed()
     fx.ray = JobStatus.SUCCEEDED
-    working = effects.mlflow.publish_run_model
+    working = effects.data_plane.publish_run_model
 
     async def broken(*ids):
         raise RuntimeError("mlflow down")
 
-    monkeypatch.setattr(effects.mlflow, "publish_run_model", broken)
+    monkeypatch.setattr(effects.data_plane, "publish_run_model", broken)
     fx.sweep()
     backoff = timedelta(seconds=job_lifecycle.SETTLE_BACKOFF_BASE_SECONDS)
     assert row["status"] == TrainingStatus.RUNNING and not fx.usage
     assert row["settle_attempts"] == 1 and row["claimed_until"] == fx.table.now + backoff  # retried after its backoff, not after the lease
-    monkeypatch.setattr(effects.mlflow, "publish_run_model", working)
+    monkeypatch.setattr(effects.data_plane, "publish_run_model", working)
     fx.table.now += backoff + timedelta(seconds=1)
     fx.sweep()
     assert row["status"] == TrainingStatus.SUCCEEDED and len(fx.usage) == 1
@@ -661,7 +661,7 @@ def test_a_failure_before_the_run_exists_is_a_503_and_nothing_is_stored_or_submi
     async def boom(*a, **k):
         raise RuntimeError("mlflow is down")
 
-    monkeypatch.setattr(create_service.data_plane if broken == "resolve" else create_service.mlflow, "resolve_stable_package" if broken == "resolve" else "start_run", boom)
+    monkeypatch.setattr(create_service.data_plane, "resolve_stable_package" if broken == "resolve" else "start_run", boom)
     with pytest.raises(Problem) as err:
         create()
     assert (err.value.status_code, err.value.code) == (503, ProblemCode.START_FAILED)
@@ -675,7 +675,7 @@ def test_a_submit_failure_still_fails_the_run_when_stopping_the_job_and_closing_
     async def boom(*a, **k):
         raise RuntimeError("down")
 
-    monkeypatch.setattr(create_service.compute, "stop", boom)
+    monkeypatch.setattr(create_service.job_lifecycle.compute, "stop", boom)
     monkeypatch.setattr(service, "fail_unstarted", boom)
     with pytest.raises(Problem) as err:
         create()

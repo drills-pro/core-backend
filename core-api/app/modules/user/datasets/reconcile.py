@@ -14,7 +14,7 @@ from app.core import audit
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane, job_lifecycle
 from app.integrations.compute import JobStatus
-from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity
+from app.integrations.data_plane import ImportReport, Issue, IssueCode, Outcome, Severity
 from app.modules.user.datasets.constants import (
     DATASET_RETENTION_DAYS,
     IMPORT_REVIEW_TTL,

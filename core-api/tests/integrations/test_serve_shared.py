@@ -49,7 +49,7 @@ def test_both_apps_are_rendered_with_the_package_the_pool_pin_and_the_failure_se
     assert {"target_ongoing_requests", "upscale_delay_s", "downscale_delay_s"} <= set(scaling)
     assert scaling["target_ongoing_requests"] < cpu_dep["max_ongoing_requests"]
     assert {"health_check_period_s", "health_check_timeout_s", "graceful_shutdown_timeout_s", "max_ongoing_requests"} <= set(cpu_dep)
-    assert cpu["args"] == {"max_models_per_replica": serve_client.settings.serving.max_models_per_replica, "model_base_url": serve_client.mlflow.artifact_url("")}
+    assert cpu["args"] == {"max_models_per_replica": serve_client.settings.serving.max_models_per_replica, "model_base_url": serve_client.serve_config.mlflow_artifact_url("")}
     assert cfg["proxy_location"] == "EveryNode" and cfg["http_options"]["port"] == serve_config.SERVE_HTTP_PORT
 
 
@@ -69,8 +69,8 @@ def test_a_changed_setting_makes_the_live_config_out_of_date_but_defaults_serve_
 
 @pytest.fixture
 def serve(monkeypatch):
-    """Serve's REST API as a list of requests and a canned GET; the package registry and legacy count are stubs."""
-    state = SimpleNamespace(applications={}, legacy=False, requests=[], package=True)
+    """Serve's REST API as a list of requests and a canned GET; the package registry is a stub."""
+    state = SimpleNamespace(applications={}, requests=[], package=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         state.requests.append((request.method, request.url.path, request.content))
@@ -90,12 +90,8 @@ def serve(monkeypatch):
         assert name == JobPackageName.RAY_SERVING
         return "http://zip"
 
-    async def legacy_active():
-        return state.legacy
-
-    monkeypatch.setattr(serve_client.job_package, "resolve_stable", resolve_stable)
-    monkeypatch.setattr(serve_client.job_package, "presigned_url", presigned_url)
-    monkeypatch.setattr(serve_client, "_legacy_active", legacy_active)
+    monkeypatch.setattr(serve_client.data_plane, "resolve_stable_package", resolve_stable)
+    monkeypatch.setattr(serve_client.data_plane, "presigned_package_url", presigned_url)
     monkeypatch.setattr(serve_client.time, "time", lambda: NOW)
     return state
 
@@ -119,11 +115,6 @@ def test_a_changed_setting_is_declared_again_and_a_down_ray_is_tried_next_tick(s
 def test_declared_apps_are_left_alone(serve):
     serve.applications = live()
     assert asyncio.run(serve_client.ensure_apps()) is True and not puts(serve)
-
-
-def test_a_legacy_deployment_still_served_keeps_the_apps_undeclared(serve):
-    serve.legacy = True
-    assert asyncio.run(serve_client.ensure_apps()) is False and not puts(serve)
 
 
 def test_no_stable_package_or_no_serve_is_false_not_an_error(serve, monkeypatch):

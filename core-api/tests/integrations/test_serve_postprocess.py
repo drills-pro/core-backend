@@ -1,15 +1,11 @@
-"""The postprocessing that runs on the Ray Serve replica, executed here from the text serve_client embeds."""
-import asyncio
-import base64
-import re
+"""The postprocessing that runs on the Ray Serve replica, executed here from the ray_serving source."""
 import types
 
 import pytest
 
 from app.core.task_types import ServingParams
 from app.integrations import serve_client
-from app.integrations.data_plane import mlflow
-from tests.support.task_types import SERVABLE, SERVING, task_info
+from tests.support.task_types import SERVABLE, SERVING
 
 CLASSES = ["cat", "dog"]
 PARAMS = ServingParams().model_dump(mode="json")
@@ -47,28 +43,6 @@ def test_every_servable_task_names_functions_the_serve_files_define():
     for encoder, postprocess in SERVING.values():
         assert serve_client.unknown_serving_functions(encoder, postprocess) == []
     assert serve_client.unknown_serving_functions("nope", None) == ["nope"]
-
-
-@pytest.mark.parametrize("task", SERVABLE)
-def test_the_deployed_script_compiles_and_calls_its_tasks_postprocessor(monkeypatch, task):
-    scripts = []
-
-    async def submit(spec):
-        scripts.append(spec.entrypoint)
-        return "job-1"
-
-    async def run_model_url(*_):
-        return "http://m/model.onnx"
-
-    monkeypatch.setattr(serve_client.compute, "submit", submit)
-    monkeypatch.setattr(mlflow, "run_model_url", run_model_url)
-    asyncio.run(serve_client.deploy(deployment_id="d", task=task_info(task), mlflow_run_id="r", class_names=CLASSES, tenant_id="t", project_id="p"))
-    script = base64.b64decode(re.search(r"b64decode\('([^']+)'\)", scripts[0]).group(1)).decode()
-    compile(script, "serve", "exec")
-    encoder, postprocess = SERVING[task]
-    assert f"{postprocess}(outputs, class_names, width, height, params)" in script
-    assert f"self.encode = {encoder}(" in script and f"def {encoder}(" in script
-    assert "providers=['CPUExecutionProvider']" in script and "'score_threshold': 0.3" in script
 
 
 def test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_beside_the_model(monkeypatch):

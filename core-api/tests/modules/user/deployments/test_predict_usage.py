@@ -6,7 +6,7 @@ import pytest
 
 from app.core.authz import TenantStatus
 from app.integrations.serve_client import ServeErrorCode
-from app.modules.user.deployments import shared
+from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.usage import UsageResource, UsageUnit
 from tests.support.predict_env import RESOLVED, build
@@ -21,7 +21,7 @@ def env(monkeypatch):
 
 def serve_fails(env, code=ServeErrorCode.MODEL_LOAD_FAILED):
     def fail(*a):
-        raise shared.ServeFailed(code, "x", 1.0)
+        raise ServeFailed(code, "x", 1.0, None, 0)
 
     env.answer = fail
 

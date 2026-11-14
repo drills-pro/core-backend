@@ -10,8 +10,6 @@ import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 
-import httpx
-
 from app.core import plan_limits, rate_limit
 from app.core.authz import KeyContext
 from app.core.metrics import inference as inference_metrics
@@ -19,9 +17,9 @@ from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_foun
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
-from app.integrations.data_plane import prediction_payloads
-from app.integrations.data_plane.mlflow import ModelStage
-from app.modules.user.deployments import calls, prediction_store as store, service, shared
+from app.integrations import data_plane
+from app.integrations.data_plane import ModelStage
+from app.modules.user.deployments import calls, predict as predict_path, prediction_store as store, service
 from app.modules.user.deployments.constants import (
     ABANDONED_DETAIL,
     IDEMPOTENCY_KEY_REQUIRED_DETAIL,
@@ -50,7 +48,6 @@ from app.modules.user.deployments.constants import (
     PredictionMode,
     PredictionStatus,
     ProblemCode,
-    Serving,
 )
 from app.modules.user.deployments.schemas import (
     PredictionEnvelope,
@@ -69,7 +66,7 @@ logger = logging.getLogger(__name__)
 # The newest live deployment of the model (a given revision, or any; the key's model allowlist was checked by require_key): an active one first, then a Production version,
 # then the newest. ponytail: there is no promoted_at column, so "newest promotion wins" is "newest version".
 _RESOLVE = (
-    "SELECT d.id, d.status, d.serving, d.route_prefix, d.training_run_id, d.rate_limit_per_minute, mv.mlflow_version "
+    "SELECT d.id, d.status, d.training_run_id, d.rate_limit_per_minute, mv.mlflow_version "
     "FROM models m JOIN model_versions mv ON mv.model_id = m.id "
     "JOIN deployments d ON d.model_version_id = mv.id AND d.status <> $4 "
     "WHERE m.id = $1 AND m.project_id = $2 AND ($3::text IS NULL OR mv.mlflow_version = $3) "
@@ -84,7 +81,7 @@ def refuse_stream(accept: str | None) -> None:
         raise Problem(HTTPStatus.NOT_ACCEPTABLE, ProblemCode.NOT_ACCEPTABLE, NOT_STREAMABLE_DETAIL)
 
 
-def serve_problem(e: shared.ServeFailed) -> Problem:
+def serve_problem(e: predict_path.ServeFailed) -> Problem:
     """Serve's own words are logged, never returned (except the model's refusal of the input, cut short)."""
     if e.code == serve_client.ServeErrorCode.BAD_INPUT:
         return Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.MODEL_REJECTED_INPUT, str(e.detail)[:MODEL_REJECTED_DETAIL_MAX_CHARS])
@@ -96,22 +93,6 @@ def serve_problem(e: shared.ServeFailed) -> Problem:
     return Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.UPSTREAM_ERROR, UPSTREAM_ERROR_DETAIL)
 
 
-async def _call_legacy(route_prefix: str, body) -> tuple[object, float]:
-    """A deployment with a Serve app of its own: POST to its route; the status maps like a shared call's."""
-    try:
-        resp, elapsed_ms = await service._post_to_serve(route_prefix, body)
-    except httpx.TimeoutException:
-        raise Problem(HTTPStatus.GATEWAY_TIMEOUT, ProblemCode.UPSTREAM_TIMEOUT, UPSTREAM_TIMEOUT_DETAIL) from None
-    except httpx.HTTPError:
-        raise Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.UPSTREAM_ERROR, UPSTREAM_ERROR_DETAIL) from None
-    if resp.is_client_error:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.MODEL_REJECTED_INPUT, resp.text[:MODEL_REJECTED_DETAIL_MAX_CHARS])
-    if resp.is_error:
-        logger.warning("legacy serve answered %s: %s", resp.status_code, resp.text[:MODEL_REJECTED_DETAIL_MAX_CHARS])
-        raise Problem(HTTPStatus.BAD_GATEWAY, ProblemCode.UPSTREAM_ERROR, UPSTREAM_ERROR_DETAIL)
-    return resp.json(), elapsed_ms
-
-
 async def _rate_limited(key: str, limit: int, subject: str) -> None:
     """429 with the seconds left in the current fixed one-minute window (when the count starts again) once `key` is over `limit`."""
     if not await rate_limit.check(key, limit):
@@ -121,22 +102,18 @@ async def _rate_limited(key: str, limit: int, subject: str) -> None:
 
 
 async def serve_call(tenant_id: str, project_id: uuid.UUID, d, input_, size: int, max_inflight: int) -> tuple[object, float]:
-    """(output, milliseconds) of one call to the deployment `d` (id, serving, route_prefix, training_run_id); a Problem when it fails.
+    """(output, milliseconds) of one call to the deployment `d` (id, training_run_id); a Problem when it fails.
     A failure that reached Serve has one of STORED_ERROR_STATUS's codes; anything else (no servable model, too many in flight) did not."""
     deployment_id, run_id = d["id"], d["training_run_id"]
-    if d["serving"] != Serving.SHARED:
-        output, elapsed_ms = await _call_legacy(d["route_prefix"], input_)
-        inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id)})
-        return output, elapsed_ms
     try:
-        prediction, elapsed_ms = await shared.answer(tenant_id, project_id, deployment_id, run_id, input_, max_inflight)
-    except shared.ServeFailed as e:
+        done = await predict_path.call(tenant_id, project_id, deployment_id, run_id, input_, size, max_inflight)
+    except predict_path.ServeFailed as e:
         mapped = serve_problem(e)
         await calls.record(tenant_id, deployment_id, run_id, status=mapped.status_code, latency_ms=e.elapsed_ms, cold_load=None, error_code=e.code, request_bytes=size)
         raise mapped from e
-    await calls.record(tenant_id, deployment_id, run_id, status=HTTPStatus.OK, latency_ms=elapsed_ms, cold_load=prediction.cold_load, error_code=None, request_bytes=size)
-    inference_metrics.latency.record(elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": prediction.cold_load})
-    return {"predictions": prediction.predictions}, elapsed_ms
+    await calls.record(tenant_id, deployment_id, run_id, status=HTTPStatus.OK, latency_ms=done.elapsed_ms, cold_load=done.prediction.cold_load, error_code=None, request_bytes=size)
+    inference_metrics.latency.record(done.elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": done.prediction.cold_load})
+    return {"predictions": done.prediction.predictions}, done.elapsed_ms
 
 
 def request_hash(request: PredictRequest, model_id: uuid.UUID, revision: str | None) -> str:
@@ -197,7 +174,7 @@ async def _begin(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequ
             conn, ctx, d["id"], model_uuid, d["mlflow_version"], request, mode=mode, key=key, request_hash=hashed,
             prediction_id=prediction_id, stored_input=stored_input)
     if not created and stored_input.ref is not None:
-        await prediction_payloads.delete(ctx.tenant_id, ctx.project_id, prediction_id)
+        await data_plane.delete_prediction_payloads(ctx.tenant_id, ctx.project_id, prediction_id)
     return row, created
 
 
@@ -247,7 +224,7 @@ async def predict(
     if row["status"] != DeploymentStatus.ACTIVE:  # deploying, stopped or failed: one code here (the legacy route has its own for stopped)
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"the model's deployment is {row['status']}, not active")
     size = len(json.dumps(request.input))
-    service._check_size(size, limits)
+    predict_path.check_size(size, limits)
     # The lower of the key's and the plan's limit: each counted on its own, the key first so a key over its limit does not use up the plan's.
     if ctx.rate_limit_per_minute is not None:
         await _rate_limited(KEY_RATE_LIMIT_KEY.format(ctx.key_id), ctx.rate_limit_per_minute, "this key")
