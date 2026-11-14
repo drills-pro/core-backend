@@ -43,7 +43,7 @@ INVALID_PACKAGE = "invalid_package"
 INVALID_REQUIREMENTS = "invalid_requirements"  # a requirements.lock or manifest `requirements` that is not exact pins
 LOCK_FILE = "requirements.lock"  # inside ZIP_ROOT, next to the package directory: Ray still unpacks one top-level directory
 SMOKE_ATTEMPT_FORMAT = "%Y%m%d%H%M%S"  # the suffix of a retried smoke job id: when the retry started
-SMOKE_TIMEOUT_SECONDS = 600  # a tiny run: this is only the ceiling for a stuck one
+SMOKE_TIMEOUT_SECONDS = 1800  # a tiny run, but the first one on a node installs its pinned environment (about 7 minutes cold for the core): the ceiling for a stuck one
 _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
 MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
 _S3_NOT_FOUND = "404"
@@ -54,13 +54,19 @@ _uploaded: set[str] = set()
 
 @functools.cache
 def build(package_dir: Path = PACKAGE_DIR) -> tuple[bytes, str]:
-    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable."""
+    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable.
+    A `requirements.lock` inside the package directory goes to `package/requirements.lock`, next to the package."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
             info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, path.read_bytes())
+        lock = package_dir / LOCK_FILE  # the package's pinned requirements (planning/26), read back by register_staged
+        if lock.is_file():
+            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, lock.read_bytes())
     data = buf.getvalue()
     return data, package_key(package_dir, hashlib.sha256(data).hexdigest())
 
