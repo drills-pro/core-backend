@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.core.settings import Serving, settings
+from app.integrations.compute import requirements_runtime_env
 from app.integrations.data_plane import mlflow_artifact_url
 
 SERVE_HTTP_PORT = 8000  # Serve's proxy port on every node
@@ -29,9 +30,10 @@ def predictor_app(target: ComputeTarget) -> str:
     return f"predictor-{target.value}"
 
 
-def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = None) -> dict[str, Any]:
+def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = None, requirements: list[str] | None = None) -> dict[str, Any]:
     """Both predictor apps. Replicas scale between the target's min and max, take `max_ongoing_requests` at a time, are health
-    checked and get `graceful_shutdown_timeout_s` to finish what they are answering; each keeps `max_models_per_replica` models."""
+    checked and get `graceful_shutdown_timeout_s` to finish what they are answering; each keeps `max_models_per_replica` models.
+    `requirements` (the package's exact pins) make Ray install them into each app's runtime_env; none = the image's own packages."""
     cfg = cfg or settings.serving
 
     def app(target: ComputeTarget) -> dict[str, Any]:
@@ -42,7 +44,8 @@ def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = 
         return {
             "name": predictor_app(target), "route_prefix": f"/{predictor_app(target)}", "import_path": PREDICTOR_IMPORT_PATH,
             "args": {"max_models_per_replica": cfg.max_models_per_replica, "model_base_url": mlflow_artifact_url("")},
-            "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)}},
+            "runtime_env": {"py_modules": [package_url], "env_vars": {PACKAGE_SHA_ENV: sha256, URL_ISSUED_ENV: str(issued_at)},
+                            **requirements_runtime_env(requirements or [])},
             "deployments": [{
                 "name": PREDICTOR_DEPLOYMENT, "max_ongoing_requests": cfg.max_ongoing_requests,
                 "autoscaling_config": {
@@ -59,11 +62,18 @@ def render(package_url: str, sha256: str, issued_at: int, cfg: Serving | None = 
 
 
 def _comparable(app: dict[str, Any]) -> dict[str, Any]:
-    """An app without what changes on every render (the presigned URL, when it was made)."""
+    """An app without what changes on every render (the presigned URL, when it was made). The `uv` and `config` keys stay: a changed pin
+    or setup timeout must make the live config out of date, and they are the same on every render."""
     runtime_env = {**app.get("runtime_env", {})}
     runtime_env.pop("py_modules", None)
     runtime_env["env_vars"] = {k: v for k, v in runtime_env.get("env_vars", {}).items() if k != URL_ISSUED_ENV}
     return {**app, "runtime_env": runtime_env}
+
+
+def _installs(app: dict[str, Any]) -> bool:
+    """Whether the app declares requirements. _contains ignores keys only the live side has, so pins dropped from the
+    declaration would otherwise look up to date."""
+    return "uv" in app.get("runtime_env", {})
 
 
 def _contains(live: Any, wanted: Any) -> bool:
@@ -81,6 +91,6 @@ def up_to_date(live: dict[str, Any], wanted: dict[str, Any], now: float, ttl_sec
     for app in wanted["applications"]:
         declared = (live.get(app["name"]) or {}).get("deployed_app_config") or {}
         issued = int(declared.get("runtime_env", {}).get("env_vars", {}).get(URL_ISSUED_ENV, 0))
-        if now - issued > ttl_seconds / 2 or not _contains(_comparable(declared), _comparable(app)):
+        if now - issued > ttl_seconds / 2 or _installs(declared) != _installs(app) or not _contains(_comparable(declared), _comparable(app)):
             return False
     return True

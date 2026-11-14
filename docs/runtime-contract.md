@@ -140,6 +140,30 @@ transfer) and core-api is the only door customers have to it.
 - **Serving:** the shared predictor apps download the same artifact path from MLflow's artifact API.
 - **k8s:** the `ray` namespace needs a NetworkPolicy allowing ingress to `app=mlflow` on port 5000.
 
+## Pinned requirements (stock Ray images, planning/26)
+
+A package or bundle may declare Python requirements that Ray installs through its `uv` runtime env, so a new library needs no
+image build. It is additive: no requirements means no `uv` key and the packages baked into the image, exactly as before.
+
+- **Runtime package** (`ray_training`, `ray_jobs`, `ray_serving`): a file `package/requirements.lock` in the zip, next to the
+  package directory (inside Ray's single top-level `package/` directory). One pin per line; blank lines and `#` comments
+  are ignored. Read at `register_staged`.
+- **Task bundle**: the optional manifest field `requirements`, a list of pins. The existing `requires` (distribution names the
+  smoke checks) is unchanged.
+- **A pin** is exactly `name==version` (PEP 440, local versions such as `torch==2.11.0+cu128` and extras such as
+  `ray[serve]==2.60.0` allowed). Ranges, URLs, VCS or paths, option lines (`--index-url`), environment markers, hashes and
+  the same package twice are refused with 422 `invalid_requirements`. Names are normalised (lower case, `-` for `_` and `.`);
+  at most 500 pins of 200 characters. They are stored in `job_packages.requirements`.
+- **Merge rule.** A run installs the union of the stable `ray_training` core's pins and its bundle's; an ingest job its own
+  `ray_jobs` pins; a Serve app the `ray_serving` pins. The same pin in two lists merges; two different pins for one
+  package (version or extras) fail with 409 `requirements_conflict` and nothing starts. The registration smoke installs
+  what a real run on those packages would (a core smoke runs every stable bundle in one environment, so it needs their pins
+  not to conflict).
+- **Spec.** A train spec's `payload.requirements_sha256` is the SHA-256 of the sorted merged list, next to `core_sha256`
+  and `bundle_sha256`; absent (`null`) when there are no pins.
+- **Ray side.** `runtime_env` gets `uv: {packages, uv_pip_install_options}` and `config.setup_timeout_seconds` from
+  `compute.runtime_env.*`, on both compute backends and in each Serve app's `runtime_env`.
+
 ## Worker mode and compute (RayJob)
 
 One image, two commands. The API (`uvicorn app.main:app`) serves HTTP; the worker (`python -m app.worker`, run as
@@ -157,6 +181,8 @@ Both knobs are config (`app/core/settings.py`), overridable by env var without a
 | `compute.rayjob.namespace` | `ray` | where the CRs are created |
 | `compute.rayjob.cluster_name` | `""` | a warm shared `RayCluster` to run jobs on (`clusterSelector`), good for small ingest; empty = one ephemeral cluster per job from `compute.rayjob.cluster_spec` (training) |
 | `compute.rayjob.ttl_after_finished_seconds` | 86400 | how long a finished CR (and its status) stays; must exceed the longest reconcile gap |
+| `compute.runtime_env.uv_options` | PyTorch cu128 extra index, `unsafe-best-match` | `uv pip install` flags Ray adds when a job has requirements (see "Pinned requirements") |
+| `compute.runtime_env.setup_timeout_seconds` | 3600 | Ray's runtime-env setup timeout when a job has requirements; a cold 8 GB environment took 441 s |
 
 Rollout order: deploy the worker, then flip `pollers_in_api` off on the API. In between both run the loops, which is
 harmless. Flip `compute.backend` to `rayjob` only after the RBAC below exists; jobs already submitted keep their ids,

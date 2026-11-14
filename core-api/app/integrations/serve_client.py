@@ -131,10 +131,10 @@ async def ensure_apps() -> bool:
             now = time.time()
             ttl = settings.serving.package_url_ttl_seconds
             url = "https://zip.invalid"  # only for the comparison: the real URL is made when a PUT is needed
-            if serve_config.up_to_date(await _live_applications(client), serve_config.render(url, package.sha256, int(now)), now, ttl):
+            if serve_config.up_to_date(await _live_applications(client), serve_config.render(url, package.sha256, int(now), requirements=package.requirements), now, ttl):
                 return True
             url = await data_plane.presigned_package_url(JobPackageName.RAY_SERVING, package.sha256, ttl)
-            put = await client.put(SERVE_APPLICATIONS_PATH, json=serve_config.render(url, package.sha256, int(now)))
+            put = await client.put(SERVE_APPLICATIONS_PATH, json=serve_config.render(url, package.sha256, int(now), requirements=package.requirements))
             put.raise_for_status()
     except (Problem, httpx.HTTPError) as e:
         logger.warning("predictor apps not ensured: %s", e)

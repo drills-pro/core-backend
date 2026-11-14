@@ -70,7 +70,7 @@ def test_a_changed_setting_makes_the_live_config_out_of_date_but_defaults_serve_
 @pytest.fixture
 def serve(monkeypatch):
     """Serve's REST API as a list of requests and a canned GET; the package registry is a stub."""
-    state = SimpleNamespace(applications={}, requests=[], package=True)
+    state = SimpleNamespace(applications={}, requests=[], package=True, requirements=[])
 
     def handler(request: httpx.Request) -> httpx.Response:
         state.requests.append((request.method, request.url.path, request.content))
@@ -84,7 +84,7 @@ def serve(monkeypatch):
     async def resolve_stable(name):
         if not state.package:
             raise Problem(503, "no_stable_package", "none")
-        return SimpleNamespace(sha256=SHA, status=PackageStatus.STABLE)
+        return SimpleNamespace(sha256=SHA, status=PackageStatus.STABLE, requirements=state.requirements)
 
     async def presigned_url(name, sha, ttl=None):
         assert name == JobPackageName.RAY_SERVING
@@ -211,3 +211,38 @@ def test_the_replicas_error_codes_and_model_spec_are_the_ones_core_api_reads_and
     assert codes <= {c.value for c in ServeErrorCode}
     fields = [n.target.id for n in _class_body("ModelSpec").body if isinstance(n, ast.AnnAssign)]
     assert fields == list(ServedModel.model_fields)
+
+
+PINS = ["onnxruntime==1.22.0", "numpy==2.1.0"]
+
+
+def test_requirements_become_each_apps_uv_runtime_env_and_none_adds_no_key():
+    cfg = serve_client.settings.compute.runtime_env
+    for app in serve_config.render("http://zip", SHA, 5, requirements=PINS)["applications"]:
+        assert app["runtime_env"]["uv"] == {"packages": PINS, "uv_pip_install_options": cfg.uv_options}
+        assert app["runtime_env"]["config"] == {"setup_timeout_seconds": cfg.setup_timeout_seconds}
+    for app in serve_config.render("http://zip", SHA, 5)["applications"]:
+        assert not {"uv", "config"} & set(app["runtime_env"])
+
+
+def test_the_comparison_keeps_the_pins_so_they_neither_flap_nor_go_unnoticed():
+    ttl = serve_client.settings.serving.package_url_ttl_seconds
+    declared = {a["name"]: {"deployed_app_config": a} for a in serve_config.render("http://zip", SHA, int(NOW), requirements=PINS)["applications"]}
+    again = serve_config.render("http://other-zip", SHA, 0, requirements=PINS)  # a new URL and age, the same pins
+    assert serve_config.up_to_date(declared, again, NOW, ttl)
+    assert not serve_config.up_to_date(declared, serve_config.render("http://other-zip", SHA, 0, requirements=PINS[:1]), NOW, ttl)  # a pin removed
+    assert not serve_config.up_to_date(declared, wanted(), NOW, ttl)  # the pins dropped
+    assert not serve_config.up_to_date(live(), serve_config.render("http://other-zip", SHA, 0, requirements=PINS), NOW, ttl)  # pins added
+
+
+def test_the_packages_pins_are_declared_and_a_change_of_them_is_declared_again(serve):
+    serve.requirements = PINS
+    assert asyncio.run(serve_client.ensure_apps()) is True
+    (_, _, body), = puts(serve)
+    assert json.loads(body)["applications"][0]["runtime_env"]["uv"]["packages"] == PINS
+    serve.applications = {a["name"]: {"deployed_app_config": a} for a in json.loads(body)["applications"]}
+    serve.requests.clear()
+    assert asyncio.run(serve_client.ensure_apps()) is True and not puts(serve)  # nothing changed: no PUT
+    serve.requirements = PINS[:1]
+    asyncio.run(serve_client.ensure_apps())
+    assert len(puts(serve)) == 1
