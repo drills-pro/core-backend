@@ -47,16 +47,19 @@ async def prepare_train_data(
 
 
 async def submit_train(
-    tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str, events_token: str | None = None
+    tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str, events_token: str | None = None,
+    *, core_name: str = JobPackageName.RAY_TRAINING, bundle_name: str | None = None,
 ) -> str:
-    """Submit the driver under the spec's job_id (the caller's submission id), running the ray_training package the run
-    was created with; returns the Ray job id. `events_token` goes into the job's environment under the name
-    spec.reporting.token_env, never into the spec."""
+    """Submit the driver under the spec's job_id (the caller's submission id), running the package the run was created
+    with (`core_name`, ray_training before bundles) and, for a task trained by a bundle, the bundle the spec pins next to
+    it; returns the Ray job id. `events_token` goes into the job's environment under the name spec.reporting.token_env,
+    never into the spec."""
     await access.training_run(tenant_id, project_id, run_id)
-    package_url = await job_package.presigned_url(JobPackageName.RAY_TRAINING, package_sha256)
+    package_url = await job_package.presigned_url(core_name, package_sha256)
+    bundle_url = await job_package.presigned_url(bundle_name, spec.payload.bundle_sha256) if bundle_name else None
     # num_gpus stays 0: the driver must not hold a GPU, the Ray Train workers it starts ask for them (spec.resources.gpu)
     return await job_submit.submit(
-        package_url=package_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
+        package_url=package_url, bundle_url=bundle_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "training_run_id": run_id},
         num_cpus=settings.training.driver_cpus, timeout_seconds=spec.resources.max_runtime_s,
         extra_env={spec.reporting.token_env: events_token} if spec.reporting and events_token else None,

@@ -78,6 +78,12 @@ class BundleManifest(BaseModel):
         return [self.trainer, self.smoke] + ([self.serving.adapter] if self.serving else [])
 
 
+def hyperparameter_errors(schema: dict, values: dict) -> list[str]:
+    """What is wrong with a training request's hyperparameters, by the bundle's JSON Schema; [] when they conform."""
+    validator = validator_for(schema, default=Draft202012Validator)(schema)
+    return [f"{'.'.join(map(str, e.absolute_path)) or 'hyperparameters'}: {e.message}" for e in validator.iter_errors(values)]
+
+
 def _defines(source: bytes, name: str) -> bool:
     """Whether the module's top level binds `name` (a def, class, assignment or import)."""
     for node in ast.parse(source).body:

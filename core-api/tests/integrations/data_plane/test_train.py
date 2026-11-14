@@ -115,6 +115,27 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
     assert set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
 
 
+def test_a_run_on_a_bundle_gets_the_core_and_the_pinned_bundle_on_its_path(owned, monkeypatch):
+    from tests.integrations.test_job_spec import train_spec
+
+    doc = train_spec()
+    doc["payload"] |= {"core_sha256": SHA, "bundle_sha256": "f" * 64}
+    spec = TrainSpec.model_validate(doc)
+    sent = {}
+
+    async def submit(job):
+        sent.update(job.model_dump())
+        return "train-1"
+
+    async def package_url(name, sha256):
+        return f"http://ray-side/{name}/{sha256}"
+
+    monkeypatch.setattr(compute, "submit", submit)
+    monkeypatch.setattr(train.job_package, "presigned_url", package_url)
+    asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA, core_name="ray_core", bundle_name="task_image-classification"))
+    assert sent["py_modules"] == [f"http://ray-side/ray_core/{SHA}", f"http://ray-side/task_image-classification/{'f' * 64}"]
+
+
 def test_the_report_is_read_from_the_run_prefix(owned, monkeypatch):
     report = TrainReport(status=TrainOutcome.SUCCEEDED, metrics={"top1": 0.5})
     s3 = S3({PREFIX + layout.REPORT_KEY: report.model_dump_json().encode()})

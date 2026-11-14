@@ -280,7 +280,8 @@
       "type": "object"
     },
     "Hyperparameters": {
-      "description": "What a caller may tune; every field has the platform default, so a request names only what it changes.",
+      "additionalProperties": true,
+      "description": "What a caller may tune; every field has the platform default, so a request names only what it changes. A run on a\ntask bundle also carries the keys of the bundle's own hyperparameter schema, which validated them.",
       "properties": {
         "batch_size": {
           "default": 16,
@@ -790,6 +791,32 @@
         "bucket": {
           "title": "Bucket",
           "type": "string"
+        },
+        "bundle_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bundle Sha256"
+        },
+        "core_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Core Sha256"
         },
         "data": {
           "$ref": "#/$defs/TrainData"

@@ -11,11 +11,12 @@ import uuid
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
 from app.core.task_catalog import Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.job_packages import SHA256_PATTERN
 from app.core.task_types import TRAINER_PATTERN
 
 SPEC_VERSION = 1
@@ -76,7 +77,10 @@ DEFAULT_SEED = 42
 
 
 class Hyperparameters(BaseModel):
-    """What a caller may tune; every field has the platform default, so a request names only what it changes."""
+    """What a caller may tune; every field has the platform default, so a request names only what it changes. A run on a
+    task bundle also carries the keys of the bundle's own hyperparameter schema, which validated them."""
+
+    model_config = ConfigDict(extra="allow")
 
     epochs: int = Field(default=DEFAULT_EPOCHS, ge=1, le=MAX_EPOCHS)
     batch_size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=MAX_BATCH_SIZE)
@@ -112,6 +116,8 @@ class TrainPayload(BaseModel):
     data: TrainData
     hyperparameters: Hyperparameters
     seed: int = DEFAULT_SEED
+    core_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # a run on a task bundle: the core zip it runs on
+    bundle_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)  # ... and the bundle zip; both are pinned at submit
 
     @model_validator(mode="after")
     def _data_fits_the_task(self):

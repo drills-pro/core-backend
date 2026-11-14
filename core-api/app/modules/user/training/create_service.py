@@ -9,10 +9,12 @@ import uuid
 from http import HTTPStatus
 
 
-from app.core import audit, plan_limits, presets, task_types
+from app.core import audit, job_packages, plan_limits, presets, task_types
 from app.core.authz import AuthzContext
+from app.core.bundle_manifest import hyperparameter_errors
 from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
+from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
 from app.core.tenant_conn import TenantConn
@@ -39,8 +41,8 @@ _LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
 _INSERT = (
     "INSERT INTO training_runs (id, tenant_id, project_id, idempotency_key, ray_job_id, mlflow_run_id, dataset_ref, "
-    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) "
+    "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash, bundle_sha256) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
 )
 
@@ -62,11 +64,23 @@ async def _task_of(conn, project_task: str | None, body: TrainingRunCreate) -> T
     return info
 
 
+async def _bundle_of(conn, info: TaskInfo, body: TrainingRunCreate) -> JobPackage | None:
+    """The stable bundle that trains the task (None for a row from before bundles), once the request's hyperparameters
+    conform to its JSON Schema."""
+    if info.bundle_sha256 is None:
+        return None
+    bundle = await job_packages.get(conn, task_package_name(info.slug), info.bundle_sha256)
+    if errors := hyperparameter_errors(bundle.manifest["hyperparameters"], body.hyperparameters.model_dump(exclude_none=True)):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_HYPERPARAMETERS, "; ".join(errors))
+    return bundle
+
+
 def _same_request(row, body: TrainingRunCreate) -> bool:
     return (
         row["dataset_version_id"] == body.dataset_version_id
         and row["preset"] == body.preset
-        and all(row["config"][k] == v for k, v in body.hyperparameters.model_dump(exclude_none=True).items())  # the rest was the preset's default then
+        # the rest was the preset's default then; a key the task ignores (no bundle) was not stored and is not compared
+        and all(row["config"].get(k, v) == v for k, v in body.hyperparameters.model_dump(exclude_none=True).items())
         and row["spec"]["payload"]["seed"] == body.seed
     )
 
@@ -96,17 +110,22 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         if version is None:  # another project's or tenant's version is indistinguishable from a missing one
             raise not_found()
         preset = await presets.get(conn, task, body.preset)
-        if preset is None:
+        if preset is None or not preset.enabled:
             raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.UNKNOWN_PRESET, f"task type '{task}' has no preset '{body.preset}'")
         hyperparameters = train_spec.resolve_hyperparameters(preset, body.hyperparameters)
+        bundle = await _bundle_of(conn, info, body)
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
     token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
     try:
-        package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
+        # pinned: the run keeps its core (and bundle) whatever is promoted later
+        package = await (data_plane.resolve_core() if bundle else data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING))
+        if bundle:
+            hyperparameters = train_spec.with_bundle_keys(hyperparameters, body.hyperparameters)
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
-        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters, token and token.reporting)
+        spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters,
+                                      token and token.reporting, bundle and (package.sha256, bundle.sha256))
     except Exception as e:
         raise _start_failed(e, run_id) from e
 
@@ -117,7 +136,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
              hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
-             task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash),
+             task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash, bundle and bundle.sha256),
             _BY_KEY, (project_id, idempotency_key),
         )
         if not created:  # lost a race with the same key: that one is the run
@@ -126,7 +145,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         await job_lifecycle.emit(conn, TRAINING, tenant_id, project_id, run_id, row["status"])
 
     try:
-        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret)
+        await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
+                                      core_name=package.name, bundle_name=bundle and bundle.name)
     except Exception as e:
         try:
             await compute.stop(spec.job_id)  # Ray may have accepted it
