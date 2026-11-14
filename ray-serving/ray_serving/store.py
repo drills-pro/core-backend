@@ -1,4 +1,4 @@
-"""The staging bucket (S3, write only) and presigned HTTP reads, for the batch job. Same shape as ray_training.store (the packages
+"""The staging bucket (S3, write only) and presigned HTTP reads, for the batch job. Same shape as ray_core.store (the packages
 ship as separate zips, so they cannot share it). boto3 is imported lazily."""
 import os
 from pathlib import Path

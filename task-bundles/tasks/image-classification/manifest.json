@@ -1,0 +1,157 @@
+{
+  "schema": 1,
+  "slug": "image-classification",
+  "display_name": "Image classification",
+  "data_kind": "images",
+  "contract": 1,
+  "trainer": "imgcls.train:train",
+  "smoke": "imgcls.smoke:spec_doc",
+  "serving": {
+    "encoder": "image_encoder",
+    "postprocess": "classify"
+  },
+  "servable": true,
+  "monitor": "top1",
+  "hyperparameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "epochs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 30,
+        "description": "Passes over the training split."
+      },
+      "batch_size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512,
+        "default": 16,
+        "description": "Samples per optimizer step, per worker."
+      },
+      "image_size": {
+        "type": "integer",
+        "minimum": 32,
+        "maximum": 1536,
+        "default": 224,
+        "description": "Side of the square the images are resized to (image tasks)."
+      }
+    }
+  },
+  "presets": [
+    {
+      "name": "small",
+      "base_model": {
+        "repo_id": "facebook/convnext-tiny-224",
+        "revision": "6166b7613034066690a621d8bf25ffdf181a34f0"
+      },
+      "learning_rate": 0.0001,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "medium",
+      "base_model": {
+        "repo_id": "facebook/convnext-small-224",
+        "revision": "e0df91dcc78dbc0f56be8fbecff706128aee7c28"
+      },
+      "learning_rate": 0.0001,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    },
+    {
+      "name": "large",
+      "base_model": {
+        "repo_id": "facebook/convnext-base-224",
+        "revision": "8550c1da008c99b90c9c42f1d4e1cb650d7a8c05"
+      },
+      "learning_rate": 5e-05,
+      "preprocessing": {
+        "mean": [
+          0.485,
+          0.456,
+          0.406
+        ],
+        "std": [
+          0.229,
+          0.224,
+          0.225
+        ],
+        "rescale": 0.00392156862745098,
+        "resample": "bicubic"
+      },
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 1,
+      "max_runtime_s": 14400,
+      "lr_schedule": "constant",
+      "warmup_fraction": 0,
+      "augmentation": "none",
+      "early_stopping_patience": 0,
+      "hyperparameters": {
+        "epochs": 30,
+        "batch_size": 16,
+        "image_size": 224
+      }
+    }
+  ],
+  "requires": [
+    "torch",
+    "transformers",
+    "numpy",
+    "pillow",
+    "pyarrow",
+    "onnx"
+  ]
+}
