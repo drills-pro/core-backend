@@ -15,7 +15,9 @@ from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.integrations import data_plane
 from app.modules.admin.task_bundles.constants import AUTO_PROMOTER, DEFAULT_AUTO_PROMOTE, ProblemCode
-from app.modules.admin.task_bundles.schemas import BundleSettings
+from app.core.presets import TaskPreset
+from app.core.task_types import TaskInfo
+from app.modules.admin.task_bundles.schemas import BundleSettings, CatalogTask, TaskBundle
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,60 @@ async def set_status(slug: TaskType, sha256: str, status: PackageStatus, actor: 
         retired = await job_packages.set_status(conn, bundle.name, sha256, status, actor)
         await job_packages.record(conn, bundle.name, sha256, PackageAuditAction.RETIRE, actor)
     return retired
+
+
+async def list_bundles(slug: TaskType | None = None) -> list[TaskBundle]:
+    """Every bundle (of `slug` when given), smoke settled, newest change last per slug."""
+    async with (await get_pool()).acquire() as conn:
+        bundles = await job_packages.list_kind(conn, PackageKind.TASK)
+    name = slug and task_package_name(slug)
+    return [TaskBundle.of(await data_plane.refresh_package_smoke(b)) for b in bundles if name is None or b.name == name]
+
+
+async def get_bundle(slug: TaskType, sha256: str) -> TaskBundle:
+    async with (await get_pool()).acquire() as conn:
+        bundle = await _bundle(conn, slug, sha256)
+    return TaskBundle.of(await data_plane.refresh_package_smoke(bundle))
+
+
+async def retry_smoke(slug: TaskType, sha256: str) -> TaskBundle:
+    """Smoke a candidate whose smoke failed again (after the core or the image was fixed); anything else is a 409."""
+    async with (await get_pool()).acquire() as conn:
+        bundle = await _bundle(conn, slug, sha256)
+    not_retryable = Problem(HTTPStatus.CONFLICT, ProblemCode.SMOKE_NOT_RETRYABLE, "only a candidate whose smoke failed can be smoked again")
+    if bundle.status != PackageStatus.CANDIDATE or (await data_plane.refresh_package_smoke(bundle)).smoke_status != SmokeStatus.FAILED:
+        raise not_retryable
+    retried = await data_plane.retry_package_smoke(bundle.name, sha256)
+    if retried is None:  # another retry or a promotion got there first
+        raise not_retryable
+    return TaskBundle.of(retried)
+
+
+async def catalog() -> list[CatalogTask]:
+    """The task_types rows with their presets, the stable bundle behind each and its auto-promote switch."""
+    async with (await get_pool()).acquire() as conn:
+        tasks = await task_types.list_all(conn)
+        stable = {b.sha256: b for b in await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.STABLE)}
+        return [
+            CatalogTask(task=t, presets=await presets.list_for(conn, t.slug), auto_promote=(await _settings(conn, t.slug)).auto_promote,
+                        bundle=TaskBundle.of(stable[t.bundle_sha256]) if t.bundle_sha256 in stable else None)
+            for t in tasks]
+
+
+async def set_task_enabled(slug: TaskType, enabled: bool, actor: str) -> TaskInfo:
+    async with (await get_pool()).acquire() as conn:
+        info = await task_types.set_enabled(conn, slug, enabled, actor)
+    if info is None:
+        raise not_found()
+    return info
+
+
+async def set_preset_enabled(slug: TaskType, name: str, enabled: bool, actor: str) -> TaskPreset:
+    async with (await get_pool()).acquire() as conn:
+        preset = await presets.set_enabled(conn, slug, name, enabled, actor)
+    if preset is None:
+        raise not_found()
+    return preset
 
 
 async def _settings(conn, slug: TaskType) -> BundleSettings:

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
-from app.core.enums import PackageAuditAction, PackageKind, PackageStatus, SmokeStatus
+from app.core.enums import PackageAuditAction, PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import JobPackage
 from app.modules.admin.task_bundles import routes, service
 from app.modules.admin.task_bundles.constants import AUTO_PROMOTER, ProblemCode
@@ -30,13 +30,20 @@ def bundle_row(sha=SHA, **over):
 class Conn(FakeConn):
     """FakeConn with transactions, answering the promotion's queries with the rows they return."""
 
-    def __init__(self, bundle=None, **kw):
+    def __init__(self, bundle=None, fetches=None, **kw):
+        self.fetches = fetches  # fetch() answers by SQL substring when given
         rows = {"FROM job_packages WHERE name": bundle, "UPDATE job_packages SET status": bundle, "INSERT INTO task_types": task_row(),
                 "INSERT INTO task_presets": preset_row(), "task_bundle_settings": None, **kw.pop("rows", {})}
         super().__init__(rows=rows, **kw)
 
     def transaction(self):
         return TenantCtx(None)
+
+    async def fetch(self, sql, *args):
+        if self.fetches is None:
+            return await super().fetch(sql, *args)
+        self.calls.append((sql, args))
+        return next(v for key, v in self.fetches.items() if key in sql)
 
     def sql(self):
         return [sql.split(" (")[0].split(" SET")[0].split(" WHERE")[0] for sql, _ in self.calls]
@@ -122,6 +129,46 @@ def test_settings_default_to_auto_promote_and_can_be_switched_off(call):
     stored = {"slug": SLUG, "auto_promote": False, "updated_by": "ops", "updated_at": datetime.now(UTC)}
     res = call("PUT", f"{URL}/{SLUG}/settings", Conn(rows={"task_bundle_settings": stored}), json={"auto_promote": False})
     assert res.status_code == 200 and res.json()["auto_promote"] is False
+
+
+def test_bundles_are_listed_and_read_with_their_slug_and_smoke_status(call):
+    rows = [bundle_row(), package_row("task_object-detection", "d" * 64, "k", "ci") | {"kind": "task", "manifest": manifest(slug="object-detection")}]
+    every = call("GET", URL, Conn(rowset=rows)).json()
+    assert [(b["slug"], b["kind"], b["smoke_status"]) for b in every] == [(SLUG, "task", "pending"), ("object-detection", "task", "pending")]
+    assert [b["sha256"] for b in call("GET", f"{URL}/{SLUG}", Conn(rowset=rows)).json()] == [SHA]
+    one = call("GET", f"{URL}/{SLUG}/{SHA}", Conn(_passed()))
+    assert one.status_code == 200 and (one.json()["slug"], one.json()["smoke_status"], one.json()["manifest"]["trainer"]) == (
+        SLUG, "passed", "imgcls.train:train")
+    assert call("GET", f"{URL}/{SLUG}/{SHA}", Conn(None)).status_code == 404
+
+
+def test_the_catalog_shows_each_task_with_its_presets_and_backing_bundle(call):
+    stable = _passed(status=PackageStatus.STABLE)
+    conn = Conn(fetches={"FROM task_types": [task_row() | {"bundle_sha256": SHA}, task_row(TaskType.TEXT_CLASSIFICATION)],
+                         "FROM job_packages": [stable], "FROM task_presets": [preset_row()]})
+    res = call("GET", f"{URL}/catalog", conn).json()
+    assert [(t["task"]["slug"], t["bundle"] and t["bundle"]["sha256"], len(t["presets"]), t["auto_promote"]) for t in res] == [
+        (SLUG, SHA, 1, True), ("text-classification", None, 1, True)]
+
+
+def test_a_task_and_a_preset_can_be_switched_off(call):
+    conn = Conn(rows={"UPDATE task_types SET enabled": task_row() | {"enabled": False}, "UPDATE task_presets SET enabled": preset_row(enabled=False)})
+    assert call("PUT", f"{URL}/catalog/{SLUG}/enabled", conn, json={"enabled": False}).json()["enabled"] is False
+    assert call("PUT", f"{URL}/catalog/{SLUG}/presets/small/enabled", conn, json={"enabled": False}).json()["enabled"] is False
+    missing = Conn(rows={"UPDATE task_types SET enabled": None, "UPDATE task_presets SET enabled": None})
+    assert call("PUT", f"{URL}/catalog/{SLUG}/enabled", missing, json={"enabled": True}).status_code == 404
+    assert call("PUT", f"{URL}/catalog/{SLUG}/presets/small/enabled", missing, json={"enabled": True}).status_code == 404
+
+
+def test_only_a_failed_candidate_bundle_is_smoked_again(call, monkeypatch):
+    async def retry(name, sha):
+        return JobPackage.model_validate(bundle_row(smoke_job_id="smoke-2"))
+
+    monkeypatch.setattr(service.data_plane, "retry_package_smoke", retry)
+    res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(bundle_row(smoke_status=SmokeStatus.FAILED)))
+    assert res.status_code == 200 and res.json()["smoke_job_id"] == "smoke-2"
+    res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(_passed()))
+    assert res.status_code == 409 and res.json()["code"] == ProblemCode.SMOKE_NOT_RETRYABLE
 
 
 @pytest.fixture

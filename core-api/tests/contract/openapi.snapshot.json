@@ -523,6 +523,43 @@
         "title": "CatalogModel",
         "type": "object"
       },
+      "CatalogTask": {
+        "description": "One task the platform can run, as the task bundles derived it: the task_types row, its presets, the stable bundle that\nbacks it (None for a row from before bundles) and whether a passing candidate is promoted without a person.",
+        "properties": {
+          "auto_promote": {
+            "title": "Auto Promote",
+            "type": "boolean"
+          },
+          "bundle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskBundle"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/TaskPreset"
+            },
+            "title": "Presets",
+            "type": "array"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskInfo"
+          }
+        },
+        "required": [
+          "task",
+          "presets",
+          "bundle",
+          "auto_promote"
+        ],
+        "title": "CatalogTask",
+        "type": "object"
+      },
       "ComputeTarget": {
         "description": "Where a deployment runs; also the project setting `compute_target`.",
         "enum": [
@@ -1304,6 +1341,20 @@
           "verified"
         ],
         "title": "EmailVerificationStatus",
+        "type": "object"
+      },
+      "EnabledBody": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EnabledBody",
         "type": "object"
       },
       "EventAck": {
@@ -4358,6 +4409,86 @@
           "csv_max_columns"
         ],
         "title": "Tables",
+        "type": "object"
+      },
+      "TaskBundle": {
+        "description": "A task bundle's job_packages row (name task_<slug>, kind task, its manifest) with its slug. status stable = the one\nbundle new runs of the slug use; smoke_status is settled from the smoke job on every read.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/PackageKind",
+            "default": "runtime"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "published_by": {
+            "title": "Published By",
+            "type": "string"
+          },
+          "s3_key": {
+            "title": "S3 Key",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "slug": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "smoke_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smoke Job Id"
+          },
+          "smoke_status": {
+            "$ref": "#/components/schemas/SmokeStatus"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PackageStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "title": "Updated By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "sha256",
+          "s3_key",
+          "status",
+          "published_by",
+          "updated_by",
+          "updated_at",
+          "smoke_status",
+          "smoke_job_id",
+          "slug"
+        ],
+        "title": "TaskBundle",
         "type": "object"
       },
       "TaskInfo": {
@@ -7529,6 +7660,323 @@
         ]
       }
     },
+    "/v1/admin/task-bundles": {
+      "get": {
+        "operationId": "list_bundles_v1_admin_task_bundles_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TaskBundle"
+                  },
+                  "title": "Response List Bundles V1 Admin Task Bundles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Bundles",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/catalog": {
+      "get": {
+        "description": "What tenants can train: each task_types row with its presets and the stable bundle that wrote them.",
+        "operationId": "task_catalog_v1_admin_task_bundles_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogTask"
+                  },
+                  "title": "Response Task Catalog V1 Admin Task Bundles Catalog Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Task Catalog",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/catalog/{slug}/enabled": {
+      "put": {
+        "description": "Switch a task off for new runs and back on; a promotion leaves the switch as it is.",
+        "operationId": "set_task_enabled_v1_admin_task_bundles_catalog__slug__enabled_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnabledBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Task Enabled",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/catalog/{slug}/presets/{name}/enabled": {
+      "put": {
+        "description": "Switch one preset off (hidden from tenants, refused for new runs) and back on; a promotion leaves the switch as it is.",
+        "operationId": "set_preset_enabled_v1_admin_task_bundles_catalog__slug__presets__name__enabled_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnabledBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPreset"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Preset Enabled",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/v1/admin/task-bundles/register": {
       "post": {
         "description": "Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records\na candidate and starts its smoke on the stable core.",
@@ -7582,7 +8030,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobPackage"
+                  "$ref": "#/components/schemas/TaskBundle"
                 }
               }
             },
@@ -7600,6 +8048,83 @@
           }
         },
         "summary": "Register Bundle",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/{slug}": {
+      "get": {
+        "operationId": "list_slug_bundles_v1_admin_task_bundles__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TaskBundle"
+                  },
+                  "title": "Response List Slug Bundles V1 Admin Task Bundles  Slug  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Slug Bundles",
         "tags": [
           "admin"
         ]
@@ -7760,6 +8285,174 @@
         ]
       }
     },
+    "/v1/admin/task-bundles/{slug}/{sha256}": {
+      "get": {
+        "description": "One bundle; CI polls this for smoke_status after register.",
+        "operationId": "get_bundle_v1_admin_task_bundles__slug___sha256__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBundle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Bundle",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/task-bundles/{slug}/{sha256}/smoke": {
+      "post": {
+        "description": "Smoke a candidate whose smoke failed again (409 for anything else).",
+        "operationId": "retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBundle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Bundle Smoke",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/v1/admin/task-bundles/{slug}/{sha256}/status": {
       "put": {
         "description": "Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and\npresets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.",
@@ -7831,7 +8524,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobPackage"
+                  "$ref": "#/components/schemas/TaskBundle"
                 }
               }
             },
