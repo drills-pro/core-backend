@@ -2292,6 +2292,14 @@
             "title": "Published By",
             "type": "string"
           },
+          "requirements": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
           "s3_key": {
             "title": "S3 Key",
             "type": "string"
@@ -4707,6 +4715,14 @@
           "published_by": {
             "title": "Published By",
             "type": "string"
+          },
+          "requirements": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirements",
+            "type": "array"
           },
           "s3_key": {
             "title": "S3 Key",

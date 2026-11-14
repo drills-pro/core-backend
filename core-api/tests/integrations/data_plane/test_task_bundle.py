@@ -9,8 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.enums import JobPackageName, PackageKind, PackageStatus
-from app.core.job_packages import JobPackage
+from app.core.job_packages import REQUIREMENTS_CONFLICT, JobPackage
 from app.core.problem import Problem
+from app.core.requirements import requirements_sha256
 from app.integrations.data_plane import job_catalog, job_package, task_bundle
 from tests.integrations.data_plane.test_job_package import package_row
 from tests.support import FakeConn, TenantCtx
@@ -43,6 +44,21 @@ def test_a_bad_bundle_is_refused(data, code):
     assert e.value.status_code == 422 and e.value.code == code
 
 
+def test_manifest_requirements_are_validated_and_normalised():
+    data = bundle_zip(manifest(requirements=["Xgboost==3.2.0", "scipy==1.14.0"]))
+    assert task_bundle.check_bundle(data, _sha(data)).requirements == ["xgboost==3.2.0", "scipy==1.14.0"]
+    data = bundle_zip(manifest())
+    assert task_bundle.check_bundle(data, _sha(data)).requirements == []
+
+
+@pytest.mark.parametrize("requirements", [["xgboost>=3"], ["a==1", "A==1"], ["--index-url x"], "xgboost==3.2.0", [1]])
+def test_a_manifest_with_unpinned_requirements_is_refused_with_its_own_code(requirements):
+    data = bundle_zip(manifest(requirements=requirements))
+    with pytest.raises(Problem) as e:
+        task_bundle.check_bundle(data, _sha(data))
+    assert (e.value.status_code, e.value.code) == (422, job_package.INVALID_REQUIREMENTS)
+
+
 def test_a_bundle_without_a_manifest_or_with_a_wrong_hash_is_refused():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -61,8 +77,8 @@ def staged(monkeypatch):
     async def get_pool():
         return SimpleNamespace(acquire=lambda: TenantCtx(None))
 
-    async def register_bundle(conn, name, sha, key, doc, actor):
-        seen.append((name, sha, key, doc["schema"], actor))
+    async def register_bundle(conn, name, sha, key, doc, actor, requirements):
+        seen.append((name, sha, key, doc["schema"], actor, requirements))
         return JobPackage.model_validate(package_row(name, sha, key, actor) | {"kind": PackageKind.TASK, "manifest": doc})
 
     monkeypatch.setattr(task_bundle, "get_pool", get_pool)
@@ -79,7 +95,13 @@ def test_a_staged_bundle_is_registered_as_task_slug(staged):
     stage, seen = staged
     key = stage(bundle_zip())
     package = asyncio.run(task_bundle.register_staged(key, "ci"))
-    assert seen == [(f"task_{SLUG}", package.sha256, key, 1, "ci")] and package.kind == PackageKind.TASK
+    assert seen == [(f"task_{SLUG}", package.sha256, key, 1, "ci", [])] and package.kind == PackageKind.TASK
+
+
+def test_the_manifest_requirements_are_stored_with_the_bundle(staged):
+    stage, seen = staged
+    asyncio.run(task_bundle.register_staged(stage(bundle_zip(manifest(requirements=["xgboost==3.2.0"]))), "ci"))
+    assert seen[0][-1] == ["xgboost==3.2.0"]
 
 
 @pytest.mark.parametrize("key", ["jobs/image-classification.zip", "other/image-classification-" + "a" * 64 + ".zip"])
@@ -152,3 +174,36 @@ def test_a_core_smoke_runs_every_stable_bundle_on_the_candidate_core(smoke):
     assert sent["package_url"] == f"http://ray/ray_training/{'c' * 64}" and len(sent["bundle_urls"]) == len(spec["bundles"]) == 2
     sent, spec = run(candidate)
     assert spec["bundles"] == [] and sent["bundle_urls"] == []  # nothing stable yet: nothing to break
+
+
+def _with(package, *requirements):
+    return package.model_copy(update={"requirements": list(requirements)})
+
+
+def test_a_bundle_smoke_installs_the_cores_and_the_bundles_pins_merged(smoke):
+    run, core = smoke
+    core.requirements = ["torch==2.11.0", "numpy==2.1.0"]  # the stable core the smoke resolves
+    sent, _ = run(_with(_bundle(), "numpy==2.1.0", "xgboost==3.2.0"))
+    assert sent["requirements"] == ["numpy==2.1.0", "torch==2.11.0", "xgboost==3.2.0"]
+    assert sent["metadata"]["requirements_sha256"] == requirements_sha256(sent["requirements"])
+
+
+def test_a_core_smoke_installs_the_candidate_cores_pins_with_every_stable_bundles(smoke):
+    run, core = smoke
+    candidate = _with(core, "torch==2.11.0")
+    sent, _ = run(candidate, [_with(_bundle(OTHER, PackageStatus.STABLE), "xgboost==3.2.0")])
+    assert sent["requirements"] == ["torch==2.11.0", "xgboost==3.2.0"]
+
+
+def test_a_smoke_without_pins_installs_nothing_and_records_no_hash(smoke):
+    run, _ = smoke
+    sent, _ = run(_bundle())
+    assert sent["requirements"] == [] and "requirements_sha256" not in sent["metadata"]
+
+
+def test_a_smoke_of_conflicting_pins_does_not_start(smoke):
+    run, core = smoke
+    core.requirements = ["numpy==2.1.0"]
+    with pytest.raises(Problem) as err:
+        run(_with(_bundle(), "numpy==2.2.0"))
+    assert (err.value.status_code, err.value.code) == (409, REQUIREMENTS_CONFLICT)

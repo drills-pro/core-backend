@@ -2,6 +2,7 @@
 It gets the `ingest` credential (staging bucket only) and the spec the datasets module built, nothing else: no
 lakeFS credential (plan decision 4)."""
 from app.core.enums import JobPackageName
+from app.core.job_packages import merged_requirements
 from app.integrations.data_plane import access, job_package, job_submit
 from app.integrations.data_plane.job_catalog import ENTRYPOINTS, JobType
 from app.integrations.job_spec import IngestSpec
@@ -17,4 +18,5 @@ async def submit_ingest(tenant_id: str, dataset_id: str, import_id: str, spec: I
         package_url=package_url, module=f"{ENTRYPOINTS}.{kind.value}", spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "dataset_id": dataset_id, "import_id": import_id},
         num_cpus=spec.resources.cpu, memory=spec.resources.memory_bytes, timeout_seconds=spec.resources.max_runtime_s,
+        requirements=merged_requirements(package),
     )

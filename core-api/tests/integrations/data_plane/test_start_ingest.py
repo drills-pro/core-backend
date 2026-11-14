@@ -28,7 +28,7 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
         return "job-1"
 
     async def resolve_stable(name):
-        return SimpleNamespace(name=name, sha256="a" * 64)
+        return SimpleNamespace(name=name, sha256="a" * 64, requirements=["pandas==2.3.0"])
 
     async def package_url(name, sha256):
         return "http://ray-side/jobs/ray-jobs-x.zip"
@@ -47,6 +47,6 @@ def test_job_params_carry_prefix_limits_and_the_staging_credential_but_no_lakefs
     assert job["target"] == "y" and job["limits"]["upload_max_bytes"] == settings.dataset_limits.upload_max_bytes
     assert job["base"] is None and set(sent["env_vars"]) == {"STAGING_ENDPOINT", "STAGING_ACCESS_KEY", "STAGING_SECRET_KEY"}
     assert asked == ["ingest"]  # never the staging secret, which also covers the lakeFS blockstore bucket
-    assert sent["submission_id"] == "ingest-1"
+    assert sent["submission_id"] == "ingest-1" and sent["requirements"] == ["pandas==2.3.0"]  # the ray_jobs package's own pins
     assert sent["num_cpus"] == settings.dataset_limits.ray_job_cpus
     assert sent["resources"] == {compute.CPU_POOL_RESOURCE: 1}

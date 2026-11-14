@@ -62,8 +62,8 @@ def registry(monkeypatch):
     rows = {}
 
     class Conn:
-        async def execute(self, sql, name, sha, key, actor):
-            rows.setdefault((name, sha), package_row(name, sha, key, actor))
+        async def execute(self, sql, name, sha, key, actor, requirements):
+            rows.setdefault((name, sha), package_row(name, sha, key, actor) | {"requirements": requirements})
 
         async def fetchrow(self, sql, *args):
             if sql.startswith("UPDATE"):
@@ -166,9 +166,49 @@ def test_a_staged_package_is_read_back_and_registered_as_a_candidate(registry, m
     assert (package.sha256, package.s3_key, package.status, package.published_by) == (sha, key, PackageStatus.CANDIDATE, "ci")
 
 
+def _staged_zip(registry, monkeypatch, files: dict[str, str | bytes]):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for n, text in files.items():
+            zf.writestr(n, text)
+    data = buf.getvalue()
+    sha = hashlib.sha256(data).hexdigest()
+    key = job_package.package_key(job_package.PACKAGE_DIRS[JobPackageName.RAY_TRAINING], sha)
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: StagedS3({key: data}))
+    return key
+
+
+def test_a_requirements_lock_at_the_package_root_is_stored_with_the_package(registry, monkeypatch):
+    lock = "# torch stack\nTorch==2.11.0+cu128\n\nnumpy==2.1.0  # pinned\n    # via torch\n"
+    key = _staged_zip(registry, monkeypatch, {"package/ray_core/__init__.py": "", "package/requirements.lock": lock})
+    package = asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert package.requirements == ["torch==2.11.0+cu128", "numpy==2.1.0"]
+
+
+def test_a_package_without_a_lock_has_no_requirements(registry, monkeypatch):
+    key, _ = _staged(registry, monkeypatch, "package/ray_core/__init__.py")
+    assert asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci")).requirements == []
+
+
+@pytest.mark.parametrize("lock", ["numpy>=1.0\n", "numpy==1.0\nnumpy==1.0\n", "--index-url https://x\n", "numpy==1.0 --hash=sha256:ab\n"])
+def test_a_lock_that_is_not_exact_pins_is_refused(registry, monkeypatch, lock):
+    key = _staged_zip(registry, monkeypatch, {"package/ray_core/__init__.py": "", "package/requirements.lock": lock})
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert (err.value.status_code, err.value.code) == (422, job_package.INVALID_REQUIREMENTS) and not registry.rows
+
+
+def test_a_lock_that_is_not_text_is_refused(registry, monkeypatch):
+    key = _staged_zip(registry, monkeypatch, {"package/ray_core/__init__.py": "", "package/requirements.lock": b"\xff\xfe"})
+    with pytest.raises(Problem) as err:
+        asyncio.run(job_package.register_staged(JobPackageName.RAY_TRAINING, key, "ci"))
+    assert err.value.code == job_package.INVALID_REQUIREMENTS
+
+
 @pytest.mark.parametrize("names", [
     ["package/ray_jobs/__init__.py"],  # another package's directory
-    ["package/ray_core/../evil.py"], ["package/ray_core/data.bin"], ["ray_core/__init__.py"], ["setup.py"], []])
+    ["package/ray_core/../evil.py"], ["package/ray_core/data.bin"], ["ray_core/__init__.py"], ["setup.py"], ["requirements.lock"],
+    ["package/ray_core/requirements.lock"], []])
 def test_a_staged_package_must_be_python_files_under_its_own_directory(registry, monkeypatch, names):
     key, _ = _staged(registry, monkeypatch, *names)
     with pytest.raises(Problem) as err:

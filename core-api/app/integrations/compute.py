@@ -67,13 +67,24 @@ class JobSpec(BaseModel):
     memory: int = 0  # bytes
     resources: dict[str, float] = Field(default_factory=dict)  # custom Ray resources, to pin a job to a worker group
     py_modules: list[str] = Field(default_factory=list)  # URIs of zips Ray downloads and puts on the job's import path
+    requirements: list[str] = Field(default_factory=list)  # exact pins (app.core.requirements) Ray's uv runtime env installs; empty = the image's own packages
     submission_id: str | None = None  # the caller's id for the job, so it can stop it even if the answer is lost
     timeout_seconds: int = 0  # 0 = none; the RayJob backend enforces it as activeDeadlineSeconds
 
 
+def requirements_runtime_env(requirements: list[str]) -> dict:
+    """The runtime_env keys that make Ray install `requirements` with uv (planning/26); {} for none, so a package without
+    requirements keeps the packages baked into the image. Shared by jobs here and Serve apps (serve_config)."""
+    cfg = settings.compute.runtime_env
+    if not requirements:
+        return {}
+    return {"uv": {"packages": requirements, "uv_pip_install_options": cfg.uv_options}, "config": {"setup_timeout_seconds": cfg.setup_timeout_seconds}}
+
+
 def runtime_env(spec: JobSpec) -> dict:
     """The job's Ray runtime_env: what Ray sets up before the entrypoint runs."""
-    return {k: v for k, v in (("env_vars", spec.env_vars), ("py_modules", spec.py_modules)) if v}
+    env = {k: v for k, v in (("env_vars", spec.env_vars), ("py_modules", spec.py_modules)) if v}
+    return {**env, **requirements_runtime_env(spec.requirements)}
 
 
 def rayjob_manifest(spec: JobSpec, name: str) -> dict:

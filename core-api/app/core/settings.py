@@ -68,9 +68,17 @@ class RayJobCfg(_Section):
     ttl_after_finished_seconds: int  # how long the CR (and so the job's status) outlives the job; reconcilers must fit inside
 
 
+class RuntimeEnvCfg(_Section):
+    """How Ray installs a job's pinned requirements (planning/26): the `uv` runtime env on a stock Ray image."""
+
+    uv_options: list[str]  # extra `uv pip install` flags, e.g. the PyTorch wheel index and its resolution strategy
+    setup_timeout_seconds: int  # Ray's own default is far too short for an 8 GB environment (441 s cold, measured)
+
+
 class Compute(_Section):
     backend: Literal["ray_dashboard", "rayjob"]  # app.integrations.compute.Backend
     rayjob: RayJobCfg
+    runtime_env: RuntimeEnvCfg
 
 
 class Background(_Section):

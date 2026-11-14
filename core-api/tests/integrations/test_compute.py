@@ -172,3 +172,21 @@ def test_dashboard_state_carries_the_start_time_in_epoch_milliseconds(monkeypatc
 def test_dashboard_url_is_read_per_call(monkeypatch):
     monkeypatch.setattr(settings.ray, "dashboard", "http://elsewhere:1")
     assert str(compute._dashboard().base_url) == "http://elsewhere:1"
+
+
+def test_requirements_add_the_uv_runtime_env_on_both_backends(kube, monkeypatch):
+    spec = SPEC.model_copy(update={"requirements": ["numpy==2.1.0", "torch==2.11.0+cu128"]})
+    cfg = settings.compute.runtime_env
+    want = {
+        "env_vars": {"K": "v"}, "py_modules": ["http://pkg/a.zip"],
+        "uv": {"packages": ["numpy==2.1.0", "torch==2.11.0+cu128"], "uv_pip_install_options": cfg.uv_options},
+        "config": {"setup_timeout_seconds": cfg.setup_timeout_seconds}}
+    asyncio.run(compute.submit(spec))
+    assert json.loads(kube.crs["ingest-1"]["spec"]["runtimeEnvYAML"]) == want
+    assert compute._dashboard_payload(spec)["runtime_env"] == want
+
+
+def test_no_requirements_leaves_no_uv_or_config_key():
+    env = compute.runtime_env(SPEC)
+    assert "uv" not in env and "config" not in env
+    assert compute.requirements_runtime_env([]) == {}

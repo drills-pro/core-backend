@@ -120,3 +120,9 @@ def test_dataset_limits_and_data_plane_knobs_are_all_positive_and_in_base_yaml()
 def test_every_environment_names_the_staging_secret(env):
     assert load(env).secrets.staging.name.startswith("staging")
     assert load(env).secrets.ingest.name.startswith("ingest")  # a separate file: the job must not get the staging one
+
+
+def test_runtime_env_defaults_for_uv_installs():
+    cfg = load("test").compute.runtime_env
+    assert cfg.uv_options == ["--extra-index-url", "https://download.pytorch.org/whl/cu128", "--index-strategy", "unsafe-best-match"]
+    assert cfg.setup_timeout_seconds == 3600

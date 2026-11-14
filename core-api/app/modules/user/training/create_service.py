@@ -114,9 +114,10 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
     token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
     try:
         package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned: the run keeps it whatever is promoted later
+        requirements = job_packages.merged_requirements(package, *([bundle] if bundle else []))  # one helper for the run and the smoke
         started = await data_plane.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
         spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters,
-                                      token and token.reporting, bundle and (package.sha256, bundle.sha256))
+                                      token and token.reporting, bundle and (package.sha256, bundle.sha256), requirements)
     except Exception as e:
         raise job_lifecycle.start_failed(e, ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}")
 
@@ -137,7 +138,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
 
     await job_lifecycle.start(  # on failure: stop the job (Ray may have accepted it), then fail the run
         partial(data_plane.submit_train, tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
-                bundle_name=bundle and bundle.name), spec.job_id,
+                bundle_name=bundle and bundle.name, requirements=requirements), spec.job_id,
         partial(_fail_unstarted, ctx, run_id, started.run_id, project_id),
         ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}",
     )

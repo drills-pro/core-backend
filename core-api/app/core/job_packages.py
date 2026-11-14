@@ -2,11 +2,15 @@
 whether runs may use it (candidate -> stable -> retired). Platform data, written only through /v1/admin/job-packages.
 """
 from datetime import datetime
+from http import HTTPStatus
 
 from pydantic import BaseModel
 
 from app.core.enums import JobPackageName, PackageAuditAction, PackageKind, PackageStatus, SmokeStatus
+from app.core.problem import Problem
+from app.core.requirements import RequirementsError, merge_requirements
 
+REQUIREMENTS_CONFLICT = "requirements_conflict"  # two packages of one run pin the same distribution differently
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"  # mirrors job_packages_sha256_check
 TASK_PACKAGE_PREFIX = "task_"
@@ -22,6 +26,7 @@ class JobPackage(BaseModel):
     name: str  # a JobPackageName for a runtime package, task_<slug> for a task bundle
     kind: PackageKind = PackageKind.RUNTIME
     manifest: dict | None = None  # the bundle's manifest.json; None for a runtime package
+    requirements: list[str] = []  # exact pins Ray installs for this package's jobs (planning/26); empty = the image's own packages
     sha256: str
     s3_key: str
     status: PackageStatus
@@ -32,9 +37,18 @@ class JobPackage(BaseModel):
     smoke_job_id: str | None
 
 
+def merged_requirements(*packages: JobPackage) -> list[str]:
+    """What Ray installs for a run on these packages together (the core and its bundle, or a package alone): the union of
+    their pins, sorted. The same pin in two packages merges; two different pins for one distribution are a 409."""
+    try:
+        return merge_requirements(*(p.requirements for p in packages))
+    except RequirementsError as e:
+        raise Problem(HTTPStatus.CONFLICT, REQUIREMENTS_CONFLICT, f"{' + '.join(p.name for p in packages)}: {e}") from None
+
+
 _SELECT = "SELECT * FROM job_packages"
 _INSERT = (
-    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by) VALUES ($1, $2, $3, $4, $4) "
+    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, requirements) VALUES ($1, $2, $3, $4, $4, $5) "
     "ON CONFLICT (name, sha256) DO NOTHING"
 )
 _SET_STATUS = "UPDATE job_packages SET status = $3, updated_by = $4, updated_at = now() WHERE name = $1 AND sha256 = $2 RETURNING *"
@@ -44,14 +58,14 @@ _RESET_FAILED_SMOKE = (
 )
 
 
-async def register(conn, name: JobPackageName, sha256: str, s3_key: str, actor: str) -> JobPackage:
+async def register(conn, name: JobPackageName, sha256: str, s3_key: str, actor: str, requirements: list[str] | None = None) -> JobPackage:
     """A candidate for this content, or the row that already exists for it."""
-    await conn.execute(_INSERT, name, sha256, s3_key, actor)
+    await conn.execute(_INSERT, name, sha256, s3_key, actor, requirements or [])
     return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
 
 
 _INSERT_BUNDLE = (
-    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, kind, manifest) VALUES ($1, $2, $3, $4, $4, $5, $6) "
+    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, kind, manifest, requirements) VALUES ($1, $2, $3, $4, $4, $5, $6, $7) "
     "ON CONFLICT (name, sha256) DO NOTHING RETURNING true"
 )
 _AUDIT = "INSERT INTO job_package_audit (name, sha256, action, actor) VALUES ($1, $2, $3, $4)"
@@ -62,10 +76,10 @@ async def record(conn, name: str, sha256: str, action: PackageAuditAction, actor
     await conn.execute(_AUDIT, name, sha256, action, actor)
 
 
-async def register_bundle(conn, name: str, sha256: str, s3_key: str, manifest: dict, actor: str) -> JobPackage:
+async def register_bundle(conn, name: str, sha256: str, s3_key: str, manifest: dict, actor: str, requirements: list[str] | None = None) -> JobPackage:
     """A task bundle candidate with its manifest, audited when new; the row that already exists for this content otherwise."""
     async with conn.transaction():
-        if await conn.fetchval(_INSERT_BUNDLE, name, sha256, s3_key, actor, PackageKind.TASK, manifest):
+        if await conn.fetchval(_INSERT_BUNDLE, name, sha256, s3_key, actor, PackageKind.TASK, manifest, requirements or []):
             await record(conn, name, sha256, PackageAuditAction.REGISTER, actor)
         return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
 

@@ -880,6 +880,19 @@
           "title": "Preset",
           "type": "string"
         },
+        "requirements_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requirements Sha256"
+        },
         "seed": {
           "default": 42,
           "title": "Seed",
