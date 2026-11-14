@@ -53,3 +53,16 @@ def test_the_smoke_spec_trains_and_exports_without_a_base_model():
     assert report["status"] == "succeeded", report["message"]
     assert report["history"] and MODEL_KEY in store.puts and REPORT_KEY in store.puts
     assert set(report["metrics"]) >= {MANIFEST["monitor"]}
+
+
+def test_an_image_size_the_backbone_cannot_downsample_is_refused_at_submit():
+    # a real run with image_size 100 started on the GPU and died in the encoder (feature maps of 8 and 7): refuse it up front
+    schema = MANIFEST["hyperparameters"]
+    for size in (224, 320, 640):
+        jsonschema.validate({"image_size": size}, schema)
+    for size in (100, 225, 64, 1568):
+        try:
+            jsonschema.validate({"image_size": size}, schema)
+        except jsonschema.ValidationError:
+            continue
+        raise AssertionError(f"image_size {size} should be refused")
