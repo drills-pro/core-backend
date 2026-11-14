@@ -10,13 +10,15 @@ ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cpu@sha256:64f1f57a8c547f7582fe98543
 FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/ray-jobs/pyproject.toml
-# Ray first, then the rest under a protobuf<6 constraint: ray[serve] pins protobuf 5.x and the newest onnx needs 6.31+. Installed the
-# other way round, Ray downgrades protobuf and `import onnx` fails with a gencode/runtime version error (same fix as ray-training/Dockerfile).
-RUN echo 'protobuf<6' > /tmp/ray-jobs/constraints.txt \
+# torch first, from the CPU wheel index only (the PyPI wheel on Linux carries the CUDA libraries, gigabytes this group never uses).
+# Then one resolve for the rest: the constraints keep Ray at the base image's version and protobuf below 6 (ray[serve] pins protobuf 5.x,
+# the newest onnx needs 6.31+, so pip settles on an onnx that works with 5.x; the install-order version of this fix is in git history).
+RUN --mount=type=cache,target=/home/ray/.cache/pip,uid=1000,gid=100 \
+    python -c "import ray; print('ray==' + ray.__version__)" > /tmp/ray-jobs/constraints.txt \
+    && echo 'protobuf<6' >> /tmp/ray-jobs/constraints.txt \
     && python -c "import tomllib; print('\\n'.join(tomllib.load(open('/tmp/ray-jobs/pyproject.toml', 'rb'))['project']['dependencies']))" \
         > /tmp/ray-jobs/requirements.txt \
-    && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
-    && pip install --no-cache-dir -c /tmp/ray-jobs/constraints.txt -r /tmp/ray-jobs/requirements.txt \
-    && pip install --no-cache-dir -c /tmp/ray-jobs/constraints.txt --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install -c /tmp/ray-jobs/constraints.txt --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install -c /tmp/ray-jobs/constraints.txt "ray[train,serve]" -r /tmp/ray-jobs/requirements.txt \
     && python -c "import ray.serve, ray.train.torch, torch, boto3, pyarrow, PIL, onnx, onnxruntime, tokenizers; print('boto3', boto3.__version__, 'pyarrow', pyarrow.__version__, 'Pillow', PIL.__version__, 'onnx', onnx.__version__)" \
     && rm -rf /tmp/ray-jobs

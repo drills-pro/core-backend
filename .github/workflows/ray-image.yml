@@ -17,6 +17,10 @@ on:
         description: "Delete preinstalled toolchains first (torch + CUDA need more than the runner's free space)"
         type: boolean
         default: false
+      daemon-build:
+        description: "Build in the runner's Docker daemon instead of a buildx container (no copy of the image into the daemon, no GitHub layer cache): for an image too big to exist twice on the runner"
+        type: boolean
+        default: false
       smoke-args:
         description: "Arguments of scripts/ray-image-smoke.py"
         required: true
@@ -42,8 +46,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Free runner disk
         if: inputs.free-disk
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        # The build loads the image into the local daemon (to test it), so the runner holds the base image, the layers and the exported
+        # image at once: about three times the 17 GB cu128 image. The preinstalled toolchains and preloaded Docker images are what gives
+        # that room back (the list is the one in https://mathio28.medium.com/squeezing-disk-space-from-github-actions-runners-an-engineers-guide-d5fbe4443692).
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /opt/ghc /usr/local/julia* \
+            /usr/local/lib/android /usr/local/share/chromium /usr/local/share/powershell /usr/local/share/boost \
+            /opt/microsoft /opt/google /opt/az /opt/hostedtoolcache
+          docker system prune --all --force > /dev/null
+          docker builder prune --all --force > /dev/null
+          df -h /
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver: ${{ inputs.daemon-build && 'docker' || 'docker-container' }}
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -59,8 +74,8 @@ jobs:
           context: ./${{ inputs.name }}
           load: true
           tags: ${{ env.SMOKE_TAG }}
-          cache-from: type=gha,scope=${{ inputs.name }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.name }}
+          cache-from: ${{ !inputs.daemon-build && format('type=gha,scope={0}', inputs.name) || '' }}
+          cache-to: ${{ !inputs.daemon-build && format('type=gha,mode=max,scope={0}', inputs.name) || '' }}
       - name: Smoke test the image
         # The repo is mounted read-only, so the packages on PYTHONPATH are this commit's source, not a zip. No network, no S3.
         # --shm-size: Ray's object store lives in /dev/shm. The runner has no GPU, so the GPU image runs its CPU path.
@@ -71,15 +86,16 @@ jobs:
             -v "$GITHUB_WORKSPACE:/src:ro" \
             --entrypoint python "$SMOKE_TAG" \
             /src/scripts/ray-image-smoke.py ${{ inputs.smoke-args }}
-      - name: Push (only an image that passed)
+      - name: Push (the image that passed, not a second build of it)
         id: push
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: ./${{ inputs.name }}
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}/${{ inputs.name }}:${{ steps.sha.outputs.tag }}
-          cache-from: type=gha,scope=${{ inputs.name }}
+        run: |
+          ref="${REGISTRY}/${GITHUB_REPOSITORY}/${{ inputs.name }}:${{ steps.sha.outputs.tag }}"
+          docker tag "$SMOKE_TAG" "$ref"
+          docker push "$ref" | tee push.log
+          digest="$(grep -oE 'digest: sha256:[0-9a-f]{64}' push.log | tail -1 | cut -d' ' -f2)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest in the push output"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   # A pull request in drills-pro/k8s, not a push: the pin restarts the Ray head and the GPU worker, so it is reviewed and
   # merged by hand. One branch per image, force-pushed, so a newer build updates the open PR instead of opening another.

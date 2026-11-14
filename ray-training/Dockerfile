@@ -10,15 +10,18 @@ ARG BASE=rayproject/ray:2.60.0.8f2cbc-py311-cu128@sha256:76e91000ac4eab6b53c5d79
 FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/ray-training/pyproject.toml
-# Ray first, then the rest under a protobuf<6 constraint: ray[serve] pins protobuf 5.x, and the newest onnx needs protobuf 6.31+. Installed in
-# the other order, onnx pulls protobuf 7, Ray downgrades it, and `import onnx` fails with a gencode/runtime version error, which breaks the
-# ONNX export (reproduced building the same dependency set for the local compose Ray head, compose/ray-head/Dockerfile). The build-time import check below
-# now includes onnx, so CI fails if this regresses; earlier CI builds passed because that check did not import it.
-RUN echo 'protobuf<6' > /tmp/ray-training/constraints.txt \
+# One resolve, not an install order. The constraints hold the two things that used to depend on the order: Ray stays at the
+# base image's version, and protobuf stays below 6 (ray[serve] pins protobuf 5.x, the newest onnx needs 6.31+, so pip settles on an
+# onnx that works with 5.x; installed the other way round onnx pulled protobuf 7, Ray downgraded it and `import onnx` failed with a
+# gencode/runtime version error, reproduced in compose/ray-head/Dockerfile). The import check at the end covers onnx, so CI fails if
+# this regresses. onnxruntime becomes onnxruntime-gpu in the requirements (the pyproject keeps the CPU build for macOS and CI), so
+# the CPU wheel is never downloaded and swapped out.
+RUN --mount=type=cache,target=/home/ray/.cache/pip,uid=1000,gid=100 \
+    python -c "import ray; print('ray==' + ray.__version__)" > /tmp/ray-training/constraints.txt \
+    && echo 'protobuf<6' >> /tmp/ray-training/constraints.txt \
     && python -c "import tomllib; print('\\n'.join(tomllib.load(open('/tmp/ray-training/pyproject.toml', 'rb'))['project']['dependencies']))" \
-        > /tmp/ray-training/requirements.txt \
-    && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
-    && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/ray-training/requirements.txt \
-    && pip uninstall -y onnxruntime && pip install --no-cache-dir -c /tmp/ray-training/constraints.txt onnxruntime-gpu \
+        | sed -E 's/^onnxruntime([^-]|$)/onnxruntime-gpu\1/' > /tmp/ray-training/requirements.txt \
+    && pip install -c /tmp/ray-training/constraints.txt --extra-index-url https://download.pytorch.org/whl/cu128 \
+        "ray[train,serve]" -r /tmp/ray-training/requirements.txt \
     && python -c "import ray.serve, ray.train.torch, torch, transformers, onnx, onnxruntime, xgboost, onnxmltools; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'onnx', onnx.__version__, 'arch', torch.cuda.get_arch_list() if torch.cuda.is_available() else 'no gpu at build')" \
     && rm -rf /tmp/ray-training
