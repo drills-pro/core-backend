@@ -1,15 +1,15 @@
 from app.core.authz import AuthzContext
+from app.core.enums import CatalogStatus
 from app.core.tenant_conn import TenantConn
 from app.modules.user.catalog.schemas import CatalogModel
 
-# The curated list is the platform's presets, grouped by the pinned base model (docs 17, catalog; the mirror is deferred).
+# model_catalog is platform data (no RLS), so every tenant reads the same enabled rows (docs 17, catalog).
 _MODELS = (
-    "SELECT base_model_repo AS repo_id, base_model_revision AS revision, base_model_license AS license, "
-    "array_agg(DISTINCT task ORDER BY task) AS tasks, array_agg(name ORDER BY name) AS presets "
-    "FROM task_presets GROUP BY 1, 2, 3 ORDER BY 1, 2"
+    "SELECT id, repo_id, revision, display_name, task, license, params, size_bytes FROM model_catalog "
+    "WHERE status = $1 AND ($2::text IS NULL OR task = $2) ORDER BY task, display_name, created_at"
 )
 
 
-async def list_models(ctx: AuthzContext) -> list[CatalogModel]:
+async def list_models(ctx: AuthzContext, task: str | None) -> list[CatalogModel]:
     async with TenantConn(ctx.tenant_id) as conn:
-        return [CatalogModel.model_validate(dict(r)) for r in await conn.fetch(_MODELS)]
+        return [CatalogModel.model_validate(dict(r)) for r in await conn.fetch(_MODELS, CatalogStatus.ENABLED, task)]

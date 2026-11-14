@@ -27,6 +27,7 @@ from app.core import auth_log, problem, tracing
 from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
 from app.modules.admin import job_packages as admin_job_packages
+from app.modules.admin import model_catalog as admin_model_catalog
 from app.modules.admin import models as admin_models
 from app.modules.admin import presets as admin_presets
 from app.modules.admin import plan_limits as admin_plan_limits
@@ -60,6 +61,7 @@ from app.modules.user.datasets import pipeline_log
 ROUTERS = (
     admin_activity.router,
     admin_job_packages.router,
+    admin_model_catalog.router,
     admin_models.router,
     admin_presets.router,
     admin_task_bundles.router,

@@ -18,7 +18,7 @@ ISOLATION = re.compile(rf"{TENANT_COLUMN}\s*=\s*current_setting\(\s*'{re.escape(
 # tenants is the root; principals, tenant_create_keys and rate_limits are used before a tenant exists; the rest is
 # platform data that only the /v1/admin routes write.
 UNSCOPED = frozenset({
-    "tenants", "principals", "tenant_create_keys", "rate_limits", "job_packages", "plan_limits", "task_presets", "task_types",
+    "tenants", "principals", "tenant_create_keys", "rate_limits", "job_packages", "plan_limits", "task_presets", "task_types", "model_catalog",
     "job_package_audit", "task_bundle_settings",
 })
 

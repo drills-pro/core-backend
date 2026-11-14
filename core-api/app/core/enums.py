@@ -78,6 +78,19 @@ class PackageStatus(StrEnum):
     RETIRED = "retired"
 
 
+class CatalogStatus(StrEnum):
+    """Mirrors the model_catalog_status_check constraint. Only `enabled` entries reach tenants."""
+
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
+class CatalogSource(StrEnum):
+    """Where a catalog model comes from. Mirrors the model_catalog_source_check constraint."""
+
+    HF = "hf"
+
+
 class SmokeStatus(StrEnum):
     """Mirrors the job_packages_smoke_status_check constraint: how a package's smoke job went."""
 
