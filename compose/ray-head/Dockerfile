@@ -7,14 +7,15 @@ FROM ${BASE}
 
 COPY --chown=ray:users pyproject.toml /tmp/deps/ray-jobs.toml
 COPY --from=training --chown=ray:users pyproject.toml /tmp/deps/ray-training.toml
-# Ray first, then everything else under a protobuf<6 constraint: ray[serve] pins protobuf 5.x, and an onnx built against protobuf 6
-# cannot load on it (the other order installs protobuf 7 for onnx, then Ray downgrades it and `import onnx` fails).
-RUN echo 'protobuf<6' > /tmp/deps/constraints.txt \
-    && python -c "import tomllib; print('\\n'.join(d for d in tomllib.load(open('/tmp/deps/ray-training.toml', 'rb'))['project']['dependencies'] if d.startswith('torch>')))" > /tmp/deps/torch.txt \
+# torch from the CPU index first, then one resolve for everything else; the constraints keep Ray at the base image's version and
+# protobuf below 6 (ray[serve] pins protobuf 5.x and an onnx built against protobuf 6 cannot load on it: the install-order version of this fix).
+RUN --mount=type=cache,target=/home/ray/.cache/pip,uid=1000,gid=100 \
+    python -c "import ray; print('ray==' + ray.__version__)" > /tmp/deps/constraints.txt \
+    && echo 'protobuf<6' >> /tmp/deps/constraints.txt \
+    && python -c "import tomllib; print('\\n'.join(d for d in tomllib.load(open('/tmp/deps/ray-training.toml', 'rb'))['project']['dependencies'] if d.startswith('torch')))" > /tmp/deps/torch.txt \
     && python -c "import tomllib; deps = {d for f in ('ray-jobs', 'ray-training') for d in tomllib.load(open(f'/tmp/deps/{f}.toml', 'rb'))['project']['dependencies']}; print('\\n'.join(sorted(d for d in deps if not d.startswith('torch'))))" \
         > /tmp/deps/requirements.txt \
-    && pip install --no-cache-dir "ray[train,serve]==$(python -c 'import ray; print(ray.__version__)')" \
-    && pip install --no-cache-dir -c /tmp/deps/constraints.txt --index-url https://download.pytorch.org/whl/cpu "$(grep -h '^torch[<>=]' /tmp/deps/torch.txt)" torchvision \
-    && pip install --no-cache-dir -c /tmp/deps/constraints.txt -r /tmp/deps/requirements.txt \
-    && python -c "import ray.serve, ray.train.torch, torch, transformers, timm, onnx, onnxruntime, boto3, pyarrow, PIL; print('torch', torch.__version__, 'onnx', onnx.__version__)" \
+    && pip install -c /tmp/deps/constraints.txt --index-url https://download.pytorch.org/whl/cpu -r /tmp/deps/torch.txt \
+    && pip install -c /tmp/deps/constraints.txt "ray[train,serve]" -r /tmp/deps/requirements.txt \
+    && python -c "import ray.serve, ray.train.torch, torch, transformers, timm, onnx, onnxruntime, boto3, pyarrow, PIL, xgboost, onnxmltools; print('torch', torch.__version__, 'onnx', onnx.__version__)" \
     && rm -rf /tmp/deps
