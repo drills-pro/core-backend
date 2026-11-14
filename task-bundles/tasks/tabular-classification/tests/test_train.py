@@ -17,6 +17,7 @@ ort = pytest.importorskip("onnxruntime")
 pytest.importorskip("onnxmltools")
 
 DATA_URL = "mem://data.parquet"
+COPIES = 10  # copies of the smoke rows in the hashed-split test
 
 
 class MemStore:
@@ -66,5 +67,7 @@ def test_a_missing_target_or_no_held_out_rows_is_bad_data():
 
 
 def test_rows_without_a_split_are_hashed_into_one():
-    rows = [{**r, "split": None} for r in rows_from_smoke()]
-    assert run(spec_for(rows), MemStore(), getter(rows))["status"] == "succeeded"
+    # the hash split is 80/10/10 per row: 40 rows can leave a split empty, 400 cannot (the rows differ by `note`, so they hash apart)
+    rows = [{**r, "split": None, "note": f"{r['note']} copy {n}"} for n in range(COPIES) for r in rows_from_smoke()]
+    report = run(spec_for(rows), MemStore(), getter(rows))
+    assert report["status"] == "succeeded", report["message"]
