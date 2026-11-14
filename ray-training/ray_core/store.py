@@ -6,6 +6,9 @@ from urllib.request import urlopen
 
 from ray_core.constants import HTTP_TIMEOUT_SECONDS, TRAIN_STATE_DIR
 
+CHECKSUM_ENV = ("AWS_REQUEST_CHECKSUM_CALCULATION", "AWS_RESPONSE_CHECKSUM_VALIDATION")
+CHECKSUM_WHEN_REQUIRED = "when_required"
+
 
 class S3Store:
     """Staging bucket under one prefix."""
@@ -13,6 +16,11 @@ class S3Store:
     def __init__(self, bucket: str, prefix: str, endpoint: str, access_key: str, secret_key: str):
         import boto3
 
+        # boto3 >= 1.36 signs a checksum trailer into every PutObject unless told otherwise; the staging store (an S3-compatible
+        # endpoint, not AWS) answers that with SignatureDoesNotMatch. The env vars are read by every boto3 version, the older
+        # ones ignore them (the Config options of the same name do not exist there).
+        for name in CHECKSUM_ENV:
+            os.environ.setdefault(name, CHECKSUM_WHEN_REQUIRED)
         self.bucket, self.prefix = bucket, prefix
         self.client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
