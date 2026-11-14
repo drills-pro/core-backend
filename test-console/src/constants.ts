@@ -37,6 +37,19 @@ export const PackageStatus = { CANDIDATE: 'candidate', STABLE: 'stable', RETIRED
   Schemas['PackageStatus']
 >;
 export const PACKAGE_NAMES: Schemas['JobPackageName'][] = ['ray_jobs', 'ray_training', 'ray_serving'];
+/** Mirrors core-api SmokeStatus. */
+export const SmokeStatus = { PENDING: 'pending', PASSED: 'passed', FAILED: 'failed' } as const satisfies Record<string, Schemas['SmokeStatus']>;
+/** The `code` of the 409s from the runtime-package and task-bundle status and smoke routes. */
+export const PackageErrorCode = {
+  SMOKE_NOT_PASSED: 'smoke_not_passed',
+  SMOKE_NOT_RETRYABLE: 'smoke_not_retryable',
+  BUNDLE_IS_STABLE: 'bundle_is_stable',
+} as const;
+export const PACKAGE_ERROR_MESSAGES: Record<string, string> = {
+  [PackageErrorCode.SMOKE_NOT_PASSED]: 'Its smoke job has not passed, so it cannot become stable yet.',
+  [PackageErrorCode.SMOKE_NOT_RETRYABLE]: 'Only a candidate whose smoke job failed can be smoked again.',
+  [PackageErrorCode.BUNDLE_IS_STABLE]: 'This is the stable bundle and cannot be retired. Promote another one to replace it.',
+};
 /** How much of a sha256 the promote dialog asks you to type back. */
 export const SHA_CONFIRM_CHARS = 8;
 

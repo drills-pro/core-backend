@@ -8,6 +8,7 @@ import { CallbackPage, LoginPage } from '@/pages/Auth';
 import { CatalogModelsPage } from '@/pages/CatalogModels';
 import { Layout } from '@/pages/Layout';
 import { PackagesPage } from '@/pages/Packages';
+import { TaskCatalogPage } from '@/pages/TaskCatalog';
 import { PipelinePage } from '@/pages/Pipeline';
 import { ProjectsPage } from '@/pages/Projects';
 import { TenantsPage } from '@/pages/Tenants';
@@ -40,6 +41,7 @@ const appRoute = createRoute({
 const tenantsRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: TenantsPage });
 const packagesRoute = createRoute({ getParentRoute: () => appRoute, path: '/packages', component: PackagesPage });
 const modelCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: '/model-catalog', component: CatalogModelsPage });
+const taskCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: '/task-catalog', component: TaskCatalogPage });
 
 /** The guard: the console only ever acts in an internal tenant, so a staff member who also belongs to a customer
  * tenant cannot train or deploy there by mistake. The API would allow it; this page will not. */
@@ -61,7 +63,7 @@ export const pipelineRoute = createRoute({ getParentRoute: () => tenantRoute, pa
 const routeTree = rootRoute.addChildren([
   loginRoute,
   callbackRoute,
-  appRoute.addChildren([tenantsRoute, packagesRoute, modelCatalogRoute, tenantRoute.addChildren([projectsRoute, pipelineRoute])]),
+  appRoute.addChildren([tenantsRoute, packagesRoute, modelCatalogRoute, taskCatalogRoute, tenantRoute.addChildren([projectsRoute, pipelineRoute])]),
 ]);
 
 export const queryClient = createQueryClient(() => {

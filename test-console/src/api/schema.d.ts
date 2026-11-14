@@ -191,6 +191,7 @@ export interface paths {
         /**
          * Set Package Status
          * @description Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
+         *     A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25.
          */
         put: operations["set_package_status_v1_admin_job_packages__name___sha256__status_put"];
         post?: never;
@@ -378,6 +379,203 @@ export interface paths {
          * @description Create or replace one tier's limits; they apply to the next request of every tenant on that tier.
          */
         put: operations["put_plan_limits_v1_admin_plan_limits__tier__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Bundles */
+        get: operations["list_bundles_v1_admin_task_bundles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Task Catalog
+         * @description What tenants can train: each task_types row with its presets and the stable bundle that wrote them.
+         */
+        get: operations["task_catalog_v1_admin_task_bundles_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/catalog/{slug}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Task Enabled
+         * @description Switch a task off for new runs and back on; a promotion leaves the switch as it is.
+         */
+        put: operations["set_task_enabled_v1_admin_task_bundles_catalog__slug__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/catalog/{slug}/presets/{name}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Preset Enabled
+         * @description Switch one preset off (hidden from tenants, refused for new runs) and back on; a promotion leaves the switch as it is.
+         */
+        put: operations["set_preset_enabled_v1_admin_task_bundles_catalog__slug__presets__name__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Bundle
+         * @description Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records
+         *     a candidate and starts its smoke on the stable core.
+         */
+        post: operations["register_bundle_v1_admin_task_bundles_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Slug Bundles */
+        get: operations["list_slug_bundles_v1_admin_task_bundles__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Bundle Settings */
+        get: operations["get_bundle_settings_v1_admin_task_bundles__slug__settings_get"];
+        /**
+         * Put Bundle Settings
+         * @description auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a PUT .../status.
+         */
+        put: operations["put_bundle_settings_v1_admin_task_bundles__slug__settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Bundle
+         * @description One bundle; CI polls this for smoke_status after register.
+         */
+        get: operations["get_bundle_v1_admin_task_bundles__slug___sha256__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}/{sha256}/smoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Bundle Smoke
+         * @description Smoke a candidate whose smoke failed again (409 for anything else).
+         */
+        post: operations["retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}/{sha256}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Bundle Status
+         * @description Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and
+         *     presets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.
+         */
+        put: operations["set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2288,6 +2486,32 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** BundleSettings */
+        BundleSettings: {
+            /** Auto Promote */
+            auto_promote: boolean;
+            slug: components["schemas"]["TaskType"];
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /** BundleSettingsBody */
+        BundleSettingsBody: {
+            /** Auto Promote */
+            auto_promote: boolean;
+        };
+        /**
+         * BundleStatusBody
+         * @description stable promotes the bundle (and rewrites the task's row and presets from its manifest); retired takes it out of use.
+         */
+        BundleStatusBody: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "stable" | "retired";
+        };
         /**
          * CatalogModel
          * @description One enabled catalog entry: a base model pinned by commit, with the licence it was admitted under.
@@ -2365,6 +2589,19 @@ export interface components {
          * @enum {string}
          */
         CatalogStatus: "enabled" | "disabled";
+        /**
+         * CatalogTask
+         * @description One task the platform can run, as the task bundles derived it: the task_types row, its presets, the stable bundle that
+         *     backs it (None for a row from before bundles) and whether a passing candidate is promoted without a person.
+         */
+        CatalogTask: {
+            /** Auto Promote */
+            auto_promote: boolean;
+            bundle: components["schemas"]["TaskBundle"] | null;
+            /** Presets */
+            presets: components["schemas"]["TaskPreset"][];
+            task: components["schemas"]["TaskInfo"];
+        };
         /**
          * ComputeTarget
          * @description Where a deployment runs; also the project setting `compute_target`.
@@ -2711,6 +2948,11 @@ export interface components {
              */
             verified: boolean;
         };
+        /** EnabledBody */
+        EnabledBody: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** EventAck */
         EventAck: {
             /** Duplicate */
@@ -2747,7 +2989,8 @@ export interface components {
         };
         /**
          * HyperparameterOverrides
-         * @description What a caller changes; a field left out keeps the preset's default, and the preset's bounds apply.
+         * @description What a caller changes; a field left out keeps the preset's default, and the preset's bounds apply. A task trained by
+         *     a bundle also takes the keys of the bundle's hyperparameter JSON Schema, which the request is validated against.
          */
         HyperparameterOverrides: {
             /** Batch Size */
@@ -2756,6 +2999,8 @@ export interface components {
             epochs?: number | null;
             /** Image Size */
             image_size?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** HyperparameterRange */
         HyperparameterRange: {
@@ -2939,7 +3184,14 @@ export interface components {
         };
         /** JobPackage */
         JobPackage: {
-            name: components["schemas"]["JobPackageName"];
+            /** @default runtime */
+            kind: components["schemas"]["PackageKind"];
+            /** Manifest */
+            manifest?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
             /** Published By */
             published_by: string;
             /** S3 Key */
@@ -3261,6 +3513,12 @@ export interface components {
             to_sub: string;
         };
         /**
+         * PackageKind
+         * @description Mirrors the job_packages_kind_check constraint: a runtime package (a JobPackageName) or a task bundle (task_<slug>).
+         * @enum {string}
+         */
+        PackageKind: "runtime" | "task";
+        /**
          * PackageStatus
          * @description Mirrors the job_packages_status_check constraint. Runs use `stable` packages only.
          * @enum {string}
@@ -3469,14 +3727,17 @@ export interface components {
         /** PresetSummary */
         PresetSummary: {
             augmentation: components["schemas"]["Augmentation"];
-            base_model: components["schemas"]["TrainBaseModel"];
+            base_model: components["schemas"]["TrainBaseModel"] | null;
             /** Cpu */
             cpu: number;
             /** Early Stopping Patience */
             early_stopping_patience: number;
             /** Gpu */
             gpu: number;
-            hyperparameters: components["schemas"]["HyperparameterLimits"];
+            /** Hyperparameters */
+            hyperparameters: components["schemas"]["HyperparameterLimits"] | {
+                [key: string]: unknown;
+            };
             /** Learning Rate */
             learning_rate: number;
             lr_schedule: components["schemas"]["LrSchedule"];
@@ -3853,8 +4114,43 @@ export interface components {
             /** Csv Max Rows */
             csv_max_rows: number;
         };
+        /**
+         * TaskBundle
+         * @description A task bundle's job_packages row (name task_<slug>, kind task, its manifest) with its slug. status stable = the one
+         *     bundle new runs of the slug use; smoke_status is settled from the smoke job on every read.
+         */
+        TaskBundle: {
+            /** @default runtime */
+            kind: components["schemas"]["PackageKind"];
+            /** Manifest */
+            manifest?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /** Published By */
+            published_by: string;
+            /** S3 Key */
+            s3_key: string;
+            /** Sha256 */
+            sha256: string;
+            slug: components["schemas"]["TaskType"];
+            /** Smoke Job Id */
+            smoke_job_id: string | null;
+            smoke_status: components["schemas"]["SmokeStatus"];
+            status: components["schemas"]["PackageStatus"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string;
+        };
         /** TaskInfo */
         TaskInfo: {
+            /** Bundle Sha256 */
+            bundle_sha256?: string | null;
             data_kind: components["schemas"]["DataKind"];
             /**
              * Enabled
@@ -3891,11 +4187,15 @@ export interface components {
             /** Updated By */
             updated_by: string;
         };
-        /** TaskPreset */
+        /**
+         * TaskPreset
+         * @description A row: an admin's preset (PresetBody), or one a promoted task bundle wrote (planning/25), which may have no base model
+         *     or preprocessing (tabular) and whose `hyperparameters` are default values its bundle's JSON Schema bounds.
+         */
         TaskPreset: {
             /** @default none */
             augmentation: components["schemas"]["Augmentation"];
-            base_model: components["schemas"]["TrainBaseModel"];
+            base_model?: components["schemas"]["TrainBaseModel"] | null;
             /** Cpu */
             cpu: number;
             /**
@@ -3903,9 +4203,17 @@ export interface components {
              * @default 0
              */
             early_stopping_patience: number;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
             /** Gpu */
             gpu: number;
-            hyperparameters: components["schemas"]["HyperparameterLimits"];
+            /** Hyperparameters */
+            hyperparameters: components["schemas"]["HyperparameterLimits"] | {
+                [key: string]: unknown;
+            };
             /** Learning Rate */
             learning_rate: number;
             /** @default constant */
@@ -3917,7 +4225,7 @@ export interface components {
             /** Name */
             name: string;
             /** Preprocessing */
-            preprocessing: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"];
+            preprocessing?: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"] | null;
             task: components["schemas"]["TaskType"];
             /**
              * Updated At
@@ -5339,6 +5647,387 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanLimits"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bundles_v1_admin_task_bundles_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    task_catalog_v1_admin_task_bundles_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogTask"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_task_enabled_v1_admin_task_bundles_catalog__slug__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnabledBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_preset_enabled_v1_admin_task_bundles_catalog__slug__presets__name__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnabledBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPreset"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_bundle_v1_admin_task_bundles_register_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_slug_bundles_v1_admin_task_bundles__slug__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_bundle_settings_v1_admin_task_bundles__slug__settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_bundle_settings_v1_admin_task_bundles__slug__settings_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundleSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_bundle_v1_admin_task_bundles__slug___sha256__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                slug: components["schemas"]["TaskType"];
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundleStatusBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBundle"];
                 };
             };
             /** @description Validation Error */

@@ -1,14 +1,12 @@
 import { useState } from 'react';
-import { Button, Code, Dialog, HStack, Input, Portal, Stack, Table, Text } from '@chakra-ui/react';
-import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
+import { Button, Code, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { client, unwrap, type Schemas } from '@/api/client';
-import { PACKAGE_NAMES, PackageStatus, SHA_CONFIRM_CHARS } from '@/constants';
-import { ErrorAlert, Section, StatusBadge, when } from '@/ui';
+import { PACKAGE_ERROR_MESSAGES, PACKAGE_NAMES, PackageStatus } from '@/constants';
+import { ConfirmChange, type Change } from '@/pages/ConfirmChange';
+import { TaskBundlesSection } from '@/pages/TaskBundles';
+import { CodedError, Section, StatusBadge, when } from '@/ui';
 
-type Pkg = Schemas['JobPackage'];
-type Change = { pkg: Pkg; status: Schemas['PackageStatus'] };
-
-const phrase = (pkg: Pkg) => `${pkg.name} ${pkg.sha256.slice(0, SHA_CONFIRM_CHARS)}`;
 
 export function PackagesPage() {
   const qc = useQueryClient();
@@ -27,7 +25,7 @@ export function PackagesPage() {
       </Text>
       {PACKAGE_NAMES.map((name, i) => (
         <Section key={name} title={name}>
-          <ErrorAlert error={lists[i].error} />
+          <CodedError error={lists[i].error} messages={PACKAGE_ERROR_MESSAGES} />
           <Table.Root size="sm">
             <Table.Header>
               <Table.Row>
@@ -59,12 +57,12 @@ export function PackagesPage() {
                   <Table.Cell>
                     <HStack justify="end">
                       {pkg.status === PackageStatus.CANDIDATE && (
-                        <Button size="xs" colorPalette="green" onClick={() => setChange({ pkg, status: PackageStatus.STABLE })}>
+                        <Button size="xs" colorPalette="green" onClick={() => setChange({ name: pkg.name, sha256: pkg.sha256, status: PackageStatus.STABLE })}>
                           Promote
                         </Button>
                       )}
                       {pkg.status !== PackageStatus.RETIRED && (
-                        <Button size="xs" variant="outline" colorPalette="red" onClick={() => setChange({ pkg, status: PackageStatus.RETIRED })}>
+                        <Button size="xs" variant="outline" colorPalette="red" onClick={() => setChange({ name: pkg.name, sha256: pkg.sha256, status: PackageStatus.RETIRED })}>
                           Retire
                         </Button>
                       )}
@@ -76,59 +74,22 @@ export function PackagesPage() {
           </Table.Root>
         </Section>
       ))}
-      {change && <ConfirmChange change={change} onClose={() => setChange(null)} onDone={() => qc.invalidateQueries({ queryKey: ['packages'] })} />}
+      {change && (
+        <ConfirmChange
+          change={change}
+          request={() =>
+            unwrap(
+              client.PUT('/v1/admin/job-packages/{name}/{sha256}/status', {
+                params: { path: { name: change.name as Schemas['JobPackageName'], sha256: change.sha256 } },
+                body: { status: change.status as Schemas['StatusBody']['status'] },
+              }),
+            )
+          }
+          onClose={() => setChange(null)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['packages'] })}
+        />
+      )}
+      <TaskBundlesSection />
     </Stack>
-  );
-}
-
-/** Typing the package name and the start of its sha back is the guard: a misclick cannot promote the wrong package. */
-function ConfirmChange({ change, onClose, onDone }: { change: Change; onClose: () => void; onDone: () => void }) {
-  const [typed, setTyped] = useState('');
-  const { pkg, status } = change;
-  const save = useMutation({
-    mutationFn: () =>
-      unwrap(client.PUT('/v1/admin/job-packages/{name}/{sha256}/status', { params: { path: { name: pkg.name, sha256: pkg.sha256 } }, body: { status } })),
-    onSuccess: () => {
-      onDone();
-      onClose();
-    },
-  });
-  return (
-    <Dialog.Root open onOpenChange={(e) => !e.open && onClose()}>
-      <Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content>
-            <Dialog.Header>
-              <Dialog.Title>
-                Set {pkg.name} to {status}
-              </Dialog.Title>
-            </Dialog.Header>
-            <Dialog.Body>
-              <Stack gap="3">
-                <Text>
-                  Type <Code>{phrase(pkg)}</Code> to confirm.
-                </Text>
-                <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
-                <ErrorAlert error={save.error} />
-              </Stack>
-            </Dialog.Body>
-            <Dialog.Footer>
-              <Button variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                colorPalette={status === PackageStatus.STABLE ? 'green' : 'red'}
-                disabled={typed !== phrase(pkg)}
-                loading={save.isPending}
-                onClick={() => save.mutate()}
-              >
-                Set {status}
-              </Button>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
   );
 }

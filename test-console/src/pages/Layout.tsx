@@ -3,11 +3,12 @@ import { Link as RouterLink, Outlet } from '@tanstack/react-router';
 import { signOut } from '@/auth';
 import { cfg } from '@/config';
 
-/** The console's own (non-tenant) screens: add the Packages and Task catalog screens here when they land. */
+/** The console's own (non-tenant) screens: one entry per admin route. */
 const NAV = [
   { to: '/', label: 'Tenants' },
-  { to: '/packages', label: 'Job packages' },
+  { to: '/packages', label: 'Packages' },
   { to: '/model-catalog', label: 'Model catalog' },
+  { to: '/task-catalog', label: 'Task catalog' },
 ] as const;
 
 export function Layout() {
