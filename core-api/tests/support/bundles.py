@@ -10,6 +10,7 @@ from app.integrations.data_plane.job_package import ZIP_TIMESTAMP
 
 SLUG = "image-classification"
 REAL = json.loads((Path(__file__).parents[3] / "task-bundles" / "tasks" / SLUG / MANIFEST_FILE).read_text())
+REAL.pop("requirements")  # the real pins are checked in test_locks; these tests pass their own, and none means none
 SOURCES = {
     "imgcls/__init__.py": b"",
     "imgcls/train.py": b"def train(spec, work, get):\n    return None\n",
