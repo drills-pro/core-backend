@@ -40,6 +40,32 @@ export const PACKAGE_NAMES: Schemas['JobPackageName'][] = ['ray_jobs', 'ray_trai
 /** How much of a sha256 the promote dialog asks you to type back. */
 export const SHA_CONFIRM_CHARS = 8;
 
+/** Mirrors core-api CatalogStatus (model_catalog_status_check). */
+export const CatalogStatus = { ENABLED: 'enabled', DISABLED: 'disabled' } as const satisfies Record<string, Schemas['CatalogStatus']>;
+export const CATALOG_STATUSES: Schemas['CatalogStatus'][] = [CatalogStatus.ENABLED, CatalogStatus.DISABLED];
+/** Mirrors core-api CatalogSource; the generated create type makes the defaulted `source` required. */
+export const CATALOG_SOURCE: Schemas['CatalogSource'] = 'hf';
+/** A full Hugging Face commit sha: the API pins models by it and refuses a branch name. */
+export const REVISION_PATTERN = '[0-9a-f]{40}';
+
+/** The `code` of core-api's problem+json errors from /v1/admin/model-catalog, with what each means to an operator. */
+export const CatalogErrorCode = {
+  TASK_NOT_SUPPORTED: 'task_type_not_supported',
+  LICENSE_NOT_ALLOWED: 'license_not_allowed',
+  NOT_ADMITTED: 'model_not_admitted',
+  HUB_UNAVAILABLE: 'hub_unavailable',
+  ALREADY_IN_CATALOG: 'already_in_catalog',
+  IN_USE: 'catalog_model_in_use',
+} as const;
+export const CATALOG_ERROR_MESSAGES: Record<string, string> = {
+  [CatalogErrorCode.TASK_NOT_SUPPORTED]: 'The platform does not run this task type yet (its task registry entry is disabled).',
+  [CatalogErrorCode.LICENSE_NOT_ALLOWED]: 'This licence is not on the allowed list, so the model cannot be admitted.',
+  [CatalogErrorCode.NOT_ADMITTED]: 'The Hugging Face Hub does not admit this model at this revision (wrong repo, revision or task, or a gated model).',
+  [CatalogErrorCode.HUB_UNAVAILABLE]: 'The Hugging Face Hub could not be reached to check the model. Try again in a moment.',
+  [CatalogErrorCode.ALREADY_IN_CATALOG]: 'This repo at this revision is already in the catalog.',
+  [CatalogErrorCode.IN_USE]: 'Projects or training runs still use this model. Disable it instead of deleting it.',
+};
+
 /** Badge color per status word, across imports, runs, deployments and packages. */
 export function statusColor(status: string): string {
   if (['succeeded', 'active', 'stable', 'passed'].includes(status)) return 'green';

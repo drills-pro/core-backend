@@ -3,6 +3,13 @@ import { Link as RouterLink, Outlet } from '@tanstack/react-router';
 import { signOut } from '@/auth';
 import { cfg } from '@/config';
 
+/** The console's own (non-tenant) screens: add the Packages and Task catalog screens here when they land. */
+const NAV = [
+  { to: '/', label: 'Tenants' },
+  { to: '/packages', label: 'Job packages' },
+  { to: '/model-catalog', label: 'Model catalog' },
+] as const;
+
 export function Layout() {
   return (
     <Box minH="100vh" bg="bg.subtle">
@@ -13,12 +20,11 @@ export function Layout() {
             <Badge colorPalette="red" variant="solid">
               {new URL(cfg.apiUrl).host}
             </Badge>
-            <Link asChild color="white">
-              <RouterLink to="/">Tenants</RouterLink>
-            </Link>
-            <Link asChild color="white">
-              <RouterLink to="/packages">Job packages</RouterLink>
-            </Link>
+            {NAV.map((n) => (
+              <Link key={n.to} asChild color="white">
+                <RouterLink to={n.to}>{n.label}</RouterLink>
+              </Link>
+            ))}
           </HStack>
           <Button size="xs" variant="subtle" onClick={() => void signOut()}>
             Sign out
