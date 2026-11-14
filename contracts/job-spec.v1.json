@@ -280,8 +280,8 @@
       "type": "object"
     },
     "Hyperparameters": {
-      "additionalProperties": true,
-      "description": "What a caller may tune; every field has the platform default, so a request names only what it changes. A run on a\ntask bundle also carries the keys of the bundle's own hyperparameter schema, which validated them.",
+      "additionalProperties": false,
+      "description": "What a caller may tune on a task from before bundles; every field has the platform default, so a request names only\nwhat it changes. A run on a task bundle carries a plain object instead, which the bundle's JSON Schema validated.",
       "properties": {
         "batch_size": {
           "default": 16,
@@ -786,7 +786,14 @@
           "default": "none"
         },
         "base_model": {
-          "$ref": "#/$defs/TrainBaseModel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrainBaseModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "bucket": {
           "title": "Bucket",
@@ -831,7 +838,16 @@
           "type": "integer"
         },
         "hyperparameters": {
-          "$ref": "#/$defs/Hyperparameters"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hyperparameters"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ],
+          "title": "Hyperparameters"
         },
         "learning_rate": {
           "exclusiveMinimum": 0,
@@ -853,6 +869,9 @@
             },
             {
               "$ref": "#/$defs/TextPreprocessing"
+            },
+            {
+              "type": "null"
             }
           ],
           "title": "Preprocessing"

@@ -11,7 +11,7 @@ from app.integrations.serve_client import ServedModel
 from ray_jobs.common import enums as ingest_enums
 from ray_serving import batch_spec
 from ray_serving import constants as batch
-from ray_training import constants as trainer
+from ray_core import constants as trainer
 
 
 RAY_SERVING_MODEL = Path(__file__).parents[3] / "ray-serving" / "ray_serving" / "model.py"  # read as text: core-api has no numpy or onnxruntime

@@ -38,12 +38,23 @@ def test_learning_rate_and_preprocessing_come_from_the_spec():
         PREPROCESSING["mean"], PREPROCESSING["std"], PREPROCESSING["rescale"], PREPROCESSING["resample"])
 
 
-@pytest.mark.parametrize("field", ["base_model", "learning_rate", "preprocessing"])
+@pytest.mark.parametrize("field", ["learning_rate", "preprocessing"])
 def test_what_the_trainer_has_no_table_for_must_be_in_the_spec(field):
     doc = spec_doc("image-classification", "m", ROWS)
     del doc["payload"][field]
     with pytest.raises(KeyError):
         parse_spec(json.dumps(doc))
+
+
+@pytest.mark.parametrize("base_model", [None, "absent"])
+def test_a_preset_that_trains_from_scratch_has_no_base_model(base_model):
+    doc = spec_doc("image-classification", "m", ROWS)
+    if base_model is None:
+        doc["payload"]["base_model"] = None
+    else:
+        del doc["payload"]["base_model"]
+    spec = parse_spec(json.dumps(doc))
+    assert (spec.base_model, spec.base_revision) == (None, None)
 
 
 @pytest.mark.parametrize("over", [{"spec_version": 2}, {"kind": "ingest"}])

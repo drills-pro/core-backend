@@ -100,17 +100,22 @@ async def put(conn, task: TaskType, body: TaskTypeBody, actor: str) -> TaskInfo:
 
 
 _APPLY_BUNDLE = (
-    "INSERT INTO task_types (slug, data_kind, trainer, servable, bundle_sha256, updated_by) VALUES ($1, $2, $3, false, $5, $6) "
-    "ON CONFLICT (slug) DO UPDATE SET data_kind = EXCLUDED.data_kind, trainer = EXCLUDED.trainer, "
-    "servable = $4 AND task_types.encoder IS NOT NULL AND task_types.postprocess IS NOT NULL, "
-    "bundle_sha256 = EXCLUDED.bundle_sha256, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+    "INSERT INTO task_types (slug, data_kind, trainer, servable, encoder, postprocess, bundle_sha256, updated_by) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+    "ON CONFLICT (slug) DO UPDATE SET data_kind = EXCLUDED.data_kind, trainer = EXCLUDED.trainer, servable = EXCLUDED.servable, "
+    "encoder = EXCLUDED.encoder, postprocess = EXCLUDED.postprocess, bundle_sha256 = EXCLUDED.bundle_sha256, "
+    "updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
 )
 
 
-async def apply_bundle(conn, slug: TaskType, data_kind: DataKind, trainer: str, servable: bool, sha256: str, actor: str) -> TaskInfo:
-    """Write the row a promoted bundle's manifest describes. `enabled` and the serving functions stay as they are: until
-    serving loads adapters from the bundle (planning/25 step 5) a task is servable only where those functions are set."""
-    return TaskInfo.model_validate(dict(await conn.fetchrow(_APPLY_BUNDLE, slug, data_kind, trainer, servable, sha256, actor)))
+async def apply_bundle(
+    conn, slug: TaskType, data_kind: DataKind, trainer: str, servable: bool, serving: tuple[str, str] | None, sha256: str, actor: str,
+) -> TaskInfo:
+    """Write the row a promoted bundle's manifest describes (`serving` = its encoder and postprocess). `enabled` and the
+    serving knobs stay as an admin set them."""
+    encoder, postprocess = serving or (None, None)
+    row = await conn.fetchrow(_APPLY_BUNDLE, slug, data_kind, trainer, servable, encoder, postprocess, sha256, actor)
+    return TaskInfo.model_validate(dict(row))
 
 
 async def set_enabled(conn, task: TaskType, enabled: bool, actor: str) -> TaskInfo | None:

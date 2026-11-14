@@ -1,6 +1,6 @@
 """Training runs on Ray: stage what the job reads, submit the driver, read what it wrote.
 
-The driver is the `ray_training` package (top-level ray-training/). It runs on the CPU pool (no GPU of its own: the
+The driver is ray_core in the `ray_training` package (ray-training/ray_core), with the task's bundle on the path. It runs on the CPU pool (no GPU of its own: the
 GPU belongs to the Ray task it starts, docs/trainer-plan.md "Ray execution") and gets the `ingest` credential
 (staging bucket only), a spec of presigned reads, and no lakeFS or MLflow credential. Everything it writes goes under
 the run's prefix (layout.train_prefix); core-api reads report.json and publishes the model (mlflow.publish_run_model).
@@ -48,18 +48,18 @@ async def prepare_train_data(
 
 async def submit_train(
     tenant_id: str, project_id: str, run_id: str, spec: TrainSpec, package_sha256: str, events_token: str | None = None,
-    *, core_name: str = JobPackageName.RAY_TRAINING, bundle_name: str | None = None,
+    *, bundle_name: str | None = None,
 ) -> str:
-    """Submit the driver under the spec's job_id (the caller's submission id), running the package the run was created
-    with (`core_name`, ray_training before bundles) and, for a task trained by a bundle, the bundle the spec pins next to
-    it; returns the Ray job id. `events_token` goes into the job's environment under the name spec.reporting.token_env,
-    never into the spec."""
+    """Submit the driver under the spec's job_id (the caller's submission id), running the ray_training package the run
+    was created with and, for a task trained by a bundle (`bundle_name`), the bundle the spec pins next to it; returns the
+    Ray job id. `events_token` goes into the job's environment under the name spec.reporting.token_env, never into the spec."""
     await access.training_run(tenant_id, project_id, run_id)
-    package_url = await job_package.presigned_url(core_name, package_sha256)
-    bundle_url = await job_package.presigned_url(bundle_name, spec.payload.bundle_sha256) if bundle_name else None
+    package_url = await job_package.presigned_url(JobPackageName.RAY_TRAINING, package_sha256)
+    bundle_urls = [await job_package.presigned_url(bundle_name, spec.payload.bundle_sha256)] if bundle_name else []
+    module = job_catalog.TRAIN_ENTRYPOINT if bundle_name else job_catalog.LEGACY_TRAIN_ENTRYPOINT
     # num_gpus stays 0: the driver must not hold a GPU, the Ray Train workers it starts ask for them (spec.resources.gpu)
     return await job_submit.submit(
-        package_url=package_url, bundle_url=bundle_url, module=job_catalog.TRAIN_ENTRYPOINT, spec_json=spec.model_dump_json(), job_id=spec.job_id,
+        package_url=package_url, bundle_urls=bundle_urls, module=module, spec_json=spec.model_dump_json(), job_id=spec.job_id,
         metadata={"tenant_id": tenant_id, "project_id": project_id, "training_run_id": run_id},
         num_cpus=settings.training.driver_cpus, timeout_seconds=spec.resources.max_runtime_s,
         extra_env={spec.reporting.token_env: events_token} if spec.reporting and events_token else None,

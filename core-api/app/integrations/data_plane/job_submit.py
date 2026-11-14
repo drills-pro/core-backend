@@ -14,15 +14,15 @@ def command(module: str, spec_json: str) -> str:
 
 async def submit(
     *, package_url: str, module: str, spec_json: str, job_id: str, metadata: dict[str, str], num_cpus: float,
-    timeout_seconds: int, memory: int = 0, extra_env: dict[str, str] | None = None, bundle_url: str | None = None,
+    timeout_seconds: int, memory: int = 0, extra_env: dict[str, str] | None = None, bundle_urls: list[str] | None = None,
 ) -> str:
     """Submit the package's module under `job_id` (the caller's submission id, so it can stop the job even when the
-    answer is lost); returns the Ray job id. CPU-only: pinned to the CPU worker group, never holds the GPU. A task
-    bundle's zip (`bundle_url`) goes on the path next to the package, which is then the core that runs it."""
+    answer is lost); returns the Ray job id. CPU-only: pinned to the CPU worker group, never holds the GPU. Task bundles'
+    zips (`bundle_urls`) go on the path next to the package, which is then the core that runs them."""
     creds = secret_files.get(secret_files.INGEST)
     return await compute.submit(compute.JobSpec(
         entrypoint=command(module, spec_json),
-        py_modules=[package_url, *([bundle_url] if bundle_url else [])],
+        py_modules=[package_url, *(bundle_urls or [])],
         submission_id=job_id,
         metadata=metadata,
         num_cpus=num_cpus,

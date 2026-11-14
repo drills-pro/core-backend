@@ -29,7 +29,7 @@ from tests.support.job_table import FakeJobTable, patch
 BASE = f"/v1/projects/{PROJECT}/training-runs"
 RUN = uuid.uuid4()
 PACKAGE_SHA = "b" * 64
-CORE_SHA, BUNDLE_SHA = "e" * 64, "f" * 64
+BUNDLE_SHA = "f" * 64
 VERSION, DATASET = uuid.uuid4(), uuid.uuid4()
 BODY = {"dataset_version_id": str(VERSION), "preset": "small"}
 HEADERS = {"Idempotency-Key": "k"}
@@ -144,12 +144,8 @@ class Gateway:
             self.package_name = name
             return SimpleNamespace(sha256=PACKAGE_SHA, name=name)
 
-        async def resolve_core():
-            return SimpleNamespace(sha256=CORE_SHA, name="ray_training")
-
-        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None, *, core_name, bundle_name):
-            self.spec, self.package_sha, self.events_token = spec, package_sha256, events_token
-            self.core_name, self.bundle_name = core_name, bundle_name
+        async def submit(tenant_id, project_id, run_id, spec, package_sha256, events_token=None, *, bundle_name):
+            self.spec, self.package_sha, self.events_token, self.bundle_name = spec, package_sha256, events_token, bundle_name
             if fail_submit:
                 raise RuntimeError("ray is down")
             return spec.job_id
@@ -164,7 +160,6 @@ class Gateway:
         monkeypatch.setattr(create_service.mlflow, "finish_run", finish_run)
         monkeypatch.setattr(train_spec.data_plane, "prepare_train_data", prepare)
         monkeypatch.setattr(create_service.data_plane, "resolve_stable_package", resolve_stable)
-        monkeypatch.setattr(create_service.data_plane, "resolve_core", resolve_core)
         monkeypatch.setattr(create_service.data_plane, "submit_train", submit)
         monkeypatch.setattr(create_service.compute, "stop", stop)
 
@@ -223,7 +218,8 @@ def _on_a_bundle(monkeypatch):
     from tests.support.bundles import manifest
 
     conn = make_conn(monkeypatch)
-    conn.rows["FROM task_types"] = seeded(TaskType.IMAGE_CLASSIFICATION) | {"bundle_sha256": BUNDLE_SHA}
+    conn.rows["FROM task_types"] = seeded(TaskType.IMAGE_CLASSIFICATION) | {"bundle_sha256": BUNDLE_SHA, "trainer": "imgcls.train:train"}
+    conn.rows["FROM task_presets"] = preset_row(hyperparameters={"epochs": 30, "batch_size": 16, "image_size": 224})  # default values
     conn.rows["FROM job_packages"] = {
         "name": "task_image-classification", "kind": "task", "manifest": manifest(), "sha256": BUNDLE_SHA, "s3_key": "k", "status": "stable",
         "published_by": "ci", "updated_by": "ci", "updated_at": datetime.now(UTC), "smoke_status": "passed", "smoke_job_id": "s"}
@@ -235,31 +231,26 @@ def test_a_task_on_a_bundle_runs_on_the_core_with_both_shas_pinned(monkeypatch):
     conn = _on_a_bundle(monkeypatch)
     create({**BODY, "hyperparameters": {"epochs": 5}})
     p = gw.spec.payload
-    assert (p.core_sha256, p.bundle_sha256, gw.package_sha, gw.core_name, gw.bundle_name) == (
-        CORE_SHA, BUNDLE_SHA, CORE_SHA, "ray_training", "task_image-classification")
+    assert (p.core_sha256, p.bundle_sha256, gw.package_sha, gw.bundle_name) == (PACKAGE_SHA, BUNDLE_SHA, PACKAGE_SHA, "task_image-classification")
+    assert (p.trainer, p.hyperparameters.epochs, p.hyperparameters.batch_size) == ("imgcls.train:train", 5, 16)  # the preset's defaults fill in
     (insert,) = [args for sql, args in conn.calls if sql.startswith("INSERT INTO training_runs")]
-    assert (insert[14], insert[16]) == (CORE_SHA, BUNDLE_SHA)
+    assert (insert[14], insert[16], insert[7]["epochs"]) == (PACKAGE_SHA, BUNDLE_SHA, 5)
 
 
 def test_a_bundle_schema_refuses_a_bad_hyperparameter_with_422_and_nothing_starts(monkeypatch):
     gw = Gateway(monkeypatch)
     _on_a_bundle(monkeypatch)
-    for asked in ({"epochs": 300}, {"momentum": 0.9}):  # above the schema's maximum; not in a schema without additionalProperties
+    for asked in ({"epochs": 501}, {"image_size": 8}):  # outside the bundle schema's bounds
         with pytest.raises(Problem) as err:
             create({**BODY, "hyperparameters": asked})
         assert (err.value.status_code, err.value.code) == (422, ProblemCode.INVALID_HYPERPARAMETERS) and not gw.started
 
 
-def test_a_bundle_key_the_schema_allows_reaches_the_spec(monkeypatch):
-    from tests.support.bundles import manifest
-
+def test_a_bundle_key_beyond_the_typed_three_reaches_the_spec(monkeypatch):
     gw = Gateway(monkeypatch)
-    conn = _on_a_bundle(monkeypatch)
-    doc = manifest()
-    doc["hyperparameters"]["properties"]["momentum"] = {"type": "number"}
-    conn.rows["FROM job_packages"] = conn.rows["FROM job_packages"] | {"manifest": doc}
-    create({**BODY, "hyperparameters": {"momentum": 0.9}})
-    assert gw.spec.payload.hyperparameters.model_dump()["momentum"] == 0.9
+    _on_a_bundle(monkeypatch)
+    create({**BODY, "hyperparameters": {"momentum": 0.9}})  # the bundle's schema leaves its properties open
+    assert gw.spec.payload.hyperparameters["momentum"] == 0.9
 
 
 def test_a_disabled_preset_is_unknown(monkeypatch):

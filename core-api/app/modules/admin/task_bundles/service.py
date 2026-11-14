@@ -36,7 +36,8 @@ async def _promote(conn, bundle: JobPackage, actor: str) -> JobPackage:
     async with conn.transaction():
         await job_packages.retire_stable_except(conn, bundle.name, bundle.sha256, actor)
         promoted = await job_packages.set_status(conn, bundle.name, bundle.sha256, PackageStatus.STABLE, actor)
-        await task_types.apply_bundle(conn, manifest.slug, manifest.data_kind, manifest.trainer, manifest.servable, bundle.sha256, actor)
+        serving = manifest.serving and (manifest.serving.encoder, manifest.serving.postprocess)
+        await task_types.apply_bundle(conn, manifest.slug, manifest.data_kind, manifest.trainer, manifest.servable, serving, bundle.sha256, actor)
         await presets.delete_others(conn, manifest.slug, [p.name for p in manifest.presets])
         for preset in manifest.presets:
             await presets.put(conn, manifest.slug, preset.name, preset, actor)

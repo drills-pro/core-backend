@@ -88,10 +88,12 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
     assert res.status_code == 200 and res.json()["status"] == "stable"
     assert conn.sql()[1:] == [
         "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO task_types", "DELETE FROM task_presets",
-        "INSERT INTO task_presets", "INSERT INTO job_package_audit"]
+        *["INSERT INTO task_presets"] * 3, "INSERT INTO job_package_audit"]
     by_sql = {sql.split(" (")[0]: args for sql, args in conn.calls}
-    assert by_sql["INSERT INTO task_types"][:5] == (SLUG, "images", "imgcls.train:train", True, SHA)
-    assert by_sql["DELETE FROM task_presets WHERE task = $1 AND NOT"] == (SLUG, ["small"])
+    assert by_sql["INSERT INTO task_types"] == (SLUG, "images", "imgcls.train:train", True, "image_encoder", "classify", SHA, "ops")
+    assert by_sql["DELETE FROM task_presets WHERE task = $1 AND NOT"] == (SLUG, ["small", "medium", "large"])
+    preset_args = by_sql["INSERT INTO task_presets"]  # the last one, large: its default values go in as they are
+    assert (preset_args[1], preset_args[10]) == ("large", {"epochs": 30, "batch_size": 16, "image_size": 224})
     assert by_sql["INSERT INTO job_package_audit"] == (NAME, SHA, PackageAuditAction.PROMOTE, "ops")
 
 

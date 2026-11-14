@@ -51,9 +51,8 @@ class JobPackageName(StrEnum):
     """The job packages the platform ships. Mirrors the job_packages_name_check constraint."""
 
     RAY_JOBS = "ray_jobs"
-    RAY_TRAINING = "ray_training"
+    RAY_TRAINING = "ray_training"  # holds ray-training/ray_core: the training contract task bundles run on (planning/25)
     RAY_SERVING = "ray_serving"
-    RAY_CORE = "ray_core"  # the training contract task bundles run on (planning/25); ray_training stands in until it ships
 
 
 class PackageKind(StrEnum):

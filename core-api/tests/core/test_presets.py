@@ -36,6 +36,13 @@ def test_a_good_preset_is_accepted():
     assert PresetBody.model_validate(BODY).max_runtime_s == 60
 
 
+def test_a_bundle_row_without_a_base_model_reads_back_with_its_default_values():
+    p = preset(TaskType.TABULAR_CLASSIFICATION, "small", base_model_repo=None, base_model_revision=None, preprocessing={},
+               hyperparameters={"target": "label", "n_estimators": 200})
+    assert (p.base_model, p.preprocessing, p.hyperparameters) == (None, None, {"target": "label", "n_estimators": 200})
+    assert preset().hyperparameters.epochs.default == LIMITS["epochs"]["default"]  # an admin row keeps its bounds
+
+
 def _check(constraint):
     from tests.core.test_task_types import _latest_check
 

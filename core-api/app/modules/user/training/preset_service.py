@@ -12,4 +12,4 @@ from app.modules.user.projects import get_task_type
 async def list_for_project(ctx: AuthzContext, project_id: uuid.UUID) -> list[TaskPreset]:
     async with TenantConn(ctx.tenant_id) as conn:
         task = await get_task_type(conn, project_id)
-        return [] if task is None else await presets.list_for(conn, TaskType(task))
+        return [] if task is None else [p for p in await presets.list_for(conn, TaskType(task)) if p.enabled]

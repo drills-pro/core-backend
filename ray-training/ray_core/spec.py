@@ -40,7 +40,7 @@ class TrainSpec:
     task: str  # a task_types slug, the bundle's manifest `slug`
     trainer: str  # "module:attr" of the bundle function that trains it (registry.load)
     preset: str  # a task_presets name in core-api; only recorded, the spec carries the values it stood for
-    base_model: str
+    base_model: str | None  # None: the preset trains from scratch (tabular), no pretrained checkpoint
     base_revision: str | None
     index_url: str | None  # images: presigned GET of index.parquet
     manifest_url: str | None  # images: presigned GET of a JSON object {index path: presigned GET of that image}
@@ -79,7 +79,7 @@ def parse_spec(text: str) -> TrainSpec:
         raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_core")
     p, data = doc["payload"], doc["payload"]["data"]
     task, preset = p["task"], p["preset"]
-    base, hp = p["base_model"], p.get("hyperparameters") or {}
+    base, hp = p.get("base_model") or {}, p.get("hyperparameters") or {}
     pre = p["preprocessing"]
     reporting = doc.get("reporting") or {}
     return TrainSpec(
@@ -87,7 +87,7 @@ def parse_spec(text: str) -> TrainSpec:
         cpu=doc["resources"]["cpu"], memory_bytes=doc["resources"]["memory_bytes"], gpu=doc["resources"].get("gpu", 0),
         max_runtime_s=doc["resources"].get("max_runtime_s", 0), vram_gb=doc["resources"].get("vram_gb"),
         bucket=p["bucket"], prefix=p["prefix"], task=task, trainer=p["trainer"], preset=preset,
-        base_model=base["repo_id"], base_revision=base.get("revision"),
+        base_model=base.get("repo_id"), base_revision=base.get("revision"),
         index_url=data.get("index_url"), manifest_url=data.get("manifest_url"), data_url=data.get("data_url"),
         version_id=data.get("version_id"), lakefs_commit=data.get("lakefs_commit"),
         epochs=hp.get("epochs", DEFAULT_EPOCHS), batch_size=hp.get("batch_size", DEFAULT_BATCH_SIZE),

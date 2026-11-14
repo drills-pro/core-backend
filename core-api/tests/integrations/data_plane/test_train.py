@@ -108,7 +108,7 @@ def test_the_driver_is_submitted_without_a_gpu_on_the_cpu_pool_with_the_staging_
     monkeypatch.setattr(train.job_package, "presigned_url", package_url)
     assert asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA)) == "train-1"
     argv = shlex.split(sent["entrypoint"])
-    assert argv[:3] == ["python", "-m", job_catalog.TRAIN_ENTRYPOINT] and sent["py_modules"] == ["http://ray-side/jobs/ray-training-x.zip"]
+    assert argv[:3] == ["python", "-m", job_catalog.LEGACY_TRAIN_ENTRYPOINT] and sent["py_modules"] == ["http://ray-side/jobs/ray-training-x.zip"]
     assert SPEC_ADAPTER.validate_json(argv[3]) == spec  # the job reads exactly the spec core-api stored
     assert (sent["num_gpus"], sent["resources"], sent["submission_id"]) == (0, {compute.CPU_POOL_RESOURCE: 1}, spec.job_id)
     assert sent["timeout_seconds"] == spec.resources.max_runtime_s and sent["package"] == (JobPackageName.RAY_TRAINING, SHA)
@@ -132,8 +132,9 @@ def test_a_run_on_a_bundle_gets_the_core_and_the_pinned_bundle_on_its_path(owned
 
     monkeypatch.setattr(compute, "submit", submit)
     monkeypatch.setattr(train.job_package, "presigned_url", package_url)
-    asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA, core_name="ray_core", bundle_name="task_image-classification"))
-    assert sent["py_modules"] == [f"http://ray-side/ray_core/{SHA}", f"http://ray-side/task_image-classification/{'f' * 64}"]
+    asyncio.run(train.submit_train(TENANT, PROJECT, RUN, spec, SHA, bundle_name="task_image-classification"))
+    assert sent["py_modules"] == [f"http://ray-side/ray_training/{SHA}", f"http://ray-side/task_image-classification/{'f' * 64}"]
+    assert shlex.split(sent["entrypoint"])[2] == job_catalog.TRAIN_ENTRYPOINT
 
 
 def test_the_report_is_read_from_the_run_prefix(owned, monkeypatch):

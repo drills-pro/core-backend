@@ -1497,7 +1497,7 @@ entries:
   old: F08
   code: [.github/workflows/tests.yml, core-api/tests/integrations/test_trainer_contract.py]
   tests:
-  - core-api/tests/integrations/test_trainer_contract.py::test_the_trainer_package_knows_only_task_types
+  - core-api/tests/integrations/test_trainer_contract.py::test_every_bundle_manifest_is_one_register_accepts
   - core-api/tests/ingest_job/test_contract.py::test_enums_mirror_core_api
   gap: tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo.
 - id: JOB-26

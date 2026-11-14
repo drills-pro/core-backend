@@ -42,14 +42,15 @@ class TrainingRunCreate(BaseModel):
 
 class PresetSummary(BaseModel):
     name: str
-    base_model: TrainBaseModel
+    base_model: TrainBaseModel | None  # None: trains from scratch (a tabular bundle's preset)
     learning_rate: float
     cpu: float
     memory_bytes: int
     gpu: float
     vram_gb: float | None = None
     max_runtime_s: int
-    hyperparameters: HyperparameterLimits
+    # bounds, for a task from before bundles; default values, for a bundle task (its bundle's JSON Schema bounds them)
+    hyperparameters: HyperparameterLimits | dict[str, Any] = Field(union_mode="left_to_right")
     lr_schedule: LrSchedule
     warmup_fraction: float
     augmentation: Augmentation

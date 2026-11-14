@@ -31,7 +31,6 @@ def test_the_enums_mirror_the_checks():
 
 def test_a_task_package_name_matches_the_pattern():
     assert re.fullmatch(TASK_PACKAGE_PATTERN, task_package_name("image-classification"))
-    assert not re.fullmatch(TASK_PACKAGE_PATTERN, JobPackageName.RAY_CORE)
 
 
 def test_the_smoke_enum_mirrors_its_check():

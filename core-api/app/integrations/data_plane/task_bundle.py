@@ -1,6 +1,7 @@
-"""Task bundles (planning/25) in the staging bucket: `jobs/<slug>-<sha256>.zip`, a package of `.py` sources plus
-manifest.json under the root Ray unpacks. Register reads the object back and validates it (size, hash, file types, the
-manifest, its entry points by `ast`) before the candidate row exists; nothing in the zip is imported here.
+"""Task bundles (planning/25) in the staging bucket: `jobs/<slug>-<sha256>.zip` as scripts/build-bundle.sh builds it,
+manifest.json and the bundle's `.py` sources at the zip root. Register reads the object back and validates it (size, hash,
+file types, the manifest, its entry points by `ast`, its serving functions) before the candidate row exists; nothing in the
+zip is imported here.
 """
 import asyncio
 import hashlib
@@ -18,7 +19,7 @@ from app.core.db import get_pool
 from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem
 from app.integrations.data_plane import layout
-from app.integrations.data_plane.job_package import INVALID_PACKAGE, MAX_PACKAGE_BYTES, ZIP_ROOT, _read_staged
+from app.integrations.data_plane.job_package import INVALID_PACKAGE, MAX_PACKAGE_BYTES, _read_staged
 
 INVALID_MANIFEST = "invalid_manifest"
 SOURCE_SUFFIX = ".py"
@@ -30,8 +31,10 @@ def _invalid(detail: str, code: str = INVALID_PACKAGE) -> Problem:
 
 
 def check_bundle(data: bytes, sha256: str) -> BundleManifest:
-    """The bundle's manifest, once the zip proves to be what CI built: `sha256`, only `.py` sources and manifest.json
-    under ZIP_ROOT, a valid manifest for this core's contract whose entry points the sources define."""
+    """The bundle's manifest, once the zip proves to be what CI built: `sha256`, only `.py` sources and manifest.json,
+    a valid manifest for this core's contract whose entry points the sources define and whose serving functions exist."""
+    from app.integrations.serve_client import unknown_serving_functions  # serve_client imports this package
+
     if len(data) > MAX_PACKAGE_BYTES:
         raise _invalid(f"a bundle is at most {MAX_PACKAGE_BYTES} bytes")
     if hashlib.sha256(data).hexdigest() != sha256:
@@ -40,21 +43,21 @@ def check_bundle(data: bytes, sha256: str) -> BundleManifest:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise _invalid("the object is not a zip archive") from None
-    root, manifest_path = f"{ZIP_ROOT}/", f"{ZIP_ROOT}/{MANIFEST_FILE}"
     names = [n for n in zf.namelist() if not n.endswith("/")]
-    if any(not n.startswith(root) or ".." in n.split("/") or not (n.endswith(SOURCE_SUFFIX) or n == manifest_path) for n in names):
-        raise _invalid(f"every file must be a {SOURCE_SUFFIX} source or {MANIFEST_FILE} under {root}")
-    if manifest_path not in names:
-        raise _invalid(f"the bundle has no {manifest_path}", INVALID_MANIFEST)
+    if any(n.startswith("/") or ".." in n.split("/") or not (n.endswith(SOURCE_SUFFIX) or n == MANIFEST_FILE) for n in names):
+        raise _invalid(f"every file must be a {SOURCE_SUFFIX} source or {MANIFEST_FILE}")
+    if MANIFEST_FILE not in names:
+        raise _invalid(f"the bundle has no {MANIFEST_FILE} at its root", INVALID_MANIFEST)
     try:
-        manifest = BundleManifest.model_validate(json.loads(zf.read(manifest_path)))
+        manifest = BundleManifest.model_validate(json.loads(zf.read(MANIFEST_FILE)))
     except (ValueError, ValidationError) as e:  # JSONDecodeError is a ValueError
         raise _invalid(f"{MANIFEST_FILE}: {e}", INVALID_MANIFEST) from None
     if manifest.contract != CORE_CONTRACT:
         raise _invalid(f"the bundle targets contract {manifest.contract}, this core serves {CORE_CONTRACT}", INVALID_MANIFEST)
-    sources = {n.removeprefix(root): zf.read(n) for n in names if n.endswith(SOURCE_SUFFIX)}
-    if missing := missing_entry_points(manifest, sources):
+    if missing := missing_entry_points(manifest, {n: zf.read(n) for n in names if n.endswith(SOURCE_SUFFIX)}):
         raise _invalid(f"not defined in the bundle: {', '.join(missing)}", INVALID_MANIFEST)
+    if manifest.serving and (unknown := unknown_serving_functions(manifest.serving.encoder, manifest.serving.postprocess)):
+        raise _invalid(f"no such serving function: {', '.join(unknown)}", INVALID_MANIFEST)
     return manifest
 
 

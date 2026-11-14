@@ -9,14 +9,13 @@ from pydantic import BaseModel, ConfigDict
 from app.core import job_packages
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
+from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
 from app.core.job_packages import SHA256_PATTERN, JobPackage
 from app.core.problem import Problem, not_found
 from app.integrations import data_plane
 
 SMOKE_NOT_PASSED = "smoke_not_passed"
 SMOKE_NOT_RETRYABLE = "smoke_not_retryable"
-CORE_MATRIX_NOT_RUN = "core_matrix_not_run"
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +32,6 @@ class RegisterBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     s3_key: str  # in the staging bucket: jobs/<ray-jobs|ray-training>-<sha256>.zip
-
-
-async def _check_core_matrix() -> None:
-    """planning/25: a new ray_core is promoted only once every stable bundle's smoke passed against it. Re-running those
-    smokes on a candidate core is not built yet, so the gate fails closed: a core is promotable only while no bundle is stable."""
-    # ponytail: fail-closed gate; replace with a (core sha, bundle sha) smoke matrix when the first ray_core ships
-    async with (await get_pool()).acquire() as conn:
-        stable = await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.STABLE)
-    if stable:
-        raise Problem(HTTPStatus.CONFLICT, CORE_MATRIX_NOT_RUN,
-                      f"{len(stable)} stable task bundles have not been smoked against this core")
 
 
 @router.get("/{name}", response_model=list[JobPackage])
@@ -72,13 +60,13 @@ async def register_package(name: JobPackageName, body: RegisterBody, actor: str 
 
 @router.put("/{name}/{sha256}/status", response_model=JobPackage)
 async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
-    """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs."""
+    """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
+    A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25."""
+    # ponytail: a bundle promoted while the core's smoke ran is not in it; re-smoke the core if that matters
     async with (await get_pool()).acquire() as conn:
         current = await job_packages.get(conn, name, sha256) if body.status == PackageStatus.STABLE else None
     if current is not None and (await data_plane.refresh_package_smoke(current)).smoke_status != SmokeStatus.PASSED:
         raise Problem(HTTPStatus.CONFLICT, SMOKE_NOT_PASSED, "the package's smoke job has not passed")
-    if current is not None and name == JobPackageName.RAY_CORE:
-        await _check_core_matrix()
     async with (await get_pool()).acquire() as conn:
         package = await job_packages.set_status(conn, name, sha256, body.status, actor)
     if package is None:

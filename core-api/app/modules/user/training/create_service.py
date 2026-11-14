@@ -11,7 +11,6 @@ from http import HTTPStatus
 
 from app.core import audit, job_packages, plan_limits, presets, task_types
 from app.core.authz import AuthzContext
-from app.core.bundle_manifest import hyperparameter_errors
 from app.core.enums import JobPackageName, TaskType
 from app.core.idempotency import insert_once, replay
 from app.core.job_packages import JobPackage, task_package_name
@@ -64,15 +63,9 @@ async def _task_of(conn, project_task: str | None, body: TrainingRunCreate) -> T
     return info
 
 
-async def _bundle_of(conn, info: TaskInfo, body: TrainingRunCreate) -> JobPackage | None:
-    """The stable bundle that trains the task (None for a row from before bundles), once the request's hyperparameters
-    conform to its JSON Schema."""
-    if info.bundle_sha256 is None:
-        return None
-    bundle = await job_packages.get(conn, task_package_name(info.slug), info.bundle_sha256)
-    if errors := hyperparameter_errors(bundle.manifest["hyperparameters"], body.hyperparameters.model_dump(exclude_none=True)):
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_HYPERPARAMETERS, "; ".join(errors))
-    return bundle
+async def _bundle_of(conn, info: TaskInfo) -> JobPackage | None:
+    """The stable bundle that trains the task, as the promotion that wrote its row recorded it; None for a row from before bundles."""
+    return None if info.bundle_sha256 is None else await job_packages.get(conn, task_package_name(info.slug), info.bundle_sha256)
 
 
 def _same_request(row, body: TrainingRunCreate) -> bool:
@@ -112,17 +105,15 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         preset = await presets.get(conn, task, body.preset)
         if preset is None or not preset.enabled:
             raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.UNKNOWN_PRESET, f"task type '{task}' has no preset '{body.preset}'")
-        hyperparameters = train_spec.resolve_hyperparameters(preset, body.hyperparameters)
-        bundle = await _bundle_of(conn, info, body)
+        bundle = await _bundle_of(conn, info)
+        hyperparameters = (train_spec.bundle_hyperparameters(preset, body.hyperparameters, bundle.manifest) if bundle
+                           else train_spec.resolve_hyperparameters(preset, body.hyperparameters))
         await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
     token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
     try:
-        # pinned: the run keeps its core (and bundle) whatever is promoted later
-        package = await (data_plane.resolve_core() if bundle else data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING))
-        if bundle:
-            hyperparameters = train_spec.with_bundle_keys(hyperparameters, body.hyperparameters)
+        package = await data_plane.resolve_stable_package(JobPackageName.RAY_TRAINING)  # pinned, like the bundle: later promotions change nothing
         started = await mlflow.start_run(tenant_id, str(project_id), str(version.dataset_id), str(body.dataset_version_id))
         spec = await train_spec.build(tenant_id, project_id, run_id, version.dataset_id, info, body, preset, hyperparameters,
                                       token and token.reporting, bundle and (package.sha256, bundle.sha256))
@@ -135,7 +126,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         row, created = await insert_once(
             conn, _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
-             hyperparameters.model_dump(mode="json"), version.dataset_id, version.lakefs_commit, body.dataset_version_id,
+             spec.payload.model_dump(mode="json")["hyperparameters"], version.dataset_id, version.lakefs_commit, body.dataset_version_id,
              task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash, bundle and bundle.sha256),
             _BY_KEY, (project_id, idempotency_key),
         )
@@ -146,7 +137,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
 
     try:
         await data_plane.submit_train(tenant_id, str(project_id), str(run_id), spec, package.sha256, token and token.secret,
-                                      core_name=package.name, bundle_name=bundle and bundle.name)
+                                      bundle_name=bundle and bundle.name)
     except Exception as e:
         try:
             await compute.stop(spec.job_id)  # Ray may have accepted it

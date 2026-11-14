@@ -2,7 +2,9 @@
 version and the run's staging prefix, nothing else (no lakeFS or MLflow credential, docs/trainer-plan.md T7)."""
 import uuid
 from http import HTTPStatus
+from typing import Any
 
+from app.core.bundle_manifest import hyperparameter_errors
 from app.core.presets import HyperparameterRange, TaskPreset
 from app.core.problem import Problem
 from app.core.settings import settings
@@ -48,14 +50,19 @@ def resolve_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides) 
     )
 
 
-def with_bundle_keys(hyperparameters: Hyperparameters, asked: HyperparameterOverrides) -> Hyperparameters:
-    """A run on a task bundle also carries the request's keys beyond the typed three: the bundle's schema validated them."""
-    return Hyperparameters.model_validate({**hyperparameters.model_dump(), **(asked.model_extra or {})})
+def bundle_hyperparameters(preset: TaskPreset, asked: HyperparameterOverrides, manifest: dict) -> dict[str, Any]:
+    """A run on a task bundle: the preset's default values where the request is silent, checked against the bundle's JSON
+    Schema (a 422 naming every problem)."""
+    defaults = preset.hyperparameters if isinstance(preset.hyperparameters, dict) else {}
+    values = {**defaults, **asked.model_dump(exclude_none=True)}
+    if errors := hyperparameter_errors(manifest["hyperparameters"], values):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.INVALID_HYPERPARAMETERS, "; ".join(errors))
+    return values
 
 
 async def build(
     tenant_id: str, project_id: uuid.UUID, run_id: uuid.UUID, dataset_id: uuid.UUID, task: TaskInfo, body: TrainingRunCreate,
-    preset: TaskPreset, hyperparameters: Hyperparameters, reporting: Reporting | None = None, pins: tuple[str, str] | None = None,
+    preset: TaskPreset, hyperparameters: Hyperparameters | dict[str, Any], reporting: Reporting | None = None, pins: tuple[str, str] | None = None,
 ) -> TrainSpec:
     """`pins` is (core sha256, bundle sha256) for a task trained by a bundle; the spec records both."""
     ids = (tenant_id, str(project_id))

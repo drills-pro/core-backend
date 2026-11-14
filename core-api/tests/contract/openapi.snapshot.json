@@ -2025,8 +2025,7 @@
         "enum": [
           "ray_jobs",
           "ray_training",
-          "ray_serving",
-          "ray_core"
+          "ray_serving"
         ],
         "title": "JobPackageName",
         "type": "string"
@@ -3460,7 +3459,14 @@
             "$ref": "#/components/schemas/Augmentation"
           },
           "base_model": {
-            "$ref": "#/components/schemas/TrainBaseModel"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainBaseModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "cpu": {
             "title": "Cpu",
@@ -3475,7 +3481,16 @@
             "type": "number"
           },
           "hyperparameters": {
-            "$ref": "#/components/schemas/HyperparameterLimits"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HyperparameterLimits"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Hyperparameters"
           },
           "learning_rate": {
             "title": "Learning Rate",
@@ -4442,13 +4457,21 @@
       },
       "TaskPreset": {
         "additionalProperties": false,
+        "description": "A row: an admin's preset (PresetBody), or one a promoted task bundle wrote (planning/25), which may have no base model\nor preprocessing (tabular) and whose `hyperparameters` are default values its bundle's JSON Schema bounds.",
         "properties": {
           "augmentation": {
             "$ref": "#/components/schemas/Augmentation",
             "default": "none"
           },
           "base_model": {
-            "$ref": "#/components/schemas/TrainBaseModel"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainBaseModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "cpu": {
             "exclusiveMinimum": 0.0,
@@ -4472,7 +4495,16 @@
             "type": "number"
           },
           "hyperparameters": {
-            "$ref": "#/components/schemas/HyperparameterLimits"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HyperparameterLimits"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Hyperparameters"
           },
           "learning_rate": {
             "exclusiveMinimum": 0.0,
@@ -4504,6 +4536,9 @@
               },
               {
                 "$ref": "#/components/schemas/TextPreprocessing"
+              },
+              {
+                "type": "null"
               }
             ],
             "title": "Preprocessing"
@@ -4541,9 +4576,7 @@
           }
         },
         "required": [
-          "base_model",
           "learning_rate",
-          "preprocessing",
           "cpu",
           "memory_bytes",
           "gpu",
@@ -6900,7 +6933,7 @@
     },
     "/v1/admin/job-packages/{name}/{sha256}/status": {
       "put": {
-        "description": "Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.",
+        "description": "Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.\nA ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25.",
         "operationId": "set_package_status_v1_admin_job_packages__name___sha256__status_put",
         "parameters": [
           {
