@@ -42,11 +42,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Free runner disk
         if: inputs.free-disk
-        # The build loads the image into the local daemon (to test it), so the runner holds the base, the layers and the exported
-        # image at once. The preinstalled toolchains and the preloaded Docker images are what gives that room back.
+        # The build loads the image into the local daemon (to test it), so the runner holds the base image, the layers and the exported
+        # image at once: about three times the 17 GB cu128 image. The preinstalled toolchains and preloaded Docker images are what gives
+        # that room back (the list is the one in https://mathio28.medium.com/squeezing-disk-space-from-github-actions-runners-an-engineers-guide-d5fbe4443692).
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift
-          sudo docker image prune --all --force > /dev/null
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /opt/ghc /usr/local/julia* \
+            /usr/local/lib/android /usr/local/share/chromium /usr/local/share/powershell /usr/local/share/boost \
+            /opt/microsoft /opt/google /opt/az /opt/hostedtoolcache
+          docker system prune --all --force > /dev/null
+          docker builder prune --all --force > /dev/null
           df -h /
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
