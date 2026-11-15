@@ -41,6 +41,25 @@ def test_a_catalog_model_and_its_audit_rows_are_written_together(as_app):
     ]
 
 
+def test_the_audit_log_lists_what_was_written_filtered_and_counted(as_app, monkeypatch):
+    from app.modules.admin.audit_log import service as log
+
+    async def get_pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(as_app.conn))
+
+    monkeypatch.setattr(log, "get_pool", get_pool)
+
+    async def read():
+        async with as_app.app_role():
+            created = await service.create(BODY, ACTOR)
+            await service.set_status(created.id, "disabled", ACTOR)
+            mine, total = await log.list_entries(AdminAuditEntity.MODEL_CATALOG, ACTOR, 1, 0)
+            return [e.action for e in mine], total, await log.list_entries(AdminAuditEntity.TENANT, ACTOR, 10, 0)
+
+    actions, total, none = as_app.run(read())
+    assert (actions, total, none) == ([AdminAuditAction.MODEL_CATALOG_DISABLE], 2, ([], 0))
+
+
 def test_a_refused_write_leaves_no_audit_row(as_app):
     async def twice():
         async with as_app.app_role() as conn:

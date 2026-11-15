@@ -26,6 +26,7 @@ from app import background
 from app.core import auth_log, problem, tracing
 from app.core.settings import settings
 from app.modules.admin import activity as admin_activity
+from app.modules.admin import audit_log as admin_audit_log
 from app.modules.admin import job_packages as admin_job_packages
 from app.modules.admin import model_catalog as admin_model_catalog
 from app.modules.admin import models as admin_models
@@ -60,6 +61,7 @@ from app.modules.user.datasets import pipeline_log
 # could shadow them.
 ROUTERS = (
     admin_activity.router,
+    admin_audit_log.router,
     admin_job_packages.router,
     admin_model_catalog.router,
     admin_models.router,
