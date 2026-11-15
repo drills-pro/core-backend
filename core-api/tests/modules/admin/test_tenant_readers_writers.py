@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import uuid
 
+from app.core.authz import TenantStatus
 from app.core.enums import PlanTier
 from app.modules.user.tenants import (
     admin_detail,
@@ -45,5 +46,8 @@ def test_writers():
     assert created.model_dump() == BASE
     assert asyncio.run(merge_settings(FakeConn(row=None), TENANT, {})) is None
     assert asyncio.run(merge_settings(FakeConn(row={"settings": {"a": 1}}), TENANT, {"a": 1})) == {"a": 1}
-    assert asyncio.run(set_status(FakeConn(val=None), TENANT, "suspended")) is None
-    assert asyncio.run(set_status(FakeConn(val=""), TENANT, "suspended")) == ""
+    assert asyncio.run(set_status(FakeConn(row=None), TENANT, TenantStatus.SUSPENDED)) is None
+    conn = FakeConn(row={"previous": TenantStatus.ACTIVE, "org_id": ""})
+    changed = asyncio.run(set_status(conn, TENANT, TenantStatus.SUSPENDED))
+    assert (changed.previous, changed.org_id) == (TenantStatus.ACTIVE, "")
+    assert conn.calls[0][1] == (TENANT, TenantStatus.SUSPENDED, TenantStatus.PENDING_DELETE)  # the guard is in the UPDATE

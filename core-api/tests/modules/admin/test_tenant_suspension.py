@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.core import problem
 from app.core.authz import Action, AuthzContext, TenantRole, TenantStatus, require
+from app.core.authz.deps import TenantProblem
 from app.core.enums import TaskType
 from app.modules.admin.tenants import detail, service
 from tests.support import FakeConn, TenantCtx, access, patch_tenant_conn
@@ -26,13 +27,15 @@ class TenantsConn(FakeConn):
     def transaction(self):
         return TenantCtx(None)
 
-    async def fetchval(self, sql, tenant_id, status):
-        self.state["status"] = status
-        return self.org_id if self.org_id is not None else ""
-
-    async def fetchrow(self, sql, actor, tenant=None, project=None):
+    async def fetchrow(self, sql, *args):
+        if "UPDATE tenants" in sql:  # (tenant_id, status, the status it may not leave): what tenants.set_status sends
+            _, status, kept = args
+            previous = self.state["status"]
+            if previous != kept:
+                self.state["status"] = status
+            return {"previous": previous, "org_id": self.org_id or ""}
         if "FROM task_types" in sql:
-            return seeded(actor)
+            return seeded(args[0])
         return access(TenantRole.OWNER, None, None, None, self.state["status"])
 
 
@@ -43,8 +46,8 @@ def world(monkeypatch, dev_headers):
     async def set_org_state(client, org_id, active):
         calls.append((org_id, active))
 
-    def build(org_id):
-        conn = TenantsConn({"status": TenantStatus.ACTIVE}, org_id)
+    def build(org_id, status=TenantStatus.ACTIVE):
+        conn = TenantsConn({"status": status}, org_id)
 
         async def get_pool():
             return SimpleNamespace(acquire=lambda: TenantCtx(conn))
@@ -86,6 +89,16 @@ def test_tenant_without_zitadel_org_can_be_suspended(world):
     assert _set(client, "suspended").status_code == 200
     assert client.get("/tenant-admin").status_code == 403
     assert calls == []
+
+
+def test_a_pending_delete_tenant_is_not_moved_back(world):
+    client, calls = world("org-1", TenantStatus.PENDING_DELETE)
+    for status in (TenantStatus.ACTIVE, TenantStatus.SUSPENDED):
+        r = _set(client, status)
+        assert (r.status_code, r.json()["code"]) == (409, TenantProblem.PENDING_DELETE)
+    r = client.get("/tenant-admin")
+    assert (r.status_code, r.json()["code"]) == (403, TenantProblem.PENDING_DELETE)  # still pending; the owner can restore it
+    assert calls == []  # Zitadel is left alone too
 
 
 def test_admin_create_project_rejects_reserved_task_type(world):
