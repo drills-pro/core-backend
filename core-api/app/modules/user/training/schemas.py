@@ -151,6 +151,7 @@ class LineageRun(BaseModel):
     dataset_version_id: uuid.UUID | None
     test_dataset_id: uuid.UUID | None
     test_dataset_version: str | None
+    has_test_split: bool = False  # see readers.has_test_split
     mlflow_run_id: str | None
     reproduction_group_id: uuid.UUID | None
     config: Any

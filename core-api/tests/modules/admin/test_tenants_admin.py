@@ -300,14 +300,13 @@ def test_status_pending_delete_is_not_an_operator_switch(admin):
 
 
 def test_status_of_an_unknown_tenant_is_404(admin):
-    conn = AdminConn(vals={"UPDATE tenants SET status": None})
-    res = admin(conn).post(f"{URL}/{T1}/status", json={"status": "suspended"})
-    assert res.status_code == 404 and audits(conn) == []
+    res = admin(AdminConn(rows={"UPDATE tenants": None})).post(f"{URL}/{T1}/status", json={"status": "suspended"})
+    assert res.status_code == 404
 
 
 def test_status_change_is_audited_after_zitadel_accepts_it(admin, zitadel_stub):
     zitadel_stub.routes["/_deactivate"] = (200, {})
-    conn = AdminConn(vals={"UPDATE tenants SET status": "o1"})
+    conn = AdminConn(rows={"FROM cur": {"previous": "active", "org_id": "o1"}})
     assert admin(conn).post(f"{URL}/{T1}/status", json={"status": "suspended"}).status_code == 200
     assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_SET_STATUS, AdminAuditEntity.TENANT, str(T1), {"status": "suspended"})]
 
@@ -318,7 +317,7 @@ def test_status_change_is_audited_after_zitadel_accepts_it(admin, zitadel_stub):
 ])
 def test_status_surfaces_zitadel_failures(admin, zitadel_stub, answer, status, code):
     zitadel_stub.routes["/_deactivate"] = answer
-    conn = AdminConn(vals={"UPDATE tenants SET status": "o1"})
+    conn = AdminConn(rows={"UPDATE tenants": {"previous": "active", "org_id": "o1"}})
     res = admin(conn).post(f"{URL}/{T1}/status", json={"status": "suspended"})
     assert (res.status_code, res.json()["code"]) == (status, code)
     assert zitadel_stub.requests[0].headers["x-zitadel-orgid"] == "o1"

@@ -70,7 +70,7 @@ from app.integrations.data_plane.prediction_payloads import Payload as Predictio
 from app.integrations.data_plane.prediction_payloads import delete as delete_prediction_payloads
 from app.integrations.data_plane.prediction_payloads import load as load_prediction_payload
 from app.integrations.data_plane.prediction_payloads import store as store_prediction_payload
-from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity
+from app.integrations.data_plane.report import ImportReport, Issue, IssueCode, Outcome, Severity, Stats
 from app.integrations.data_plane.train import prepare_train_data, purge_train_prefix, read_model_meta, read_train_report, submit_train
 from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, TrainReport
 
@@ -94,7 +94,7 @@ __all__ = [
     # MLflow names and states
     "ModelStage", "RunStatus", "display_name", "registered_model_name",
     # the import and training reports the jobs write
-    "ImportReport", "Issue", "IssueCode", "Outcome", "Severity", "FailureCode", "TrainOutcome", "TrainReport",
+    "ImportReport", "Issue", "IssueCode", "Outcome", "Severity", "Stats", "FailureCode", "TrainOutcome", "TrainReport",
 ]
 
 # Every tenant operation, including the two only train.py calls; tests/integrations/data_plane/test_gateway.py checks

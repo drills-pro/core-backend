@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from types import SimpleNamespace
-from app.core.enums import TaskType
+from app.core.enums import Split, TaskType
 from app.modules.user.deployments import service
 from app.modules.user.deployments.constants import (
     METRIC_FLOORS,
@@ -130,6 +130,29 @@ def test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_r
     deploy_env.conn.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY, acknowledge_risk=True))
     assert deploy_env.deployed and inserted(deploy_env.conn)[-1] is True  # risk_acknowledged is the last insert argument
+
+
+def stats(splits, row_count):
+    return {"file_count": 0, "total_bytes": 0, "row_count": row_count, "splits": splits}
+
+
+def test_the_gate_reads_the_test_split_from_the_runs_dataset_version_not_only_a_test_dataset(deploy_env):
+    deploy_env.conn.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
+    no_dataset = {**SERVABLE, "test_dataset_id": None}
+    for version_stats, risky in (
+        (stats({Split.TRAIN: 8, Split.VALIDATION: 2}, 10), True),  # every row split, none of them test
+        (stats({Split.TRAIN: 8, Split.TEST: 2}, 10), False),  # test rows the user supplied
+        (stats({}, 10), False),  # rows with no split are hashed, and some of them land in test
+        (None, True),  # a run from before dataset versions
+    ):
+        deploy_env.conn.rows["FROM training_runs"] = {**no_dataset, "version_stats": version_stats}
+        if risky:
+            with pytest.raises(HTTPException) as e:
+                asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+            assert e.value.code == ProblemCode.DEPLOY_RISK
+        else:
+            asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+            assert inserted(deploy_env.conn)[-1] is False  # no acknowledgement was needed
 
 
 def test_a_score_under_the_task_floor_needs_acknowledge_risk(deploy_env):
