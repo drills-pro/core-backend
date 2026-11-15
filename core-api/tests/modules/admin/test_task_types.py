@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
+from app.core.enums import AdminAuditAction, AdminAuditEntity
 from app.core.task_types import ServingParams
 from app.modules.admin.task_types import routes
-from tests.support import FakeConn, TenantCtx
+from tests.support import FakeConn, TenantCtx, audits
 from tests.support.task_types import task_row
 
 URL = "/v1/admin/task-types"
@@ -38,6 +39,9 @@ def test_put_writes_the_row_as_the_actor(call):
     sql, args = conn.calls[0]
     assert res.status_code == 200 and sql.startswith("INSERT INTO task_types")
     assert args == ("image-classification", "images", BODY["trainer"], True, "image_encoder", "classify", ServingParams().model_dump(mode="json"), True, "ops")
+    [(actor, action, entity, entity_id, detail)] = audits(conn)
+    assert (actor, action, entity, entity_id) == ("ops", AdminAuditAction.TASK_TYPE_PUT, AdminAuditEntity.TASK_TYPE, "image-classification")
+    assert detail["trainer"] == BODY["trainer"]
 
 
 def test_list_returns_every_task_type(call):

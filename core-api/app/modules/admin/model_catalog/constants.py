@@ -1,8 +1,9 @@
 from enum import StrEnum
 
-from app.core.enums import CatalogSource
+from app.core.enums import AdminAuditAction, CatalogSource, CatalogStatus
 
 DEFAULT_SOURCE = CatalogSource.HF
+STATUS_AUDIT_ACTION = {CatalogStatus.ENABLED: AdminAuditAction.MODEL_CATALOG_ENABLE, CatalogStatus.DISABLED: AdminAuditAction.MODEL_CATALOG_DISABLE}
 SHA_PATTERN = r"^[0-9a-f]{40}$"  # mirrors model_catalog_revision_check: a commit, never a branch that moves
 MAX_NAME_LENGTH = 200
 
