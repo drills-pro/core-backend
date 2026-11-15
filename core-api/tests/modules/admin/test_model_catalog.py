@@ -9,11 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
-from app.core.enums import CatalogStatus
+from app.core.enums import AdminAuditAction, AdminAuditEntity, CatalogStatus
 from app.integrations import hub
 from app.modules.admin.model_catalog import routes, service
 from app.modules.admin.model_catalog.constants import ProblemCode
-from tests.support import FakeConn, TenantCtx
+from tests.support import FakeConn, TenantCtx, audits, calls_without_audit
 
 URL = "/v1/admin/model-catalog"
 ID = uuid.uuid4()
@@ -66,7 +66,7 @@ def test_list_filters_by_task_and_status(call):
     conn = FakeConn(rowset=[row()])
     res = call("GET", URL, conn, params={"task": "image-classification", "status": "enabled"})
     assert res.status_code == 200 and res.json()[0]["repo_id"] == "org/m"
-    assert conn.calls[-1][1] == ("image-classification", CatalogStatus.ENABLED)
+    assert calls_without_audit(conn)[-1][1] == ("image-classification", CatalogStatus.ENABLED)
 
 
 def test_list_rejects_an_unknown_status(call):
@@ -81,9 +81,12 @@ def test_get_returns_the_entry_or_404(call):
 def test_create_records_the_actor_and_returns_201(call):
     conn = Conn(row=row())
     res = call("POST", URL, conn, json=BODY)
-    sql, args = conn.calls[-1]
+    sql, args = calls_without_audit(conn)[-1]
     assert res.status_code == 201 and sql.startswith("INSERT INTO model_catalog")
     assert args[:2] == ("hf", "org/m") and args[-1] == "ops" and args[-2] == CatalogStatus.ENABLED
+    [(actor, action, entity, entity_id, detail)] = audits(conn)
+    assert (actor, action, entity, entity_id) == ("ops", AdminAuditAction.MODEL_CATALOG_CREATE, AdminAuditEntity.MODEL_CATALOG, str(ID))
+    assert detail["repo_id"] == "org/m" and detail["revision"] == "a" * 40
 
 
 def test_create_refuses_a_task_the_platform_has_no_row_for(call):
@@ -120,7 +123,7 @@ def test_create_takes_the_licence_and_size_the_hub_declares(call, hub_on, monkey
     monkeypatch.setattr(service.hub, "fetch", fetch)
     conn = Conn(row=row())
     assert call("POST", URL, conn, json=BODY).status_code == 201
-    args = conn.calls[-1][1]
+    args = calls_without_audit(conn)[-1][1]
     assert args[5] == "mit" and args[7] == 42
 
 
@@ -144,8 +147,9 @@ def test_create_is_502_when_the_hub_is_down(call, hub_on, monkeypatch):
 def test_patch_changes_metadata_as_the_actor(call):
     conn = Conn(row=row(display_name="New"))
     res = call("PATCH", f"{URL}/{ID}", conn, json={"display_name": "New"})
-    sql, args = conn.calls[-1]
+    sql, args = calls_without_audit(conn)[-1]
     assert res.status_code == 200 and sql.startswith("UPDATE model_catalog") and args == (ID, "New", None, None, None, None, "ops")
+    assert audits(conn) == [("ops", AdminAuditAction.MODEL_CATALOG_UPDATE, AdminAuditEntity.MODEL_CATALOG, str(ID), {"display_name": "New"})]
 
 
 def test_patch_cannot_change_the_repo_or_status(call):
@@ -161,26 +165,30 @@ def test_patch_missing_is_404_and_a_bad_licence_422(call):
 def test_enable_sets_the_status_as_the_actor(call):
     conn = Conn(row=row())
     res = call("POST", f"{URL}/{ID}/enable", conn)
-    assert res.status_code == 200 and res.json()["status"] == CatalogStatus.ENABLED and conn.calls[-1][1] == (ID, CatalogStatus.ENABLED, "ops")
+    assert res.status_code == 200 and res.json()["status"] == CatalogStatus.ENABLED and calls_without_audit(conn)[-1][1] == (ID, CatalogStatus.ENABLED, "ops")
 
 
 def test_disable_sets_the_status_as_the_actor(call):
     conn = Conn(row=row(status=CatalogStatus.DISABLED))
     res = call("POST", f"{URL}/{ID}/disable", conn)
-    assert res.status_code == 200 and res.json()["status"] == CatalogStatus.DISABLED and conn.calls[-1][1] == (ID, CatalogStatus.DISABLED, "ops")
+    assert res.status_code == 200 and res.json()["status"] == CatalogStatus.DISABLED and calls_without_audit(conn)[-1][1] == (ID, CatalogStatus.DISABLED, "ops")
 
 
-def test_enable_missing_is_404(call):
-    assert call("POST", f"{URL}/{ID}/enable", Conn(row=None)).status_code == 404
+def test_enable_missing_is_404_and_audits_nothing(call):
+    conn = Conn(row=None)
+    assert call("POST", f"{URL}/{ID}/enable", conn).status_code == 404 and audits(conn) == []
 
 
-def test_delete_an_unused_entry_is_204(call):
-    assert call("DELETE", f"{URL}/{ID}", FakeConn(val=ID)).status_code == 204
+def test_delete_an_unused_entry_is_204_and_audited(call):
+    conn = FakeConn(val=ID)
+    assert call("DELETE", f"{URL}/{ID}", conn).status_code == 204
+    assert audits(conn) == [("ops", AdminAuditAction.MODEL_CATALOG_DELETE, AdminAuditEntity.MODEL_CATALOG, str(ID), {})]
 
 
 def test_delete_a_pinned_entry_is_409_and_a_missing_one_404(call):
-    pinned = call("DELETE", f"{URL}/{ID}", FakeConn(vals={"DELETE FROM": None}, val=True))
-    assert pinned.status_code == 409 and pinned.json()["code"] == ProblemCode.IN_USE
+    conn = FakeConn(vals={"DELETE FROM": None}, val=True)
+    pinned = call("DELETE", f"{URL}/{ID}", conn)
+    assert pinned.status_code == 409 and pinned.json()["code"] == ProblemCode.IN_USE and audits(conn) == []
     assert call("DELETE", f"{URL}/{ID}", FakeConn(val=None)).status_code == 404
 
 

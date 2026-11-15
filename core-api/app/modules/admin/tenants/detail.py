@@ -80,15 +80,15 @@ async def create_tenant_project(
     return await service.create_project(tenant_id, name, task_type, actor)
 
 
-@router.patch("/{tenant_id}/settings", dependencies=[Depends(get_platform_admin)], response_model=TenantSettingsOut)
-async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings):
+@router.patch("/{tenant_id}/settings", response_model=TenantSettingsOut)
+async def update_tenant_settings(tenant_id: uuid.UUID, settings: TenantSettings, actor: str = Depends(get_platform_admin)):
     """Merge a partial settings object into the tenant's, and return all of it.
 
     The page sends the one switch that moved."""
-    return await service.update_settings(tenant_id, settings)
+    return await service.update_settings(tenant_id, settings, actor)
 
 
-@router.post("/{tenant_id}/status", dependencies=[Depends(get_platform_admin)], response_model=TenantStatusOut)
-async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=True)):
+@router.post("/{tenant_id}/status", response_model=TenantStatusOut)
+async def set_tenant_status(tenant_id: uuid.UUID, status: str = Body(..., embed=True), actor: str = Depends(get_platform_admin)):
     """Suspend or reactivate the tenant."""
-    return await service.set_status(tenant_id, status)
+    return await service.set_status(tenant_id, status, actor)

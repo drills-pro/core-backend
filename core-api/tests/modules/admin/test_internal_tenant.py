@@ -10,7 +10,7 @@ from app.core.authz import TenantRole
 from app.core.enums import PlanTier
 from app.modules.admin.tenants import service
 from app.modules.user.tenants.schemas import AdminTenantCreated
-from tests.support import TenantCtx
+from tests.support import FakeConn, TenantCtx
 
 TENANT = uuid.uuid4()
 ACTOR = "staff-sub"
@@ -21,7 +21,7 @@ def added(monkeypatch):
     calls = []
 
     async def get_pool():
-        return SimpleNamespace(acquire=lambda: TenantCtx(None))
+        return SimpleNamespace(acquire=lambda: TenantCtx(FakeConn()))
 
     async def insert(conn, org_id, name, plan_tier):
         return AdminTenantCreated(id=TENANT, name=name, zitadel_org_id=org_id, plan_tier=plan_tier,

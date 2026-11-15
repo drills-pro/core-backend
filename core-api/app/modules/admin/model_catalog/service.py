@@ -4,12 +4,13 @@ from http import HTTPStatus
 
 import asyncpg
 
+from app.core import admin_audit
 from app.core.db import get_pool
-from app.core.enums import CatalogStatus
+from app.core.enums import AdminAuditAction, AdminAuditEntity, CatalogStatus
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.integrations import hub
-from app.modules.admin.model_catalog.constants import ProblemCode
+from app.modules.admin.model_catalog.constants import STATUS_AUDIT_ACTION, ProblemCode
 from app.modules.admin.model_catalog.schemas import AdminCatalogModel, CatalogModelCreate, CatalogModelUpdate
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ _TASK_EXISTS = "SELECT EXISTS (SELECT 1 FROM task_types WHERE slug = $1)"
 
 def _entry(row) -> AdminCatalogModel:
     return AdminCatalogModel.model_validate(dict(row))
+
+
+async def _audit(conn, actor: str, action: AdminAuditAction, model_id, detail: dict | None = None) -> None:
+    await admin_audit.record(conn, actor, action, AdminAuditEntity.MODEL_CATALOG, model_id, detail)
 
 
 async def _require_task(conn, task: str) -> None:
@@ -81,9 +86,11 @@ async def create(body: CatalogModelCreate, actor: str) -> AdminCatalogModel:
         await _require_task(conn, body.task)
         body = await _admit(body)
         try:
-            row = await conn.fetchrow(
-                _INSERT, body.source, body.repo_id, body.revision, body.display_name, body.task, body.license,
-                body.params, body.size_bytes, body.status, actor)
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    _INSERT, body.source, body.repo_id, body.revision, body.display_name, body.task, body.license,
+                    body.params, body.size_bytes, body.status, actor)
+                await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_CREATE, row["id"], body.model_dump(mode="json"))
         except asyncpg.UniqueViolationError:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.ALREADY_IN_CATALOG, f"{body.repo_id}@{body.revision} is already listed for {body.task}")
     logger.info("catalog model %s created by %s", row["id"], actor)
@@ -97,7 +104,10 @@ async def update(model_id: uuid.UUID, body: CatalogModelUpdate, actor: str) -> A
         if body.task is not None:
             await _require_task(conn, body.task)
         try:
-            row = await conn.fetchrow(_UPDATE, model_id, body.display_name, body.task, body.license, body.params, body.size_bytes, actor)
+            async with conn.transaction():
+                row = await conn.fetchrow(_UPDATE, model_id, body.display_name, body.task, body.license, body.params, body.size_bytes, actor)
+                if row is not None:
+                    await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_UPDATE, model_id, body.model_dump(mode="json", exclude_unset=True))
         except asyncpg.UniqueViolationError:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.ALREADY_IN_CATALOG, "that model is already listed for that task")
     if row is None:
@@ -107,8 +117,10 @@ async def update(model_id: uuid.UUID, body: CatalogModelUpdate, actor: str) -> A
 
 
 async def set_status(model_id: uuid.UUID, status: CatalogStatus, actor: str) -> AdminCatalogModel:
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_pool()).acquire() as conn, conn.transaction():
         row = await conn.fetchrow(_SET_STATUS, model_id, status, actor)
+        if row is not None:
+            await _audit(conn, actor, STATUS_AUDIT_ACTION[status], model_id)
     if row is None:
         raise not_found()
     logger.info("catalog model %s set %s by %s", model_id, status, actor)
@@ -116,9 +128,10 @@ async def set_status(model_id: uuid.UUID, status: CatalogStatus, actor: str) -> 
 
 
 async def delete(model_id: uuid.UUID, actor: str) -> None:
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_pool()).acquire() as conn, conn.transaction():
         if await conn.fetchval(_DELETE_UNUSED, model_id) is None:
             if await conn.fetchval(_EXISTS, model_id):
                 raise Problem(HTTPStatus.CONFLICT, ProblemCode.IN_USE, "a training preset still pins this model; disable it instead")
             raise not_found()
+        await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_DELETE, model_id)
     logger.info("catalog model %s deleted by %s", model_id, actor)

@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
+from app.core.enums import AdminAuditAction, AdminAuditEntity
 from app.modules.admin.presets import routes
 from tests.core.test_presets import BODY
-from tests.support import FakeConn, TenantCtx
+from tests.support import FakeConn, TenantCtx, audits, calls_without_audit
 from tests.support.presets import preset_row
 
 URL = "/v1/admin/training-presets"
@@ -33,9 +34,12 @@ def call(monkeypatch):
 def test_put_writes_the_row_as_the_actor_and_returns_it(call):
     conn = FakeConn(row=preset_row(name="tiny", updated_by="ops"))
     res = call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY)
-    sql, args = conn.calls[-1]
+    sql, args = calls_without_audit(conn)[-1]
     assert res.status_code == 200 and res.json()["updated_by"] == "ops" and sql.startswith("INSERT INTO task_presets")
     assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None, None)
+    [(actor, action, entity, entity_id, detail)] = audits(conn)
+    assert (actor, action, entity, entity_id) == ("ops", AdminAuditAction.TASK_PRESET_PUT, AdminAuditEntity.TASK_PRESET, "image-classification/tiny")
+    assert detail["learning_rate"] == BODY["learning_rate"]
 
 
 def test_list_returns_the_tasks_presets(call):
@@ -44,8 +48,11 @@ def test_list_returns_the_tasks_presets(call):
 
 
 def test_deleting_a_missing_preset_is_404(call):
-    assert call("DELETE", f"{URL}/image-classification/nope", FakeConn(val=None)).status_code == 404
-    assert call("DELETE", f"{URL}/image-classification/small", FakeConn(val=True)).status_code == 204
+    missing = FakeConn(val=None)
+    assert call("DELETE", f"{URL}/image-classification/nope", missing).status_code == 404 and audits(missing) == []
+    deleted = FakeConn(val=True)
+    assert call("DELETE", f"{URL}/image-classification/small", deleted).status_code == 204
+    assert audits(deleted) == [("ops", AdminAuditAction.TASK_PRESET_DELETE, AdminAuditEntity.TASK_PRESET, "image-classification/small", {})]
 
 
 def test_a_task_without_a_trainer_has_no_presets(call):
@@ -84,7 +91,7 @@ def test_put_records_the_licence_the_hub_declares(call, hub_on, monkeypatch):
     monkeypatch.setattr(routes.hub, "fetch", fetch)
     conn = FakeConn(row=preset_row())
     assert call("PUT", f"{URL}/image-classification/tiny", conn, json=BODY).status_code == 200
-    assert conn.calls[-1][1][-1] == "mit" and BODY["base_model"].get("license") != "mit"
+    assert calls_without_audit(conn)[-1][1][-1] == "mit" and BODY["base_model"].get("license") != "mit"
 
 
 def test_put_is_502_when_the_hub_cannot_be_reached(call, hub_on, monkeypatch):

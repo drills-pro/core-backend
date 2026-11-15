@@ -7,7 +7,9 @@ import asyncpg
 import httpx
 import pytest
 
+from app.core.enums import AdminAuditAction, AdminAuditEntity
 from tests.modules.admin.conftest import AdminConn, zitadel_orgs
+from tests.support import audits
 
 T1, T2, T3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 NOW = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
@@ -107,6 +109,8 @@ def test_create_makes_the_org_the_tenant_and_the_default_team(admin, zitadel_stu
     inserts = [args for sql, args in conn.calls if sql.startswith("INSERT INTO tenants")]
     assert inserts == [("org-new", "Acme", "free")]
     assert any(sql.startswith("INSERT INTO teams") for sql, _ in conn.calls)
+    assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_CREATE, AdminAuditEntity.TENANT, str(T1),
+                             {"name": "Acme", "plan_tier": "free", "zitadel_org_id": "org-new"})]
 
 
 def test_create_adopting_an_org_does_not_call_zitadel_and_reports_unknown(admin, zitadel_stub):
@@ -219,6 +223,7 @@ def test_members_are_joined_with_zitadel_and_keep_unknown_ones(admin, zitadel_st
     assert (ann["display_name"], ann["email"], ann["status"]) == ("Ann", "ann@mail", "pending")
     assert (gone["user_id"], gone["display_name"], gone["status"]) == ("gone", None, "unknown")
     assert zitadel_stub.requests[0].headers["x-zitadel-orgid"] == "o1"
+    assert audits(conn) == []  # Zitadel refused, so the UPDATE rolls back and no row says it happened
 
 
 def test_members_of_a_tenant_without_an_org_skip_zitadel(admin, zitadel_stub):
@@ -272,11 +277,13 @@ def test_settings_patch_merges_only_the_fields_sent(admin):
     assert res.status_code == 200
     assert res.json()["settings"] == {"members_can_create_projects": True, "require_review_before_training": True, "allow_public_models": True}
     assert conn.calls[0][1] == (T1, {"allow_public_models": True})
+    assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_UPDATE_SETTINGS, AdminAuditEntity.TENANT, str(T1), {"allow_public_models": True})]
 
 
 def test_settings_patch_of_an_unknown_tenant_is_404(admin):
-    res = admin(AdminConn(rows={"UPDATE tenants SET settings": None})).patch(f"{URL}/{T1}/settings", json={"allow_public_models": True})
-    assert res.status_code == 404
+    conn = AdminConn(rows={"UPDATE tenants SET settings": None})
+    res = admin(conn).patch(f"{URL}/{T1}/settings", json={"allow_public_models": True})
+    assert res.status_code == 404 and audits(conn) == []
 
 
 def test_settings_patch_rejects_unknown_and_non_boolean_values(admin):
@@ -293,8 +300,16 @@ def test_status_pending_delete_is_not_an_operator_switch(admin):
 
 
 def test_status_of_an_unknown_tenant_is_404(admin):
-    res = admin(AdminConn(vals={"UPDATE tenants SET status": None})).post(f"{URL}/{T1}/status", json={"status": "suspended"})
-    assert res.status_code == 404
+    conn = AdminConn(vals={"UPDATE tenants SET status": None})
+    res = admin(conn).post(f"{URL}/{T1}/status", json={"status": "suspended"})
+    assert res.status_code == 404 and audits(conn) == []
+
+
+def test_status_change_is_audited_after_zitadel_accepts_it(admin, zitadel_stub):
+    zitadel_stub.routes["/_deactivate"] = (200, {})
+    conn = AdminConn(vals={"UPDATE tenants SET status": "o1"})
+    assert admin(conn).post(f"{URL}/{T1}/status", json={"status": "suspended"}).status_code == 200
+    assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_SET_STATUS, AdminAuditEntity.TENANT, str(T1), {"status": "suspended"})]
 
 
 @pytest.mark.parametrize("answer, status, code", [

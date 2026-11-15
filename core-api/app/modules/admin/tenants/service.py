@@ -25,10 +25,10 @@ from http import HTTPStatus
 import asyncpg
 import httpx
 
-from app.core import task_types
+from app.core import admin_audit, task_types
 from app.core.authz import TenantRole, TenantStatus
 from app.core.db import get_pool
-from app.core.enums import IdentityStatus, PlanTier, TaskType
+from app.core.enums import AdminAuditAction, AdminAuditEntity, IdentityStatus, PlanTier, TaskType
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
@@ -154,7 +154,10 @@ async def _insert_tenant(
 ) -> tenants_ctx.AdminTenantCreated:
     async with (await get_pool()).acquire() as conn:
         try:
-            row = await tenants_ctx.insert_admin_tenant(conn, zitadel_org_id, name, plan_tier)
+            async with conn.transaction():
+                row = await tenants_ctx.insert_admin_tenant(conn, zitadel_org_id, name, plan_tier)
+                detail = {"name": name, "plan_tier": plan_tier, "zitadel_org_id": zitadel_org_id}
+                await admin_audit.record(conn, actor, AdminAuditAction.TENANT_CREATE, AdminAuditEntity.TENANT, row.id, detail)
         except asyncpg.UniqueViolationError as error:
             raise Problem(
                 HTTPStatus.CONFLICT, ProblemCode.ORG_ALREADY_MAPPED, f"org {zitadel_org_id} is already mapped to a tenant"
@@ -271,16 +274,19 @@ async def create_project(tenant_id: uuid.UUID, name: str, task_type: TaskType, a
         return await projects.create_project(conn, tenant_id, name, team_id, task_type, actor)
 
 
-async def update_settings(tenant_id: uuid.UUID, settings: TenantSettings) -> TenantSettingsOut:
+async def update_settings(tenant_id: uuid.UUID, settings: TenantSettings, actor: str) -> TenantSettingsOut:
     """A merge, not a replace: two operators on two switches don't overwrite each other."""
-    async with (await get_pool()).acquire() as conn:
-        stored = await tenants_ctx.merge_settings(conn, tenant_id, settings.model_dump(exclude_unset=True))
+    changed = settings.model_dump(exclude_unset=True)
+    async with (await get_pool()).acquire() as conn, conn.transaction():
+        stored = await tenants_ctx.merge_settings(conn, tenant_id, changed)
+        if stored is not None:
+            await admin_audit.record(conn, actor, AdminAuditAction.TENANT_UPDATE_SETTINGS, AdminAuditEntity.TENANT, tenant_id, changed)
     if stored is None:
         raise not_found()
     return TenantSettingsOut(settings=TenantSettings.model_validate(stored))
 
 
-async def set_status(tenant_id: uuid.UUID, status: str) -> TenantStatusOut:
+async def set_status(tenant_id: uuid.UUID, status: str, actor: str) -> TenantStatusOut:
     """tenants.status is what require() enforces. A tenant with a Zitadel org has that org moved
     too; the UPDATE rolls back if Zitadel refuses, so the two never disagree."""
     if status not in ADMIN_SETTABLE_STATUSES:
@@ -300,5 +306,6 @@ async def set_status(tenant_id: uuid.UUID, status: str) -> TenantStatusOut:
                     raise _zitadel_refused(error) from error
                 except (httpx.HTTPError, OSError) as error:
                     raise _zitadel_unreachable(error) from error
+        await admin_audit.record(conn, actor, AdminAuditAction.TENANT_SET_STATUS, AdminAuditEntity.TENANT, tenant_id, {"status": status})
 
     return TenantStatusOut(status=status)

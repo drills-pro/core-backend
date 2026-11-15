@@ -5,12 +5,12 @@ from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Path
 
-from app.core import presets, task_types
+from app.core import admin_audit, presets, task_types
 from app.core.settings import settings
 from app.integrations import hub
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
-from app.core.enums import TaskType
+from app.core.enums import AdminAuditAction, AdminAuditEntity, TaskType
 from app.core.presets import NAME_PATTERN, PresetBody, TaskPreset
 from app.core.problem import Problem, not_found
 
@@ -58,15 +58,17 @@ async def put_preset(task: TaskType, body: PresetBody, name: str = Path(pattern=
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_RECIPE, str(e))
     if settings.training.hub_url:
         body = await _admit(body)
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_pool()).acquire() as conn, conn.transaction():
         row = await presets.put(conn, await _trainable(conn, task), name, body, actor)
+        await admin_audit.record(conn, actor, AdminAuditAction.TASK_PRESET_PUT, AdminAuditEntity.TASK_PRESET, f"{task}/{name}", body.model_dump(mode="json"))
     logger.info("training preset %s/%s set by %s", task, name, actor)
     return row
 
 
 @router.delete("/{task}/{name}", status_code=204)
 async def delete_preset(task: TaskType, name: str = Path(pattern=NAME_PATTERN), actor: str = Depends(get_platform_admin)):
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_pool()).acquire() as conn, conn.transaction():
         if not await presets.delete(conn, await _trainable(conn, task), name):
             raise not_found()
+        await admin_audit.record(conn, actor, AdminAuditAction.TASK_PRESET_DELETE, AdminAuditEntity.TASK_PRESET, f"{task}/{name}")
     logger.info("training preset %s/%s deleted by %s", task, name, actor)

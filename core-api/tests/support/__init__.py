@@ -60,6 +60,22 @@ class FakeConn:
         self.executed.append(args)
         return self.result
 
+    def transaction(self):
+        return TenantCtx(None)
+
+
+AUDIT_SQL = "INSERT INTO admin_audit"
+
+
+def audits(conn):
+    """The (actor, action, entity_type, entity_id, detail) of every admin_audit row `conn` was asked to write."""
+    return [args for sql, args in conn.calls if sql.startswith(AUDIT_SQL)]
+
+
+def calls_without_audit(conn):
+    """`conn.calls` minus the admin_audit inserts, so a test of the write itself reads the same as before the trail."""
+    return [(sql, args) for sql, args in conn.calls if not sql.startswith(AUDIT_SQL)]
+
 
 class TenantCtx:
     """`async with TenantConn(tenant_id) as conn` (or pool.acquire()) yielding `conn`."""

@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import problem
+from app.core.enums import AdminAuditAction, AdminAuditEntity
 from app.modules.admin.plan_limits import routes
 from tests.core.test_plan_limits import groups, row
-from tests.support import FakeConn, TenantCtx
+from tests.support import FakeConn, TenantCtx, audits
 
 URL = "/v1/admin/plan-limits"
 BODY = groups()
@@ -36,6 +37,7 @@ def test_put_writes_the_tier_as_the_actor(call):
     sql, args = conn.calls[0]
     assert res.status_code == 200 and sql.startswith("INSERT INTO plan_limits")
     assert args == ("pro", *BODY.values(), "ops")
+    assert audits(conn) == [("ops", AdminAuditAction.PLAN_LIMITS_PUT, AdminAuditEntity.PLAN_LIMITS, "pro", BODY)]
 
 
 def test_list_returns_every_tier(call):
