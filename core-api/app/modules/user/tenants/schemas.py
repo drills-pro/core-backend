@@ -47,6 +47,13 @@ class TenantRef(BaseModel):
     slug: str
 
 
+class TenantStatusChange(BaseModel):
+    """What the admin status writer saw: the status before (unchanged when pending_delete) and the Zitadel org id."""
+
+    previous: TenantStatus
+    org_id: str
+
+
 class AdminTenantCreated(BaseModel):
     """The row POST /v1/admin/tenants inserts."""
 

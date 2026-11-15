@@ -27,6 +27,7 @@ import httpx
 
 from app.core import task_types
 from app.core.authz import TenantRole, TenantStatus
+from app.core.authz.deps import TenantProblem
 from app.core.db import get_pool
 from app.core.enums import IdentityStatus, PlanTier, TaskType
 from app.core.problem import Problem, not_found
@@ -287,9 +288,12 @@ async def set_status(tenant_id: uuid.UUID, status: str) -> TenantStatusOut:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.STATUS_NOT_SETTABLE, "status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn, conn.transaction():
-        org_id = await tenants_ctx.set_status(conn, tenant_id, status)
-        if org_id is None:
+        changed = await tenants_ctx.set_status(conn, tenant_id, status)
+        if changed is None:
             raise not_found()
+        if changed.previous == TenantStatus.PENDING_DELETE:
+            raise Problem(HTTPStatus.CONFLICT, TenantProblem.PENDING_DELETE, "tenant is pending deletion; only its owner can restore it")
+        org_id = changed.org_id
         if org_id:
             async with zitadel.client() as client:
                 try:

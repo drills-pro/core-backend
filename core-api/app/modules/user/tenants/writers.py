@@ -1,7 +1,8 @@
 """What other contexts may write to tenants, on the caller's connection and transaction."""
 import uuid
 
-from app.modules.user.tenants.schemas import AdminTenantCreated
+from app.core.authz import TenantStatus
+from app.modules.user.tenants.schemas import AdminTenantCreated, TenantStatusChange
 
 _INSERT = "INSERT INTO tenants (id, name, slug) VALUES ($1, $2, $3) RETURNING slug"
 
@@ -15,7 +16,12 @@ _ADMIN_INSERT = (
     "RETURNING id, name, zitadel_org_id, plan_tier, created_at"
 )
 _UPDATE_SETTINGS = "UPDATE tenants SET settings = settings || $2::jsonb WHERE id = $1 RETURNING settings"
-_SET_STATUS = "UPDATE tenants SET status = $2 WHERE id = $1 RETURNING coalesce(zitadel_org_id, '')"
+# One statement, the row locked: the owner's :delete cannot slip in between the check and the write.
+_SET_STATUS = (
+    "WITH cur AS (SELECT id, status, coalesce(zitadel_org_id, '') AS org_id FROM tenants WHERE id = $1 FOR UPDATE), "
+    "moved AS (UPDATE tenants t SET status = $2 FROM cur WHERE t.id = cur.id AND cur.status <> $3) "
+    "SELECT status AS previous, org_id FROM cur"
+)
 
 
 async def insert_admin_tenant(conn, zitadel_org_id: str, name: str, plan_tier: str) -> AdminTenantCreated:
@@ -29,6 +35,8 @@ async def merge_settings(conn, tenant_id: uuid.UUID, patch: dict) -> dict | None
     return None if row is None else row["settings"]
 
 
-async def set_status(conn, tenant_id: uuid.UUID, status: str) -> str | None:
-    """Set tenants.status; the Zitadel org id ('' when none), or None when there is no such tenant."""
-    return await conn.fetchval(_SET_STATUS, tenant_id, status)
+async def set_status(conn, tenant_id: uuid.UUID, status: str) -> TenantStatusChange | None:
+    """Set tenants.status unless the tenant is pending_delete (that is the owner's to restore, so it is left as is).
+    The status it had and its Zitadel org id ('' when none), or None when there is no such tenant."""
+    row = await conn.fetchrow(_SET_STATUS, tenant_id, status, TenantStatus.PENDING_DELETE)
+    return None if row is None else TenantStatusChange.model_validate(dict(row))
