@@ -59,18 +59,18 @@ def store_from_env(bucket: str, prefix: str):
     return S3Store(bucket, prefix, endpoint, os.environ["STAGING_ACCESS_KEY"], os.environ["STAGING_SECRET_KEY"])
 
 
-def train_state_storage(bucket: str, job_id: str):
-    """(pyarrow filesystem, path) where Ray Train keeps a job's checkpoints: under a top-level train-state/<job_id>/ prefix, so a
-    bucket lifecycle rule can expire them without touching a run's manifest and outputs under its run prefix."""
+def train_state_storage(bucket: str, prefix: str):
+    """(pyarrow filesystem, path) of Ray Train's storage root: under a top-level train-state/ prefix, so a bucket lifecycle rule can
+    expire checkpoints without touching a run's manifest and outputs. The run's prefix keeps two runs apart; Ray adds the job id."""
     from urllib.parse import urlsplit
 
     from pyarrow import fs
 
     endpoint = os.environ["STAGING_ENDPOINT"]
     if endpoint.startswith(LOCAL_SCHEME):
-        return fs.LocalFileSystem(), f"{endpoint.removeprefix(LOCAL_SCHEME)}/{TRAIN_STATE_DIR}/{job_id}"
+        return fs.LocalFileSystem(), f"{endpoint.removeprefix(LOCAL_SCHEME)}/{TRAIN_STATE_DIR}/{prefix}"
     url = urlsplit(endpoint)
     s3 = fs.S3FileSystem(
         access_key=os.environ["STAGING_ACCESS_KEY"], secret_key=os.environ["STAGING_SECRET_KEY"],
         endpoint_override=url.netloc, scheme=url.scheme)
-    return s3, f"{bucket}/{TRAIN_STATE_DIR}/{job_id}"
+    return s3, f"{bucket}/{TRAIN_STATE_DIR}/{prefix}"

@@ -38,7 +38,7 @@ def scaling(spec: TrainSpec) -> ScalingConfig:
 
 
 def trainer_for_spec(spec: TrainSpec, spec_text: str) -> TorchTrainer:
-    filesystem, path = train_state_storage(spec.bucket, spec.job_id)
+    filesystem, path = train_state_storage(spec.bucket, spec.prefix)
     return TorchTrainer(
         train_loop, train_loop_config={"spec": spec_text}, scaling_config=scaling(spec),
         run_config=RunConfig(

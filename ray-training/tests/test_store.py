@@ -28,9 +28,9 @@ def test_an_operators_own_setting_wins(monkeypatch):
     assert {os.environ[n] for n in CHECKSUM_ENV} == {"when_supported"}
 
 
-def test_checkpoints_sit_under_a_top_level_prefix_per_job(monkeypatch, tmp_path):
+def test_checkpoints_sit_under_a_top_level_train_state_prefix_per_run(monkeypatch, tmp_path):
     # Top level, not under the run prefix: a bucket lifecycle rule on train-state/ must not reach manifests or outputs.
     pytest.importorskip("pyarrow")
     monkeypatch.setenv("STAGING_ENDPOINT", f"file://{tmp_path}")
-    _, path = train_state_storage("bucket", "train-1")
-    assert path == f"{tmp_path}/train-state/train-1"
+    _, path = train_state_storage("bucket", "trainings/run-1/")
+    assert path == f"{tmp_path}/train-state/trainings/run-1/"  # Ray appends the job id under it
