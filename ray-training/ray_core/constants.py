@@ -26,7 +26,7 @@ REPORT_KEY = "report.json"
 SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 MODEL_KEY = "model.onnx"
 MODEL_MANIFEST_KEY = "model.json"
-TRAIN_STATE_DIR = "train-state"  # Ray Train checkpoints, under the run prefix
+TRAIN_STATE_DIR = "train-state"  # Ray Train checkpoints: top-level <bucket>/train-state/<job_id>/, expired by a bucket lifecycle rule
 TOKENIZER_KEY = "tokenizer.json"  # a text model is served with the tokenizer it was trained with
 
 TEXT_COLUMN = "text"  # the columns of a text dataset's data.parquet (core-api task_catalog.TEXT_COLUMN, LABEL_COLUMN)
