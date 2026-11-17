@@ -18,7 +18,7 @@ export function Deployments({ projectId }: { projectId: string }) {
   });
   const [runId, setRunId] = useState('');
   const [deploymentId, setDeploymentId] = useState('');
-  const [body, setBody] = useState('{\n  "inputs": []\n}');
+  const [body, setBody] = useState('{\n  "input": {}\n}');
 
   const deploy = useMutation({
     mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/deployments', { params: { path, query: { training_run_id: runId }, header: { 'Idempotency-Key': newKey() } } })),
