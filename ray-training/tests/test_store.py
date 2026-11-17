@@ -3,7 +3,9 @@ import os
 import sys
 import types
 
-from ray_core.store import CHECKSUM_ENV, CHECKSUM_WHEN_REQUIRED, S3Store
+import pytest
+
+from ray_core.store import CHECKSUM_ENV, CHECKSUM_WHEN_REQUIRED, S3Store, train_state_storage
 
 
 def _store(monkeypatch):
@@ -24,3 +26,11 @@ def test_an_operators_own_setting_wins(monkeypatch):
     monkeypatch.setenv(CHECKSUM_ENV[1], "when_supported")
     _store(monkeypatch)
     assert {os.environ[n] for n in CHECKSUM_ENV} == {"when_supported"}
+
+
+def test_checkpoints_sit_under_a_top_level_train_state_prefix_per_run(monkeypatch, tmp_path):
+    # Top level, not under the run prefix: a bucket lifecycle rule on train-state/ must not reach manifests or outputs.
+    pytest.importorskip("pyarrow")
+    monkeypatch.setenv("STAGING_ENDPOINT", f"file://{tmp_path}")
+    _, path = train_state_storage("bucket", "trainings/run-1/")
+    assert path == f"{tmp_path}/train-state/trainings/run-1/"  # Ray appends the job id under it
