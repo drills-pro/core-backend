@@ -22,7 +22,7 @@ def test_real_parquet_round_trip_of_a_table_keeps_types_and_all_empty_columns():
     data = table_parquet(t.rows, t)
     assert read_parquet(data) == t.rows
     assert [(f.name, str(f.type)) for f in pq.read_schema(io.BytesIO(data))] == [
-        ("n", "int64"), ("f", "double"), ("b", "bool"), ("e", "string"), ("y", "string"), ("split", "string")]
+        ("n", "int64"), ("f", "double"), ("b", "bool"), ("e", "string"), ("label", "string"), ("split", "string")]
 
 
 def test_read_parquet_refuses_a_file_that_inflates_past_the_budget():

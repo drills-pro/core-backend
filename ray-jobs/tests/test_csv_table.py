@@ -10,8 +10,15 @@ def test_csv_schema_inference_and_split_tag():
     t, rep = table("a,b,c,y\n1,1.5,x,yes\n2,2,y,no\n,3,z,yes\n", split="train")
     assert not rep.failed
     assert t.schema == {"columns": [{"name": "a", "type": "int64"}, {"name": "b", "type": "float64"},
-                                    {"name": "c", "type": "string"}, {"name": "y", "type": "string"}]}
+                                    {"name": "c", "type": "string"}, {"name": "label", "type": "string"}]}
     assert t.rows[2]["a"] is None and t.rows[0]["split"] == "train" and t.rows[0]["b"] == 1.5
+
+
+def test_a_tabular_target_is_stored_as_label_and_a_clash_is_refused():
+    t, rep = table("a,species\n1,x\n2,y\n", target="species")
+    assert not rep.failed and t.columns == ["a", "label"] and t.rows[1]["label"] == "y"
+    t, rep = table("a,label,species\n1,p,x\n2,q,y\n", target="species")
+    assert t is None and codes(rep) == [Code.CSV_DUPLICATE_COLUMNS]
 
 
 def test_csv_bool_and_int_columns():

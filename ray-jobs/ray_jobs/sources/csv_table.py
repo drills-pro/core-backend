@@ -5,7 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from ray_jobs.common.constants import BOOL_TOKENS, INT_RE, TABULAR_REGRESSION, TEXT_CLASSIFICATION, TEXT_COLUMN
+from ray_jobs.common.constants import BOOL_TOKENS, INT_RE, LABEL_COLUMN, TABULAR_REGRESSION, TABULAR_TASKS, TEXT_CLASSIFICATION, TEXT_COLUMN
 from ray_jobs.common.enums import Code, Col, ColumnType
 from ray_jobs.common.limits import Limits
 from ray_jobs.common.report import Report
@@ -59,6 +59,10 @@ def build_table(header: list[str], rows: list[list[str]], task: str, target: str
     if target not in header:
         report.error(Code.TARGET_MISSING, f"target column '{target}' not in the header", target)
         return None
+    to_label = task in TABULAR_TASKS  # a tabular target is stored under LABEL_COLUMN, the name the trainers read
+    if to_label and target != LABEL_COLUMN and LABEL_COLUMN in header:
+        report.error(Code.CSV_DUPLICATE_COLUMNS, f"a column named '{LABEL_COLUMN}' exists besides the target '{target}'", LABEL_COLUMN)
+        return None
     if any(len(r) > len(header) for r in rows):
         report.error(Code.CSV_ROW_TOO_LONG, "a row has more cells than the header has columns")
         return None
@@ -77,8 +81,9 @@ def build_table(header: list[str], rows: list[list[str]], task: str, target: str
     if any(r[ti] == "" for r in padded):
         report.error(Code.TARGET_MISSING, "target column has empty cells", target)
         return None
-    typed = [{**{h: cast(r[i], types[i]) for i, h in enumerate(header)}, Col.SPLIT: split} for r in padded]
-    return Table(header, types, typed)
+    names = [LABEL_COLUMN if to_label and h == target else h for h in header]
+    typed = [{**{n: cast(r[i], types[i]) for i, n in enumerate(names)}, Col.SPLIT: split} for r in padded]
+    return Table(names, types, typed)
 
 
 def read_csv_text(data: bytes) -> tuple[list[str], list[list[str]]]:

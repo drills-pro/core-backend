@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from ray_jobs.common.constants import (
-    HASH_PREFIX_LENGTH, HF_DATA_EXTENSIONS, IMAGE_CLASSIFICATION, IMAGE_MAGIC, IMAGE_TASKS, OBJECT_DETECTION,
+    HASH_PREFIX_LENGTH, HF_DATA_EXTENSIONS, IMAGE_CLASSIFICATION, IMAGE_MAGIC, IMAGE_TASKS, LABEL_COLUMN, OBJECT_DETECTION,
     RIFF_FORMAT_OFFSET, RIFF_MAGIC, SPLIT_FROM_FILENAME, TABULAR_CLASSIFICATION, TABULAR_REGRESSION, TABULAR_TASKS, WEBP_MAGIC)
 from ray_jobs.common.enums import BOX_FIELDS, Code, Col, ColumnType, FeatureKind, Hf, Param
 from ray_jobs.common.labels import check_label_collisions, is_safe_label, normalise_label
@@ -222,4 +222,4 @@ def extract(job: Job) -> Extracted:
     if table is not None:
         for row, sp in zip(table.rows, splits):
             row[Col.SPLIT] = sp
-    return Extracted(None, column, table, revision, license_)
+    return Extracted(None, LABEL_COLUMN if task in TABULAR_TASKS else column, table, revision, license_)
