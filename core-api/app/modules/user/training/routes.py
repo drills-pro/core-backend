@@ -19,7 +19,7 @@ from app.modules.user.training.schemas import (
     ProgressEvent,
     TrainingRun,
     TrainingRunCreate,
-    TrainingRunLogs,
+    TrainingRunSteps,
     TrainingRunSummary,
 )
 
@@ -76,12 +76,12 @@ async def get_training_run(
     return await run_service.get_run(ctx, project_id, run_id)
 
 
-@router.get("/{run_id}/logs", response_model=TrainingRunLogs)
-async def get_training_run_logs(
+@router.get("/{run_id}/steps", response_model=TrainingRunSteps)
+async def get_training_run_steps(
     project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ))
 ):
-    """The end of the job's raw output, for debugging. Results come from the job's report (the run's `report`), not from here."""
-    return await run_service.get_logs(ctx, project_id, run_id)
+    """The run's steps and, if it failed, a failure code: what a customer sees instead of the job's raw log."""
+    return await run_service.get_steps(ctx, project_id, run_id)
 
 
 @router.post("/{run_id}/cancel", response_model=TrainingRun)

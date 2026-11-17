@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from app.core.enums import TaskType
 from app.core.presets import NAME_PATTERN, HyperparameterLimits
@@ -14,6 +14,9 @@ from app.modules.user.training.constants import (
     MAX_METRIC_NAME_LENGTH,
     SEED_MAX,
     EventType,
+    FailureCode,
+    StepKey,
+    StepState,
 )
 
 
@@ -123,6 +126,12 @@ class TrainingRun(TrainingRunSummary):
     project_id: uuid.UUID
     task: str | None
     report: Any  # the job's report.json (data_plane.TrainReport); `spec` carries presigned URLs and is never returned
+
+    @field_validator("report", mode="after")
+    @classmethod
+    def _without_message(cls, report: Any) -> Any:
+        """A failed run's `message` is the exception text, which can carry paths and presigned URLs: customers get the `code`."""
+        return {k: v for k, v in report.items() if k != "message"} if isinstance(report, dict) else report
     idempotency_key: str
     model_artifact: Any
     dataset_version: str | None
@@ -133,14 +142,17 @@ class TrainingRun(TrainingRunSummary):
     progress: RunProgress | None = None  # filled by the detail read only; null until the trainer reports an epoch
 
 
-class RunLogRef(BaseModel):
-    ray_job_id: str
-    status: str
+class RunStep(BaseModel):
+    key: StepKey
+    state: StepState
+    epoch: int | None = None  # training: the latest epoch reported, out of `epochs`
+    epochs: int | None = None
+    failure: FailureCode | None = None  # finished: why a failed run failed; never the job's own text
 
 
-class TrainingRunLogs(BaseModel):
+class TrainingRunSteps(BaseModel):
     status: str
-    logs: str
+    steps: list[RunStep]
 
 
 class LineageRun(BaseModel):

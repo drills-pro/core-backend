@@ -11,12 +11,12 @@ from app.core.problem import Problem, not_found
 from app.modules.user.model_registry import ModelVersion, register_run
 from app.modules.user.training import events_service, service
 from app.modules.user.training.constants import (
-    CANCEL_FAILED_DETAIL, CANCELLABLE, LOG_TAIL_CHARS, AuditAction, EntityType, NOT_REGISTRABLE_DETAIL, ProblemCode)
+    CANCEL_FAILED_DETAIL, CANCELLABLE, AuditAction, EntityType, NOT_REGISTRABLE_DETAIL, ProblemCode)
 from app.modules.user.training.readers import get_run_model
+from app.modules.user.training.steps import steps_of
 from app.modules.user.training.schemas import (
-    RunLogRef,
     TrainingRun,
-    TrainingRunLogs,
+    TrainingRunSteps,
     TrainingRunSummary,
 )
 
@@ -45,21 +45,17 @@ async def get_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -
     return TrainingRun.model_validate({**dict(row), "progress": progress})
 
 
-async def get_log_ref(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> RunLogRef:
+async def get_steps(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> TrainingRunSteps:
+    """The run's named steps and, for a failed run, a failure code. Built from the row and its reported epochs, never from the
+    job's output (the raw log can carry presigned URLs and paths)."""
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT ray_job_id, status FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
+            "SELECT status, report ->> 'code' AS code FROM training_runs WHERE id = $1 AND project_id = $2", run_id, project_id
         )
-    if row is None:
-        raise not_found()
-    return RunLogRef.model_validate(dict(row))
-
-
-async def get_logs(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> TrainingRunLogs:
-    """The end of the job's raw output; no connection is held while Ray answers."""
-    ref = await get_log_ref(ctx, project_id, run_id)
-    logs = await compute.logs(ref.ray_job_id)
-    return TrainingRunLogs(status=ref.status, logs=logs[-LOG_TAIL_CHARS:])
+        if row is None:
+            raise not_found()
+        progress = await events_service.progress_of(conn, run_id)
+    return TrainingRunSteps(status=row["status"], steps=steps_of(row["status"], progress, row["code"]))
 
 
 async def cancel_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> TrainingRun:

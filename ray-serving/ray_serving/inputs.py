@@ -49,3 +49,17 @@ def text_encoder(pre, tokenizer_url, input_name):
         return {"input_ids": np.array([enc.ids], dtype=np.int64), "attention_mask": np.array([enc.attention_mask], dtype=np.int64)}, 0, 0
 
     return encode
+
+
+def tabular_encoder(pre, tokenizer_url, input_name):
+    """Body {feature: value, ...}: one row in the trainer's feature order (model.json preprocessing.features). A missing or null
+    value is NaN, as at training; a value that is not a number fails the call (bad_input)."""
+    import numpy as np
+
+    features = pre["features"]
+
+    def encode(body):
+        row = [np.nan if body.get(name) is None else float(body[name]) for name in features]
+        return {input_name: np.array([row], dtype=np.float32)}, 0, 0
+
+    return encode

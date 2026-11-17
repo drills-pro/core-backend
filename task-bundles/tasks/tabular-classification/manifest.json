@@ -6,7 +6,11 @@
   "contract": 1,
   "trainer": "xgbtab.train:train",
   "smoke": "xgbtab.smoke:spec_doc",
-  "servable": false,
+  "servable": true,
+  "serving": {
+    "encoder": "tabular_encoder",
+    "postprocess": "ranked_probabilities"
+  },
   "monitor": "top1",
   "hyperparameters": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

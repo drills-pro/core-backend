@@ -34,3 +34,10 @@ def detect(outputs, class_names, width, height, params):
             "class": class_names[cls], "probability": float(flat[k]),
             "box": {"x": (cx - w / 2) * width, "y": (cy - h / 2) * height, "width": w * width, "height": h * height}})
     return found
+
+
+def ranked_probabilities(outputs, class_names, width, height, params):
+    """Tabular classification: the `probabilities` output (1, classes), already softmax-ed by XGBoost -> every class with its
+    probability, best first (the label output is not needed for it)."""
+    ranked = sorted(zip(class_names, outputs[1][0].tolist()), key=lambda x: -x[1])
+    return [{"class": c, "probability": p} for c, p in ranked]

@@ -1730,6 +1730,18 @@
         "title": "ExecutionProvider",
         "type": "string"
       },
+      "FailureCode": {
+        "description": "The closed set of a failed report's `code`; mirrors ray_core/constants.py FailCode. Anything else reads as internal.",
+        "enum": [
+          "oom",
+          "bad_data",
+          "unsupported",
+          "timeout",
+          "internal"
+        ],
+        "title": "FailureCode",
+        "type": "string"
+      },
       "FileLink": {
         "properties": {
           "url": {
@@ -4617,6 +4629,54 @@
         "title": "RunProgress",
         "type": "object"
       },
+      "RunStep": {
+        "properties": {
+          "epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epoch"
+          },
+          "epochs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epochs"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "$ref": "#/components/schemas/StepKey"
+          },
+          "state": {
+            "$ref": "#/components/schemas/StepState"
+          }
+        },
+        "required": [
+          "key",
+          "state"
+        ],
+        "title": "RunStep",
+        "type": "object"
+      },
       "Scope": {
         "description": "What an API key may do (mirrored by api_key_scopes_scope_check). Separate from Action: a key is\nnot a person, and require_key checks a scope where require checks an action.",
         "enum": [
@@ -4748,6 +4808,27 @@
         ],
         "title": "StatusBody",
         "type": "object"
+      },
+      "StepKey": {
+        "description": "The steps a customer sees for a training run, in order.",
+        "enum": [
+          "queued",
+          "training",
+          "finished"
+        ],
+        "title": "StepKey",
+        "type": "string"
+      },
+      "StepState": {
+        "enum": [
+          "pending",
+          "active",
+          "done",
+          "failed",
+          "cancelled"
+        ],
+        "title": "StepState",
+        "type": "string"
       },
       "Tables": {
         "additionalProperties": false,
@@ -6173,22 +6254,25 @@
         "title": "TrainingRunLineage",
         "type": "object"
       },
-      "TrainingRunLogs": {
+      "TrainingRunSteps": {
         "properties": {
-          "logs": {
-            "title": "Logs",
-            "type": "string"
-          },
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RunStep"
+            },
+            "title": "Steps",
+            "type": "array"
           }
         },
         "required": [
           "status",
-          "logs"
+          "steps"
         ],
-        "title": "TrainingRunLogs",
+        "title": "TrainingRunSteps",
         "type": "object"
       },
       "TrainingRunSummary": {
@@ -17664,10 +17748,10 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/training-runs/{run_id}/logs": {
+    "/v1/projects/{project_id}/training-runs/{run_id}/steps": {
       "get": {
-        "description": "The end of the job's raw output, for debugging. Results come from the job's report (the run's `report`), not from here.",
-        "operationId": "get_training_run_logs_v1_projects__project_id__training_runs__run_id__logs_get",
+        "description": "The run's steps and, if it failed, a failure code: what a customer sees instead of the job's raw log.",
+        "operationId": "get_training_run_steps_v1_projects__project_id__training_runs__run_id__steps_get",
         "parameters": [
           {
             "in": "path",
@@ -17743,7 +17827,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TrainingRunLogs"
+                  "$ref": "#/components/schemas/TrainingRunSteps"
                 }
               }
             },
@@ -17760,7 +17844,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Training Run Logs",
+        "summary": "Get Training Run Steps",
         "tags": [
           "training"
         ]
