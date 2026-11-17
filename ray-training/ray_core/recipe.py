@@ -48,17 +48,18 @@ def flip_with_boxes(image: torch.Tensor, boxes: torch.Tensor) -> tuple[torch.Ten
 
 class EarlyStopping:
     """Stops after `patience` epochs without a better value of a higher-is-better metric; patience 0 never stops.
-    The model kept is the last one trained, not the best (the best is not stored)."""
+    `improved` says whether the last update was a new best: the loop keeps that epoch's model (loop.fit restores it)."""
 
     def __init__(self, patience: int):
-        self.patience, self.best, self.bad = patience, -math.inf, 0
+        self.patience, self.best, self.bad, self.improved = patience, -math.inf, 0, False
 
     @property
     def stopped(self) -> bool:
         return self.patience > 0 and self.bad >= self.patience
 
     def update(self, value: float) -> bool:
-        if value > self.best:
+        self.improved = value > self.best
+        if self.improved:
             self.best, self.bad = value, 0
         else:
             self.bad += 1

@@ -12,6 +12,7 @@ EVENTS_TIMEOUT_SECONDS = 5  # a progress post that takes longer is dropped: it m
 ROOT_RANK = 0  # the Ray Train worker that evaluates, exports and uploads
 LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; production leaves it unset (= 1)
 DEFAULT_TASK_GPUS = 1
+DEFAULT_WEIGHT_DECAY = 0.01  # AdamW's own default; a bundle exposes it as the weight_decay hyperparameter
 TRAIN_ATTEMPTS = 2  # Ray Train's FailureConfig.max_failures: one failed attempt is resumed from its last checkpoint, a second ends the run
 TRAIN_STATE_KEEP = 1  # checkpoints kept per run
 STATE_FILE = "state.pt"  # the resume state inside a checkpoint

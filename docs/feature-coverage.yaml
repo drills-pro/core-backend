@@ -148,7 +148,7 @@ entries:
   code: [ray-training/ray_core/recipe.py, core-api/migrations/20261105131400_preset_training_recipe.sql, core-api/app/core/task_catalog.py]
   tests:
   - ray-training/tests/test_recipe.py::test_cosine_schedule_decays_to_zero
-  - ray-training/tests/test_recipe.py::test_early_stopping_ends_training_after_patience_and_keeps_the_last_model
+  - ray-training/tests/test_recipe.py::test_early_stopping_ends_training_after_patience_and_keeps_the_best_model
   - core-api/tests/core/test_presets.py::test_the_augmentation_must_be_one_the_tasks_trainer_has
   note: The 2026-11-05 audit listed this as missing; it was built afterwards.
 - id: TRN-13

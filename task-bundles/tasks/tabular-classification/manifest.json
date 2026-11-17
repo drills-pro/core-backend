@@ -51,7 +51,8 @@
         "target": "label",
         "n_estimators": 200,
         "max_depth": 6
-      }
+      },
+      "early_stopping_patience": 20
     },
     {
       "name": "large",
@@ -65,7 +66,8 @@
         "target": "label",
         "n_estimators": 1000,
         "max_depth": 8
-      }
+      },
+      "early_stopping_patience": 20
     }
   ],
   "requires": [
