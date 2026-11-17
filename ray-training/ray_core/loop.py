@@ -10,7 +10,7 @@ from typing import Any, Callable
 import torch
 from torch.utils.data import DataLoader
 
-from ray_core.constants import ROOT_RANK
+from ray_core.constants import DEFAULT_WEIGHT_DECAY, ROOT_RANK
 from ray_core.recipe import EarlyStopping, make_scheduler
 from ray_core.result import NUM_WORKERS_GPU, cap_gpu_share, device
 from ray_core.spec import TrainSpec
@@ -80,7 +80,7 @@ def _unwrapped(model: torch.nn.Module) -> torch.nn.Module:
 
 
 def _cpu_state(module: torch.nn.Module) -> dict:
-    return {k: v.detach().cpu() for k, v in module.state_dict().items()}
+    return {k: v.detach().cpu().clone() for k, v in module.state_dict().items()}  # a copy: on CPU, .cpu() alone shares the live weights
 
 
 def fit(kit: Kit, spec: TrainSpec) -> Fit | None:
@@ -93,17 +93,19 @@ def fit(kit: Kit, spec: TrainSpec) -> Fit | None:
     train_loader = session.prepare_loader(
         DataLoader(kit.train_set, spec.batch_size, shuffle=True, collate_fn=kit.collate, num_workers=workers))
     eval_loader = DataLoader(kit.eval_set, spec.batch_size, collate_fn=kit.collate, num_workers=workers)  # root rank only, whole set
-    optimizer = torch.optim.AdamW(model.parameters(), lr=spec.learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=spec.learning_rate,
+                                  weight_decay=spec.hyperparameters.get("weight_decay", DEFAULT_WEIGHT_DECAY))
     scheduler = make_scheduler(optimizer, spec.lr_schedule, spec.warmup_fraction, spec.epochs * len(train_loader))  # stepped per batch
     stopper = EarlyStopping(spec.early_stopping_patience)
     history: list[dict] = []
+    best: dict | None = None  # with early stopping on: the best epoch's model, metrics and confusion matrix (root rank)
     start = 0
     if (saved := session.resume()) is not None:
         inner.load_state_dict(saved["model"])
         optimizer.load_state_dict(saved["optimizer"])
         scheduler.load_state_dict(saved["scheduler"])
         stopper.load_state_dict(saved["stopper"])
-        history, start = saved["history"], saved["epoch"]
+        history, start, best = saved["history"], saved["epoch"], saved.get("best")
     stop = stopper.stopped  # read from the same checkpoint on every rank, so they agree
     metrics, confusion = {}, None
     for epoch in range(start, spec.epochs):
@@ -125,13 +127,18 @@ def fit(kit: Kit, spec: TrainSpec) -> Fit | None:
             metrics, confusion = kit.evaluate(inner, eval_loader, dev)
             history.append({"epoch": epoch + 1, "train_loss": total / max(seen, 1), **metrics})
             stopper.update(metrics[kit.monitor])
+            if spec.early_stopping_patience and stopper.improved:
+                best = {"model": _cpu_state(inner), "metrics": metrics, "confusion": confusion}
         stop = session.agree(stopper.stopped)  # at an epoch boundary, so no rank is left in a collective of the next epoch
         session.report(
             history[-1] if history else {},
             lambda: {"epoch": epoch + 1, "model": _cpu_state(inner), "optimizer": optimizer.state_dict(), "history": history,
-                     "scheduler": scheduler.state_dict(), "stopper": stopper.state_dict()})
+                     "scheduler": scheduler.state_dict(), "stopper": stopper.state_dict(), "best": best})
     if session.rank != ROOT_RANK:
         return None
-    if not metrics:  # resumed after the last epoch or after an early stop (the export was what failed): score the restored model once
+    if spec.early_stopping_patience and best is not None:  # the model that is exported is the best epoch's, not the last one trained
+        inner.load_state_dict(best["model"])
+        metrics, confusion = best["metrics"], best["confusion"]
+    elif not metrics:  # resumed after the last epoch or after an early stop (the export was what failed): score the restored model once
         metrics, confusion = kit.evaluate(inner, eval_loader, dev)
     return Fit(inner, metrics, confusion, history)

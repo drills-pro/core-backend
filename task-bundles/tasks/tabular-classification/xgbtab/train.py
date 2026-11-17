@@ -52,6 +52,12 @@ def export(model, n_features: int, path: Path) -> None:
     path.write_bytes(onnx.SerializeToString())
 
 
+def classifier(xgboost, spec: TrainSpec, hp: dict, trees: int, rounds: int | None):
+    return xgboost.XGBClassifier(
+        n_estimators=trees, max_depth=hp["max_depth"], learning_rate=spec.learning_rate, random_state=spec.seed,
+        tree_method="hist", early_stopping_rounds=rounds)
+
+
 def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
     import xgboost
 
@@ -75,11 +81,15 @@ def train(spec: TrainSpec, work: Path, get: Get) -> Result | None:
     y_train, y_held = (np.array([ids[str(r[target])] for r in part]) for part in (train_rows, held_out))
     if len(set(y_train.tolist())) != len(classes):
         raise BadData("every class needs at least one training row")
-    model = xgboost.XGBClassifier(
-        n_estimators=hp["n_estimators"], max_depth=hp["max_depth"], learning_rate=spec.learning_rate, random_state=spec.seed,
-        tree_method="hist")
-    model.fit(matrix(train_rows, features), y_train)
-    metrics, confusion = classification_metrics(model.predict_proba(matrix(held_out, features)), y_held, len(classes))
+    x_train, x_held = matrix(train_rows, features), matrix(held_out, features)
+    trees = hp["n_estimators"]
+    if spec.early_stopping_patience:  # the rounds without a better held-out logloss, as epochs are for the neural tasks
+        probe = classifier(xgboost, spec, hp, hp["n_estimators"], spec.early_stopping_patience)
+        probe.fit(x_train, y_train, eval_set=[(x_held, y_held)], verbose=False)
+        trees = probe.best_iteration + 1
+    model = classifier(xgboost, spec, hp, trees, None)  # the export keeps every tree it is given: exactly the trees up to the best round
+    model.fit(x_train, y_train)
+    metrics, confusion = classification_metrics(model.predict_proba(x_held), y_held, len(classes))
     onnx = work / "model.onnx"
     export(model, len(features), onnx)
     signature = {

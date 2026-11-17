@@ -85,7 +85,8 @@ def kit(accuracies, seen_lrs=None, model=None):
 
 
 def spec(**over):
-    base = dict(epochs=5, batch_size=2, learning_rate=LR, lr_schedule=LrSchedule.CONSTANT, warmup_fraction=0.0, early_stopping_patience=0)
+    base = dict(epochs=5, batch_size=2, learning_rate=LR, lr_schedule=LrSchedule.CONSTANT, warmup_fraction=0.0, early_stopping_patience=0,
+                hyperparameters={})
     return SimpleNamespace(**{**base, **over})
 
 
@@ -96,14 +97,29 @@ def plain_session():
     loop.use(Session())
 
 
-def test_early_stopping_ends_training_after_patience_and_keeps_the_last_model():
+def test_early_stopping_ends_training_after_patience_and_keeps_the_best_model():
     done = fit(kit([0.9, 0.8, 0.7, 0.6, 0.5]), spec(early_stopping_patience=2))
     assert [h["epoch"] for h in done.history] == [1, 2, 3]  # epoch 1 best, 2 and 3 no better: stop
-    assert done.metrics == {"top1": 0.7}  # the last model's metrics, not the best's
+    assert done.metrics == {"top1": 0.9}  # the best epoch's metrics, the model the export uses
 
 
-def test_without_patience_every_epoch_runs():
-    assert len(fit(kit([0.9] * 5), spec()).history) == 5
+def test_the_exported_weights_are_the_best_epochs_not_the_last_trained():
+    k = kit([0.9, 0.8, 0.7])
+    seen, evaluate = [], k.evaluate
+
+    def recording(m, loader, dev):
+        seen.append({n: t.clone() for n, t in m.state_dict().items()})
+        return evaluate(m, loader, dev)
+
+    k.evaluate = recording
+    done = fit(k, spec(epochs=3, early_stopping_patience=2))
+    assert len(done.history) == 3  # epochs 2 and 3 trained after the best, then the weights went back to epoch 1's
+    assert all(torch.equal(done.model.state_dict()[n], seen[0][n]) for n in seen[0])
+
+
+def test_without_patience_every_epoch_runs_and_the_last_model_is_kept():
+    done = fit(kit([0.9, 0.8, 0.7, 0.6, 0.5]), spec())
+    assert len(done.history) == 5 and done.metrics == {"top1": 0.5}
 
 
 class Recording(Session):
@@ -149,8 +165,8 @@ def test_a_resume_after_an_early_stop_does_not_train_again():
     fit(kit([0.9, 0.8]), s)  # stops after epoch 2
     assert rec.saved["epoch"] == 2
     loop.use(Recording(rec.saved))
-    done = fit(kit([0.8]), s)  # only the final scoring evaluate()
-    assert len(done.history) == 2 and done.metrics == {"top1": 0.8}
+    done = fit(kit([0.8]), s)  # no epoch left: the best one is restored and scored from its checkpoint, not evaluated again
+    assert len(done.history) == 2 and done.metrics == {"top1": 0.9}
 
 
 def test_a_non_root_rank_stops_when_the_root_does():

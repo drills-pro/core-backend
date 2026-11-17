@@ -36,6 +36,13 @@
         "maximum": 1536,
         "default": 224,
         "description": "Side of the square the images are resized to (image tasks)."
+      },
+      "weight_decay": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.01,
+        "description": "AdamW weight decay: pulls weights toward zero against overfitting."
       }
     }
   },
@@ -68,7 +75,7 @@
       "lr_schedule": "constant",
       "warmup_fraction": 0,
       "augmentation": "none",
-      "early_stopping_patience": 0,
+      "early_stopping_patience": 3,
       "hyperparameters": {
         "epochs": 30,
         "batch_size": 16,
@@ -103,7 +110,7 @@
       "lr_schedule": "constant",
       "warmup_fraction": 0,
       "augmentation": "none",
-      "early_stopping_patience": 0,
+      "early_stopping_patience": 3,
       "hyperparameters": {
         "epochs": 30,
         "batch_size": 16,
@@ -138,7 +145,7 @@
       "lr_schedule": "constant",
       "warmup_fraction": 0,
       "augmentation": "none",
-      "early_stopping_patience": 0,
+      "early_stopping_patience": 3,
       "hyperparameters": {
         "epochs": 30,
         "batch_size": 16,
