@@ -37,7 +37,7 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
   });
   const [versionId, setVersionId] = useState('');
   const [preset, setPreset] = useState('');
-  const [logsOf, setLogsOf] = useState<string | null>(null);
+  const [stepsOf, setStepsOf] = useState<string | null>(null);
 
   const start = useMutation({
     mutationFn: () =>
@@ -54,11 +54,11 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
       unwrap(client.POST('/v1/projects/{project_id}/training-runs/{run_id}/cancel', { params: { path: { project_id: projectId, run_id: runId } } })),
     onSettled: () => qc.invalidateQueries({ queryKey: ['runs', projectId] }),
   });
-  const logs = useQuery({
-    queryKey: ['logs', logsOf],
+  const steps = useQuery({
+    queryKey: ['steps', stepsOf],
     queryFn: () =>
-      unwrap(client.GET('/v1/projects/{project_id}/training-runs/{run_id}/logs', { params: { path: { project_id: projectId, run_id: logsOf! } } })),
-    enabled: !!logsOf,
+      unwrap(client.GET('/v1/projects/{project_id}/training-runs/{run_id}/steps', { params: { path: { project_id: projectId, run_id: stepsOf! } } })),
+    enabled: !!stepsOf,
     refetchInterval: POLL_MS,
   });
 
@@ -111,8 +111,8 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
               <Table.Cell>{when(r.created_at)}</Table.Cell>
               <Table.Cell>
                 <HStack justify="end">
-                  <Button size="xs" variant="outline" onClick={() => setLogsOf(logsOf === r.id ? null : r.id)}>
-                    {logsOf === r.id ? 'Hide logs' : 'Logs'}
+                  <Button size="xs" variant="outline" onClick={() => setStepsOf(stepsOf === r.id ? null : r.id)}>
+                    {stepsOf === r.id ? 'Hide steps' : 'Steps'}
                   </Button>
                   {!RUN_DONE.includes(r.status) && (
                     <Button size="xs" variant="outline" onClick={() => cancel.mutate(r.id)}>
@@ -125,11 +125,11 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
           ))}
         </Table.Body>
       </Table.Root>
-      {logsOf && (
+      {stepsOf && (
         <>
-          <ErrorAlert error={logs.error} />
+          <ErrorAlert error={steps.error} />
           <Code display="block" whiteSpace="pre-wrap" maxH="96" overflow="auto" p="2" fontSize="xs">
-            {logs.data?.logs || '(no logs yet)'}
+            {steps.data?.steps.map((s) => `${s.key}: ${s.state}${s.epochs ? ` (epoch ${s.epoch ?? 0}/${s.epochs})` : ''}${s.failure ? ` - ${s.failure}` : ''}`).join('\n') || '(no steps yet)'}
           </Code>
         </>
       )}
