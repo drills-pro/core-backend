@@ -13,7 +13,7 @@ from tests.support import MemStore, classification_rows, fake_get, spec_text
 pytestmark = pytest.mark.online
 
 
-TASK, SMALL_BASE_MODEL = "image-classification", "facebook/convnext-tiny-224"  # manifest.json, small preset
+TASK, SMALL_BASE_MODEL = "image-classification", "microsoft/swin-tiny-patch4-window7-224"  # manifest.json, small preset
 
 
 def hub_reachable() -> bool:
