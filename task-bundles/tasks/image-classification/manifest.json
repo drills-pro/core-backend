@@ -43,8 +43,8 @@
     {
       "name": "small",
       "base_model": {
-        "repo_id": "facebook/convnext-tiny-224",
-        "revision": "6166b7613034066690a621d8bf25ffdf181a34f0"
+        "repo_id": "microsoft/swin-tiny-patch4-window7-224",
+        "revision": "d00d478bfaf1f417d34a1186673ad4b4be264c51"
       },
       "learning_rate": 0.0001,
       "preprocessing": {
@@ -113,8 +113,8 @@
     {
       "name": "large",
       "base_model": {
-        "repo_id": "facebook/convnext-base-224",
-        "revision": "8550c1da008c99b90c9c42f1d4e1cb650d7a8c05"
+        "repo_id": "microsoft/swin-base-patch4-window7-224",
+        "revision": "20d6c26ef6455d36c0a78671d787c5da57513d4b"
       },
       "learning_rate": 5e-05,
       "preprocessing": {
