@@ -132,18 +132,14 @@ def test_a_tracking_hiccup_does_not_block_a_cancel(monkeypatch):
     assert cancel(env.row["id"]).status == S.CANCELLED
 
 
-def test_logs_are_the_tail_and_read_with_no_connection_held(monkeypatch):
-    seen = {}
+def test_steps_read_the_row_and_its_code_never_the_job_log(monkeypatch):
+    async def no_log(job_id):  # the job's output is not read for a customer's steps
+        raise AssertionError("steps must not call compute.logs")
 
-    async def logs(job_id):
-        seen["open"] = table.open
-        return "x" * 10_000
-
-    table = FakeJobTable(persist.TRAINING)
-    patch_tenant_conn(monkeypatch, FakeConn(row={"ray_job_id": "j", "status": "running"}), run_service)
-    monkeypatch.setattr(run_service.compute, "logs", logs)
-    out = asyncio.run(run_service.get_logs(CTX, PROJECT, uuid.uuid4()))
-    assert (out.status, len(out.logs)) == ("running", run_service.LOG_TAIL_CHARS) and seen["open"] == 0
+    monkeypatch.setattr(run_service.compute, "logs", no_log, raising=False)
+    patch_tenant_conn(monkeypatch, FakeConn(row={"status": "failed", "code": "oom"}), run_service)
+    out = asyncio.run(run_service.get_steps(CTX, PROJECT, uuid.uuid4()))
+    assert out.status == "failed" and out.steps[-1].failure == "oom"
 
 
 def _register(monkeypatch, row):

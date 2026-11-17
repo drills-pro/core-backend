@@ -70,7 +70,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | PRD-25 | predict | Active revision rule - an active deployment first, then the Production version, then the newest | No promoted_at column, so "newest promotion wins" is "newest version"; the tie-break is not covered by a test against real data (the lookup is faked in this test). |
 | 1 | partial | REG-03 | registry | List model versions with customer stage labels | Rows carry name, version, stage and date only; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call. |
 | 1 | partial | REG-11 | registry | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py). |
-| 1 | partial | TRN-03 | training | Raw log tail of a run | Last 8000 characters only (LOG_TAIL_CHARS); no streaming, no history, no per-tenant redaction. |
+| 1 | partial | TRN-03 | training | Customer steps of a run (no raw job log, no report message) | Steps and a failure code only; the raw log is no longer served to customers (ops read Ray). No per-epoch metrics in the steps. |
 | 1 | partial | TRN-06 | training | Presets are data, copied into the spec; project preset list for the training form | No GPU-minute estimate and no cost preview on the list (planning/22). |
 | 1 | partial | TRN-29 | training | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI. |
 | 1 | deferred | DAT-26 | datasets | Tombstoning dataset versions for erasure inside immutable history | Designed with the erasure flow. |
@@ -124,7 +124,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 |---|---|---|---|---|
 | TRN-01 | built | Start a run on a pinned dataset version (202, Idempotency-Key, 429 over the plan's concurrent runs) | planning/05 Conventions; planning/06 Job spec v1; docs/trainer-plan.md | 3 |
 | TRN-02 | built | List and read runs (status, report, metrics, progress) | planning/05 Conventions | 2 |
-| TRN-03 | partial | Raw log tail of a run | planning/05 Conventions; planning/11 Customer-visible job logs | 2 |
+| TRN-03 | partial | Customer steps of a run (no raw job log, no report message) | planning/05 Conventions; planning/11 Customer-visible job logs | 2 |
 | TRN-04 | built | Cancel a run (stop the job, close the MLflow run, settle once) | planning/07 Cancellation and failure handling | 2 |
 | TRN-05 | built | Job spec v1 `train` payload, validated against a committed JSON Schema | planning/06 Job spec v1; docs/trainer-plan.md Job spec | 3 |
 | TRN-06 | partial | Presets are data, copied into the spec; project preset list for the training form | planning/06 Task types and runtimes; planning/22 Training form | 2 |

@@ -17,8 +17,11 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import predict, snippets
 from app.modules.user.deployments.constants import (
+    FEATURE_TYPE,
     INPUT_FIELD_BY_ENCODER,
+    NUMBER_PLACEHOLDER,
     OUTPUT_ITEM_BY_POSTPROCESS,
+    TABULAR_ENCODER,
     SNIPPET_INPUT_PLACEHOLDER,
     DEPLOY_BELOW_FLOOR_DETAIL,
     DEPLOY_RISK_DETAIL,
@@ -214,7 +217,8 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
     """The input and output shape for POST /v1/predict on this deployment, from its task type's encoder and postprocess, and call snippets."""
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT mv.model_id, mv.mlflow_version FROM deployments d JOIN model_versions mv ON mv.id = d.model_version_id "
+            "SELECT mv.model_id, mv.mlflow_version, r.report -> 'features' AS features FROM deployments d "
+            "JOIN model_versions mv ON mv.id = d.model_version_id JOIN training_runs r ON r.id = d.training_run_id "
             "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3",
             deployment_id, project_id, DeploymentStatus.DELETED,
         )
@@ -222,12 +226,18 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
         info = None if task is None else await task_types.get(conn, task)
     if row is None or info is None:
         raise not_found()
-    field = INPUT_FIELD_BY_ENCODER.get(info.encoder)
-    body_input = {field: SNIPPET_INPUT_PLACEHOLDER} if field else {}
+    if info.encoder == TABULAR_ENCODER:  # one value per feature column, in the model's own order
+        columns = row["features"] or []
+        input_shape = {name: FEATURE_TYPE for name in columns}
+        body_input = {name: NUMBER_PLACEHOLDER for name in columns}
+    else:
+        field = INPUT_FIELD_BY_ENCODER.get(info.encoder)
+        input_shape = {field: "string"} if field else {}
+        body_input = {field: SNIPPET_INPUT_PLACEHOLDER} if field else {}
     item = OUTPUT_ITEM_BY_POSTPROCESS.get(info.postprocess, {})
     return DeploymentSchema(
         task_type=task, model_id=row["model_id"], model_revision=row["mlflow_version"],
-        input={field: "string"} if field else {}, output={"predictions": [item]},
+        input=input_shape, output={"predictions": [item]},
         snippets=snippets.build(base_url, str(project_id), str(row["model_id"]), row["mlflow_version"], {"input": body_input}),
     )
 

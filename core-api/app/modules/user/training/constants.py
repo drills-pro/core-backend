@@ -59,7 +59,30 @@ TRANSITIONS: dict[TrainingStatus, frozenset[TrainingStatus]] = {
 INFLIGHT_STATUSES = (S.SUBMITTED, S.RUNNING)  # mirrors training_runs_inflight_idx
 CANCELLABLE = INFLIGHT_STATUSES
 
-LOG_TAIL_CHARS = 8000
+class StepKey(StrEnum):
+    """The steps a customer sees for a training run, in order."""
+
+    QUEUED = "queued"
+    TRAINING = "training"
+    FINISHED = "finished"
+
+
+class StepState(StrEnum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class FailureCode(StrEnum):
+    """The closed set of a failed report's `code`; mirrors ray_core/constants.py FailCode. Anything else reads as internal."""
+
+    OOM = "oom"
+    BAD_DATA = "bad_data"
+    UNSUPPORTED = "unsupported"
+    TIMEOUT = "timeout"
+    INTERNAL = "internal"
 
 
 class EventType(StrEnum):

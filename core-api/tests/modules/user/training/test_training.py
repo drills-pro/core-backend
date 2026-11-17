@@ -116,13 +116,13 @@ def test_a_bad_create_request_is_422(call, started, body, headers):
     assert call("POST", BASE, access(role=TenantRole.ADMIN), json=body, headers=headers).status_code == 422
 
 
-def test_logs_are_the_raw_tail_only(call, monkeypatch):
-    async def logs(job_id):
-        return "x" * 10_000
-
-    monkeypatch.setattr(run_service.compute, "logs", logs)
-    r = call("GET", f"{BASE}/{RUN}/logs", {**access(), "ray_job_id": "j", "status": "running"})
-    assert r.status_code == 200 and set(r.json()) == {"status", "logs"} and len(r.json()["logs"]) == 8000
+def test_steps_are_the_customer_view_and_carry_no_raw_log_or_message(call):
+    row = {**access(), "status": "failed", "code": "oom", "report": {"code": "oom", "message": "RuntimeError: https://x?X-Amz-Signature=abc"}}
+    r = call("GET", f"{BASE}/{RUN}/steps", row)
+    assert r.status_code == 200 and set(r.json()) == {"status", "steps"}
+    assert [s["key"] for s in r.json()["steps"]] == ["queued", "training", "finished"]
+    assert r.json()["steps"][-1] == {"key": "finished", "state": "failed", "epoch": None, "epochs": None, "failure": "oom"}
+    assert "Signature" not in r.text
 
 
 # ---- create ----
@@ -699,10 +699,10 @@ def test_get_run_of_another_project_is_404(monkeypatch):
     assert err.value.status_code == 404
 
 
-def test_logs_of_an_unknown_run_are_404(monkeypatch):
+def test_steps_of_an_unknown_run_are_404(monkeypatch):
     patch_tenant_conn(monkeypatch, FakeConn(row=None), run_service)
     with pytest.raises(Problem) as err:
-        asyncio.run(run_service.get_logs(ctx(), PROJECT, RUN))
+        asyncio.run(run_service.get_steps(ctx(), PROJECT, RUN))
     assert err.value.status_code == 404
 
 
