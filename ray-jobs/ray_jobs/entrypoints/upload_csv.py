@@ -4,6 +4,7 @@
 """
 import sys
 
+from ray_jobs.common.constants import LABEL_COLUMN, TABULAR_TASKS
 from ray_jobs.common.job import Job
 from ray_jobs.common.enums import Param
 from ray_jobs.common.store import fetch_upload
@@ -16,7 +17,7 @@ def extract(job: Job) -> Extracted:
     source = fetch_upload(job.store, job.limits.upload_max_bytes, job.tmp)
     target = job.params.get(Param.TARGET)
     table = read_csv_upload(source, job.task, target, job.params.get(Param.SPLIT), job.limits, job.report)
-    return Extracted(None, target, table)
+    return Extracted(None, LABEL_COLUMN if job.task in TABULAR_TASKS else target, table)
 
 
 if __name__ == "__main__":

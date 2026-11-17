@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from ray_jobs.common.constants import IMAGE_CLASSIFICATION, MAX_REPORT_ISSUES, TABULAR_CLASSIFICATION, TIMEOUT_LIMIT
+from ray_jobs.common.constants import IMAGE_CLASSIFICATION, LABEL_COLUMN, MAX_REPORT_ISSUES, TABULAR_CLASSIFICATION, TIMEOUT_LIMIT
 from ray_jobs.common.enums import BOX_FIELDS, INDEX_COLUMNS, Code
 from ray_jobs.common.limits import LimitExceeded, Limits
 from ray_jobs.common.report import Report
@@ -46,7 +46,7 @@ def test_stats():
     assert s == {"file_count": 2, "total_bytes": len(JPG) + len(PNG), "row_count": 2,
                  "classes": {"a": 1, "b": 1}, "splits": {"train": 1}, "duplicates_skipped": 2}
     t, _ = table("a,y\n1,x\n2,x\n3,z\n")
-    assert compute_stats(t.rows, TABULAR_CLASSIFICATION, "y", 0)["classes"] == {"x": 2, "z": 1}
+    assert compute_stats(t.rows, TABULAR_CLASSIFICATION, LABEL_COLUMN, 0)["classes"] == {"x": 2, "z": 1}
 
 
 def test_http_get_stops_reading_at_the_cap(monkeypatch):

@@ -122,12 +122,12 @@ def test_csv_success_and_merge_with_a_base(fake_parquet, monkeypatch):
     rep = run_csv(params(TABULAR_CLASSIFICATION, target="y", split="test"), store)
     assert not rep.failed and set(store.puts) == {"out/data.parquet", "out/schema.json", REPORT_KEY}
     schema = json.loads(store.puts["out/schema.json"])
-    assert schema == {"columns": [{"name": "a", "type": "int64"}, {"name": "b", "type": "string"}, {"name": "y", "type": "string"}]}
-    assert json.loads(store.puts["out/data.parquet"])[0] == {"a": 1, "b": None, "y": "x", "split": "test"}
+    assert schema == {"columns": [{"name": "a", "type": "int64"}, {"name": "b", "type": "string"}, {"name": "label", "type": "string"}]}
+    assert json.loads(store.puts["out/data.parquet"])[0] == {"a": 1, "b": None, "label": "x", "split": "test"}
     assert final_report(store)["stats"]["classes"] == {"x": 1, "z": 1}
 
     base = {"data_url": "http://b/data", "schema_url": "http://b/schema"}
-    base_rows = [{"a": 0, "b": None, "y": "q", "split": None}]
+    base_rows = [{"a": 0, "b": None, "label": "q", "split": None}]
     monkeypatch.setattr("ray_jobs.merge.http_get", lambda url: json.dumps(schema if url.endswith("schema") else base_rows).encode())
     store = FakeStore(b"a,b,y\n1,,x\n2,,z\n")
     rep = run_csv(params(TABULAR_CLASSIFICATION, target="y", base=base), store)
