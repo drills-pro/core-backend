@@ -52,7 +52,7 @@ def test_a_small_payload_is_kept_and_a_big_one_becomes_a_marker():
 def test_test_deployment_logs_the_marker_not_the_big_body(monkeypatch):
     conn = FakeConn(row={"status": "active"})
     patch_tenant_conn(monkeypatch, conn, service)
-    big = {"text": "x" * TEST_CALL_STORED_MAX_BYTES}
+    big = {"input": {"text": "x" * TEST_CALL_STORED_MAX_BYTES}}
 
     async def answer(tenant_id, project_id, deployment_id, body):
         prediction = serve_client.Prediction(predictions=[1], cold_load=False)
