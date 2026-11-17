@@ -212,7 +212,7 @@ def test_test_deployment_releases_the_connection_before_calling_serve(monkeypatc
         return Answered(run_id=uuid.uuid4(), request_bytes=2, prediction=Prediction(predictions={"ok": 1}, cold_load=False), elapsed_ms=1.5)
 
     monkeypatch.setattr(service.predict, "answer", answer)
-    out = asyncio.run(service.test_deployment(CTX, uuid.uuid4(), uuid.uuid4(), {}))
+    out = asyncio.run(service.test_deployment(CTX, uuid.uuid4(), uuid.uuid4(), {"input": {}}))
     assert (out.response, out.latency_ms) == ({"predictions": {"ok": 1}}, 1.5)
 
 

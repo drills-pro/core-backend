@@ -265,7 +265,10 @@ async def test_deployment(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
         raise not_found()
     require_active(row["status"])
 
-    done = await predict.answer(ctx.tenant_id, project_id, deployment_id, body)
+    # The body is {"input": {...}}, as POST /v1/predict takes it: the model reads the input, not the wrapper.
+    if not isinstance(body.get("input"), dict):
+        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.MODEL_REJECTED_INPUT, 'the body must be {"input": {...}}')
+    done = await predict.answer(ctx.tenant_id, project_id, deployment_id, body["input"])
     response_body, elapsed_ms = {PREDICTIONS_FIELD: done.prediction.predictions}, done.elapsed_ms
 
     async with TenantConn(ctx.tenant_id) as conn:

@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core import plan_limits
+from app.core.problem import Problem
 from app.core.enums import TaskType
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeCallError, ServeErrorCode
@@ -206,6 +207,18 @@ def test_the_test_call_answers_with_the_predictions_and_logs_the_call(monkeypatc
     monkeypatch.setattr(service.predict, "answer", answer_)
     conn = FakeConn(row={"status": "active"})
     patch_counted_conn(monkeypatch, conn, service)
-    out = asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x"}))
+    out = asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"input": {"text": "x"}}))
     assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, DEPLOYMENT, {"text": "x"})]
     assert any(sql.startswith("INSERT INTO deployment_test_calls") for sql, _ in conn.calls)
+
+
+def test_a_try_it_body_without_an_input_object_is_refused_before_the_model(monkeypatch):
+    async def answer_(*args):
+        raise AssertionError("the model must not be called")
+
+    monkeypatch.setattr(service.predict, "answer", answer_)
+    conn = FakeConn(row={"status": "active"})
+    patch_counted_conn(monkeypatch, conn, service)
+    with pytest.raises(Problem) as err:
+        asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x"}))
+    assert err.value.status_code == 422
