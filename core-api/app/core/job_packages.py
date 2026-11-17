@@ -1,14 +1,19 @@
 """The job code the platform runs on Ray, one `job_packages` row per (name, content hash): where its zip is staged and
 whether runs may use it (candidate -> stable -> retired). Platform data, written only through /v1/admin/job-packages.
 """
+import logging
 from datetime import datetime
 from http import HTTPStatus
 
 from pydantic import BaseModel
 
+from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageAuditAction, PackageKind, PackageStatus, SmokeStatus
 from app.core.problem import Problem
 from app.core.requirements import RequirementsError, merge_requirements
+from app.core.settings import settings
+
+logger = logging.getLogger(__name__)
 
 REQUIREMENTS_CONFLICT = "requirements_conflict"  # two packages of one run pin the same distribution differently
 
@@ -130,3 +135,11 @@ async def reset_failed_smoke(conn, name: JobPackageName, sha256: str) -> JobPack
     (unknown, promoted or retired, or another retry got there first), so concurrent retries start one job."""
     row = await conn.fetchrow(_RESET_FAILED_SMOKE, name, sha256, PackageStatus.CANDIDATE, SmokeStatus.FAILED, SmokeStatus.PENDING)
     return None if row is None else JobPackage.model_validate(dict(row))
+
+
+async def purge_audit() -> None:
+    """Poller `job-packages-audit-purge`: keep the newest `job_packages.audit_keep_per_name` rows of each package name."""
+    async with (await get_pool()).acquire() as conn:
+        dropped = await conn.fetchval("SELECT purge_job_package_audit($1)", settings.job_packages.audit_keep_per_name)
+    if dropped:
+        logger.info("purged %s job package audit rows", dropped)

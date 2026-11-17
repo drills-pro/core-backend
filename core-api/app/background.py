@@ -9,7 +9,7 @@ import asyncio
 import logging
 import zlib
 
-from app.core import rate_limit
+from app.core import job_packages, rate_limit
 from app.core.db import get_pool
 from app.integrations.serve_client import ensure_serving
 from app.modules.admin.task_bundles import auto_promote_bundles
@@ -46,6 +46,7 @@ POLLERS = (
     ("test-calls-purge", purge_test_calls, PURGE_INTERVAL_SECONDS),
     ("prediction-worker", process_predictions, PREDICTION_WORKER_INTERVAL_SECONDS),
     ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
+    ("job-packages-audit-purge", job_packages.purge_audit, PURGE_INTERVAL_SECONDS),
     ("webhook-dispatch", dispatch_webhooks, WEBHOOK_INTERVAL_SECONDS),
     ("bundle-auto-promote", auto_promote_bundles, BUNDLE_PROMOTE_INTERVAL_SECONDS),
 )
