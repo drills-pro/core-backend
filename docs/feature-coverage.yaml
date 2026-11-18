@@ -1538,10 +1538,11 @@ entries:
   source: planning/03 Retention; docs/datasets-plan.md
   status: built
   old: F06
-  code: ["DELETE /v1/projects/{project_id}/datasets/{dataset_id}", "POST /v1/projects/{project_id}/datasets/{dataset_id}:restore", core-api/app/modules/user/datasets/reconcile.py]
+  code: ["DELETE /v1/projects/{project_id}/datasets/{dataset_id}", "POST /v1/projects/{project_id}/datasets/{dataset_id}:restore", "GET /v1/datasets/trash", core-api/app/modules/user/datasets/reconcile.py]
   tests:
   - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
   - core-api/tests/modules/user/datasets/test_datasets.py::test_restore_of_a_live_or_expired_dataset_is_409
+  - core-api/tests/modules/user/datasets/test_trash.py::test_trash_lists_deleted_datasets_with_project_and_deadline
   - core-api/tests/modules/user/datasets/test_reconcile.py::test_purge_removes_only_datasets_past_retention
 - id: DAT-03
   area: datasets

@@ -80,6 +80,7 @@ ROUTERS = (
     catalog.router,
     webhooks.router,
     datasets.router,
+    datasets.trash_router,
     deployments.router,
     auth.router,
     training.models_router,

@@ -1,11 +1,11 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, StringConstraints, computed_field
 
 from app.core.authz import InviteRole, TenantRole
-from app.modules.user.tenant_members.constants import EMAIL_MAX_LENGTH, EMAIL_PATTERN
+from app.modules.user.tenant_members.constants import EMAIL_MAX_LENGTH, EMAIL_PATTERN, OfferStatus
 
 Email = Annotated[str, StringConstraints(strip_whitespace=True, max_length=EMAIL_MAX_LENGTH, pattern=EMAIL_PATTERN)]
 
@@ -69,3 +69,8 @@ class OwnershipOffer(BaseModel):
     step_down: bool
     created_at: datetime
     expires_at: datetime
+
+    @computed_field
+    @property
+    def status(self) -> OfferStatus:
+        return OfferStatus.PENDING if self.expires_at > datetime.now(timezone.utc) else OfferStatus.EXPIRED

@@ -179,9 +179,10 @@ async def accept(token: str, email: str, user_sub: str) -> InvitationAccepted:
 
 async def _current_offer(conn, ctx: AuthzContext) -> OwnershipOffer:
     row = await conn.fetchrow(
-        "SELECT from_sub, to_sub, step_down, created_at, expires_at FROM ownership_offers WHERE tenant_id = $1 AND expires_at > now()",
+        "SELECT from_sub, to_sub, step_down, created_at, expires_at FROM ownership_offers WHERE tenant_id = $1",
         ctx.tenant_id,
     )
+    # Expired offers stay readable (status=expired) until cancelled or replaced, so the UI can offer Resend.
     # Only the two people involved and the owners may know an offer exists.
     if row is None or not (ctx.actor in (row["from_sub"], row["to_sub"]) or ctx.tenant_role is TenantRole.OWNER):
         raise not_found()
