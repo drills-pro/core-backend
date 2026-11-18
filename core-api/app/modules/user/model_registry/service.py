@@ -138,8 +138,8 @@ async def promote(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUI
 async def set_publish(
     ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID, metadata: bool | None, artifact: bool | None
 ) -> PublishState:
-    # FR7 (08-collaboration-visibility.md): metrics/config vs. the weights artifact are separate disclosures,
-    # independently toggleable.
+    # FR7 (08-collaboration-visibility.md): metrics/config vs. the weights artifact are separate disclosures.
+    # Since project sharing (planning/27 #4) these only exclude one version: the project's level decides the rest.
     if metadata is None and artifact is None:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE_DETAIL)
     async with TenantConn(ctx.tenant_id) as conn:

@@ -4069,14 +4069,13 @@
             "title": "Name",
             "type": "string"
           },
-          "publish_project_metadata": {
-            "title": "Publish Project Metadata",
-            "type": "boolean"
-          },
           "settings": {
             "additionalProperties": true,
             "title": "Settings",
             "type": "object"
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/Sharing"
           },
           "status": {
             "$ref": "#/components/schemas/ProjectStatus"
@@ -4111,7 +4110,7 @@
           "settings",
           "visibility",
           "default_access",
-          "publish_project_metadata"
+          "sharing"
         ],
         "title": "ProjectDetail",
         "type": "object"
@@ -4477,26 +4476,8 @@
         "title": "PublishRequest",
         "type": "object"
       },
-      "PublishResult": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "publish_project_metadata": {
-            "title": "Publish Project Metadata",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "publish_project_metadata"
-        ],
-        "title": "PublishResult",
-        "type": "object"
-      },
       "PublishState": {
+        "description": "Per-version \"exclude\" switches: true (the default) lets the project's Sharing level decide, false keeps this one out.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -4725,6 +4706,50 @@
         ],
         "title": "Severity",
         "type": "string"
+      },
+      "Sharing": {
+        "description": "Mirrors the projects.sharing CHECK constraint: what the project shows in the public gallery.",
+        "enum": [
+          "private",
+          "gallery",
+          "gallery_downloads"
+        ],
+        "title": "Sharing",
+        "type": "string"
+      },
+      "SharingChange": {
+        "properties": {
+          "sharing": {
+            "$ref": "#/components/schemas/Sharing"
+          }
+        },
+        "required": [
+          "sharing"
+        ],
+        "title": "SharingChange",
+        "type": "object"
+      },
+      "SharingResult": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/Sharing"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
+          }
+        },
+        "required": [
+          "id",
+          "sharing",
+          "visibility"
+        ],
+        "title": "SharingResult",
+        "type": "object"
       },
       "SmokeStatus": {
         "description": "Mirrors the job_packages_smoke_status_check constraint: how a package's smoke job went.",
@@ -6540,6 +6565,9 @@
             "title": "Id",
             "type": "string"
           },
+          "sharing": {
+            "$ref": "#/components/schemas/Sharing"
+          },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
           }
@@ -6547,7 +6575,8 @@
         "required": [
           "id",
           "visibility",
-          "default_access"
+          "default_access",
+          "sharing"
         ],
         "title": "VisibilityResult",
         "type": "object"
@@ -16816,106 +16845,6 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/publish": {
-      "patch": {
-        "operationId": "update_publish_v1_projects__project_id__publish_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "publish_project_metadata",
-            "required": true,
-            "schema": {
-              "title": "Publish Project Metadata",
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublishResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Publish",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
     "/v1/projects/{project_id}/settings": {
       "patch": {
         "operationId": "update_project_settings_v1_projects__project_id__settings_patch",
@@ -17012,6 +16941,107 @@
           }
         },
         "summary": "Update Project Settings",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/sharing": {
+      "put": {
+        "operationId": "update_sharing_v1_projects__project_id__sharing_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharingChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Sharing",
         "tags": [
           "projects"
         ]

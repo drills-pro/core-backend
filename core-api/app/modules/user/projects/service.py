@@ -21,6 +21,7 @@ from app.modules.user.projects.constants import (
     EntityType,
     ProblemCode,
     ProjectStatus,
+    Sharing,
 )
 from app.modules.user.projects.schemas import (
     AuditEntry,
@@ -32,7 +33,7 @@ from app.modules.user.projects.schemas import (
     ProjectSettingsPatch,
     ProjectSummary,
     ProjectUpdated,
-    PublishResult,
+    SharingResult,
     VisibilityResult,
 )
 
@@ -86,7 +87,7 @@ async def get_project(ctx: AuthzContext, project_id: uuid.UUID) -> ProjectDetail
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
             "SELECT id, name, status, team_id, task_type, default_test_dataset_id, settings, "
-            "visibility, default_access, publish_project_metadata, created_at "
+            "visibility, default_access, sharing, created_at "
             "FROM projects WHERE id = $1",
             project_id,
         )
@@ -149,43 +150,46 @@ async def update_visibility(
     ctx: AuthzContext, project_id: uuid.UUID, visibility: Visibility | None, default_access: DefaultAccess | None
 ) -> VisibilityResult:
     # Who can see the project (visibility) and what `internal` grants every tenant member
-    # (default_access, planning/04) are both project_admin decisions.
+    # (default_access, planning/04) are both project_admin decisions. Private also takes it out of the gallery.
     if visibility is None and default_access is None:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE)
     async with TenantConn(ctx.tenant_id) as conn:
-        # A gallery project must stay internal (CHECK): refuse rather than silently unpublish it.
-        if visibility is Visibility.PRIVATE and await conn.fetchval(
-            "SELECT gallery_published FROM projects WHERE id = $1", project_id
-        ):
-            raise Problem(409, ProblemCode.GALLERY_PUBLISHED, "unpublish the project from the gallery before making it private")
         row = _live(
             await conn.fetchrow(
                 "UPDATE projects SET visibility = COALESCE($2, visibility), "
-                "default_access = COALESCE($3, default_access) "
+                "default_access = COALESCE($3, default_access), "
+                "sharing = CASE WHEN $2 = $5 THEN $6 ELSE sharing END "
                 "WHERE id = $1 AND status != $4 "
-                "RETURNING id, visibility, default_access",
+                "RETURNING id, visibility, default_access, sharing",
                 project_id,
                 visibility,
                 default_access,
                 ProjectStatus.PENDING_DELETE,
+                Visibility.PRIVATE,
+                Sharing.PRIVATE,
             )
         )
     return VisibilityResult.model_validate(dict(row))
 
 
-async def update_publish(ctx: AuthzContext, project_id: uuid.UUID, publish_project_metadata: bool) -> PublishResult:
-    # The metadata-publish flag is independent of visibility.
+async def update_sharing(ctx: AuthzContext, project_id: uuid.UUID, sharing: Sharing) -> SharingResult:
+    # One choice replaces the old gallery flags. A gallery level needs an internal project (CHECK), so it sets
+    # that too; Private leaves visibility alone and just unpublishes, with no 409.
     async with TenantConn(ctx.tenant_id) as conn:
         row = _live(
             await conn.fetchrow(
-                "UPDATE projects SET publish_project_metadata = $2 WHERE id = $1 AND status != $3 "
-                "RETURNING id, publish_project_metadata",
+                "UPDATE projects SET sharing = $2, "
+                "visibility = CASE WHEN $2 = $4 THEN visibility ELSE $5 END "
+                "WHERE id = $1 AND status != $3 RETURNING id, sharing, visibility",
                 project_id,
-                publish_project_metadata,
+                sharing,
                 ProjectStatus.PENDING_DELETE,
+                Sharing.PRIVATE,
+                Visibility.INTERNAL,
             )
         )
-    return PublishResult.model_validate(dict(row))
+        await audit.record_for(conn, ctx, project_id, AuditAction.SET_SHARING, EntityType.PROJECT, project_id)
+    return SharingResult.model_validate(dict(row))
 
 
 async def delete_project(ctx: AuthzContext, project_id: uuid.UUID) -> DeleteResult:

@@ -30,6 +30,8 @@ class PromotedVersion(VersionRef):
 
 
 class PublishState(BaseModel):
+    """Per-version "exclude" switches: true (the default) lets the project's Sharing level decide, false keeps this one out."""
+
     id: uuid.UUID
     publish_metadata: bool
     publish_artifact: bool
