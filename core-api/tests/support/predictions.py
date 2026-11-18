@@ -24,7 +24,7 @@ class PredictionsConn(FakeConn):
 
     async def fetchrow(self, sql, *a):
         if sql == store._INSERT:
-            tenant, project, key_id, deployment, model, revision, mode, status, inp, meta, key, hashed, attempt, max_attempts, lease, retention, new_id, input_ref = a
+            tenant, project, key_id, deployment, model, revision, mode, status, inp, meta, key, hashed, attempt, max_attempts, lease, retention, new_id, input_ref, source = a
             if key is not None and self._keyed(project, key) is not None:
                 return None
             row = dict(
@@ -33,7 +33,7 @@ class PredictionsConn(FakeConn):
                 latency_ms=None, idempotency_key=key, request_hash=hashed, attempt=attempt, max_attempts=max_attempts, lease_owner=None,
                 lease_expires_at=None if lease is None else now() + timedelta(seconds=lease), next_attempt_at=now(), created_at=now(),
                 started_at=now() if attempt else None, finished_at=None, expires_at=None if retention is None else now() + timedelta(seconds=retention),
-                purged_at=None)
+                purged_at=None, source=source)
             self.preds[row["id"]] = row
             return row
         if sql == store._BY_KEY:

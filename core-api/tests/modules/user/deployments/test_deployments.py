@@ -28,20 +28,17 @@ def test_viewer_reads_list(call):
     assert call("get", BASE, access()).status_code == 200
 
 
-def test_viewer_cannot_try_403_names_action(call):
-    r = call("post", f"{BASE}/{DEPLOYMENT}/test", access(), json={})
-    assert (r.status_code, r.json()["action"]) == (403, Action.DEPLOYMENT_TRY)
-
-
 def test_viewer_cannot_manage_403_names_action(call):
     r = call("post", f"{BASE}?training_run_id={uuid.uuid4()}", access())
     assert (r.status_code, r.json()["action"]) == (403, Action.DEPLOYMENT_MANAGE)
 
 
-def test_editor_can_try_but_not_manage(call):
-    row = access(roles=[Role.EDITOR])
-    assert call("post", f"{BASE}/{DEPLOYMENT}/test", row, json={}).status_code != 403
-    assert call("post", f"{BASE}?training_run_id={uuid.uuid4()}", row).status_code == 403
+def test_editor_cannot_manage(call):
+    assert call("post", f"{BASE}?training_run_id={uuid.uuid4()}", access(roles=[Role.EDITOR])).status_code == 403
+
+
+def test_the_old_test_route_is_gone(call):
+    assert call("post", f"{BASE}/{DEPLOYMENT}/test", access(roles=[Role.EDITOR]), json={}).status_code in (404, 405)
 
 
 def test_deployer_can_manage(call):
@@ -62,7 +59,7 @@ def test_predict_is_public_not_session_authenticated(call):
 def test_get_is_read_only_and_hides_internals(call, monkeypatch):
     detail = {
         "id": DEPLOYMENT, "project_id": PROJECT, "training_run_id": uuid.uuid4(), "status": "active",
-        "route_prefix": "/p", "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc),
+        "route_prefix": "/p", "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "model_version_id": uuid.uuid4(),
     }
     conn = FakeConn(access(), row=detail)
     patch_tenant_conn(monkeypatch, conn, service)

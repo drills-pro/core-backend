@@ -2,7 +2,7 @@
 import uuid
 from http import HTTPStatus
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Response
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 
@@ -10,7 +10,7 @@ from app.core.authz import Action, AuthzContext, require
 from app.core.problem import Problem
 from app.integrations.data_plane import ModelStage
 from app.modules.user.model_registry import service
-from app.modules.user.model_registry.constants import BAD_STAGE_DETAIL, DOWNLOAD_MEDIA_TYPES, DownloadFile, ProblemCode
+from app.modules.user.model_registry.constants import BAD_STAGE_DETAIL, DOWNLOAD_MEDIA_TYPES, DownloadFile, ProblemCode, PromotionStatus
 from app.modules.user.model_registry.schemas import ModelVersionItem, PromotedVersion, PublishState
 
 router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
@@ -26,14 +26,22 @@ async def promote_model(
     project_id: uuid.UUID,
     model_version_id: uuid.UUID,
     stage: str,
+    response: Response,
+    acknowledge_risk: bool = False,
     ctx: AuthzContext = Depends(require(Action.MODEL_PROMOTE)),
 ):
-    """None (internal) -> Staging (candidate) -> Production (live); promoting an older version to Production is the rollback."""
+    """None (internal) -> Staging (candidate) is immediate. Production answers 202 with the version pending: it is deployed, and the
+    stage flips only when the deployment is active (the version serving until then stays Production). Poll the models list: the
+    version either becomes Production (the previous one Staging) or shows promotion_status `failed` with promotion_error, stages
+    unchanged. Promoting an older version is a rollback. A run with no test data needs acknowledge_risk=true, as a deploy does."""
     try:
         target = ModelStage(stage)
     except ValueError:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.INVALID_STAGE, BAD_STAGE_DETAIL) from None  # a 400, as before, not FastAPI's 422
-    return await service.promote(ctx, project_id, model_version_id, target)
+    promoted = await service.promote(ctx, project_id, model_version_id, target, acknowledge_risk)
+    if promoted.promotion_status == PromotionStatus.PENDING:
+        response.status_code = HTTPStatus.ACCEPTED
+    return promoted
 
 
 @router.patch("/{model_version_id}/publish", response_model=PublishState)

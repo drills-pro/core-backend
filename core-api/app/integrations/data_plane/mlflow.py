@@ -245,6 +245,8 @@ async def transition_stage(tenant_id: str, project_id: str, model_name: str, ver
                 "name": registered_model_name(tenant_id, project_id, model_name),
                 "version": version,
                 "stage": stage,
+                # False: a promotion demotes the old Production version to Staging itself (model_registry.complete_promotion);
+                # True would archive it, and a rollback target must stay a candidate.
                 "archive_existing_versions": False,
             },
         )

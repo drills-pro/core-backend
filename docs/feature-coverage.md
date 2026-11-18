@@ -16,14 +16,14 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 |---|---|---|---|---|---|
 | training | 24 | 8 | 0 | 5 | 37 |
 | registry | 13 | 3 | 0 | 0 | 16 |
-| deployment | 14 | 2 | 1 | 2 | 19 |
+| deployment | 15 | 2 | 1 | 2 | 20 |
 | serving | 11 | 2 | 0 | 2 | 15 |
 | predict | 16 | 7 | 0 | 3 | 26 |
 | jobs | 13 | 8 | 3 | 3 | 27 |
 | datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 116 | 33 | 4 | 18 | 171 |
+| **all** | 117 | 33 | 4 | 18 | 172 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 87% of 153.
+Built share of the features that are due (partial counts half, deferred excluded): 87% of 154.
 
 ## Gaps, most important first
 
@@ -124,7 +124,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 |---|---|---|---|---|
 | TRN-01 | built | Start a run on a pinned dataset version (202, Idempotency-Key, 429 over the plan's concurrent runs) | planning/05 Conventions; planning/06 Job spec v1; docs/trainer-plan.md | 3 |
 | TRN-02 | built | List and read runs (status, report, metrics, progress) | planning/05 Conventions | 2 |
-| TRN-03 | partial | Customer steps of a run (no raw job log, no report message) | planning/05 Conventions; planning/11 Customer-visible job logs | 2 |
+| TRN-03 | partial | Customer steps of a run (no raw job log, no report message) | planning/05 Conventions; planning/11 Customer-visible job logs | 3 |
 | TRN-04 | built | Cancel a run (stop the job, close the MLflow run, settle once) | planning/07 Cancellation and failure handling | 2 |
 | TRN-05 | built | Job spec v1 `train` payload, validated against a committed JSON Schema | planning/06 Job spec v1; docs/trainer-plan.md Job spec | 3 |
 | TRN-06 | partial | Presets are data, copied into the spec; project preset list for the training form | planning/06 Task types and runtimes; planning/22 Training form | 2 |
@@ -167,7 +167,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | REG-01 | built | Register a succeeded run's model (MLflow version plus model_versions row) | planning/06 Model registry and promotion | 2 |
 | REG-02 | built | A succeeded run registers its model automatically at settle time | planning/06 Lifecycle | 1 |
 | REG-03 | partial | List model versions with customer stage labels | planning/22 Models screen | 2 |
-| REG-04 | built | Promote between stages (None, Staging, Production); promoting an older version is the rollback | planning/06 Model registry and promotion | 2 |
+| REG-04 | built | Promote to Production deploys the version and flips the stage only when the deployment is active; the old Production goes to Staging, an older version is a rollback | planning/27 | 5 |
 | REG-05 | built | Archived stage for retired versions | planning/06 Model registry and promotion (candidate, production, archived) | 1 |
 | REG-06 | built | Promotion updates MLflow and the index in one operation | planning/06 Model registry and promotion | 2 |
 | REG-07 | built | Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision | planning/24 Q1; planning/05 Predict API | 2 |
@@ -195,7 +195,8 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | DEP-08 | built | Plan limit on active deployments (429 before any deploy) | planning/14 Plans | 2 |
 | DEP-09 | built | ETag and If-Match on deployments and settings | planning/05 Conventions (Concurrency) | 1 |
 | DEP-10 | built | Audit rows for deployment actions | planning/19 E1; planning/18 | 2 |
-| DEP-11 | built | Try it with the user session (no predict key in the console) and a recent-calls log | planning/05 Predict API (Try it) | 3 |
+| DEP-11 | built | Try it from the console is a real stored prediction (source=console); the try-it log lists them | planning/27 | 3 |
+| DEP-20 | built | Deploy is keyed on a model version (model_version_id); one deployment serves exactly one version | planning/27 | 2 |
 | DEP-12 | built | Deploy models of every servable task (classification, detection, text) | planning/06 Task types and runtimes | 2 |
 | DEP-13 | partial | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | planning/06 Deployment model (Rollout, Rollback) | 2 |
 | DEP-14 | built | Deployment input/output schema endpoint and generated curl/JS/Python snippets | planning/05 Predict API (Schema, Snippets) | 2 |

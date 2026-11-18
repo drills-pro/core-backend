@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 
 from app.core import plan_limits, rate_limit
-from app.core.authz import KeyContext
+from app.core.authz import CallSource, KeyContext
 from app.core.metrics import inference as inference_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.settings import settings
@@ -178,8 +178,8 @@ async def _begin(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequ
     return row, created
 
 
-async def _sync_stored(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, key: str, hashed: str, size: int, max_inflight: int) -> PredictOutcome:
-    """A sync call with an Idempotency-Key: the first one runs and is stored, a repeat gets what was stored."""
+async def _sync_stored(ctx: KeyContext, d, model_uuid: uuid.UUID, request: PredictRequest, key: str | None, hashed: str | None, size: int, max_inflight: int) -> PredictOutcome:
+    """A sync call that is stored: with an Idempotency-Key the first one runs and a repeat gets what was stored; a console call has no key."""
     row, created = await _begin(ctx, d, model_uuid, request, mode=PredictionMode.SYNC, key=key, hashed=hashed)
     if not created:
         return await _replay(ctx, row, hashed)
@@ -236,6 +236,8 @@ async def predict(
         if background:
             return await _accept_background(ctx, row, model_uuid, request, idempotency_key, hashed)
         return await _sync_stored(ctx, row, model_uuid, request, idempotency_key, hashed, size, limits.max_inflight_per_deployment)
+    if ctx.source == CallSource.CONSOLE:  # the try-it log lists these: stored like a keyed call, with no key to replay
+        return await _sync_stored(ctx, row, model_uuid, request, None, None, size, limits.max_inflight_per_deployment)
 
     prediction_id = uuid.uuid4()
     output, elapsed_ms = await serve_call(ctx.tenant_id, ctx.project_id, row, request.input, size, limits.max_inflight_per_deployment)

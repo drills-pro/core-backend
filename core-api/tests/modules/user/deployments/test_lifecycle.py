@@ -23,7 +23,7 @@ UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into Fak
 
 def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
     return {
-        "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "status": status, "route_prefix": route_prefix,
+        "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "model_version_id": None, "status": status, "route_prefix": route_prefix,
         "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving,
     }
 
@@ -129,17 +129,6 @@ def test_a_stopped_deployment_answers_409_with_its_own_code():
     predict.require_active(S.ACTIVE)
     assert (stopped.value.status_code, stopped.value.code) == (409, ProblemCode.STOPPED)
     assert (failed.value.status_code, failed.value.code) == (409, ProblemCode.NOT_ACTIVE)
-
-
-def test_try_it_on_a_stopped_deployment_is_409_and_on_a_deleted_one_404(env):
-    env.conn.row = {"status": S.STOPPED, "route_prefix": "/p", "serving": Serving.SHARED, "training_run_id": RUN}
-    with pytest.raises(HTTPException) as e:
-        run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {}))
-    assert (e.value.status_code, e.value.code) == (409, ProblemCode.STOPPED)
-    env.conn.row = None  # the query leaves deleted rows out
-    with pytest.raises(HTTPException) as e:
-        run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {}))
-    assert e.value.status_code == 404
 
 
 def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(monkeypatch):

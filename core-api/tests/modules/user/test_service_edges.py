@@ -39,11 +39,11 @@ def test_promoting_a_version_deleted_after_mlflow_moved_is_404(monkeypatch):
         moved.append(a)
 
     monkeypatch.setattr(registry.data_plane, "transition_stage", transition_stage)
-    row = {"mlflow_model_name": "m", "mlflow_version": "1"}
+    row = {"mlflow_model_name": "m", "mlflow_version": "1", "stage": "None", "promotion_status": None}
     conn = FakeConn(rows={"FROM model_versions WHERE id": row, "UPDATE model_versions SET stage": None})
     patch_tenant_conn(monkeypatch, conn, registry)
     with pytest.raises(HTTPException) as e:
-        asyncio.run(registry.promote(SimpleNamespace(tenant_id=TENANT), PROJECT, uuid.uuid4(), ModelStage.PRODUCTION))
+        asyncio.run(registry.promote(SimpleNamespace(tenant_id=TENANT), PROJECT, uuid.uuid4(), ModelStage.STAGING))
     assert e.value.status_code == 404 and len(moved) == 1
 
 
@@ -88,16 +88,19 @@ def test_a_second_ownership_offer_racing_the_first_is_409(monkeypatch, dev_heade
     assert (r.status_code, r.json()["code"]) == (409, ProblemCode.OFFER_PENDING)
 
 
-def test_deploy_route_passes_the_run_and_the_key_and_answers_202(monkeypatch, dev_headers):
+def test_deploy_route_passes_the_version_or_the_deprecated_run_and_the_key_and_answers_202(monkeypatch, dev_headers):
     run, seen = uuid.uuid4(), {}
 
-    async def create_deployment(ctx, project_id, training_run_id, key, acknowledge_risk):
-        seen.update(run=training_run_id, key=key, ack=acknowledge_risk)
+    async def create_deployment(ctx, project_id, version, key, acknowledge_risk, training_run_id):
+        seen.update(version=version, run=training_run_id, key=key, ack=acknowledge_risk)
         return {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/p", "rate_limit_per_minute": 60, "plan_tier": None, "predict_key": "drl_x"}
 
     monkeypatch.setattr(deployment_service, "create_deployment", create_deployment)
     patch_tenant_conn(monkeypatch, FakeConn(access(roles=["deployer"])), deployment_service)
-    r = make_client(deployment_routes.router).post(
-        f"/v1/projects/{PROJECT}/deployments?training_run_id={run}", headers={"Idempotency-Key": "k1"})
-    assert (r.status_code, r.json()["predict_key"], seen) == (202, "drl_x", {"run": run, "key": "k1", "ack": False})
-    assert make_client(deployment_routes.router).post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}").status_code == 422
+    client = make_client(deployment_routes.router)
+    r = client.post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}", headers={"Idempotency-Key": "k1"})
+    assert (r.status_code, r.json()["predict_key"], seen) == (202, "drl_x", {"version": None, "run": run, "key": "k1", "ack": False})
+    version = uuid.uuid4()
+    assert client.post(f"/v1/projects/{PROJECT}/deployments?model_version_id={version}", headers={"Idempotency-Key": "k2"}).status_code == 202
+    assert seen == {"version": version, "run": None, "key": "k2", "ack": False}
+    assert client.post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}").status_code == 422

@@ -88,6 +88,50 @@ def _parse_uuid(value: str) -> uuid.UUID:
         raise not_found() from None
 
 
+async def authorize(
+    action: Action, tenant_id: str, actor: str, project_id: uuid.UUID | None, *, allow_pending_delete: bool = False,
+) -> AuthzContext:
+    """Decide `action` for `actor` in `tenant_id` (on `project_id` for a project action) and return the AuthzContext, or raise: the
+    whole of `require`, for a caller that finds the project somewhere other than the path (POST /v1/predict reads X-Project-Id)."""
+    project_scoped = action in PROJECT_ACTIONS
+    async with TenantConn(tenant_id) as conn:
+        row = await conn.fetchrow("SELECT * FROM project_access($1, $2, $3)", actor, tenant_id, project_id)
+        if row is None and project_scoped and settings.auth.dev_headers:
+            if not await _exists(conn, project_id):
+                raise not_found()
+
+    if row is None:
+        # Only a dev-header caller can reach here with a tenant it is not a member of (a token
+        # caller was already 404ed by get_tenant_id). dev_headers is refused in prod.
+        if not settings.auth.dev_headers:
+            raise not_found()
+        return AuthzContext(tenant_id, actor, TenantRole.OWNER, project_id, frozenset(Action))
+    if row["tenant_status"] == TenantStatus.SUSPENDED:
+        raise Problem(403, TenantProblem.SUSPENDED, "this tenant is suspended")
+    if row["tenant_status"] == TenantStatus.PENDING_DELETE and not allow_pending_delete:
+        raise Problem(403, TenantProblem.PENDING_DELETE, "this tenant is pending deletion")
+
+    tenant_role = TenantRole(row["tenant_role"])
+    visibility = Visibility(row["visibility"]) if row["visibility"] else None
+    if project_scoped and visibility is None:
+        raise not_found()  # no such project in this tenant
+    default_access = DefaultAccess(row["default_access"]) if visibility else None
+    bound = [Role(r) for r in row["roles"] or ()]
+    actions = allowed_actions(tenant_role, visibility, default_access, bound)
+    if project_scoped and not actions & PROJECT_ACTIONS:
+        raise not_found()  # private and unbound: do not reveal it exists
+    if action not in actions:
+        raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing action {action}", action=action.value)
+    if project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS:
+        if action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound):
+            async with TenantConn(tenant_id) as conn:  # the grant came from the tenant role alone
+                await audit.record(
+                    conn, tenant_id=tenant_id, project_id=project_id, actor=actor,
+                    action=f"{AuditAction.IMPLICIT_ACCESS}.{action}", entity_type="project", entity_id=project_id,
+                )
+    return AuthzContext(tenant_id, actor, tenant_role, project_id, actions)
+
+
 def require(action: Action, *, allow_pending_delete: bool = False):
     """Route dependency that enforces `action` and returns an AuthzContext.
 
@@ -101,43 +145,8 @@ def require(action: Action, *, allow_pending_delete: bool = False):
         tenant_id: str = Depends(get_tenant_id),
         actor: str = Depends(get_actor),
     ) -> AuthzContext:
-        async with TenantConn(tenant_id) as conn:
-            project_id = _parse_uuid(request.path_params["project_id"]) if project_scoped else None
-            row = await conn.fetchrow("SELECT * FROM project_access($1, $2, $3)", actor, tenant_id, project_id)
-            if row is None and project_scoped and settings.auth.dev_headers:
-                if not await _exists(conn, project_id):
-                    raise not_found()
-
-        if row is None:
-            # Only a dev-header caller can reach here with a tenant it is not a member of (a token
-            # caller was already 404ed by get_tenant_id). dev_headers is refused in prod.
-            if not settings.auth.dev_headers:
-                raise not_found()
-            return AuthzContext(tenant_id, actor, TenantRole.OWNER, project_id, frozenset(Action))
-        if row["tenant_status"] == TenantStatus.SUSPENDED:
-            raise Problem(403, TenantProblem.SUSPENDED, "this tenant is suspended")
-        if row["tenant_status"] == TenantStatus.PENDING_DELETE and not allow_pending_delete:
-            raise Problem(403, TenantProblem.PENDING_DELETE, "this tenant is pending deletion")
-
-        tenant_role = TenantRole(row["tenant_role"])
-        visibility = Visibility(row["visibility"]) if row["visibility"] else None
-        if project_scoped and visibility is None:
-            raise not_found()  # no such project in this tenant
-        default_access = DefaultAccess(row["default_access"]) if visibility else None
-        bound = [Role(r) for r in row["roles"] or ()]
-        actions = allowed_actions(tenant_role, visibility, default_access, bound)
-        if project_scoped and not actions & PROJECT_ACTIONS:
-            raise not_found()  # private and unbound: do not reveal it exists
-        if action not in actions:
-            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing action {action}", action=action.value)
-        if project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS:
-            if action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound):
-                async with TenantConn(tenant_id) as conn:  # the grant came from the tenant role alone
-                    await audit.record(
-                        conn, tenant_id=tenant_id, project_id=project_id, actor=actor,
-                        action=f"{AuditAction.IMPLICIT_ACCESS}.{action}", entity_type="project", entity_id=project_id,
-                    )
-        return AuthzContext(tenant_id, actor, tenant_role, project_id, actions)
+        project_id = _parse_uuid(request.path_params["project_id"]) if project_scoped else None
+        return await authorize(action, tenant_id, actor, project_id, allow_pending_delete=allow_pending_delete)
 
     dependency.authz_action = action  # read by tests/core/authz/test_matrix.py
     return dependency

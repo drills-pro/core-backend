@@ -2,11 +2,12 @@
 
     from app.core.authz import Action, AuthzContext, require
 """
-from app.core.authz.deps import AuthzContext, public, require
-from app.core.authz.keys import KeyContext, generate_key, require_key
+from app.core.authz.deps import AuthzContext, authorize, public, require
+from app.core.authz.keys import KeyContext, generate_key, require_caller, require_key
 from app.core.authz.policy import (
     ROLE_ACTIONS,
     Action,
+    CallSource,
     DefaultAccess,
     InviteRole,
     Role,
@@ -18,6 +19,6 @@ from app.core.authz.policy import (
 )
 
 __all__ = [
-    "ROLE_ACTIONS", "Action", "AuthzContext", "DefaultAccess", "InviteRole", "KeyContext", "Role", "Scope", "TenantRole",
-    "TenantStatus", "Visibility", "allowed_actions", "generate_key", "public", "require", "require_key",
+    "ROLE_ACTIONS", "Action", "AuthzContext", "CallSource", "DefaultAccess", "InviteRole", "KeyContext", "Role", "Scope", "TenantRole",
+    "TenantStatus", "Visibility", "allowed_actions", "authorize", "generate_key", "public", "require", "require_caller", "require_key",
 ]

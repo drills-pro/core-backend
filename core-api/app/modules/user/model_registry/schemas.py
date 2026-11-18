@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.integrations.data_plane import ModelStage
+from app.modules.user.model_registry.constants import PromotionStatus
 
 
 class VersionRef(BaseModel):
@@ -20,12 +21,20 @@ class ModelVersion(VersionRef):
     created_at: datetime
 
 
-class ModelVersionItem(ModelVersion):
+class Promotion(BaseModel):
+    """A promotion to Production that has not finished: pending (the stage flips once the deployment is active) or failed (stages unchanged)."""
+
+    promotion_status: PromotionStatus | None = None
+    promotion_error: str | None = None
+    promotion_error_code: str | None = None  # the problem code of the error, e.g. deploy_risk_unacknowledged
+
+
+class ModelVersionItem(ModelVersion, Promotion):
     customer_label: str
     model_id: uuid.UUID  # X-Model-Id of POST /v1/predict; the revision there is mlflow_version
 
 
-class PromotedVersion(VersionRef):
+class PromotedVersion(VersionRef, Promotion):
     customer_label: str
 
 
