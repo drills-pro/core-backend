@@ -11,7 +11,8 @@ from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_c
 MODEL = uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/models"
 MODEL_ROW = {"mlflow_model_name": "n", "mlflow_version": "1", "stage": "None", "id": MODEL,
-             "publish_metadata": True, "publish_artifact": False, "created_at": datetime.now(timezone.utc)}
+             "publish_metadata": True, "publish_artifact": False, "created_at": datetime.now(timezone.utc),
+             "model_id": uuid.uuid4(), "promotion_status": None, "promotion_error": None, "promotion_error_code": None}
 
 
 ADMIN = access(role=TenantRole.ADMIN)
@@ -113,3 +114,13 @@ def test_download_refuses_a_file_that_is_not_published(call):
 
 def test_download_of_an_unknown_version_is_404(call):
     assert call("get", f"{BASE}/{MODEL}/download/model.json", ADMIN, found=False).status_code == 404
+
+
+
+@pytest.mark.parametrize(
+    ("state", "code", "label"), [({"promotion_status": "pending"}, 202, "internal only"), ({"stage": "Production"}, 200, "serving")])
+def test_promote_to_production_is_202_while_pending_and_200_once_it_is_production(monkeypatch, dev_headers, state, code, label):
+    conn = FakeConn(ADMIN, row={**MODEL_ROW, **state})
+    patch_tenant_conn(monkeypatch, conn, service)
+    res = make_client(routes.router).post(f"{BASE}/{MODEL}/promote", params={"stage": "Production"})
+    assert (res.status_code, res.json()["customer_label"]) == (code, label)

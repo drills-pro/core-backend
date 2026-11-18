@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_key
+from app.core.authz import Action, AuthzContext, KeyContext, Scope, public, require, require_caller, require_key
 from app.core.idempotency import IDEMPOTENCY_HEADER, IDEMPOTENCY_KEY_MAX_LENGTH, IdempotencyKey
 from app.core.metrics import predict as predict_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode
@@ -45,7 +45,6 @@ from app.modules.user.deployments.schemas import (
     ModelCard,
     TrainingRunLineage,
     TestCall,
-    TestCallResult,
 )
 
 router = APIRouter(tags=["deployments"])
@@ -74,14 +73,17 @@ async def capped_body(request: Request) -> dict:
 )
 async def create_deployment(
     project_id: uuid.UUID,
-    training_run_id: uuid.UUID,
     idempotency_key: IdempotencyKey,
+    model_version_id: uuid.UUID | None = None,
+    training_run_id: uuid.UUID | None = None,
     acknowledge_risk: bool = False,
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_MANAGE)),
 ):
-    """Deploy a training run. A run with no test dataset is 409 deploy_risk_unacknowledged until acknowledge_risk=true. Sending the same Idempotency-Key and training_run_id again returns that deployment (without
-    the predict key, which is shown once); the same key with another run is 409."""
-    return await service.create_deployment(ctx, project_id, training_run_id, idempotency_key, acknowledge_risk)
+    """Deploy a model version: one deployment serves exactly one. A version whose run has no test dataset is 409 deploy_risk_unacknowledged
+    until acknowledge_risk=true. Sending the same Idempotency-Key and version again returns that deployment (without the predict key,
+    which is shown once); the same key with another version is 409. `training_run_id` is deprecated (it deploys that run's newest
+    version): send exactly one of the two. Promoting a version to Production deploys it too."""
+    return await service.create_deployment(ctx, project_id, model_version_id, idempotency_key, acknowledge_risk, training_run_id)
 
 
 @router.get("/v1/projects/{project_id}/deployments", response_model=list[DeploymentListItem])
@@ -175,16 +177,6 @@ async def get_model_card(project_id: uuid.UUID, run_id: uuid.UUID, ctx: AuthzCon
     return await lineage.get_card(ctx, project_id, run_id)
 
 
-@router.post("/v1/projects/{project_id}/deployments/{deployment_id}/test", response_model=TestCallResult)
-async def test_deployment(
-    project_id: uuid.UUID,
-    deployment_id: uuid.UUID,
-    body: dict = Depends(capped_body),
-    ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_TRY)),
-):
-    return await service.test_deployment(ctx, project_id, deployment_id, body)
-
-
 @router.get("/v1/projects/{project_id}/deployments/{deployment_id}/test-calls", response_model=list[TestCall])
 async def list_test_calls(
     project_id: uuid.UUID,
@@ -192,6 +184,7 @@ async def list_test_calls(
     ctx: AuthzContext = Depends(require(Action.DEPLOYMENT_READ)),
     limit: int = Query(TEST_CALLS_DEFAULT_LIMIT, ge=TEST_CALLS_MIN_LIMIT, le=TEST_CALLS_MAX_LIMIT),
 ):
+    """The try-it log: this deployment's console predictions (POST /v1/predict from a signed-in member), newest first."""
     return await service.list_test_calls(ctx, project_id, deployment_id, limit)
 
 
@@ -223,10 +216,11 @@ def _wants_async(prefer: str | None) -> bool:
     return any(token.split(";")[0].strip().lower() == PREFER_RESPOND_ASYNC for token in (prefer or "").split(","))
 
 
-# Key-authenticated (a drl_ project key with the predict scope): the model is named by X-Model-Id [+ X-Model-Revision].
+# Key-authenticated (a drl_ project key with the predict scope), or a signed-in member from the console (X-Project-Id names the project;
+# the call is stored with source=console and metered like any other): the model is named by X-Model-Id [+ X-Model-Revision].
 @router.post("/v1/predict", response_model=PredictionEnvelope)
 async def predict_model(
-    ctx: KeyContext = Depends(require_key(Scope.PREDICT)),
+    ctx: KeyContext = Depends(require_caller(Scope.PREDICT, Action.DEPLOYMENT_TRY)),
     body: dict = Depends(capped_body),
     x_model_id: str = Header(..., alias=MODEL_ID_HEADER),
     x_model_revision: str | None = Header(None, alias=MODEL_REVISION_HEADER),

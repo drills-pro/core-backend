@@ -7,7 +7,6 @@ import pytest
 from fastapi import HTTPException
 
 from app.core import plan_limits
-from app.core.problem import Problem
 from app.core.enums import TaskType
 from app.integrations import serve_client
 from app.integrations.serve_client import ServeCallError, ServeErrorCode
@@ -25,7 +24,7 @@ from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
 
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
-PROJECT, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+PROJECT, RUN, DEPLOYMENT, VERSION = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 KEY = "k"
 SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat", "dog"], "test_dataset_id": uuid.uuid4()}
 
@@ -40,7 +39,7 @@ def fresh_state():
 def shared_env(monkeypatch):
     conn = FakeConn(
         rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": None},
-        vals={"count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
+        vals={"SELECT training_run_id FROM model_versions": RUN, "count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_counted_conn(monkeypatch, conn, service)
     return conn
 
@@ -51,9 +50,9 @@ def inserted(conn):
 
 def test_a_shared_deployment_is_active_at_once_with_no_ray_job(shared_env):
     shared_env.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 120}
-    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+    out = asyncio.run(service.create_deployment(CTX, PROJECT, VERSION, KEY))
     args = inserted(shared_env)
-    assert args[4] is None and args[8:] == (Serving.SHARED, "active", KEY, False) and out.status == "active" and out.predict_key
+    assert args[4] is None and args[8:] == (Serving.SHARED, "active", KEY, False, VERSION) and out.status == "active" and out.predict_key
 
 
 def test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared(shared_env):
@@ -62,9 +61,9 @@ def test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared(shared_env):
     shared_env.rows["FROM deployments"] = {"id": main_id, "status": "active"}
     shared_env.rows["UPDATE deployments"] = {
         "id": main_id, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "status": "active", "route_prefix": "/predict/p/main", "rate_limit_per_minute": 10}
-    out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
+    out = asyncio.run(service.create_deployment(CTX, PROJECT, VERSION, KEY))
     sql, args = next(c for c in shared_env.calls if c[0].startswith("UPDATE deployments"))
-    assert "serving = $6" in sql and args[:8] == (main_id, "active", "active", RUN, None, Serving.SHARED, KEY, False) and out.predict_key is None
+    assert "serving = $6" in sql and args[:9] == (main_id, "active", "active", RUN, None, Serving.SHARED, KEY, False, VERSION) and out.predict_key is None
 
 
 @pytest.fixture
@@ -195,30 +194,3 @@ def test_a_body_over_the_cap_is_413_before_it_is_parsed(monkeypatch):
     assert client.post("/echo", json={"a": "x" * 20}).status_code == 413
     assert client.post("/echo", content=b"nope").status_code == 422
     assert client.post("/echo", json=[1]).status_code == 422
-
-
-def test_the_test_call_answers_with_the_predictions_and_logs_the_call(monkeypatch):
-    seen = []
-
-    async def answer_(tenant_id, project_id, deployment_id, body):
-        seen.append((tenant_id, deployment_id, body))
-        return predict.Answered(run_id=RUN, request_bytes=1, prediction=serve_client.Prediction(predictions=[1], cold_load=True), elapsed_ms=2.5)
-
-    monkeypatch.setattr(service.predict, "answer", answer_)
-    conn = FakeConn(row={"status": "active"})
-    patch_counted_conn(monkeypatch, conn, service)
-    out = asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"input": {"text": "x"}}))
-    assert out.response == {"predictions": [1]} and out.latency_ms == 2.5 and seen == [(CTX.tenant_id, DEPLOYMENT, {"text": "x"})]
-    assert any(sql.startswith("INSERT INTO deployment_test_calls") for sql, _ in conn.calls)
-
-
-def test_a_try_it_body_without_an_input_object_is_refused_before_the_model(monkeypatch):
-    async def answer_(*args):
-        raise AssertionError("the model must not be called")
-
-    monkeypatch.setattr(service.predict, "answer", answer_)
-    conn = FakeConn(row={"status": "active"})
-    patch_counted_conn(monkeypatch, conn, service)
-    with pytest.raises(Problem) as err:
-        asyncio.run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {"text": "x"}))
-    assert err.value.status_code == 422

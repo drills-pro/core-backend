@@ -28,6 +28,7 @@ class DeploymentListItem(BaseModel):
     status: str
     route_prefix: str
     created_at: datetime
+    model_version_id: uuid.UUID | None  # the one version this deployment serves; None for a row older than versions
 
 
 class DeploymentDetail(DeploymentListItem):
@@ -36,19 +37,21 @@ class DeploymentDetail(DeploymentListItem):
     rate_limit_per_minute: int
 
 
-class TestCallResult(BaseModel):
-    __test__ = False  # not a pytest class
-
-    response: Any
-    latency_ms: float
+class PredictionError(BaseModel):
+    code: str
+    detail: str
 
 
 class TestCall(BaseModel):
+    """One console prediction of a deployment (source=console): the try-it log is a filtered list of stored predictions."""
+
     __test__ = False
 
-    id: int
-    request: Any
-    response: Any
+    id: str  # the prediction id, as POST /v1/predict returned it
+    status: PredictionStatus
+    request: Any  # {"input": ...} as it was sent; None once the retention purge dropped it
+    response: Any  # the output; None for a call that failed or was purged
+    error: PredictionError | None = None
     latency_ms: float | None
     created_at: datetime
 
@@ -113,11 +116,6 @@ class PredictUsage(BaseModel):
     model_config = ConfigDict(extra="allow")  # token or compute counts later
 
     latency_ms: float | None = None  # None until a call finished
-
-
-class PredictionError(BaseModel):
-    code: str
-    detail: str
 
 
 class PredictionEnvelope(BaseModel):

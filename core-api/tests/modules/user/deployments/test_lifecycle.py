@@ -23,7 +23,7 @@ UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into Fak
 
 def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
     return {
-        "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "status": status, "route_prefix": route_prefix,
+        "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "model_version_id": None, "status": status, "route_prefix": route_prefix,
         "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving,
     }
 
@@ -131,17 +131,6 @@ def test_a_stopped_deployment_answers_409_with_its_own_code():
     assert (failed.value.status_code, failed.value.code) == (409, ProblemCode.NOT_ACTIVE)
 
 
-def test_try_it_on_a_stopped_deployment_is_409_and_on_a_deleted_one_404(env):
-    env.conn.row = {"status": S.STOPPED, "route_prefix": "/p", "serving": Serving.SHARED, "training_run_id": RUN}
-    with pytest.raises(HTTPException) as e:
-        run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {}))
-    assert (e.value.status_code, e.value.code) == (409, ProblemCode.STOPPED)
-    env.conn.row = None  # the query leaves deleted rows out
-    with pytest.raises(HTTPException) as e:
-        run(service.test_deployment(CTX, PROJECT, DEPLOYMENT, {}))
-    assert e.value.status_code == 404
-
-
 def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(monkeypatch):
     conn = FakeConn(row={"route_prefix": "/p", "status": S.STOPPED, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT, "tenant_status": TenantStatus.ACTIVE})
 
@@ -218,3 +207,25 @@ def test_stop_and_delete_do_not_check_the_quota(env):
     run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
     env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(S.STOPPED)}
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
+
+
+def test_stopping_a_versions_deployments_moves_each_active_one_with_an_audit_row(env):
+    version = uuid.uuid4()
+    env.conn.rowset = [{"id": DEPLOYMENT}]
+    env.conn.rows = {UPDATE: row(S.STOPPED), SELECT: row(S.ACTIVE)}
+    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 1
+    assert moves(env) == [(DEPLOYMENT, S.ACTIVE, S.STOPPED)]
+    assert audited(env) == [("stop", "deployment", str(DEPLOYMENT))]
+    env.conn.rowset = []
+    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 0  # a `main` deployment was moved to the new version: nothing left
+
+
+def test_a_rollback_to_a_stopped_version_at_the_plan_limit_is_429_and_starts_nothing(env):
+    from app.modules.user.deployments.constants import TOO_MANY_DEPLOYMENTS_DETAIL
+    from app.core.settings import settings
+
+    env.conn.vals["count(*) FROM deployments"] = settings.serving.max_active_deployments_per_tenant  # the replaced version still holds its slot
+    env.conn.rows = {"FROM deployments WHERE model_version_id": {"id": DEPLOYMENT, "status": S.STOPPED}, UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
+    with pytest.raises(HTTPException) as e:
+        run(service.ensure_deployed(CTX, PROJECT, uuid.uuid4()))
+    assert (e.value.status_code, e.value.code, e.value.detail) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL) and moves(env) == []

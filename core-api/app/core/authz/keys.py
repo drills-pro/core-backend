@@ -16,9 +16,12 @@ from typing import NamedTuple
 
 from fastapi import Header
 
-from app.core.authz.policy import Scope, TenantStatus
+from app.core.authz.deps import authorize
+from app.core.authz.policy import Action, CallSource, Scope, TenantStatus
 from app.core.db import get_pool
-from app.core.problem import Problem, ProblemCode
+from app.core.problem import Problem, ProblemCode, not_found
+from app.core.settings import settings
+from app.core.tenancy import get_actor, get_tenant_id
 
 KEY_PREFIX = "drl_"
 DISPLAY_PREFIX_LEN = len(KEY_PREFIX) + 8
@@ -41,12 +44,13 @@ def generate_key() -> NewKey:
 
 @dataclass(frozen=True, slots=True)
 class KeyContext:
-    key_id: uuid.UUID
+    key_id: uuid.UUID | None  # None for a signed-in member (source CONSOLE)
     tenant_id: str
     project_id: uuid.UUID
     scopes: frozenset[Scope]
     model_ids: frozenset[uuid.UUID]  # empty = every model in the project
     rate_limit_per_minute: int | None = None  # the key's own limit for POST /v1/predict; None = only the plan's
+    source: CallSource = CallSource.API
 
     def allows_model(self, model_id: str | None) -> bool:
         if not self.model_ids:
@@ -90,6 +94,36 @@ def require_key(scope: Scope):
         async with pool.acquire() as conn:
             await conn.execute("SELECT api_key_touch($1)", ctx.key_id)  # last_used_at, written at most once a minute
         return ctx
+
+    dependency.authz_scope = scope  # read by tests/core/authz/test_matrix.py
+    return dependency
+
+
+def require_caller(scope: Scope, action: Action):
+    """`require_key(scope)`, or a signed-in member of the console (planning/27 #8): a bearer that is not a `drl_` key is a user token,
+    checked as `require(action)` would on the project named by X-Project-Id, and the call is tagged CONSOLE with no key behind it.
+    Everything after authentication (limits, metering, storing) is the same for both."""
+    key_dependency = require_key(scope)
+
+    async def dependency(
+        authorization: str | None = Header(default=None),
+        x_project_id: str | None = Header(default=None),
+        x_model_id: str | None = Header(default=None),
+        x_tenant_id: str | None = Header(default=None),
+        x_user_id: str | None = Header(default=None),
+    ) -> KeyContext:
+        bearer = (authorization or "").removeprefix("Bearer ")
+        member = (bearer and not bearer.startswith(KEY_PREFIX)) or (not authorization and settings.auth.dev_headers and x_tenant_id)
+        if not member:
+            return await key_dependency(authorization, x_project_id, x_model_id)
+        tenant_id = await get_tenant_id(authorization, x_tenant_id)
+        actor = await get_actor(authorization, x_user_id)
+        try:
+            project_id = uuid.UUID(x_project_id or "")
+        except ValueError:
+            raise not_found() from None
+        await authorize(action, tenant_id, actor, project_id)
+        return KeyContext(None, tenant_id, project_id, frozenset({scope}), frozenset(), None, CallSource.CONSOLE)
 
     dependency.authz_scope = scope  # read by tests/core/authz/test_matrix.py
     return dependency

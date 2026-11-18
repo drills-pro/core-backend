@@ -52,6 +52,13 @@ class Scope(StrEnum):
     PREDICT = "predict"
 
 
+class CallSource(StrEnum):
+    """Which door a prediction came through (mirrored by predictions_source_check): an API key, or a signed-in member in the console."""
+
+    API = "api"
+    CONSOLE = "console"
+
+
 class Action(StrEnum):
     # tenant-level
     TENANT_ADMIN = "tenant.admin"

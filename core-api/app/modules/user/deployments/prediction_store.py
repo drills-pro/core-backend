@@ -22,9 +22,9 @@ SECONDS_PER_DAY = 86400
 
 _INSERT = (
     "INSERT INTO predictions (id, input_ref, tenant_id, project_id, api_key_id, deployment_id, model_id, model_revision, mode, status, input, metadata, "
-    "idempotency_key, request_hash, attempt, max_attempts, lease_expires_at, started_at, expires_at) "
+    "idempotency_key, request_hash, attempt, max_attempts, lease_expires_at, started_at, expires_at, source) "
     "VALUES (coalesce($17::uuid, gen_random_uuid()), $18, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now() + make_interval(secs => $15::float8), "
-    "CASE WHEN $13 > 0 THEN now() END, now() + make_interval(secs => $16::float8)) "
+    "CASE WHEN $13 > 0 THEN now() END, now() + make_interval(secs => $16::float8), $19) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING RETURNING *"
 )
 _BY_KEY = "SELECT * FROM predictions WHERE project_id = $1 AND idempotency_key = $2"
@@ -90,7 +90,7 @@ async def add_event(conn, row, data: dict[str, Any] | None = None) -> None:
 
 async def begin(
     conn, ctx: KeyContext, deployment_id: uuid.UUID, model_id: uuid.UUID, revision: str, request: PredictRequest, *,
-    mode: PredictionMode, key: str, request_hash: str, prediction_id: uuid.UUID | None = None, stored_input: data_plane.PredictionPayload | None = None,
+    mode: PredictionMode, key: str | None, request_hash: str | None, prediction_id: uuid.UUID | None = None, stored_input: data_plane.PredictionPayload | None = None,
 ):
     """(row, created): the new prediction, or the one an earlier request with this key made. A sync row starts in_progress on its
     first attempt (its handler owns it for a lease); a background row starts queued for the worker.
@@ -101,7 +101,7 @@ async def begin(
         ctx.tenant_id, ctx.project_id, ctx.key_id, deployment_id, model_id, revision, mode,
         PredictionStatus.IN_PROGRESS if sync else PredictionStatus.QUEUED, stored_input.inline, request.metadata, key, request_hash,
         1 if sync else 0, settings.predict.max_attempts,
-        settings.predict.lease_seconds if sync else None, retention_seconds(mode) if sync else None, prediction_id, stored_input.ref,
+        settings.predict.lease_seconds if sync else None, retention_seconds(mode) if sync else None, prediction_id, stored_input.ref, ctx.source,
     )
     row, created = await insert_once(conn, _INSERT, args, _BY_KEY, (ctx.project_id, key))
     if created:
