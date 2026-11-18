@@ -71,6 +71,7 @@ _RUN_OF_VERSION = "SELECT training_run_id FROM model_versions WHERE id = $1 AND 
 _VERSION_OF_RUN = "SELECT id FROM model_versions WHERE training_run_id = $1 AND project_id = $2 ORDER BY created_at DESC, id LIMIT 1"
 _LIVE_OF_VERSION = "SELECT id, status FROM deployments WHERE model_version_id = $1 AND status = ANY($2::text[]) ORDER BY created_at DESC LIMIT 1"
 _LIVE_STATUSES = [str(s) for s in LIVE_STATUSES]
+_ACTIVE_OF_VERSION = "SELECT id FROM deployments WHERE model_version_id = $1 AND status = $2"
 _INSERT = (
     "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
     "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id) "
@@ -286,6 +287,16 @@ async def ensure_deployed(ctx: AuthzContext, project_id: uuid.UUID, version_id: 
         return live["id"]
     created = await create_deployment(ctx, project_id, version_id, f"{PROMOTE_KEY_PREFIX}{version_id}:{uuid.uuid4().hex}", acknowledge_risk)
     return created.id
+
+
+async def stop_version_deployments(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID) -> int:
+    """Stop every active deployment of `version_id` (freeing its plan slot): what a promotion does to the version it replaced, so one
+    version is live. Stopped rows are kept, so a rollback starts one again. Returns how many it stopped."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        rows = await conn.fetch(_ACTIVE_OF_VERSION, version_id, DeploymentStatus.ACTIVE)
+    for row in rows:
+        await _move(ctx, project_id, row["id"], to=DeploymentStatus.STOPPED, action=AuditAction.STOP)
+    return len(rows)
 
 
 # ---- lifecycle: stop, start, delete ----

@@ -207,3 +207,25 @@ def test_stop_and_delete_do_not_check_the_quota(env):
     run(service.stop_deployment(CTX, PROJECT, DEPLOYMENT))
     env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(S.STOPPED)}
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
+
+
+def test_stopping_a_versions_deployments_moves_each_active_one_with_an_audit_row(env):
+    version = uuid.uuid4()
+    env.conn.rowset = [{"id": DEPLOYMENT}]
+    env.conn.rows = {UPDATE: row(S.STOPPED), SELECT: row(S.ACTIVE)}
+    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 1
+    assert moves(env) == [(DEPLOYMENT, S.ACTIVE, S.STOPPED)]
+    assert audited(env) == [("stop", "deployment", str(DEPLOYMENT))]
+    env.conn.rowset = []
+    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 0  # a `main` deployment was moved to the new version: nothing left
+
+
+def test_a_rollback_to_a_stopped_version_at_the_plan_limit_is_429_and_starts_nothing(env):
+    from app.modules.user.deployments.constants import TOO_MANY_DEPLOYMENTS_DETAIL
+    from app.core.settings import settings
+
+    env.conn.vals["count(*) FROM deployments"] = settings.serving.max_active_deployments_per_tenant  # the replaced version still holds its slot
+    env.conn.rows = {"FROM deployments WHERE model_version_id": {"id": DEPLOYMENT, "status": S.STOPPED}, UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
+    with pytest.raises(HTTPException) as e:
+        run(service.ensure_deployed(CTX, PROJECT, uuid.uuid4()))
+    assert (e.value.status_code, e.value.code, e.value.detail) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL) and moves(env) == []

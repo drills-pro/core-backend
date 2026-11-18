@@ -1,7 +1,7 @@
 """Settles promotions to Production (planning/27), run by the poller in app/background.py.
 
 `model_registry.promote` marks a version pending; this deploys it (service.ensure_deployed) and, only once that deployment is active,
-flips the stages (model_registry.complete_promotion). The version that was serving keeps serving until then: a failure at any step
+flips the stages (model_registry.complete_promotion) and stops the deployment of the version it replaced. The version that was serving keeps serving until then: a failure at any step
 leaves every stage as it was, puts the project's `main` deployment back on the old version, and shows the error on the promoted version.
 It lives here because deployments already depends on model_registry, not the other way round.
 """
@@ -43,6 +43,19 @@ async def _settle(tenant_id: str, row) -> None:
         if serving is not None:
             await _put_back(ctx, project_id, serving)
         await fail_promotion(ctx, project_id, version_id, *_reason(e))
+        return
+    if serving is not None:
+        await _retire(ctx, project_id, serving)
+
+
+async def _retire(ctx: AuthzContext, project_id: uuid.UUID, replaced: uuid.UUID) -> None:
+    """The promotion succeeded: the version it replaced stops serving, so exactly one version is live and its slot is free. The stages
+    already flipped, so a failure here is logged, never turned into a failed promotion. (A `main` deployment was moved to the new
+    version, so there is nothing of the old one left to stop.)"""
+    try:
+        await service.stop_version_deployments(ctx, project_id, replaced)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not stop the deployment of replaced version %s", replaced)
 
 
 async def _put_back(ctx: AuthzContext, project_id: uuid.UUID, serving: uuid.UUID) -> None:
