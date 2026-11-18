@@ -131,10 +131,14 @@ def test_promote_of_a_version_of_another_project_is_404(env):
 
 def test_list_shows_chosen_names_and_customer_labels(env):
     model_id = uuid.uuid4()
-    env.conn.rowset = [version(model_id=model_id, stage=ModelStage.PRODUCTION), version(model_id=model_id, stage=ModelStage.STAGING)]
+    listed = {"model_id": model_id, "training_run_id": RUN, "publish_metadata": True, "publish_artifact": True}
+    left_out = {**listed, "publish_metadata": False, "publish_artifact": False}
+    env.conn.rowset = [version(**listed, stage=ModelStage.PRODUCTION), version(**left_out, stage=ModelStage.STAGING)]
     out = run(service.list_versions(CTX, PROJECT))
     assert [(v.mlflow_model_name, v.customer_label) for v in out] == [("clf", "serving"), ("clf", "candidate")]
     assert {v.model_id for v in out} == {model_id}  # what a caller sends as X-Model-Id
+    # The run it came from and whether it is left out of the project's sharing, so the page can show its score and that switch.
+    assert [(v.training_run_id, v.publish_metadata, v.publish_artifact) for v in out] == [(RUN, True, True), (RUN, False, False)]
 
 
 def test_publish_flags_are_independent_and_need_one(env):

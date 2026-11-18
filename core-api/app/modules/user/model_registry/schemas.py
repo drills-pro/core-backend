@@ -32,6 +32,9 @@ class Promotion(BaseModel):
 class ModelVersionItem(ModelVersion, Promotion):
     customer_label: str
     model_id: uuid.UUID  # X-Model-Id of POST /v1/predict; the revision there is mlflow_version
+    training_run_id: uuid.UUID  # the run the version was registered from, for its scores and lineage
+    publish_metadata: bool
+    publish_artifact: bool
 
 
 class PromotedVersion(VersionRef, Promotion):
