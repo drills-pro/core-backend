@@ -1,13 +1,14 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.core.enums import TaskType
 from app.core.enums import Split
 from app.integrations.data_plane import ImportReport
 from app.modules.user.datasets.constants import (
+    DATASET_RETENTION_DAYS,
     HF_REPO_PATTERN,
     HF_REVISION_PATTERN,
     PARAM_MAX_LENGTH,
@@ -33,6 +34,27 @@ class DatasetSummary(BaseModel):
     deleted_at: datetime | None
     published_version_id: uuid.UUID | None
     data_categories: list[DataCategory]
+
+    @computed_field
+    @property
+    def restorable_until(self) -> datetime | None:
+        """When a deleted dataset is purged for good; None while it is live."""
+        return None if self.deleted_at is None else self.deleted_at + timedelta(days=DATASET_RETENTION_DAYS)
+
+
+class TrashedDataset(BaseModel):
+    """A deleted dataset in the Trash, with the project it came from."""
+
+    id: uuid.UUID
+    name: str
+    project_id: uuid.UUID
+    project_name: str
+    deleted_at: datetime
+
+    @computed_field
+    @property
+    def restorable_until(self) -> datetime:
+        return self.deleted_at + timedelta(days=DATASET_RETENTION_DAYS)
 
 
 class PublishRequest(BaseModel):

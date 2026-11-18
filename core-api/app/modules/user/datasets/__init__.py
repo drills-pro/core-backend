@@ -11,7 +11,7 @@ from app.modules.user.datasets.readers import (
     owns_version,
 )
 from app.modules.user.datasets.reconcile import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
-from app.modules.user.datasets.routes import router
+from app.modules.user.datasets.routes import router, trash_router
 from app.modules.user.projects import register_dataset_check
 
 register_ownership_check(OwnedResource.DATASET, owns_dataset)
@@ -28,4 +28,5 @@ __all__ = [
     "purge_deleted_datasets",
     "reconcile_inflight_imports",
     "router",
+    "trash_router",
 ]

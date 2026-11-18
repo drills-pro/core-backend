@@ -2,6 +2,7 @@
 from app.core.authz import deps as authz_deps
 from app.integrations.data_plane import OwnedResource, register_ownership_check
 from app.modules.user import tenant_members
+from app.modules.user.projects.constants import ProjectStatus
 from app.modules.user.projects.readers import (
     get_settings,
     get_task_type,
@@ -20,6 +21,7 @@ tenant_members.register_member_removed(remove_member_bindings)
 
 __all__ = [
     "CreatedProject",
+    "ProjectStatus",
     "create_project",
     "get_settings",
     "get_task_type",

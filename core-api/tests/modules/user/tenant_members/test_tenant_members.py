@@ -1,6 +1,6 @@
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -211,3 +211,11 @@ def test_sole_owner_cannot_leave_but_anyone_else_can(monkeypatch, dev_headers):
     c, conn = client(monkeypatch, dev_headers, MEMBER, current=MEMBER, owners=("u9",))
     assert c.post(f"/v1/tenants/{TENANT}:leave").status_code == 204
     assert any("DELETE FROM tenant_members" in s for s, _ in conn.calls)
+
+
+def test_an_expired_offer_stays_readable_as_expired_so_it_can_be_resent(monkeypatch, dev_headers):
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    c, _ = client(monkeypatch, dev_headers, OWNER, row={**OFFER, "expires_at": past})
+    assert c.get(OFFER_URL).json()["status"] == "expired"
+    c, _ = client(monkeypatch, dev_headers, OWNER, row={**OFFER, "expires_at": datetime.now(timezone.utc) + timedelta(days=1)})
+    assert c.get(OFFER_URL).json()["status"] == "pending"

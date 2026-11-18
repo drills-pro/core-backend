@@ -21,6 +21,7 @@ from app.modules.user.projects.schemas import (
     RoleSet,
     SharingChange,
     SharingResult,
+    TrashedProject,
     VisibilityResult,
 )
 
@@ -31,6 +32,12 @@ members_router = APIRouter(prefix="/v1/projects/{project_id}", tags=["project-me
 @router.get("", response_model=Page[ProjectSummary])
 async def list_projects(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
     return await service.list_projects(ctx, page)
+
+
+# Before /{project_id}: "trash" would otherwise be parsed as an id.
+@router.get("/trash", response_model=Page[TrashedProject])
+async def list_trash(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
+    return await service.list_trashed_projects(ctx, page)
 
 
 @router.post("", status_code=201, response_model=ProjectSummary)

@@ -17,9 +17,16 @@ from app.modules.user.datasets.schemas import (
     FileLink,
     ImportCreate,
     PublishRequest,
+    TrashedDataset,
 )
 
 router = APIRouter(prefix="/v1/projects/{project_id}/datasets", tags=["datasets"])
+trash_router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
+
+
+@trash_router.get("/trash", response_model=Page[TrashedDataset])
+async def list_trash(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
+    return await service.list_trashed_datasets(ctx, page)
 
 
 @router.post("", status_code=201, response_model=DatasetSummary)

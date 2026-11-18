@@ -8,6 +8,13 @@ EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"  # the SPA's check; the mailbox pr
 OWNERSHIP_OFFER_TTL = timedelta(days=7)
 
 
+class OfferStatus(StrEnum):
+    """Derived from expires_at, never stored: an expired offer stays readable until it is cancelled or replaced."""
+
+    PENDING = "pending"
+    EXPIRED = "expired"
+
+
 class AuditAction(StrEnum):
     SET_ROLE = "set_role"
     REMOVE = "remove"

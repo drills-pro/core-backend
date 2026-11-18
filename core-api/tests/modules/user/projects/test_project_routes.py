@@ -9,7 +9,7 @@ from app.modules.user.projects.constants import Sharing
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "image-classification", "created_at": datetime.now(),
-               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "sharing": Sharing.PRIVATE, "gallery_published": False}
+               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "sharing": Sharing.PRIVATE, "gallery_published": False, "deleted_at": datetime.now()}
 
 
 @pytest.fixture

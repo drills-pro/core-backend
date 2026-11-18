@@ -17,6 +17,9 @@ class Sharing(StrEnum):
     GALLERY_DOWNLOADS = "gallery_downloads"  # plus model artifacts and published dataset versions
 
 
+PROJECT_RETENTION_DAYS = 30  # a deleted project stays restorable this long (planning/03 grace period)
+
+
 class AuditAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"
@@ -41,11 +44,9 @@ class ProblemCode(StrEnum):
     LAST_PROJECT_ADMIN = "last_project_admin"
     NOT_A_TENANT_MEMBER = "not_a_tenant_member"
     NOT_PENDING_DELETE = "not_pending_delete"
-    NO_TEAM = "no_team"
     NOTHING_TO_UPDATE = "nothing_to_update"
     STATUS_NOT_SETTABLE = "status_not_settable"
 
 
 NOTHING_TO_UPDATE = "nothing to update"
-NO_TEAM = "tenant has no team; create one first"
 STATUS_NOT_SETTABLE = "status must be 'active' or 'archived'"

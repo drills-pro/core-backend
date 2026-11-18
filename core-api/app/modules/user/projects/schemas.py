@@ -1,13 +1,13 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.core.authz import DefaultAccess, Role, Visibility
 from app.core.enums import TaskType
 from app.integrations.serve_client import ComputeTarget
-from app.modules.user.projects.constants import DeployStrategy, ProjectStatus, Sharing
+from app.modules.user.projects.constants import PROJECT_RETENTION_DAYS, DeployStrategy, ProjectStatus, Sharing
 
 
 class ProjectSummary(BaseModel):
@@ -69,6 +69,25 @@ class SharingResult(BaseModel):
 class DeleteResult(BaseModel):
     id: uuid.UUID
     status: ProjectStatus
+    deleted_at: datetime
+
+    @computed_field
+    @property
+    def restorable_until(self) -> datetime:
+        return self.deleted_at + timedelta(days=PROJECT_RETENTION_DAYS)
+
+
+class TrashedProject(BaseModel):
+    """A project in the Trash: restorable until `restorable_until`."""
+
+    id: uuid.UUID
+    name: str
+    deleted_at: datetime
+
+    @computed_field
+    @property
+    def restorable_until(self) -> datetime:
+        return self.deleted_at + timedelta(days=PROJECT_RETENTION_DAYS)
 
 
 class RoleSet(BaseModel):

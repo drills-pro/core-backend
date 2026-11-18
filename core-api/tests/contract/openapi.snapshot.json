@@ -1363,6 +1363,20 @@
             ],
             "title": "Published Version Id"
           },
+          "restorable_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a deleted dataset is purged for good; None while it is live.",
+            "readOnly": true,
+            "title": "Restorable Until"
+          },
           "task_type": {
             "anyOf": [
               {
@@ -1381,7 +1395,8 @@
           "created_at",
           "deleted_at",
           "published_version_id",
-          "data_categories"
+          "data_categories",
+          "restorable_until"
         ],
         "title": "DatasetSummary",
         "type": "object"
@@ -1433,9 +1448,20 @@
       },
       "DeleteResult": {
         "properties": {
+          "deleted_at": {
+            "format": "date-time",
+            "title": "Deleted At",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "restorable_until": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Restorable Until",
             "type": "string"
           },
           "status": {
@@ -1444,7 +1470,9 @@
         },
         "required": [
           "id",
-          "status"
+          "status",
+          "deleted_at",
+          "restorable_until"
         ],
         "title": "DeleteResult",
         "type": "object"
@@ -3262,6 +3290,15 @@
         "title": "Notifications",
         "type": "object"
       },
+      "OfferStatus": {
+        "description": "Derived from expires_at, never stored: an expired offer stays readable until it is cancelled or replaced.",
+        "enum": [
+          "pending",
+          "expired"
+        ],
+        "title": "OfferStatus",
+        "type": "string"
+      },
       "OrgOwner": {
         "properties": {
           "display_name": {
@@ -3323,6 +3360,10 @@
             "title": "From Sub",
             "type": "string"
           },
+          "status": {
+            "$ref": "#/components/schemas/OfferStatus",
+            "readOnly": true
+          },
           "step_down": {
             "title": "Step Down",
             "type": "boolean"
@@ -3337,7 +3378,8 @@
           "to_sub",
           "step_down",
           "created_at",
-          "expires_at"
+          "expires_at",
+          "status"
         ],
         "title": "OwnershipOffer",
         "type": "object"
@@ -3539,6 +3581,60 @@
           "items"
         ],
         "title": "Page[TenantAuditEntry]",
+        "type": "object"
+      },
+      "Page_TrashedDataset_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrashedDataset"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[TrashedDataset]",
+        "type": "object"
+      },
+      "Page_TrashedProject_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrashedProject"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[TrashedProject]",
         "type": "object"
       },
       "PlanLimits": {
@@ -6488,6 +6584,83 @@
           "completed_at"
         ],
         "title": "TrainingRunSummary",
+        "type": "object"
+      },
+      "TrashedDataset": {
+        "description": "A deleted dataset in the Trash, with the project it came from.",
+        "properties": {
+          "deleted_at": {
+            "format": "date-time",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "restorable_until": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Restorable Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "project_name",
+          "deleted_at",
+          "restorable_until"
+        ],
+        "title": "TrashedDataset",
+        "type": "object"
+      },
+      "TrashedProject": {
+        "description": "A project in the Trash: restorable until `restorable_until`.",
+        "properties": {
+          "deleted_at": {
+            "format": "date-time",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "restorable_until": {
+            "format": "date-time",
+            "readOnly": true,
+            "title": "Restorable Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "deleted_at",
+          "restorable_until"
+        ],
+        "title": "TrashedProject",
         "type": "object"
       },
       "UsageEvent": {
@@ -11163,6 +11336,115 @@
         ]
       }
     },
+    "/v1/datasets/trash": {
+      "get": {
+        "operationId": "list_trash_v1_datasets_trash_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TrashedDataset_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Trash",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
     "/v1/invitations/{token}:accept": {
       "post": {
         "operationId": "accept_invitation_v1_invitations__token__accept_post",
@@ -12098,6 +12380,115 @@
           }
         },
         "summary": "Create Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/v1/projects/trash": {
+      "get": {
+        "operationId": "list_trash_v1_projects_trash_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TrashedProject_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Trash",
         "tags": [
           "projects"
         ]

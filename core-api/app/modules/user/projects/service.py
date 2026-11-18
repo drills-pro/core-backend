@@ -9,12 +9,11 @@ from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
-from app.modules.user.teams import get_default_team_id
+from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team, get_default_team_id
 from app.modules.user.tenant_members import is_member
 from app.modules.user.projects import readers
 from app.modules.user.projects.writers import create_project as insert_project
 from app.modules.user.projects.constants import (
-    NO_TEAM,
     NOTHING_TO_UPDATE,
     STATUS_NOT_SETTABLE,
     AuditAction,
@@ -34,6 +33,7 @@ from app.modules.user.projects.schemas import (
     ProjectSummary,
     ProjectUpdated,
     SharingResult,
+    TrashedProject,
     VisibilityResult,
 )
 
@@ -61,15 +61,30 @@ async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSumm
     return build_page(rows, page.page_size, ProjectSummary)
 
 
+async def list_trashed_projects(ctx: AuthzContext, page: PageParams) -> Page[TrashedProject]:
+    async with TenantConn(ctx.tenant_id) as conn:
+        ids = await ctx.accessible_project_ids(conn)
+        cond, args = keyset_clause(page.page_token, SortDir.ASC, first_param=3)
+        rows = await conn.fetch(
+            "SELECT id, name, created_at, deleted_at FROM projects WHERE id = ANY($1) AND status = $2 "
+            f"{cond} ORDER BY {order_by(SortDir.ASC)} LIMIT {page.page_size + 1}",
+            ids,
+            ProjectStatus.PENDING_DELETE,
+            *args,
+        )
+    return build_page(rows, page.page_size, TrashedProject)
+
+
 async def create_project(ctx: AuthzContext, name: str, task_type: TaskType, team_id: uuid.UUID | None) -> ProjectSummary:
     async with TenantConn(ctx.tenant_id) as conn:
         await task_types.require_supported(conn, task_type)
         if team_id is None:
-            # Every org has >=1 team (seeded at provisioning); a project with no team_id given lands in
-            # the tenant's oldest (Default) team rather than requiring every caller to look it up.
+            # A project with no team_id given lands in the tenant's oldest (Default) team rather than
+            # requiring every caller to look it up. Orgs are seeded with one, but it can be deleted:
+            # recreate it here, in this transaction, so the caller never sees a "no team" error.
             team_id = await get_default_team_id(conn)
             if team_id is None:
-                raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_TEAM, NO_TEAM)
+                team_id = (await create_team(conn, ctx.tenant_id, DEFAULT_TEAM_NAME)).id
         created = await insert_project(conn, ctx.tenant_id, name, team_id, task_type, ctx.actor)
         # The creator administers what they create (planning/04: auto-bound project_admin).
         await conn.execute(
@@ -198,13 +213,13 @@ async def delete_project(ctx: AuthzContext, project_id: uuid.UUID) -> DeleteResu
     async with TenantConn(ctx.tenant_id) as conn:
         row = _live(
             await conn.fetchrow(
-                "UPDATE projects SET status = $2, deleted_at = now() WHERE id = $1 AND status != $2 RETURNING id",
+                "UPDATE projects SET status = $2, deleted_at = now() WHERE id = $1 AND status != $2 RETURNING id, deleted_at",
                 project_id,
                 ProjectStatus.PENDING_DELETE,
             )
         )
         await audit.record_for(conn, ctx, project_id, AuditAction.DELETE, EntityType.PROJECT, project_id)
-    return DeleteResult(id=row["id"], status=ProjectStatus.PENDING_DELETE)
+    return DeleteResult(id=row["id"], status=ProjectStatus.PENDING_DELETE, deleted_at=row["deleted_at"])
 
 
 async def restore_project(ctx: AuthzContext, project_id: uuid.UUID) -> ProjectSummary:

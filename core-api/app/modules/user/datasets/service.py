@@ -16,8 +16,8 @@ from app.modules.user.datasets.constants import (
     EntityType,
     ProblemCode,
 )
-from app.modules.user.datasets.schemas import DatasetSummary, DatasetVersion
-from app.modules.user.projects import get_task_type
+from app.modules.user.datasets.schemas import DatasetSummary, DatasetVersion, TrashedDataset
+from app.modules.user.projects import ProjectStatus, get_task_type
 
 _COLUMNS = "id, name, created_at, deleted_at, published_version_id, data_categories"
 
@@ -52,6 +52,26 @@ async def list_datasets(ctx: AuthzContext, project_id: uuid.UUID, page: PagePara
         )
         task_type = await get_task_type(conn, project_id)
     return build_page([{**dict(r), "task_type": task_type} for r in rows], page.page_size, DatasetSummary)
+
+
+async def list_trashed_datasets(ctx: AuthzContext, page: PageParams) -> Page[TrashedDataset]:
+    """Deleted datasets still inside the retention window, across the projects the caller can see (a deleted
+    project's datasets come back with the project)."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        ids = await ctx.accessible_project_ids(conn)
+        cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=4)
+        rows = await conn.fetch(
+            "SELECT id, name, created_at, deleted_at, project_id, "
+            "(SELECT name FROM projects WHERE id = project_id) AS project_name FROM datasets "
+            "WHERE project_id = ANY($1) AND deleted_at > now() - make_interval(days => $2) "
+            "AND project_id NOT IN (SELECT id FROM projects WHERE status = $3) "
+            f"{cond} ORDER BY {order_by(SortDir.DESC)} LIMIT {page.page_size + 1}",
+            ids,
+            DATASET_RETENTION_DAYS,
+            ProjectStatus.PENDING_DELETE,
+            *args,
+        )
+    return build_page(rows, page.page_size, TrashedDataset)
 
 
 async def get_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:

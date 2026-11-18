@@ -7,7 +7,6 @@ import pytest
 from starlette.exceptions import HTTPException
 
 from app.core.authz import Action, AuthzContext, TenantRole
-from app.core.enums import TaskType
 from app.core.pagination import PageParams
 from app.modules.user.projects import readers, service
 from app.modules.user.projects.constants import ProjectStatus
@@ -56,12 +55,6 @@ def test_get_project_of_another_tenant_is_404(monkeypatch):
     with pytest.raises(HTTPException) as e:
         _run(monkeypatch, FakeConn(row=None), service.get_project, CTX, PID)
     assert e.value.status_code == 404
-
-
-def test_create_project_without_any_team_is_409(monkeypatch):
-    with pytest.raises(HTTPException) as e:
-        _run(monkeypatch, FakeConn(val=None), service.create_project, CTX, "x", TaskType.TABULAR_REGRESSION, None)
-    assert (e.value.status_code, e.value.code) == (409, "no_team")
 
 
 def test_update_project_refuses_to_set_pending_delete_and_empty_patch(monkeypatch):
