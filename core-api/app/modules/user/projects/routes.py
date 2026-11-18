@@ -18,8 +18,9 @@ from app.modules.user.projects.schemas import (
     ProjectSettingsPatch,
     ProjectSummary,
     ProjectUpdated,
-    PublishResult,
     RoleSet,
+    SharingChange,
+    SharingResult,
     VisibilityResult,
 )
 
@@ -75,13 +76,13 @@ async def update_visibility(
     return await service.update_visibility(ctx, project_id, visibility, default_access)
 
 
-@router.patch("/{project_id}/publish", response_model=PublishResult)
-async def update_publish(
+@router.put("/{project_id}/sharing", response_model=SharingResult)
+async def update_sharing(
     project_id: uuid.UUID,
-    publish_project_metadata: bool,
-    ctx: AuthzContext = Depends(require(Action.PROJECT_WRITE)),
+    body: SharingChange,
+    ctx: AuthzContext = Depends(require(Action.PROJECT_MEMBER_MANAGE)),
 ):
-    return await service.update_publish(ctx, project_id, publish_project_metadata)
+    return await service.update_sharing(ctx, project_id, body.sharing)
 
 
 @router.delete("/{project_id}", status_code=202, response_model=DeleteResult)
