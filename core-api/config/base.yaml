@@ -103,6 +103,8 @@ predict:                     # app/modules/user/deployments: stored predictions 
   inline_max_bytes: 262144             # 256 KB: a larger input or output goes to the staging bucket (predictions/<tenant>/<project>/<id>/)
   legacy_sunset: 2026-12-31T23:59:59Z  # Sunset header of the old POST /v1/predict/{deployment_id} (planning/24, migration phase 1)
 
+job_packages:                  # app/core/job_packages.py: the packages log, pruned by the job-packages-audit-purge poller
+  audit_keep_per_name: 10      # newest job_package_audit rows kept per package name; older ones are deleted
 mail:                        # app/integrations/mailer.py
   enabled: false             # prod.yaml turns it on; elsewhere invitations return their link instead
   from_address: noreply@drills.pro

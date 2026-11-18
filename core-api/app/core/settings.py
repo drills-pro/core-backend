@@ -210,6 +210,10 @@ class SecretPaths(_Section):
     webhooks: Path  # {"signing_key"}; optional: without the file webhook endpoints cannot be created or delivered to
 
 
+class JobPackages(_Section):
+    audit_keep_per_name: int  # newest job_package_audit rows kept per package name; the purge drops the rest
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CORE_", env_nested_delimiter="__", extra="forbid")
 
@@ -226,6 +230,7 @@ class Settings(BaseSettings):
     training: Training
     serving: Serving
     predict: Predict
+    job_packages: JobPackages
     mail: Mail
     observability: Observability
     public: Public
