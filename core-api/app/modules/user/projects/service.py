@@ -4,7 +4,7 @@ from http import HTTPStatus
 
 from app.core import audit, task_types
 from app.core.authz import AuthzContext, DefaultAccess, Role, TenantRole, Visibility
-from app.core.enums import TaskType
+from app.core.enums import DeploymentStatus, TaskType
 from app.core.metrics import usage as usage_metrics
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
@@ -28,6 +28,7 @@ from app.modules.user.projects.schemas import (
     Member,
     MemberRoles,
     ProjectDetail,
+    ProjectListItem,
     ProjectSettings,
     ProjectSettingsPatch,
     ProjectSummary,
@@ -38,6 +39,12 @@ from app.modules.user.projects.schemas import (
 )
 
 _SUMMARY = "id, name, status, team_id, task_type, created_at"
+# The project card's counts; $3 is DeploymentStatus.DELETED. Each table indexes project_id, and RLS scopes the subqueries.
+_COUNTS = (
+    "(SELECT count(*) FROM datasets d WHERE d.project_id = projects.id AND d.deleted_at IS NULL) AS datasets, "
+    "(SELECT count(*) FROM models m WHERE m.project_id = projects.id) AS models, "
+    "(SELECT count(*) FROM deployments x WHERE x.project_id = projects.id AND x.status != $3) AS deployments"
+)
 
 
 def _live(row):
@@ -47,18 +54,19 @@ def _live(row):
     return row
 
 
-async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectSummary]:
+async def list_projects(ctx: AuthzContext, page: PageParams) -> Page[ProjectListItem]:
     async with TenantConn(ctx.tenant_id) as conn:
         ids = await ctx.accessible_project_ids(conn)
-        cond, args = keyset_clause(page.page_token, SortDir.ASC, first_param=3)
+        cond, args = keyset_clause(page.page_token, SortDir.ASC, first_param=4)
         rows = await conn.fetch(
-            f"SELECT {_SUMMARY} FROM projects WHERE id = ANY($1) AND status != $2 {cond} "
+            f"SELECT {_SUMMARY}, {_COUNTS} FROM projects WHERE id = ANY($1) AND status != $2 {cond} "
             f"ORDER BY {order_by(SortDir.ASC)} LIMIT {page.page_size + 1}",
             ids,
             ProjectStatus.PENDING_DELETE,
+            DeploymentStatus.DELETED,
             *args,
         )
-    return build_page(rows, page.page_size, ProjectSummary)
+    return build_page(rows, page.page_size, ProjectListItem)
 
 
 async def list_trashed_projects(ctx: AuthzContext, page: PageParams) -> Page[TrashedProject]:

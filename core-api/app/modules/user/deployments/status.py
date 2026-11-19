@@ -1,16 +1,6 @@
-from enum import StrEnum
-
+# DeploymentStatus lives in app.core.enums so projects can count deployments without an import cycle; re-exported here.
+from app.core.enums import DeploymentStatus
 from app.integrations import job_lifecycle
-
-
-class DeploymentStatus(StrEnum):
-    """Mirrors the deployments.status CHECK constraint."""
-
-    DEPLOYING = "deploying"  # written only by retired legacy serving; a leftover row can still be re-deployed or deleted
-    ACTIVE = "active"
-    STOPPED = "stopped"
-    FAILED = "failed"  # written only by retired legacy serving; a leftover row can be re-deployed or deleted
-    DELETED = "deleted"
 
 
 # Mirrored by the partial unique index deployments_one_live_per_run: the statuses that hold a training run.

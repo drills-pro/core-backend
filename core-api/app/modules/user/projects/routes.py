@@ -14,6 +14,7 @@ from app.modules.user.projects.schemas import (
     Member,
     MemberRoles,
     ProjectDetail,
+    ProjectListItem,
     ProjectSettings,
     ProjectSettingsPatch,
     ProjectSummary,
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/v1/projects", tags=["projects"])
 members_router = APIRouter(prefix="/v1/projects/{project_id}", tags=["project-members"])
 
 
-@router.get("", response_model=Page[ProjectSummary])
+@router.get("", response_model=Page[ProjectListItem])
 async def list_projects(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
     return await service.list_projects(ctx, page)
 
