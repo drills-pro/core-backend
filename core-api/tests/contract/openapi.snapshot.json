@@ -3529,11 +3529,11 @@
         "title": "Page[DatasetVersion]",
         "type": "object"
       },
-      "Page_ProjectSummary_": {
+      "Page_ProjectListItem_": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ProjectSummary"
+              "$ref": "#/components/schemas/ProjectListItem"
             },
             "title": "Items",
             "type": "array"
@@ -3553,7 +3553,7 @@
         "required": [
           "items"
         ],
-        "title": "Page[ProjectSummary]",
+        "title": "Page[ProjectListItem]",
         "type": "object"
       },
       "Page_TenantAuditEntry_": {
@@ -4267,6 +4267,68 @@
           "sharing"
         ],
         "title": "ProjectDetail",
+        "type": "object"
+      },
+      "ProjectListItem": {
+        "description": "A row of GET /v1/projects: the summary plus what the project card counts (live rows only).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "datasets": {
+            "title": "Datasets",
+            "type": "integer"
+          },
+          "deployments": {
+            "title": "Deployments",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "models": {
+            "title": "Models",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "team_id",
+          "task_type",
+          "created_at",
+          "datasets",
+          "models",
+          "deployments"
+        ],
+        "title": "ProjectListItem",
         "type": "object"
       },
       "ProjectSettings": {
@@ -12249,7 +12311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_ProjectSummary_"
+                  "$ref": "#/components/schemas/Page_ProjectListItem_"
                 }
               }
             },

@@ -7,6 +7,7 @@ import pytest
 from starlette.exceptions import HTTPException
 
 from app.core.authz import Action, AuthzContext, TenantRole
+from app.core.enums import DeploymentStatus
 from app.core.pagination import PageParams
 from app.modules.user.projects import readers, service
 from app.modules.user.projects.constants import ProjectStatus
@@ -43,12 +44,14 @@ def _ids(monkeypatch, ids):
 
 def test_list_projects_pages_and_excludes_pending_delete(monkeypatch):
     _ids(monkeypatch, [PID])
-    rows = [SUMMARY, {**SUMMARY, "id": uuid.uuid4()}, {**SUMMARY, "id": uuid.uuid4()}]
+    item = {**SUMMARY, "datasets": 3, "models": 1, "deployments": 0}
+    rows = [item, {**item, "id": uuid.uuid4()}, {**item, "id": uuid.uuid4()}]
     conn = ListConn(rowset=rows)
     page = _run(monkeypatch, conn, service.list_projects, CTX, PageParams(page_size=2))
     assert len(page.items) == 2 and page.next_page_token is not None
+    assert (page.items[0].datasets, page.items[0].models, page.items[0].deployments) == (3, 1, 0)
     sql, args = conn.calls[0]
-    assert "LIMIT 3" in sql and args[0] == [PID] and args[1] == ProjectStatus.PENDING_DELETE
+    assert "LIMIT 3" in sql and args[0] == [PID] and args[1] == ProjectStatus.PENDING_DELETE and args[2] == DeploymentStatus.DELETED
 
 
 def test_get_project_of_another_tenant_is_404(monkeypatch):

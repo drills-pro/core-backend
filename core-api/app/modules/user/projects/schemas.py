@@ -19,6 +19,14 @@ class ProjectSummary(BaseModel):
     created_at: datetime
 
 
+class ProjectListItem(ProjectSummary):
+    """A row of GET /v1/projects: the summary plus what the project card counts (live rows only)."""
+
+    datasets: int
+    models: int
+    deployments: int
+
+
 class CreatedProject(ProjectSummary):
     visibility: Visibility
     default_access: DefaultAccess
