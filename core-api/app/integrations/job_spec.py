@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 from app.core.enums import ImportSource, Split, TaskType
 from app.core.settings import DatasetLimits
 from app.core.task_catalog import Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
-from app.core.job_packages import SHA256_PATTERN
+from app.core.patterns import SHA256_PATTERN
 from app.core.task_types import TRAINER_PATTERN
 
 SPEC_VERSION = 1

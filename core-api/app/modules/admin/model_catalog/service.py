@@ -39,10 +39,6 @@ def _entry(row) -> AdminCatalogModel:
     return AdminCatalogModel.model_validate(dict(row))
 
 
-async def _audit(conn, actor: str, action: AdminAuditAction, model_id, detail: dict | None = None) -> None:
-    await admin_audit.record(conn, actor, action, AdminAuditEntity.MODEL_CATALOG, model_id, detail)
-
-
 async def _require_task(conn, task: str) -> None:
     if not await conn.fetchval(_TASK_EXISTS, task):
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.TASK_NOT_SUPPORTED, f"task type '{task}' is not supported")
@@ -90,7 +86,7 @@ async def create(body: CatalogModelCreate, actor: str) -> AdminCatalogModel:
                 row = await conn.fetchrow(
                     _INSERT, body.source, body.repo_id, body.revision, body.display_name, body.task, body.license,
                     body.params, body.size_bytes, body.status, actor)
-                await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_CREATE, row["id"], body.model_dump(mode="json"))
+                await admin_audit.record(conn, actor, AdminAuditAction.MODEL_CATALOG_CREATE, AdminAuditEntity.MODEL_CATALOG, row["id"], body.model_dump(mode="json"))
         except asyncpg.UniqueViolationError:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.ALREADY_IN_CATALOG, f"{body.repo_id}@{body.revision} is already listed for {body.task}")
     logger.info("catalog model %s created by %s", row["id"], actor)
@@ -107,7 +103,9 @@ async def update(model_id: uuid.UUID, body: CatalogModelUpdate, actor: str) -> A
             async with conn.transaction():
                 row = await conn.fetchrow(_UPDATE, model_id, body.display_name, body.task, body.license, body.params, body.size_bytes, actor)
                 if row is not None:
-                    await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_UPDATE, model_id, body.model_dump(mode="json", exclude_unset=True))
+                    await admin_audit.record(
+                        conn, actor, AdminAuditAction.MODEL_CATALOG_UPDATE, AdminAuditEntity.MODEL_CATALOG, model_id,
+                        body.model_dump(mode="json", exclude_unset=True))
         except asyncpg.UniqueViolationError:
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.ALREADY_IN_CATALOG, "that model is already listed for that task")
     if row is None:
@@ -120,7 +118,7 @@ async def set_status(model_id: uuid.UUID, status: CatalogStatus, actor: str) -> 
     async with (await get_pool()).acquire() as conn, conn.transaction():
         row = await conn.fetchrow(_SET_STATUS, model_id, status, actor)
         if row is not None:
-            await _audit(conn, actor, STATUS_AUDIT_ACTION[status], model_id)
+            await admin_audit.record(conn, actor, STATUS_AUDIT_ACTION[status], AdminAuditEntity.MODEL_CATALOG, model_id)
     if row is None:
         raise not_found()
     logger.info("catalog model %s set %s by %s", model_id, status, actor)
@@ -133,5 +131,5 @@ async def delete(model_id: uuid.UUID, actor: str) -> None:
             if await conn.fetchval(_EXISTS, model_id):
                 raise Problem(HTTPStatus.CONFLICT, ProblemCode.IN_USE, "a training preset still pins this model; disable it instead")
             raise not_found()
-        await _audit(conn, actor, AdminAuditAction.MODEL_CATALOG_DELETE, model_id)
+        await admin_audit.record(conn, actor, AdminAuditAction.MODEL_CATALOG_DELETE, AdminAuditEntity.MODEL_CATALOG, model_id)
     logger.info("catalog model %s deleted by %s", model_id, actor)

@@ -4,7 +4,7 @@ import types
 import pytest
 
 from app.core.task_types import ServingParams
-from app.integrations import serve_client
+from app.integrations.data_plane import serving_functions
 from tests.support.task_types import SERVABLE, SERVING
 
 CLASSES = ["cat", "dog"]
@@ -14,7 +14,7 @@ PARAMS = ServingParams().model_dump(mode="json")
 def _postprocess():
     """The ray_serving postprocess file, run as the module it is on a replica."""
     scope = {}
-    exec(serve_client._source(serve_client.POSTPROCESS_FILE), scope)
+    exec(serving_functions.source(serving_functions.POSTPROCESS_FILE), scope)
     return types.SimpleNamespace(**scope)
 
 
@@ -41,8 +41,8 @@ def test_detection_scales_normalised_boxes_to_the_images_pixels_and_drops_low_sc
 def test_every_servable_task_names_functions_the_serve_files_define():
     assert set(SERVING) == set(SERVABLE)
     for encoder, postprocess in SERVING.values():
-        assert serve_client.unknown_serving_functions(encoder, postprocess) == []
-    assert serve_client.unknown_serving_functions("nope", None) == ["nope"]
+        assert serving_functions.unknown_serving_functions(encoder, postprocess) == []
+    assert serving_functions.unknown_serving_functions("nope", None) == ["nope"]
 
 
 def test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_beside_the_model(monkeypatch):
@@ -52,7 +52,7 @@ def test_text_is_tokenized_to_the_trained_length_and_the_tokenizer_is_fetched_be
     tk.pre_tokenizer = tokenizers.pre_tokenizers.Whitespace()
     monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout: type("R", (), {"read": lambda self: tk.to_str().encode()})())
     scope = {}
-    exec(serve_client._source(serve_client.INPUTS_FILE), scope)
+    exec(serving_functions.source(serving_functions.INPUTS_FILE), scope)
     feeds, width, height = scope["text_encoder"]({"max_length": 4}, "http://m/tokenizer.json", "input_ids")({"text": "great film"})
     assert feeds["input_ids"].tolist() == [[1, 2, 0, 0]] and feeds["attention_mask"].tolist() == [[1, 1, 0, 0]]
     assert (width, height) == (0, 0) and feeds["input_ids"].dtype == np.int64

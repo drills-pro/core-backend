@@ -4,17 +4,14 @@ import hashlib
 import io
 import json
 import zipfile
-from types import SimpleNamespace
-
 import pytest
 
-from app.core.enums import JobPackageName, PackageKind, PackageStatus
+from app.core.enums import JobPackageName, PackageAuditAction, PackageKind, PackageStatus
 from app.core.job_packages import REQUIREMENTS_CONFLICT, JobPackage
 from app.core.problem import Problem
 from app.core.requirements import requirements_sha256
-from app.integrations.data_plane import job_catalog, job_package, task_bundle
-from tests.integrations.data_plane.test_job_package import package_row
-from tests.support import FakeConn, TenantCtx
+from app.integrations.data_plane import job_catalog, job_package, lakefs, package_zip, task_bundle
+from tests.support.packages import FakeS3, PackageDb, package_row
 from tests.support.bundles import SLUG, bundle_zip, manifest
 
 CORE_SHA, OTHER = "a" * 64, "b" * 64
@@ -56,7 +53,7 @@ def test_a_manifest_with_unpinned_requirements_is_refused_with_its_own_code(requ
     data = bundle_zip(manifest(requirements=requirements))
     with pytest.raises(Problem) as e:
         task_bundle.check_bundle(data, _sha(data))
-    assert (e.value.status_code, e.value.code) == (422, job_package.INVALID_REQUIREMENTS)
+    assert (e.value.status_code, e.value.code) == (422, package_zip.INVALID_REQUIREMENTS)
 
 
 def test_a_bundle_without_a_manifest_or_with_a_wrong_hash_is_refused():
@@ -71,37 +68,33 @@ def test_a_bundle_without_a_manifest_or_with_a_wrong_hash_is_refused():
 
 @pytest.fixture
 def staged(monkeypatch):
-    """register_staged against a staged object and a recording register_bundle."""
-    seen = []
+    """register_staged against a staging bucket and the job_packages tables."""
+    bucket, tables = FakeS3(), PackageDb()
+    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: bucket)
+    monkeypatch.setattr(task_bundle, "get_pool", tables.pool())
 
-    async def get_pool():
-        return SimpleNamespace(acquire=lambda: TenantCtx(None))
+    def stage(data, key=None):
+        key = key or f"jobs/{SLUG}-{_sha(data)}.zip"
+        bucket.objects[key] = data
+        return key
 
-    async def register_bundle(conn, name, sha, key, doc, actor, requirements):
-        seen.append((name, sha, key, doc["schema"], actor, requirements))
-        return JobPackage.model_validate(package_row(name, sha, key, actor) | {"kind": PackageKind.TASK, "manifest": doc})
-
-    monkeypatch.setattr(task_bundle, "get_pool", get_pool)
-    monkeypatch.setattr(task_bundle.job_packages, "register_bundle", register_bundle)
-
-    def stage(data):
-        monkeypatch.setattr(task_bundle, "_read_staged", lambda key: data)
-        return f"jobs/{SLUG}-{_sha(data)}.zip"
-
-    return stage, seen
+    return stage, tables
 
 
-def test_a_staged_bundle_is_registered_as_task_slug(staged):
-    stage, seen = staged
+def test_a_staged_bundle_is_registered_as_task_slug_and_audited(staged):
+    stage, tables = staged
     key = stage(bundle_zip())
     package = asyncio.run(task_bundle.register_staged(key, "ci"))
-    assert seen == [(f"task_{SLUG}", package.sha256, key, 1, "ci", [])] and package.kind == PackageKind.TASK
+    row = tables.rows[(f"task_{SLUG}", package.sha256)]
+    assert (row["s3_key"], row["manifest"]["schema"], row["published_by"], row["requirements"]) == (key, 1, "ci", [])
+    assert package.kind == PackageKind.TASK and tables.audit == [(f"task_{SLUG}", package.sha256, PackageAuditAction.REGISTER, "ci")]
 
 
 def test_the_manifest_requirements_are_stored_with_the_bundle(staged):
-    stage, seen = staged
+    stage, tables = staged
     asyncio.run(task_bundle.register_staged(stage(bundle_zip(manifest(requirements=["xgboost==3.2.0"]))), "ci"))
-    assert seen[0][-1] == ["xgboost==3.2.0"]
+    (row,) = tables.rows.values()
+    assert row["requirements"] == ["xgboost==3.2.0"]
 
 
 @pytest.mark.parametrize("key", ["jobs/image-classification.zip", "other/image-classification-" + "a" * 64 + ".zip"])
@@ -111,12 +104,12 @@ def test_a_key_that_is_not_a_bundle_key_is_refused(staged, key):
 
 
 def test_the_key_slug_must_be_the_manifest_slug(staged):
-    stage, seen = staged
+    stage, tables = staged
     data = bundle_zip()
-    stage(data)
+    key = stage(data, f"jobs/object-detection-{_sha(data)}.zip")
     with pytest.raises(Problem, match="manifest"):
-        asyncio.run(task_bundle.register_staged(f"jobs/object-detection-{_sha(data)}.zip", "ci"))
-    assert seen == []
+        asyncio.run(task_bundle.register_staged(key, "ci"))
+    assert tables.rows == {}
 
 
 def _bundle(sha=OTHER, status=PackageStatus.CANDIDATE):
@@ -131,27 +124,18 @@ def smoke(monkeypatch):
     async def submit(**kw):
         sent.update(kw)
 
-    async def url(name, sha):
-        return f"http://ray/{name}/{sha}"
-
     async def resolve_stable(name):
         return core
 
-    async def noop(*a):
-        return None
+    monkeypatch.setattr(job_package.job_submit, "submit", submit)
+    monkeypatch.setattr(job_package, "resolve_stable", resolve_stable)
+    monkeypatch.setattr(job_package.lakefs, "_s3", lambda secret, endpoint=None: FakeS3())
 
     def run(package, stable_bundles=()):
-        conn = FakeConn(rowset=[b.model_dump() for b in stable_bundles])
-
-        async def get_pool():
-            return SimpleNamespace(acquire=lambda: TenantCtx(conn))
-
-        monkeypatch.setattr(job_package.job_submit, "submit", submit)
-        monkeypatch.setattr(job_package, "presigned_url", url)
-        monkeypatch.setattr(job_package, "resolve_stable", resolve_stable)
-        monkeypatch.setattr(job_package, "get_pool", get_pool)
-        monkeypatch.setattr(job_package.job_packages, "start_smoke", noop)
-        monkeypatch.setattr(job_package.job_packages, "get", noop)
+        tables = PackageDb()
+        for p in (core, package, *stable_bundles):  # the rows a run reads back: its own, the core's, the stable bundles'
+            tables.rows[(p.name, p.sha256)] = p.model_dump()
+        monkeypatch.setattr(job_package, "get_pool", tables.pool())
         asyncio.run(job_package.start_smoke(package))
         return sent, json.loads(sent["spec_json"])
 
@@ -163,15 +147,15 @@ def test_a_bundle_smoke_runs_the_bundle_function_on_the_stable_core(smoke):
     sent, spec = run(_bundle())
     assert sent["module"] == job_catalog.SMOKE_ENTRYPOINTS[JobPackageName.RAY_TRAINING] == "ray_core.entrypoints.smoke_all"
     assert spec["bundles"] == [{"smoke": "imgcls.smoke:spec_doc", "requires": manifest()["requires"]}]
-    assert (sent["package_url"], sent["bundle_urls"]) == (f"http://ray/ray_training/{CORE_SHA}", [f"http://ray/task_{SLUG}/{OTHER}"])
+    assert (sent["package_url"], sent["bundle_urls"]) == ("http://ray-side/c", ["http://ray-side/k"])
     assert sent["metadata"]["core_sha256"] == CORE_SHA
 
 
 def test_a_core_smoke_runs_every_stable_bundle_on_the_candidate_core(smoke):
     run, core = smoke
-    candidate = core.model_copy(update={"sha256": "c" * 64, "status": PackageStatus.CANDIDATE})
+    candidate = core.model_copy(update={"sha256": "c" * 64, "s3_key": "cand", "status": PackageStatus.CANDIDATE})
     sent, spec = run(candidate, [_bundle(OTHER, PackageStatus.STABLE), _bundle("d" * 64, PackageStatus.STABLE)])
-    assert sent["package_url"] == f"http://ray/ray_training/{'c' * 64}" and len(sent["bundle_urls"]) == len(spec["bundles"]) == 2
+    assert sent["package_url"] == "http://ray-side/cand" and len(sent["bundle_urls"]) == len(spec["bundles"]) == 2
     sent, spec = run(candidate)
     assert spec["bundles"] == [] and sent["bundle_urls"] == []  # nothing stable yet: nothing to break
 

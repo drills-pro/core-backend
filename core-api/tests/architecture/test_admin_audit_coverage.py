@@ -19,9 +19,9 @@ ELSEWHERE_OR_OPEN = {
     "OPEN PUT /v1/admin/task-bundles/catalog/{slug}/presets/{name}/enabled": "switches a preset; no row yet",
     "OPEN PUT /v1/admin/task-bundles/{slug}/settings": "auto-promote switch; no row yet",
     "OPEN POST /v1/admin/task-bundles/{slug}/{sha256}/smoke": "starts a smoke run; no row yet",
-    "OPEN POST /v1/admin/job-packages/{name}/publish": "runtime packages; no row yet",
-    "OPEN POST /v1/admin/job-packages/{name}/register": "runtime packages; no row yet",
-    "OPEN PUT /v1/admin/job-packages/{name}/{sha256}/status": "runtime packages; no row yet",
+    "POST /v1/admin/job-packages/{name}/publish": "job_package_audit",
+    "POST /v1/admin/job-packages/{name}/register": "job_package_audit",
+    "PUT /v1/admin/job-packages/{name}/{sha256}/status": "job_package_audit",
     "OPEN POST /v1/admin/job-packages/{name}/{sha256}/smoke": "runtime packages; no row yet",
 }
 

@@ -4,7 +4,6 @@ A deployment has no Serve app of its own. Two long-lived apps, predictor-cpu and
 load each deployment's model by id: `ensure_apps` declares them through Serve's REST API, `predict` calls one with the
 deployment's model spec. Declaring replaces every Serve app not in the config.
 """
-import ast
 import logging
 import time
 from enum import StrEnum
@@ -19,30 +18,10 @@ from app.core.problem import Problem
 from app.core.settings import settings
 from app.core.task_types import TaskInfo
 from app.integrations import data_plane, serve_config
-from app.integrations.data_plane import MODEL_KEY, MODEL_META_KEY, SERVING_PACKAGE_DIR, TOKENIZER_KEY
+from app.integrations.data_plane import MODEL_KEY, MODEL_META_KEY, TOKENIZER_KEY
 from app.integrations.serve_config import SERVE_HTTP_PORT, ComputeTarget
 
 logger = logging.getLogger(__name__)
-
-# Both files live in the ray_serving package and are read as text, never imported here: core-api depends on neither numpy
-# nor PIL. The admin task-type routes check function names against them.
-INPUTS_FILE = "inputs.py"
-POSTPROCESS_FILE = "postprocess.py"
-
-
-def _source(name: str) -> str:
-    return (SERVING_PACKAGE_DIR / name).read_text()
-
-
-def _functions(name: str) -> set[str]:
-    return {n.name for n in ast.parse(_source(name)).body if isinstance(n, ast.FunctionDef)}
-
-
-def unknown_serving_functions(encoder: str | None, postprocess: str | None) -> list[str]:
-    """The names, of those given, that the serve files do not define."""
-    missing = [] if encoder is None or encoder in _functions(INPUTS_FILE) else [encoder]
-    return missing + ([] if postprocess is None or postprocess in _functions(POSTPROCESS_FILE) else [postprocess])
-
 
 def serve_url() -> str:
     """The Serve proxy on the configured Ray head (settings.ray.dashboard) at Serve's port, read per call."""

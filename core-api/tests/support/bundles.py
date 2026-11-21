@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 
 from app.core.bundle_manifest import MANIFEST_FILE
-from app.integrations.data_plane.job_package import ZIP_TIMESTAMP
+from app.integrations.data_plane.package_zip import ZIP_TIMESTAMP
 
 SLUG = "image-classification"
 REAL = json.loads((Path(__file__).parents[3] / "task-bundles" / "tasks" / SLUG / MANIFEST_FILE).read_text())
