@@ -76,6 +76,14 @@ push there deploys to production.
 Shared pool is in (ADR-021): the backend verifies the Zitadel token and reads tenant membership from
 Postgres; the BFF cookie session (ADR-024) and `platform_admins` are not. Skill: `auth-layer`.
 
+## Docs-vs-code audit
+
+`../audit-report-coverage-2026-11-10.html` is generated from `../audit-refresh/` (verdicts + `apply.py`), never hand-edited.
+Change a verdict in `verdicts/*.jsonl`, run `check_verdicts.py` then `apply.py` (`--selftest` first, expects `ok 47 441 9`);
+wording lives in `prose.py`. Steps: `../audit-refresh/handoff-audit-report-refresh.md`. Subagents run on Opus or Sonnet only,
+at most 3 at once. When code and planning docs diverge, judge which is the better long-term design: if the code is, amend
+`../planning/` rather than the code.
+
 ## Commits
 
 Conventional style (`feat(scope):`, `fix(scope):`, `chore(scope):`), imperative, explaining the why. No
