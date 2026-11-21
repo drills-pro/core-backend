@@ -6,6 +6,8 @@ from urllib.request import urlopen
 
 from ray_serving.constants import HTTP_TIMEOUT_SECONDS
 
+CHECKSUM_ENV = ("AWS_REQUEST_CHECKSUM_CALCULATION", "AWS_RESPONSE_CHECKSUM_VALIDATION")  # same as ray_core.store (drift-tested in core-api)
+CHECKSUM_WHEN_REQUIRED = "when_required"
 LOCAL_SCHEME = "file://"  # STAGING_ENDPOINT=file:///dir writes under /dir/<prefix>: local runs and tests, no S3 needed
 
 
@@ -15,6 +17,10 @@ class S3Store:
     def __init__(self, bucket: str, prefix: str, endpoint: str, access_key: str, secret_key: str):
         import boto3
 
+        # boto3 >= 1.36 signs a checksum trailer into every PutObject unless told otherwise; the staging store (S3-compatible, not AWS)
+        # answers with SignatureDoesNotMatch. core-api sets these in the job's env too; setdefault keeps an explicit value.
+        for name in CHECKSUM_ENV:
+            os.environ.setdefault(name, CHECKSUM_WHEN_REQUIRED)
         self.bucket, self.prefix = bucket, prefix
         self.client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
