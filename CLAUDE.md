@@ -40,8 +40,8 @@ module) and `core-api/app/background.py` (every timer loop).
 - The training catalog lives here too: `task_types.py`, `task_catalog.py` (task enums, augmentations), `recipe.py` (the training recipe fields and validators, declared once; `presets.py` and `bundle_manifest.py` build on it), `requirements.py`, `job_packages.py` (registry of the Ray zips: candidate -> smoke -> stable, every move audited).
 
 **`core-api/app/integrations/`** (one client per outside system)
-- `compute.py`: submit/status/stop/logs of a Ray job, backend `ray_dashboard` or `rayjob` (config). `job_spec.py`: the pydantic job document (`kind` = train | ingest | predict_batch); its JSON Schema is `contracts/job-spec.v1.json`, regenerate with `scripts/gen-job-spec-schema.py`.
-- `job_lifecycle.py`: the shared engine for long-running rows (`JobTable`: claim, compare-and-set `advance`, outbox `emit`, sweep). Training runs, dataset imports and deployments each declare one (`training/persist.py`, `datasets/job_table.py`, `deployments/status.py`).
+- `compute.py`: submit (a `Submission`)/status/stop/logs of a Ray job, backend `ray_dashboard` or `rayjob` (config). `job_spec.py`: the pydantic job document (`kind` = train | ingest | predict_batch); its JSON Schema is `contracts/job-spec.v1.json`, regenerate with `scripts/gen-job-spec-schema.py`.
+- `job_lifecycle.py`: the shared engine for long-running rows (`JobTable`: claim, compare-and-set `advance`, outbox `emit`/`emit_event`, sweep). Training runs, dataset imports and deployments each declare one (`training/persist.py`, `datasets/job_table.py`, `deployments/status.py`).
 - `data_plane/`: the only code that touches lakeFS, the staging bucket and MLflow (`access.py` tenant checks, `layout.py` staging layout, `job_package.py` / `task_bundle.py` register and promote the Ray packages, `package_zip.py` / `package_store.py` build, validate and store their zips, `job_submit.py`, `train.py`, `ingest.py`).
 - `serve_client.py` + `serve_config.py`: the two shared Ray Serve apps (`predictor-cpu`, `predictor-gpu`) and their declared config. Also `hub.py` (Hugging Face), `zitadel.py`, `mailer.py`.
 

@@ -27,7 +27,7 @@ async def submit(
     zips (`bundle_urls`) go on the path next to the package, which is then the core that runs them. `requirements` are the exact
     pins Ray installs for the job (core_api.core.job_packages.merged_requirements); none = the image's own packages."""
     creds = secret_files.get(secret_files.INGEST)
-    return await compute.submit(compute.JobSpec(
+    return await compute.submit(compute.Submission(
         entrypoint=command(module, spec_json),
         py_modules=[package_url, *(bundle_urls or [])],
         requirements=requirements or [],

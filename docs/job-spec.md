@@ -19,4 +19,4 @@ Code: models in `core-api/app/integrations/job_spec.py`, JSON Schema in `contrac
 
 **Adding a job kind** (dataset preparation, say): a payload model and spec class in `job_spec.py` (add it to `AnyJobSpec`, discriminated on `kind`), a
 `JobKind` member, entrypoint modules in `ray-jobs/ray_jobs/entrypoints/`, a `JobType` in `data_plane/job_catalog.py`.
-Nothing in the envelope, the runner or the shipping changes. `compute.JobSpec` (not this document) says how a submission is made. This document says what the job does.
+Nothing in the envelope, the runner or the shipping changes. `compute.Submission` (not this document) says how a submission is made. This document says what the job does.

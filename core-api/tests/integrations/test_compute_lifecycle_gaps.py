@@ -11,7 +11,7 @@ from app.integrations import compute, job_lifecycle
 from tests.integrations.test_job_lifecycle import JOB, S, T0, ray, table  # noqa: F401 - fixtures
 from tests.support.fake_pool import RecordingConn, patch_pool
 
-GPU_SPEC = compute.JobSpec(entrypoint="python train.py", num_gpus=1, submission_id="train-1")
+GPU_SPEC = compute.Submission(entrypoint="python train.py", num_gpus=1, submission_id="train-1")
 
 
 def test_a_gpu_job_asks_ray_for_the_gpu_on_the_rayjob_backend(monkeypatch):
