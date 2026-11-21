@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
+from enum import StrEnum
 from http import HTTPStatus
 
 import httpx
@@ -31,8 +32,13 @@ from app.integrations.data_plane.package_zip import PACKAGE_DIRS, build, invalid
 SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api registers and promotes its own source
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
-SMOKE_NOT_PASSED = "smoke_not_passed"  # a package or bundle is promoted only once its smoke passed
-SMOKE_NOT_RETRYABLE = "smoke_not_retryable"  # only a candidate whose smoke failed is smoked again
+
+
+class SmokeProblem(StrEnum):
+    NOT_PASSED = "smoke_not_passed"  # a package or bundle is promoted only once its smoke passed
+    NOT_RETRYABLE = "smoke_not_retryable"  # only a candidate whose smoke failed is smoked again
+
+
 SMOKE_ATTEMPT_FORMAT = "%Y%m%d%H%M%S"  # the suffix of a retried smoke job id: when the retry started
 SMOKE_TIMEOUT_SECONDS = 1800  # a tiny run, but the first one on a node installs its pinned environment (about 7 minutes cold for the core): the ceiling for a stuck one
 _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
@@ -135,13 +141,13 @@ async def refresh_smoke(package: JobPackage) -> JobPackage:
 async def require_smoke_passed(package: JobPackage, detail: str) -> None:
     """The gate of a promotion: a 409 `detail` unless the package's smoke has passed (settled from Ray first)."""
     if (await refresh_smoke(package)).smoke_status != SmokeStatus.PASSED:
-        raise Problem(HTTPStatus.CONFLICT, SMOKE_NOT_PASSED, detail)
+        raise Problem(HTTPStatus.CONFLICT, SmokeProblem.NOT_PASSED, detail)
 
 
 async def retry_failed_smoke(package: JobPackage, detail: str) -> JobPackage:
     """Smoke a candidate whose smoke failed again (after the core or the image was fixed); anything else, or a retry another
     request won, is a 409 `detail`."""
-    not_retryable = Problem(HTTPStatus.CONFLICT, SMOKE_NOT_RETRYABLE, detail)
+    not_retryable = Problem(HTTPStatus.CONFLICT, SmokeProblem.NOT_RETRYABLE, detail)
     if package.status != PackageStatus.CANDIDATE or (await refresh_smoke(package)).smoke_status != SmokeStatus.FAILED:
         raise not_retryable
     retried = await retry_smoke(package.name, package.sha256)

@@ -385,7 +385,7 @@ def test_a_promotion_needs_a_smoke_that_passed(s3, db):
     pending = _candidate(db)
     with pytest.raises(Problem) as err:
         run(job_package.require_smoke_passed(pending, "not yet"))
-    assert (err.value.status_code, err.value.code, err.value.detail) == (409, job_package.SMOKE_NOT_PASSED, "not yet")
+    assert (err.value.status_code, err.value.code, err.value.detail) == (409, job_package.SmokeProblem.NOT_PASSED, "not yet")
     _result(s3, pending, ok=True)
     run(job_package.require_smoke_passed(pending, "not yet"))
 
@@ -398,7 +398,7 @@ def test_only_a_failed_candidate_is_smoked_again(s3, db, ray, status, smoke):
     ray.refuse = AssertionError("submitted")
     with pytest.raises(Problem) as err:
         run(job_package.retry_failed_smoke(package, "only failed ones"))
-    assert (err.value.status_code, err.value.code, err.value.detail) == (409, job_package.SMOKE_NOT_RETRYABLE, "only failed ones")
+    assert (err.value.status_code, err.value.code, err.value.detail) == (409, job_package.SmokeProblem.NOT_RETRYABLE, "only failed ones")
 
 
 def test_a_failed_candidate_is_smoked_again_and_a_retry_another_request_won_is_a_409(s3, db, ray):
@@ -406,4 +406,4 @@ def test_a_failed_candidate_is_smoked_again_and_a_retry_another_request_won_is_a
     assert run(job_package.retry_failed_smoke(package, "x")).smoke_status == SmokeStatus.PENDING
     with pytest.raises(Problem) as err:
         run(job_package.retry_failed_smoke(package.model_copy(), "x"))  # the same stale read: the table no longer has it failed
-    assert err.value.code == job_package.SMOKE_NOT_RETRYABLE
+    assert err.value.code == job_package.SmokeProblem.NOT_RETRYABLE

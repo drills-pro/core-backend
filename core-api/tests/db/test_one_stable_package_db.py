@@ -63,3 +63,14 @@ def test_a_lifecycle_move_leaves_its_audit_row_in_the_same_transaction(two_tenan
                 (sha(1), PackageAuditAction.PROMOTE), (sha(2), PackageAuditAction.PROMOTE), (sha(2), PackageAuditAction.RETIRE)]
 
     two_tenants.run(scenario())
+
+
+def test_promoting_an_unknown_sha_leaves_the_stable_package_stable(two_tenants):
+    async def scenario():
+        async with two_tenants.app_role() as conn:
+            await prepared(conn)
+            await job_packages.promote(conn, NAME, sha(1), ACTOR)
+            assert await job_packages.promote(conn, NAME, sha(3), ACTOR) is None
+            assert (await statuses(conn))[sha(1)] == PackageStatus.STABLE
+
+    two_tenants.run(scenario())

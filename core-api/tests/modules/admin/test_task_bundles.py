@@ -97,7 +97,7 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
     res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
     assert res.status_code == 200 and res.json()["status"] == "stable"
     assert conn.sql()[1:] == [
-        "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO job_package_audit", "INSERT INTO task_types", "DELETE FROM task_presets",
+        "SELECT * FROM job_packages", "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO job_package_audit", "INSERT INTO task_types", "DELETE FROM task_presets",
         *["INSERT INTO task_presets"] * 3]
     by_sql = {sql.split(" (")[0]: args for sql, args in conn.calls}
     assert by_sql["INSERT INTO task_types"] == (SLUG, "images", "imgcls.train:train", True, "image_encoder", "classify", SHA, "ops")
@@ -110,7 +110,7 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
 def test_a_bundle_whose_smoke_has_not_passed_is_not_promoted(call):
     conn = Conn(bundle_row())
     res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SMOKE_NOT_PASSED and len(conn.calls) == 1
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_PASSED and len(conn.calls) == 1
 
 
 def test_retiring_a_candidate_is_audited_and_the_stable_one_is_refused(call):
@@ -171,7 +171,7 @@ def test_only_a_failed_candidate_bundle_is_smoked_again(call, monkeypatch):
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(bundle_row(smoke_status=SmokeStatus.FAILED)))
     assert res.status_code == 200 and res.json()["smoke_job_id"] == "smoke-2"
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(_passed()))
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SMOKE_NOT_RETRYABLE
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE
 
 
 @pytest.fixture

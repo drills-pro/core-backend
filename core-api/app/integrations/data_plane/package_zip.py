@@ -52,11 +52,8 @@ def invalid(detail: str, code: str = INVALID_PACKAGE) -> Problem:
     return Problem(HTTPStatus.UNPROCESSABLE_ENTITY, code, detail)
 
 
-def open_archive(data: bytes, sha256: str, noun: str) -> zipfile.ZipFile:
-    """The zip in `data` once it is what its key promised: within the size cap, hashing to `sha256`, a readable archive.
-    `noun` ("package", "bundle") words the refusals."""
-    if len(data) > MAX_PACKAGE_BYTES:
-        raise invalid(f"a {noun} is at most {MAX_PACKAGE_BYTES} bytes")
+def open_archive(data: bytes, sha256: str) -> zipfile.ZipFile:
+    """The zip in `data` once it is what its key promised: hashing to `sha256`, a readable archive."""
     if hashlib.sha256(data).hexdigest() != sha256:
         raise invalid("the object does not hash to the sha256 in its key")
     try:
@@ -68,7 +65,7 @@ def open_archive(data: bytes, sha256: str, noun: str) -> zipfile.ZipFile:
 def validate_package(name: JobPackageName, data: bytes, sha256: str) -> list[str]:
     """What CI built for `name`: pure-Python sources under the package's own directory (and its requirements.lock), hashing
     to `sha256`. Returns the lock's pins; [] when it has none (the package runs on the baked image)."""
-    zf = open_archive(data, sha256, "package")
+    zf = open_archive(data, sha256)
     names = zf.namelist()
     root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
     lock = f"{ZIP_ROOT}/{LOCK_FILE}"

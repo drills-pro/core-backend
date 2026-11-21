@@ -78,7 +78,7 @@ def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch
 def test_a_package_whose_smoke_has_not_passed_cannot_be_promoted(call):
     conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops"))  # smoke_status pending
     res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SMOKE_NOT_PASSED
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_PASSED
     assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops")), json={"status": "retired"}).status_code == 200
 
 
@@ -115,10 +115,10 @@ def test_retrying_an_unknown_package_is_404(call, monkeypatch):
 def test_only_a_failed_candidate_can_be_retried(call, monkeypatch, row):
     seen = _retry_stub(monkeypatch, None)
     res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=row))
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SMOKE_NOT_RETRYABLE and seen == []
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE and seen == []
 
 
 def test_a_retry_another_request_won_is_409(call, monkeypatch):
     _retry_stub(monkeypatch, None)  # the compare-and-set found the smoke no longer failed
     res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=_failed()))
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SMOKE_NOT_RETRYABLE
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE

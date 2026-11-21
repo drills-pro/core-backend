@@ -26,7 +26,7 @@ BUNDLE_KEY = re.compile(rf"{re.escape(layout.JOB_PACKAGE_ROOT)}/(?P<slug>[a-z][a
 def check_bundle(data: bytes, sha256: str) -> BundleManifest:
     """The bundle's manifest, once the zip proves to be what CI built: `sha256`, only `.py` sources and manifest.json,
     a valid manifest for this core's contract whose entry points the sources define and whose serving functions exist."""
-    zf = open_archive(data, sha256, "bundle")
+    zf = open_archive(data, sha256)
     names = [n for n in zf.namelist() if not n.endswith("/")]
     if any(n.startswith("/") or ".." in n.split("/") or not (n.endswith(SOURCE_SUFFIX) or n == MANIFEST_FILE) for n in names):
         raise invalid(f"every file must be a {SOURCE_SUFFIX} source or {MANIFEST_FILE}")

@@ -110,6 +110,8 @@ async def promote(conn, name: str, sha256: str, actor: str) -> JobPackage | None
     """Make `sha256` the one stable package of `name`, audited: the previous stable is retired in the same transaction.
     None when there is no such package."""
     async with conn.transaction():
+        if await get(conn, name, sha256) is None:  # retire the old stable only for a package that exists
+            return None
         await conn.execute(
             "UPDATE job_packages SET status = $4, updated_by = $5, updated_at = now() WHERE name = $1 AND status = $2 AND sha256 <> $3",
             name, PackageStatus.STABLE, sha256, PackageStatus.RETIRED, actor)
