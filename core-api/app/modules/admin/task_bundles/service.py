@@ -36,8 +36,7 @@ async def register(s3_key: str, actor: str) -> JobPackage:
 async def _promote(conn, bundle: JobPackage, actor: str) -> JobPackage:
     manifest = BundleManifest.model_validate(bundle.manifest)
     async with conn.transaction():
-        await job_packages.retire_stable_except(conn, bundle.name, bundle.sha256, actor)
-        promoted = await job_packages.set_status(conn, bundle.name, bundle.sha256, PackageStatus.STABLE, actor)
+        promoted = await job_packages.promote(conn, bundle.name, bundle.sha256, actor)
         serving = manifest.serving and (manifest.serving.encoder, manifest.serving.postprocess)
         await task_types.apply_bundle(conn, manifest.slug, manifest.data_kind, manifest.trainer, manifest.servable, serving, bundle.sha256, actor)
         await presets.delete_others(conn, manifest.slug, [p.name for p in manifest.presets])

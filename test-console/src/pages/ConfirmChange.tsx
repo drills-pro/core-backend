@@ -1,26 +1,22 @@
 import { useState } from 'react';
 import { Button, Code, Dialog, Input, Portal, Stack, Text } from '@chakra-ui/react';
-import { useMutation } from '@tanstack/react-query';
 import type { Schemas } from '@/api/client';
+import { useSetPackageStatus, type PackageStatusBody, type Pkg } from '@/api/packages';
 import { PACKAGE_ERROR_MESSAGES, PackageStatus, SHA_CONFIRM_CHARS } from '@/constants';
 import { CodedError } from '@/ui';
 
-export type Change = { name: string; sha256: string; status: Schemas['PackageStatus']; rollback?: boolean };
+/** A status change the operator asked for; `slug` is set for a task bundle, `replaces` is the active package it retires. */
+export type Change = { pkg: Pkg; status: Pkg['status']; slug?: Schemas['TaskType']; rollback?: boolean; replaces?: Pkg };
 
-const phrase = (c: Change) => `${c.name} ${c.sha256.slice(0, SHA_CONFIRM_CHARS)}`;
+const phrase = ({ pkg }: Change) => `${pkg.name} ${pkg.sha256.slice(0, SHA_CONFIRM_CHARS)}`;
+const short = (p: Pkg) => p.sha256.slice(0, SHA_CONFIRM_CHARS);
 
-/** Typing the package name and the start of its sha back is the guard: a misclick cannot promote the wrong package.
- * `request` makes the status call; runtime packages and task bundles use different routes. */
-export function ConfirmChange({ change, request, onClose, onDone }: { change: Change; request: () => Promise<unknown>; onClose: () => void; onDone: () => void }) {
+/** Typing the package name and the start of its sha back is the guard: a misclick cannot promote the wrong package. */
+export function ConfirmChange({ change, onClose }: { change: Change; onClose: () => void }) {
   const [typed, setTyped] = useState('');
-  const { name, status, rollback } = change;
-  const save = useMutation({
-    mutationFn: request,
-    onSuccess: () => {
-      onDone();
-      onClose();
-    },
-  });
+  const { pkg, status, rollback, replaces } = change;
+  const save = useSetPackageStatus();
+  const promote = status === PackageStatus.STABLE;
   return (
     <Dialog.Root open onOpenChange={(e) => !e.open && onClose()}>
       <Portal>
@@ -28,10 +24,23 @@ export function ConfirmChange({ change, request, onClose, onDone }: { change: Ch
         <Dialog.Positioner>
           <Dialog.Content>
             <Dialog.Header>
-              <Dialog.Title>{rollback ? `Roll ${name} back to an older sha` : `Set ${name} to ${status}`}</Dialog.Title>
+              <Dialog.Title>{rollback ? `Roll ${pkg.name} back to an older sha` : promote ? `Promote ${pkg.name}` : `Retire ${pkg.name}`}</Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
               <Stack gap="3">
+                {promote && (
+                  <Text>
+                    <Code>{short(pkg)}</Code> becomes the active package for every tenant
+                    {replaces ? (
+                      <>
+                        ; the current one, <Code>{short(replaces)}</Code>, is retired automatically.
+                      </>
+                    ) : (
+                      '.'
+                    )}{' '}
+                    Runs already created keep theirs.
+                  </Text>
+                )}
                 <Text>
                   Type <Code>{phrase(change)}</Code> to confirm.
                 </Text>
@@ -43,8 +52,13 @@ export function ConfirmChange({ change, request, onClose, onDone }: { change: Ch
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button colorPalette={status === PackageStatus.STABLE ? 'green' : 'red'} disabled={typed !== phrase(change)} loading={save.isPending} onClick={() => save.mutate()}>
-                {rollback ? 'Roll back' : `Set ${status}`}
+              <Button
+                colorPalette={promote ? 'green' : 'red'}
+                disabled={typed !== phrase(change)}
+                loading={save.isPending}
+                onClick={() => save.mutate({ pkg, slug: change.slug, status: status as PackageStatusBody }, { onSuccess: onClose })}
+              >
+                {rollback ? 'Roll back' : promote ? 'Promote' : 'Retire'}
               </Button>
             </Dialog.Footer>
           </Dialog.Content>

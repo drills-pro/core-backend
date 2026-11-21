@@ -23,7 +23,9 @@ export function Layout() {
             </Badge>
             {NAV.map((n) => (
               <Link key={n.to} asChild color="white">
-                <RouterLink to={n.to}>{n.label}</RouterLink>
+                <RouterLink to={n.to} activeOptions={{ exact: n.to === '/' }} activeProps={{ style: { fontWeight: 700, textDecoration: 'underline' } }}>
+                  {n.label}
+                </RouterLink>
               </Link>
             ))}
           </HStack>

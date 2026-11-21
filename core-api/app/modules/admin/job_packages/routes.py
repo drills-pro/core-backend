@@ -68,7 +68,10 @@ async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str
     if current is not None and (await data_plane.refresh_package_smoke(current)).smoke_status != SmokeStatus.PASSED:
         raise Problem(HTTPStatus.CONFLICT, SMOKE_NOT_PASSED, "the package's smoke job has not passed")
     async with (await get_pool()).acquire() as conn:
-        package = await job_packages.set_status(conn, name, sha256, body.status, actor)
+        if body.status == PackageStatus.STABLE:
+            package = await job_packages.promote(conn, name, sha256, actor)  # retires the previous stable
+        else:
+            package = await job_packages.set_status(conn, name, sha256, body.status, actor)
     if package is None:
         raise not_found()
     logger.info("job package %s %s set to %s by %s", name, sha256, body.status, actor)

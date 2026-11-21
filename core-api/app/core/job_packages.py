@@ -121,6 +121,13 @@ async def retire_stable_except(conn, name: str, sha256: str, actor: str) -> None
         name, PackageStatus.STABLE, sha256, PackageStatus.RETIRED, actor)
 
 
+async def promote(conn, name: str, sha256: str, actor: str) -> JobPackage | None:
+    """Make `sha256` the one stable package of `name`: the previous stable is retired in the same transaction."""
+    async with conn.transaction():
+        await retire_stable_except(conn, name, sha256, actor)
+        return await set_status(conn, name, sha256, PackageStatus.STABLE, actor)
+
+
 async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> None:
     await conn.execute("UPDATE job_packages SET smoke_job_id = $3 WHERE name = $1 AND sha256 = $2 AND smoke_job_id IS NULL", name, sha256, job_id)
 
