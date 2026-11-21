@@ -21,7 +21,7 @@ from app.core.authz.policy import Action, CallSource, Scope, TenantStatus
 from app.core.db import get_pool
 from app.core.problem import Problem, ProblemCode, not_found
 from app.core.settings import settings
-from app.core.tenancy import get_actor, get_tenant_id
+from app.core.tenancy import get_optional_claims, resolve_actor, resolve_tenant_id
 
 KEY_PREFIX = "drl_"
 DISPLAY_PREFIX_LEN = len(KEY_PREFIX) + 8
@@ -116,8 +116,9 @@ def require_caller(scope: Scope, action: Action):
         member = (bearer and not bearer.startswith(KEY_PREFIX)) or (not authorization and settings.auth.dev_headers and x_tenant_id)
         if not member:
             return await key_dependency(authorization, x_project_id, x_model_id)
-        tenant_id = await get_tenant_id(authorization, x_tenant_id)
-        actor = await get_actor(authorization, x_user_id)
+        claims = await get_optional_claims(authorization)
+        tenant_id = await resolve_tenant_id(claims, x_tenant_id)
+        actor = resolve_actor(claims, x_user_id)
         try:
             project_id = uuid.UUID(x_project_id or "")
         except ValueError:

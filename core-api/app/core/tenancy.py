@@ -1,11 +1,10 @@
 import uuid
 from http import HTTPStatus
 
-from fastapi import Header
+from fastapi import Depends, Header
 from starlette.concurrency import run_in_threadpool
 
-from app.core.settings import settings
-from app.core.auth import Claims, verify_token
+from app.core.auth import Claims, dev_header, verify_token
 from app.core.db import get_pool
 from app.core.problem import Problem, ProblemCode, not_found
 from app.core.tracing import tag_current_span
@@ -34,41 +33,47 @@ async def _member_tenant(sub: str, requested: str | None) -> str:
     return str(mine[0]["id"])
 
 
-async def _get_claims(authorization: str | None) -> Claims | None:
+TENANT_HEADER = "X-Tenant-Id"
+USER_HEADER = "X-User-Id"
+DEV_USER = "dev-user"
+
+
+async def get_optional_claims(authorization: str | None = Header(default=None)) -> Claims | None:
+    """The verified token of a bearer request, None for any other. A dependency, so FastAPI verifies it once per request
+    however many of get_tenant_id, get_actor and the like depend on it."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     return await run_in_threadpool(verify_token, authorization.removeprefix("Bearer "))
 
 
-async def get_tenant_id(
-    authorization: str | None = Header(default=None),
-    x_tenant_id: str | None = Header(default=None),
-) -> str:
+async def resolve_tenant_id(claims: Claims | None, x_tenant_id: str | None) -> str:
     """Real Zitadel JWT when present (req/02 FR1: verify a token, never
     trust a client-supplied header) — this is what the frontend's genuine
     OIDC login sends. Falls back to the X-Tenant-Id dev header when no
     Authorization header is present, so every existing curl-based
     flow keep working unchanged; both paths are equally real, just
     different callers."""
-    claims = await _get_claims(authorization)
     if claims is not None:
         tenant_id = await _member_tenant(claims.subject, x_tenant_id)
-        tag_current_span(tenant_id=tenant_id)
-        return tenant_id
+    else:
+        tenant_id = dev_header(x_tenant_id, TENANT_HEADER)
+    tag_current_span(tenant_id=tenant_id)
+    return tenant_id
 
-    if not settings.auth.dev_headers or not x_tenant_id:
-        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token or X-Tenant-Id")
-    tag_current_span(tenant_id=x_tenant_id)
-    return x_tenant_id
+
+def resolve_actor(claims: Claims | None, x_user_id: str | None) -> str:
+    return claims.subject if claims is not None else dev_header(x_user_id, USER_HEADER, default=DEV_USER)
+
+
+async def get_tenant_id(
+    claims: Claims | None = Depends(get_optional_claims),
+    x_tenant_id: str | None = Header(default=None),
+) -> str:
+    return await resolve_tenant_id(claims, x_tenant_id)
 
 
 async def get_actor(
-    authorization: str | None = Header(default=None),
+    claims: Claims | None = Depends(get_optional_claims),
     x_user_id: str | None = Header(default=None),
 ) -> str:
-    claims = await _get_claims(authorization)
-    if claims is not None:
-        return claims.subject
-    if not settings.auth.dev_headers:
-        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token")
-    return x_user_id or "dev-user"
+    return resolve_actor(claims, x_user_id)
