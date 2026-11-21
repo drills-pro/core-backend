@@ -8,11 +8,9 @@ the caller is not in), then one `project_access` call decides the rest.
     visible but action not allowed              -> 403 forbidden, naming the action
 """
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
-from typing import Any
 
 from fastapi import Depends, Request
 
@@ -39,8 +37,8 @@ class TenantProblem(StrEnum):
     PENDING_DELETE = "tenant_pending_delete"
 
 
-class AuditAction(StrEnum):
-    IMPLICIT_ACCESS = "implicit_access"  # followed by ".<action>": an owner/admin acted without a binding
+# The audit action of an owner/admin acting without a binding: "implicit_access.<action>", one member per project action.
+ImplicitAccess = StrEnum("ImplicitAccess", {a.name: f"implicit_access.{a.value}" for a in PROJECT_ACTIONS})
 
 
 READ_ACTIONS = frozenset(a for a in Action if a.value.endswith(".read"))
@@ -64,21 +62,7 @@ class AuthzContext:
         return await conn.fetchval("SELECT array_agg(i) FROM accessible_project_ids($1, $2) i", self.actor, self.tenant_id) or []
 
 
-# Projects live in a context core cannot import: the projects package registers its existence check here when it is
-# imported, and an unregistered check fails closed.
-ProjectExists = Callable[[Any, uuid.UUID], Awaitable[bool]]
-_project_exists: ProjectExists | None = None
-
-
-def register_project_exists(check: ProjectExists) -> None:
-    global _project_exists
-    _project_exists = check
-
-
-async def _exists(conn, project_id: uuid.UUID) -> bool:
-    if _project_exists is None:
-        raise RuntimeError("no project existence check is registered")
-    return await _project_exists(conn, project_id)
+_PROJECT_EXISTS = "SELECT 1 FROM projects WHERE id = $1"  # RLS: only a project of the connection's tenant is seen
 
 
 def _parse_uuid(value: str) -> uuid.UUID:
@@ -97,15 +81,29 @@ async def authorize(
     async with TenantConn(tenant_id) as conn:
         row = await conn.fetchrow("SELECT * FROM project_access($1, $2, $3)", actor, tenant_id, project_id)
         if row is None and project_scoped and settings.auth.dev_headers:
-            if not await _exists(conn, project_id):
+            if await conn.fetchval(_PROJECT_EXISTS, project_id) is None:
                 raise not_found()
+        ctx, implicit = _decide(action, row, tenant_id, actor, project_id, allow_pending_delete)
+        if implicit:  # the grant came from the tenant role alone: audited on the connection that decided it
+            await audit.record(
+                conn, tenant_id=tenant_id, project_id=project_id, actor=actor,
+                action=ImplicitAccess[action.name], entity_type="project", entity_id=project_id,
+            )
+    return ctx
 
+
+def _decide(
+    action: Action, row, tenant_id: str, actor: str, project_id: uuid.UUID | None, allow_pending_delete: bool,
+) -> tuple[AuthzContext, bool]:
+    """The decision on one project_access row: the context, or a raise. The flag says an owner or admin got a write the
+    default and bound roles alone would not give (to be audited)."""
+    project_scoped = action in PROJECT_ACTIONS
     if row is None:
         # Only a dev-header caller can reach here with a tenant it is not a member of (a token
         # caller was already 404ed by get_tenant_id). dev_headers is refused in prod.
         if not settings.auth.dev_headers:
             raise not_found()
-        return AuthzContext(tenant_id, actor, TenantRole.OWNER, project_id, frozenset(Action))
+        return AuthzContext(tenant_id, actor, TenantRole.OWNER, project_id, frozenset(Action)), False
     if row["tenant_status"] == TenantStatus.SUSPENDED:
         raise Problem(403, TenantProblem.SUSPENDED, "this tenant is suspended")
     if row["tenant_status"] == TenantStatus.PENDING_DELETE and not allow_pending_delete:
@@ -122,14 +120,11 @@ async def authorize(
         raise not_found()  # private and unbound: do not reveal it exists
     if action not in actions:
         raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing action {action}", action=action.value)
-    if project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS:
-        if action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound):
-            async with TenantConn(tenant_id) as conn:  # the grant came from the tenant role alone
-                await audit.record(
-                    conn, tenant_id=tenant_id, project_id=project_id, actor=actor,
-                    action=f"{AuditAction.IMPLICIT_ACCESS}.{action}", entity_type="project", entity_id=project_id,
-                )
-    return AuthzContext(tenant_id, actor, tenant_role, project_id, actions)
+    implicit = (
+        project_scoped and tenant_role in MANAGER_ROLES and action not in READ_ACTIONS
+        and action not in allowed_actions(TenantRole.MEMBER, visibility, default_access, bound)
+    )
+    return AuthzContext(tenant_id, actor, tenant_role, project_id, actions), implicit
 
 
 def require(action: Action, *, allow_pending_delete: bool = False):

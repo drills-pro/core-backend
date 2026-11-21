@@ -188,10 +188,19 @@ async def get_profile_claims(claims: Claims = Depends(get_claims)) -> Claims:
     return claims
 
 
+def dev_header(value: str | None, header: str, *, default: str | None = None) -> str:
+    """The caller named by a dev header, for a request with no bearer token: the one place the dev-header rule lives. Refused
+    (401) unless `auth.dev_headers` is on (never in prod) and the header, or `default`, gives a value."""
+    if not settings.auth.dev_headers or not (value or default):
+        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, f"missing Authorization bearer token or {header}")
+    return value or default
+
+
 # The platform's own operators, not a tenant's users. req/02 FR3 fixes the
 # org-scoped role set "at minimum"; this is the one role above it, held by
 # whoever runs the platform, and it is what every /v1/admin route requires.
 PLATFORM_ADMIN_ROLE = "platform_admin"
+ADMIN_USER_HEADER = "X-Admin-User"
 
 
 async def get_platform_admin(
@@ -200,7 +209,7 @@ async def get_platform_admin(
 ) -> str:
     """The actor behind a cross-tenant /v1/admin call.
 
-    Same two-path shape as core.tenancy.get_tenant_id: a real Zitadel
+    The same two paths as core.tenancy.get_tenant_id: a real Zitadel
     token when the caller has one — and it has to carry the
     platform_admin project role, since these routes read across every
     tenant — falling back to the X-Admin-User dev header when there is no
@@ -213,6 +222,4 @@ async def get_platform_admin(
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.PLATFORM_ADMIN_REQUIRED, f"requires the {PLATFORM_ADMIN_ROLE} role")
         return claims.subject
 
-    if not settings.auth.dev_headers or not x_admin_user:
-        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.UNAUTHENTICATED, "missing Authorization bearer token or X-Admin-User")
-    return x_admin_user
+    return dev_header(x_admin_user, ADMIN_USER_HEADER)

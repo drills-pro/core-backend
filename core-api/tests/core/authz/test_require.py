@@ -8,7 +8,8 @@ from fastapi import Depends
 from starlette.exceptions import HTTPException
 
 from app.core import problem
-from app.core.authz import Action, AuthzContext, require
+from app.core.authz import Action, AuthzContext, deps, require
+from app.core.authz.policy import PROJECT_ACTIONS
 from app.core.settings import settings
 from tests.support import PROJECT, TENANT, FakeConn, access, make_client, patch_tenant_conn
 
@@ -147,3 +148,17 @@ def test_admin_read_and_bound_or_default_grants_are_not_audited(serve):
     assert get(serve, DEPLOY_URL, access(role="admin", roles=["deployer"]), "post", audits=audits).status_code == 200
     assert get(serve, DEPLOY_URL, access(role="member", roles=["deployer"]), "post", audits=audits).status_code == 200
     assert audits == []
+
+
+def test_the_implicit_grant_is_audited_on_the_connection_that_decided_it(serve, monkeypatch):
+    audits, opened = [], []
+    client = serve(access(role="admin"), audits=audits)
+    patched = deps.TenantConn
+    monkeypatch.setattr(deps, "TenantConn", lambda tenant_id: opened.append(tenant_id) or patched(tenant_id))
+    assert client.post(DEPLOY_URL).status_code == 200
+    assert len(opened) == 1 and len(audits) == 1
+
+
+def test_the_implicit_access_audit_action_is_a_member_of_the_enum():
+    assert deps.ImplicitAccess[Action.DEPLOYMENT_MANAGE.name] == "implicit_access.deployment.manage"
+    assert {a.name for a in PROJECT_ACTIONS} == {m.name for m in deps.ImplicitAccess}

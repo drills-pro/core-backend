@@ -82,10 +82,10 @@ def test_dev_headers_rejected_unless_enabled(monkeypatch):
 
     monkeypatch.setattr(settings.auth, "dev_headers", False)
     with pytest.raises(HTTPException) as e:
-        asyncio.run(tenancy.get_tenant_id(authorization=None, x_tenant_id="t"))
+        asyncio.run(tenancy.get_tenant_id(None, "t"))
     assert e.value.status_code == 401
     with pytest.raises(HTTPException):
-        asyncio.run(tenancy.get_actor(authorization=None, x_user_id="u"))
+        asyncio.run(tenancy.get_actor(None, "u"))
     with pytest.raises(HTTPException):
         asyncio.run(auth.get_platform_admin(authorization=None, x_admin_user="a"))
 
