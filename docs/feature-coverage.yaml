@@ -345,7 +345,7 @@ entries:
   old: F07
   code: [ray-training/pyproject.toml]
   tests: []
-  gap: No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI.
+  gap: No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI.
 - id: TRN-30
   area: training
   title: Lineage view - dataset version, run, model version, active deployment
@@ -1512,7 +1512,7 @@ entries:
   tests:
   - core-api/tests/integrations/test_trainer_contract.py::test_every_bundle_manifest_is_one_register_accepts
   - core-api/tests/ingest_job/test_contract.py::test_enums_mirror_core_api
-  gap: tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo.
+  gap: tests.yml runs core-api, ray-jobs, ray-training, ray-serving and the Postgres isolation matrix on pull requests; branch protection is not visible from the repo.
 - id: JOB-26
   area: jobs
   title: Journey scripts (import, train and deploy, predict) run against the local stack

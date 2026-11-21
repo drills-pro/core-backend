@@ -19,7 +19,7 @@ OUT = ROOT / "docs" / "feature-coverage.md"
 AREAS = ["training", "registry", "deployment", "serving", "predict", "jobs", "datasets"]
 STATUSES = ["built", "partial", "missing", "deferred"]
 DEFAULT_WEIGHT = 2
-NOT_IN_CI = ("ray-training/", "ray-serving/")  # .github/workflows/tests.yml runs core-api and ray-jobs only
+NOT_IN_CI = ()  # path prefixes of test suites no CI workflow runs; .github/workflows/tests.yml runs core-api, ray-jobs, ray-training and ray-serving
 RANK = {"missing": 0, "partial": 1, "deferred": 2}  # within one weight, a missing feature outranks a partial one
 
 
@@ -69,7 +69,7 @@ def render(entries: list[dict]) -> str:
     untested = [e for e in entries if e["status"] == "built" and not e["tests"]]
     out += ["", "## Built but not (well) tested", ""]
     out += ["**Built with no test at all:** " + (", ".join(e["id"] for e in untested) or "none (the test suite refuses this)"), ""]
-    out += ["**Tested only by suites CI does not run** (`ray-training/`, `ray-serving/`; `.github/workflows/tests.yml` runs core-api, ray-jobs and the Postgres isolation matrix):", ""]
+    out += ["**Tested only by suites CI does not run** (`.github/workflows/tests.yml` runs core-api, ray-jobs, ray-training, ray-serving and the Postgres isolation matrix):", ""]
     out += table(["Id", "Status", "Feature", "Tests"], [[e["id"], e["status"], e["title"], ", ".join(e["tests"])] for e in thin]) if thin else ["none"]
     out += ["", "**Built, but the tests cited are whole files, not named behaviours** (look here for thin coverage):", ""]
     out += table(["Id", "Feature", "Tests"], [[e["id"], e["title"], ", ".join(e["tests"])] for e in unspecific]) if unspecific else ["none"]

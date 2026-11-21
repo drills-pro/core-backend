@@ -26,9 +26,41 @@ CI (`.github/workflows/tests.yml`) runs the tests, ruff, the ray-jobs, ray-train
 and `docker-publish.yml` builds no image until they pass. A new tenant table needs a seed line in
 `core-api/tests/db/schema.py`, or `db-tests.sh` fails.
 
+## Codebase map
+
+Top level: `core-api/` (the FastAPI app, migrations, config, tests), three Ray-side packages that ship as zips
+(`ray-jobs/`, `ray-training/`, `ray-serving/`), `task-bundles/tasks/<slug>/` (per-task trainers), `contracts/`
+(`job-spec.v1.json`), `scripts/`, `compose/`, `test-console/` (a dev UI), `docs/`. The product console is the
+separate `customer-frontend` repo. Start at `core-api/app/main.py` (router list, the one place that knows every
+module) and `core-api/app/background.py` (every timer loop).
+
+**`core-api/app/core/`** (shared kernel, imports nothing above it)
+- `settings.py` + `secret_files.py`: config schema and secret JSON files. `db.py` (pool, follows rotated Vault creds), `tenant_conn.py` (`TenantConn`: a connection with `SET LOCAL app.tenant_id`, so RLS applies), `tenancy.py` + `auth.py` (token or dev-header -> tenant and actor), `authz/` (`policy.py` pure role -> allowed actions, `deps.py` `authorize`, `keys.py` project API keys).
+- `problem.py` (RFC 9457 errors, every failure goes through it), `enums.py` (the StrEnums mirrored by DB CHECKs), `pagination.py` (keyset cursors), `idempotency.py`, `rate_limit.py` (Postgres-backed), `audit.py` / `admin_audit.py` (audit rows), `metrics/` and `tracing.py` (OTel).
+- The training catalog lives here too: `task_types.py`, `task_catalog.py` (task enums, augmentations), `presets.py`, `bundle_manifest.py`, `requirements.py`, `job_packages.py` (registry of the Ray zips: candidate -> smoke -> stable).
+
+**`core-api/app/integrations/`** (one client per outside system)
+- `compute.py`: submit/status/stop/logs of a Ray job, backend `ray_dashboard` or `rayjob` (config). `job_spec.py`: the pydantic job document (`kind` = train | ingest | predict_batch); its JSON Schema is `contracts/job-spec.v1.json`, regenerate with `scripts/gen-job-spec-schema.py`.
+- `job_lifecycle.py`: the shared engine for long-running rows (`JobTable`: claim, compare-and-set `advance`, outbox `emit`, sweep). Training runs, dataset imports and deployments each declare one (`training/persist.py`, `datasets/job_table.py`, `deployments/status.py`).
+- `data_plane/`: the only code that touches lakeFS, the staging bucket and MLflow (`access.py` tenant checks, `layout.py` staging layout, `job_package.py` / `task_bundle.py` zip and register the Ray packages, `job_submit.py`, `train.py`, `ingest.py`).
+- `serve_client.py` + `serve_config.py`: the two shared Ray Serve apps (`predictor-cpu`, `predictor-gpu`) and their declared config. Also `hub.py` (Hugging Face), `zitadel.py`, `mailer.py`.
+
+**`core-api/app/modules/{user,admin}/<context>/`**: `user/` is the customer API (projects, datasets, training, model_registry, deployments incl. `/v1/predict`, api_keys, teams, tenants, tenant_members, webhooks, notifications, usage, ...), `admin/` the operator API (tenants, presets, task_types, task_bundles, job_packages, model_catalog, plan_limits, activity, audit_log, models). Beyond the `routes/service/schemas/constants` split, big contexts add `readers.py` / `writers.py` (SQL), a worker or reconciler (`reconcile.py`, `prediction_worker.py`, `promotion_worker.py`) and `lifecycle.py` / `status.py` state machines.
+
+**Ray side** (own `pyproject.toml`, tests and zip; they cannot import each other, so a few constants and helpers are mirrored by hand and guarded by contract tests under `core-api/tests`, which puts all three on its `pythonpath`):
+- `ray-jobs/ray_jobs`: dataset ingest (`entrypoints/{upload_images,upload_csv,huggingface}`), always writes `report.json` to a staging prefix.
+- `ray-training/ray_core`: the training contract (Ray Train loop, recipe, store, `entrypoints/train.py`); staged under the package name `ray_training`. The `ray_training/` directory is an empty leftover. `task-bundles/tasks/<slug>/` hold one trainer per task, built by `scripts/build-bundle.sh`.
+- `ray-serving/ray_serving`: the shared Serve apps and the `predict_batch` runner.
+- core-api zips each package by content hash into the staging bucket (`jobs/<name>-<sha256>.zip`) and hands Ray a presigned URL; CI publishes new zips (`job-packages.yml`, `task-bundles.yml`) and an admin or auto-promote makes one stable.
+
+**Flows.** Request: route -> `authorize` (policy + `TenantConn`) -> service -> `readers`/`writers` SQL under RLS. Long jobs: route writes the row and a job spec, `compute.submit` starts the Ray job, a poller in `background.py` (leader-locked per sweep by a Postgres advisory lock, also runnable alone as `python -m app.worker`) reconciles it through `job_lifecycle`, then audit, usage metering and events (outbox -> webhooks, `job_events`). Tests: `core-api/tests/` mirrors `app/` (`modules/`, `core/`, `integrations/`), plus `architecture/` (import rules, admin audit and shape checks, the feature-coverage manifest), `contract/` (OpenAPI snapshot, every route named by a test), `ingest_job/` (spec and report shapes shared with the Ray packages), `db/` (real Postgres, Docker only) and `support/` (`FakeConn`, `make_client`, `patch_tenant_conn`).
+A new or changed route fails `contract/` until you regenerate the snapshot (`cd core-api && .venv/bin/python -m tests.contract.test_openapi_snapshot --write`) and name the route in a test (or add it to `UNTESTED` with a reason).
+
+**Docs.** `README.md` (running the stack, migrations), `docs/runtime-contract.md` (the contract with the k8s repo), `docs/job-spec.md`, `docs/predict-api.md` (public predict API), `docs/datasets-plan.md` / `datasets-architecture.md`, `docs/trainer-plan.md`, `docs/ray-parallelism.md`, `docs/feature-coverage.md` (generated from `feature-coverage.yaml`, never hand-edit). Skills in `.claude/skills/` cover run-local, config-and-secrets, auth-layer, k8s-contract. Change behaviour that a doc describes in the same commit.
+
 ## Layout and rules
 
-- `app/core` (settings, secrets, db, auth, tenancy) -> `app/integrations` (clients) -> `app/modules/{user,admin}/<context>` (routes). Imports go one way; `tests/architecture/test_architecture.py` enforces it.
+- `app/core` (settings, secrets, db, auth, tenancy) -> `app/integrations` (clients) -> `app/modules/{user,admin}/<context>` (routes). Imports go one way; `tests/architecture/test_architecture.py` enforces it. A module reaches another only through its package `__init__`.
 - Repo tooling: `scripts/` holds what you run (`steps/` are the pieces `bootstrap.sh` runs, `lib/` is sourced);
   `compose/<service>/` holds files `docker-compose.yml` mounts into containers, never run on the host.
 - **Config**: `core-api/config/*.yaml`, loaded by `app/core/settings.py`. Add a knob there plus `base.yaml`, never `os.environ`. Skill: `config-and-secrets`.
@@ -36,6 +68,7 @@ and `docker-publish.yml` builds no image until they pass. A new tenant table nee
 - `APP_ENV` is required by the code (`local | compose | test | prod`); the Dockerfile sets `prod`. `auth.dev_headers` is refused in `prod`.
 - **No magic strings or numbers.** A closed set of values (roles, actions, statuses, visibility, task types) is an `enum.StrEnum`/`IntEnum` (or a `TypedDict`/`Literal` for shapes) defined once in code and imported everywhere; never repeat a bare literal like `"owner"` or `3` in handlers or SQL parameters. A non-obvious number (limit, TTL) is a named constant or a config knob. Mirror each enum in the DB with a `CHECK` and keep a test that fails if the two drift.
 - Every route needs tenant scoping through `TenantConn` (Postgres RLS). New tables get RLS in their migration.
+- A new route also needs: an entry in `docs/feature-coverage.yaml` for the training, registry, deployment, serving, predict, jobs and datasets routes (`tests/architecture/test_feature_coverage.py`, then regenerate the `.md`); an `admin_audit` call for every mutating `/v1/admin` route (`test_admin_audit_coverage.py`); a refreshed OpenAPI snapshot.
 - Migrations are dbmate files in `core-api/migrations/` named `<UTC YYYYMMDDHHMMSS>_<name>.sql`
   (`-- migrate:up` / `-- migrate:down`). Take the timestamp from `date -u +%Y%m%d%H%M%S` when you create the
   file, never a round number; it must sort after the newest existing version (if the clock is behind it, use
