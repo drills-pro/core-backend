@@ -275,6 +275,20 @@ def test_a_failed_promotion_keeps_the_stage_and_shows_the_error_on_the_version(e
     assert not env.conn.executed
 
 
+def test_the_worker_reads_pending_promotions_and_the_serving_version_through_the_service(env, monkeypatch):
+    async def fetch(sql):
+        assert sql == service._PENDING_TENANTS
+        return [(uuid.UUID(TENANT),)]
+
+    monkeypatch.setattr(service.job_lifecycle, "fetch", fetch)
+    assert run(service.pending_promotion_tenants()) == [TENANT]
+    env.conn.rowset = [{"id": VERSION, "project_id": PROJECT, "promotion_actor": "user-1", "promotion_acknowledged_risk": True}]
+    (pending,) = run(service.pending_promotions(TENANT))
+    assert (pending.id, pending.project_id, pending.promotion_actor, pending.promotion_acknowledged_risk) == (VERSION, PROJECT, "user-1", True)
+    env.conn.vals["FROM model_versions v JOIN model_versions p"] = OLD
+    assert run(service.serving_version(TENANT, VERSION)) == OLD
+
+
 def test_the_promotion_statuses_are_the_check_constraint():
     from pathlib import Path
     import re

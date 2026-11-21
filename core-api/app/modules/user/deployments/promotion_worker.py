@@ -10,14 +10,13 @@ import uuid
 
 from app.core.authz import AuthzContext, TenantRole
 from app.core.problem import Problem
-from app.core.tenant_conn import TenantConn
-from app.integrations import job_lifecycle
 from app.modules.user.deployments import service
 from app.modules.user.deployments.constants import PROMOTION_FAILED_DETAIL
 from app.modules.user.model_registry import (
-    PROMOTION_TENANTS_SQL,
+    PendingPromotion,
     complete_promotion,
     fail_promotion,
+    pending_promotion_tenants,
     pending_promotions,
     serving_version,
 )
@@ -30,13 +29,12 @@ def _reason(error: Exception) -> tuple[str, str | None]:
     return (error.detail, str(error.code)) if isinstance(error, Problem) else (PROMOTION_FAILED_DETAIL, None)
 
 
-async def _settle(tenant_id: str, row) -> None:
-    project_id, version_id = row["project_id"], row["id"]
-    ctx = AuthzContext(tenant_id, row["promotion_actor"] or "", TenantRole.MEMBER, project_id, frozenset())
-    async with TenantConn(tenant_id) as conn:
-        serving = await serving_version(conn, version_id)
+async def _settle(tenant_id: str, row: PendingPromotion) -> None:
+    project_id, version_id = row.project_id, row.id
+    ctx = AuthzContext(tenant_id, row.promotion_actor or "", TenantRole.MEMBER, project_id, frozenset())
+    serving = await serving_version(tenant_id, version_id)
     try:
-        await service.ensure_deployed(ctx, project_id, version_id, row["promotion_acknowledged_risk"])
+        await service.ensure_deployed(ctx, project_id, version_id, row.promotion_acknowledged_risk)
         await complete_promotion(ctx, project_id, version_id)
     except Exception as e:  # noqa: BLE001 - whatever failed, the promotion has failed: say so on the version
         logger.warning("promotion of version %s failed", version_id, exc_info=True)
@@ -69,11 +67,9 @@ async def _put_back(ctx: AuthzContext, project_id: uuid.UUID, serving: uuid.UUID
 
 async def process_promotions() -> None:
     """Settle every pending promotion of the tenants that have one, oldest first. One failing never stops the rest."""
-    for (tenant_id,) in await job_lifecycle.fetch(PROMOTION_TENANTS_SQL):
-        async with TenantConn(str(tenant_id)) as conn:
-            pending = await pending_promotions(conn, str(tenant_id))
-        for row in pending:
+    for tenant_id in await pending_promotion_tenants():
+        for row in await pending_promotions(tenant_id):
             try:
-                await _settle(str(tenant_id), row)
+                await _settle(tenant_id, row)
             except Exception:  # noqa: BLE001
-                logger.exception("could not settle the promotion of version %s", row["id"])
+                logger.exception("could not settle the promotion of version %s", row.id)
