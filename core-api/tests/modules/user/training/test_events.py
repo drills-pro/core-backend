@@ -23,6 +23,7 @@ from app.modules.user.training.schemas import TrainingRun
 from tests.migrations.test_tenant_rls import MIGRATIONS, schema_after
 from tests.modules.user.training.test_training import PROJECT, Gateway, create, make_conn, run_row
 from tests.support import FakeConn, TenantCtx, make_client
+from tests.support.check_mirror import assert_mirrors
 
 RUN, TENANT = uuid.uuid4(), uuid.uuid4()
 TOKEN = "t0ken-secret"
@@ -290,6 +291,4 @@ def test_the_table_is_tenant_isolated_and_cascades_from_the_run():
 
 
 def test_the_events_type_check_equals_the_enum():
-    sql = next(p.read_text() for p in MIGRATIONS if p.name.endswith("_training_run_events.sql"))
-    allowed = re.search(r"training_run_events_type_check CHECK \(type IN \(([^)]*)\)\)", sql)[1]
-    assert set(re.findall(r"'(\w+)'", allowed)) == {t.value for t in EventType}
+    assert_mirrors("training_run_events", "type", EventType)

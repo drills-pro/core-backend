@@ -1,8 +1,6 @@
 """predict_calls: the enum mirrors the table's CHECK, key-authenticated shared calls are logged (not bodies), the log never fails a call."""
 import asyncio
-import re
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -13,15 +11,14 @@ from app.integrations.serve_client import ServeErrorCode
 from app.modules.user.deployments import calls, predict
 from app.modules.user.deployments.status import DeploymentStatus
 from tests.support import FakeConn
+from tests.support.check_mirror import assert_mirrors
 from tests.support.counted_conn import patch_counted_conn
 
-MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_predict_calls.sql")).read_text()
 TENANT, PROJECT, RUN, DEPLOYMENT = str(uuid.uuid4()), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
 
 def test_the_error_codes_mirror_the_check():
-    listed = re.search(r"error_code IN \(([^)]*)\)", MIGRATION).group(1).replace("'", "").replace(" ", "").replace("\n", "").split(",")
-    assert set(listed) == {c.value for c in ServeErrorCode}
+    assert_mirrors("predict_calls", "error_code", ServeErrorCode)
 
 
 @pytest.fixture
