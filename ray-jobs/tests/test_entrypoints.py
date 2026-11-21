@@ -6,7 +6,7 @@ import pytest
 
 from ray_jobs import runner
 from ray_jobs.common.constants import (
-    IMAGE_CLASSIFICATION, NO_ALARM, OBJECT_DETECTION, REPORT_KEY, TABULAR_CLASSIFICATION)
+    IMAGE_CLASSIFICATION, INDEX_KEY, NO_ALARM, OBJECT_DETECTION, OBJECTS_PREFIX, OUT_PREFIX, REPORT_KEY, TABULAR_CLASSIFICATION)
 from ray_jobs.common.enums import Code, Outcome
 from ray_jobs.common.report import Report
 from ray_jobs.common.rows import image_row
@@ -219,3 +219,15 @@ def test_main_arms_the_alarm_and_maps_failure_to_exit_code(monkeypatch, module):
     assert alarms == [LIMITS.job_timeout_seconds, NO_ALARM] * 2  # armed, then cancelled after run()
     with pytest.raises(TimeoutError):
         handlers[signal.SIGALRM]()
+
+
+def test_a_failed_object_upload_fails_the_import_before_the_index_is_written():
+    class Down(FakeStore):
+        def put(self, key, data):
+            if key.startswith(OUT_PREFIX + OBJECTS_PREFIX):
+                raise OSError("store down")
+            super().put(key, data)
+
+    store = Down(zip_bytes({"cat/1.jpg": JPG, "dog/1.jpg": JPG}))
+    rep = run_images(params(IMAGE_CLASSIFICATION), store)
+    assert codes(rep) == [Code.INTERNAL_ERROR] and OUT_PREFIX + INDEX_KEY not in store.puts and final_report(store)["outcome"] == "failed"

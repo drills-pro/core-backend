@@ -1,8 +1,10 @@
 """The staging bucket (S3) and plain HTTP reads. boto3 is imported lazily."""
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from ray_jobs.common.constants import HTTP_TIMEOUT_SECONDS, UPLOAD_KEY
+from ray_jobs.common.constants import HTTP_TIMEOUT_SECONDS, UPLOAD_KEY, UPLOAD_MAX_PENDING, UPLOAD_THREADS
 from ray_jobs.common.enums import Code
 from ray_jobs.common.limits import LimitExceeded
 
@@ -26,6 +28,43 @@ class S3Store:
 
     def put(self, key: str, data: bytes) -> None:
         self.client.put_object(Bucket=self.bucket, Key=self.prefix + key, Body=data)
+
+
+class ParallelSink:
+    """A Sink that uploads on a thread pool. Use it as a context manager: leaving it waits for every upload and raises the first
+    failure, so nothing written after it (index.parquet, report.json) can precede an object it names. A failure also surfaces on
+    the next call, so a broken store stops the extraction early. At most `max_pending` images are held in memory at once."""
+
+    def __init__(self, put: Sink, threads: int = UPLOAD_THREADS, max_pending: int = UPLOAD_MAX_PENDING):
+        self._put = put
+        self._pool = ThreadPoolExecutor(threads)
+        self._slots = threading.Semaphore(max_pending)
+        self._error: BaseException | None = None
+
+    def __call__(self, path: str, data: bytes) -> None:
+        self._raise()
+        self._slots.acquire()
+        self._pool.submit(self._upload, path, data)
+
+    def _upload(self, path: str, data: bytes) -> None:
+        try:
+            self._put(path, data)
+        except BaseException as e:  # noqa: BLE001 - re-raised on the caller's thread by _raise
+            self._error = self._error or e
+        finally:
+            self._slots.release()
+
+    def _raise(self) -> None:
+        if self._error is not None:
+            raise self._error
+
+    def __enter__(self) -> "ParallelSink":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._pool.shutdown(wait=True)
+        if exc is None:
+            self._raise()
 
 
 def http_get(url: str, max_bytes: int | None = None) -> bytes:

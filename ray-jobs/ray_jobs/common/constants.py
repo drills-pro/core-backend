@@ -27,6 +27,8 @@ TABULAR_TASKS = (TABULAR_CLASSIFICATION, TABULAR_REGRESSION)
 
 SPEC_VERSION = 1  # the job spec version this code reads (core-api app/integrations/job_spec.py)
 HTTP_TIMEOUT_SECONDS = 60
+UPLOAD_THREADS = 16  # object uploads in flight at once: one blocking PutObject per image is a round trip each
+UPLOAD_MAX_PENDING = 32  # uploads queued or running; the next image waits, so memory holds at most this many images
 NO_ALARM = 0  # signal.alarm(0) cancels
 TIMEOUT_LIMIT = "job_timeout_seconds"  # the Limits field main() reads before Limits.from_dict can fail
 HASH_PREFIX_LENGTH = 16  # hex chars of sha256 in Hugging Face object paths
