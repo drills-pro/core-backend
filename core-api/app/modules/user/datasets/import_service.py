@@ -19,7 +19,7 @@ from http import HTTPStatus
 from app.core import audit, plan_limits, task_types
 from app.core.authz import Action, AuthzContext
 from app.core.enums import TaskType
-from app.core.idempotency import insert_once, replay
+from app.core.idempotency import Cap, insert_capped, replay
 from app.core.metrics import usage
 from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import Problem, not_found
@@ -31,10 +31,12 @@ from app.modules.user.datasets.constants import (
     ACTIVE_STATUSES,
     BASE_REQUIRED_DETAIL,
     COMMIT_LEASE_GRACE,
+    IMPORT_LOCK_PREFIX,
     IMPORT_REVIEW_TTL,
     IMPORT_UPLOAD_TTL,
     START_FAILED_DETAIL,
     STALE_BASE_DETAIL,
+    TOO_MANY_IMPORTS_DETAIL,
     AuditAction,
     EntityType,
     ImportSource,
@@ -59,8 +61,8 @@ _IMPORT = (
 _BY_KEY = "SELECT * FROM dataset_imports WHERE dataset_id = $1 AND idempotency_key = $2"
 _BASE_EXISTS = "SELECT 1 FROM dataset_versions WHERE id = $1 AND dataset_id = $2"
 _LATEST_VERSION = "SELECT id FROM dataset_versions WHERE dataset_id = $1 ORDER BY number DESC LIMIT 1"
-_TENANT_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"  # serialises the cap check and insert per tenant
 _ACTIVE_COUNT = "SELECT count(*) FROM dataset_imports WHERE tenant_id = $1 AND status = ANY($2)"
+_ACTIVE_STATUSES = [str(s) for s in ACTIVE_STATUSES]
 _INSERT = (
     "INSERT INTO dataset_imports (id, tenant_id, project_id, dataset_id, source, base_version_id, params, "
     "staging_key, expires_at, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
@@ -80,6 +82,13 @@ _NEW_VERSION = (
 _VERSION_OF_IMPORT = "SELECT id, number, import_id, stats, created_at FROM dataset_versions WHERE import_id = $1"
 _LIST = "SELECT * FROM dataset_imports WHERE dataset_id = $1 {cond} ORDER BY {order} LIMIT {limit}"
 _DATASET_EXISTS = "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL"
+
+
+async def _max_active_imports(conn, tenant_id: str) -> int:
+    return (await plan_limits.dataset_limits(conn, tenant_id)).max_active_imports_per_tenant
+
+
+_CAP = Cap(IMPORT_LOCK_PREFIX, _ACTIVE_COUNT, _max_active_imports, ProblemCode.TOO_MANY_IMPORTS, TOO_MANY_IMPORTS_DETAIL)
 
 
 async def _load(conn, project_id, dataset_id, import_id) -> dict:
@@ -146,15 +155,9 @@ async def create_import(
                 raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, ProblemCode.BASE_REQUIRED, BASE_REQUIRED_DETAIL)
             if body.base_version_id and await conn.fetchval(_BASE_EXISTS, body.base_version_id, dataset_id) is None:
                 raise not_found()
-            await conn.fetchval(_TENANT_LOCK, ctx.tenant_id)  # a concurrent create waits here, then sees this one
-            active = await conn.fetchval(_ACTIVE_COUNT, ctx.tenant_id, [str(s) for s in ACTIVE_STATUSES])
-            if active >= (await plan_limits.dataset_limits(conn, ctx.tenant_id)).max_active_imports_per_tenant:
-                raise Problem(
-                    HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_IMPORTS, "too many imports in progress, wait for one to finish"
-                )
             import_id = uuid.uuid4()
-            row, created = await insert_once(
-                conn, _INSERT,
+            row, created = await insert_capped(
+                conn, _CAP, ctx.tenant_id, (_ACTIVE_STATUSES,), _INSERT,
                 (import_id, ctx.tenant_id, project_id, dataset_id, body.source, body.base_version_id,
                  body.params.model_dump(mode="json", exclude_none=True),
                  staging_prefix(ctx.tenant_id, str(dataset_id), str(import_id)),

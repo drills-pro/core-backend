@@ -88,6 +88,8 @@ class ProblemCode(StrEnum):
 
 BASE_REQUIRED_DETAIL = "this dataset already has versions; set base_version_id to the latest one (there is no overwrite mode)"
 NOT_DELETED_DETAIL = "this dataset is not pending deletion, or its retention window has passed"
+TOO_MANY_IMPORTS_DETAIL = "too many imports in progress, wait for one to finish"
+IMPORT_LOCK_PREFIX = "imports:"  # advisory-lock key prefix: serialises the cap check and insert per tenant
 START_FAILED_DETAIL = "the import could not be started; it is unchanged, try again shortly"
 STALE_BASE_DETAIL = "the base version is no longer the latest; start a new import on the latest version"
 

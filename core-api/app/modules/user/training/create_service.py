@@ -13,7 +13,7 @@ from http import HTTPStatus
 from app.core import audit, job_packages, plan_limits, presets, task_types
 from app.core.authz import AuthzContext
 from app.core.enums import JobPackageName, TaskType
-from app.core.idempotency import insert_once, replay
+from app.core.idempotency import Cap, check_cap, insert_capped, replay
 from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem, not_found
 from app.core.task_types import TaskInfo
@@ -28,6 +28,7 @@ from app.modules.user.training.constants import (
     EntityType,
     INFLIGHT_STATUSES,
     START_FAILED_DETAIL,
+    TOO_MANY_RUNS_DETAIL,
     TRAINING_LOCK_PREFIX,
     ProblemCode,
 )
@@ -36,19 +37,15 @@ from app.modules.user.training.schemas import TrainingRun, TrainingRunCreate
 logger = logging.getLogger(__name__)
 
 _BY_KEY = "SELECT * FROM training_runs WHERE project_id = $1 AND idempotency_key = $2"
-_LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _INFLIGHT_COUNT = "SELECT count(*) FROM training_runs WHERE tenant_id = $1 AND status = ANY($2)"
+_INFLIGHT_STATUSES = [str(s) for s in INFLIGHT_STATUSES]
+_CAP = Cap(TRAINING_LOCK_PREFIX, _INFLIGHT_COUNT, plan_limits.max_training_runs, ProblemCode.TOO_MANY_RUNS, TOO_MANY_RUNS_DETAIL)
 _INSERT = (
     "INSERT INTO training_runs (id, tenant_id, project_id, idempotency_key, ray_job_id, mlflow_run_id, dataset_ref, "
     "config, dataset_id, dataset_version, dataset_version_id, task, preset, spec, package_sha256, events_token_hash, bundle_sha256) "
     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
     "ON CONFLICT (project_id, idempotency_key) DO NOTHING RETURNING *"
 )
-
-
-async def _check_quota(conn, tenant_id: str) -> None:
-    if await conn.fetchval(_INFLIGHT_COUNT, tenant_id, [str(s) for s in INFLIGHT_STATUSES]) >= await plan_limits.max_training_runs(conn, tenant_id):
-        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_RUNS, "too many training runs in progress, wait for one to finish")
 
 
 async def _task_of(conn, project_task: str | None, body: TrainingRunCreate) -> TaskInfo:
@@ -108,7 +105,7 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         bundle = await _bundle_of(conn, info)
         hyperparameters = (train_spec.bundle_hyperparameters(preset, body.hyperparameters, bundle.manifest) if bundle
                            else train_spec.resolve_hyperparameters(preset, body.hyperparameters))
-        await _check_quota(conn, tenant_id)  # cheap early answer; the one that counts is under the lock below
+        await check_cap(conn, _CAP, tenant_id, _INFLIGHT_STATUSES)  # cheap early answer; the one that counts is under the lock below
 
     run_id = uuid.uuid4()
     token = events_service.mint(run_id)  # the secret goes to the job's environment, its hash to the row, neither to the spec
@@ -122,10 +119,8 @@ async def create_run(ctx: AuthzContext, project_id: uuid.UUID, body: TrainingRun
         raise job_lifecycle.start_failed(e, ProblemCode.START_FAILED, START_FAILED_DETAIL, f"training run {run_id}")
 
     async with TenantConn(tenant_id) as conn:
-        await conn.fetchval(_LOCK_TENANT, f"{TRAINING_LOCK_PREFIX}{tenant_id}")  # a concurrent create waits here, then sees this one
-        await _check_quota(conn, tenant_id)
-        row, created = await insert_once(
-            conn, _INSERT,
+        row, created = await insert_capped(
+            conn, _CAP, tenant_id, (_INFLIGHT_STATUSES,), _INSERT,
             (run_id, tenant_id, project_id, idempotency_key, spec.job_id, started.run_id, str(body.dataset_version_id),
              spec.payload.model_dump(mode="json")["hyperparameters"], version.dataset_id, version.lakefs_commit, body.dataset_version_id,
              task, preset.name, spec.model_dump(mode="json"), package.sha256, token and token.hash, bundle and bundle.sha256),

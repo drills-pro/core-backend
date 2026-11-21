@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.authz import Action, AuthzContext, TenantRole
+from app.core.idempotency import LOCK_TENANT_SQL
 from app.core.enums import TaskType
 from app.core.problem import Problem
 from app.core.settings import settings
@@ -178,7 +179,7 @@ class _Conn:
             return 1
         if sql == project_readers._TASK_TYPE:  # projects.get_task_type, through readers.dataset_task
             return db.task_type
-        if sql == svc._TENANT_LOCK:  # pg_advisory_xact_lock: held until the transaction ends
+        if sql == LOCK_TENANT_SQL:  # pg_advisory_xact_lock: held until the transaction ends
             await db.tenant_lock.acquire()
             self.tx.tenant_locked = True
             return None
