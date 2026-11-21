@@ -96,8 +96,8 @@ entries:
   old: F07
   code: ["GET /v1/admin/training-presets/{task}", "PUT /v1/admin/training-presets/{task}/{name}", "DELETE /v1/admin/training-presets/{task}/{name}"]
   tests:
-  - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
-  - core-api/tests/modules/admin/test_presets.py::test_deleting_a_missing_preset_is_404
+  - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_audits_it
+  - core-api/tests/modules/admin/test_presets.py::test_deleting_a_missing_preset_is_404_and_leaves_no_audit_row
 - id: TRN-08
   area: training
   title: Image classification trainer (HF ConvNeXt) to ONNX with top-1, top-5 and confusion matrix
@@ -315,11 +315,11 @@ entries:
   source: planning/17 Admission policy; planning/06 Job spec rules
   status: built
   old: F19
-  code: [core-api/app/core/presets.py, core-api/app/integrations/hub.py, core-api/app/modules/admin/presets/routes.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_core/spec.py]
+  code: [core-api/app/core/presets.py, core-api/app/integrations/hub.py, core-api/app/modules/admin/presets/routes.py, core-api/app/modules/admin/presets/service.py, core-api/app/modules/user/training/train_spec.py, ray-training/ray_core/spec.py]
   note: Writing a preset reads the Hub model-info at the pinned commit and refuses a model with no safetensors weights, a config with auto_map, a licence outside training.model_license_allowlist, or files over training.model_max_bytes; the Hub licence is stored on the preset. training.hub_url empty skips the check.
   tests:
   - core-api/tests/integrations/test_hub.py::test_each_rule_refuses_on_its_own
-  - core-api/tests/modules/admin/test_presets.py::test_put_refuses_a_model_the_policy_rejects_and_writes_nothing
+  - core-api/tests/modules/admin/test_presets.py::test_a_model_the_policy_rejects_is_refused
   - core-api/tests/core/test_presets.py::test_a_bad_preset_is_refused
   - core-api/tests/modules/user/training/test_training.py::test_create_builds_the_spec_stores_it_and_submits_it
 - id: TRN-28
@@ -332,7 +332,7 @@ entries:
   code: ["GET /v1/catalog/models", core-api/app/modules/user/catalog/service.py, core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]
   tests:
     - core-api/tests/modules/user/catalog/test_catalog.py::test_lists_each_base_model_once_with_its_tasks_and_presets
-    - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_returns_it
+    - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_audits_it
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
   note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model, shows on the model card and is written to model.json. The trainers load weights with use_safetensors=True so a pickled checkpoint is refused.
   gap: The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision.
@@ -853,8 +853,8 @@ entries:
   old: F19
   code: ["GET /v1/admin/task-types", "PUT /v1/admin/task-types/{task}", core-api/app/core/task_types.py]
   tests:
-  - core-api/tests/modules/admin/test_task_types.py::test_put_writes_the_row_as_the_actor
-  - core-api/tests/modules/admin/test_task_types.py::test_a_serving_function_the_files_do_not_define_is_422
+  - core-api/tests/modules/admin/test_task_types.py::test_put_writes_the_row_as_the_actor_and_audits_it
+  - core-api/tests/modules/admin/test_task_types.py::test_a_serving_function_the_files_do_not_define_is_refused_before_anything_is_written
   - core-api/tests/integrations/test_serve_postprocess.py::test_every_servable_task_names_functions_the_serve_files_define
 - id: SRV-05
   area: serving
@@ -1487,7 +1487,7 @@ entries:
   old: F12
   code: ["GET /v1/admin/plan-limits", "PUT /v1/admin/plan-limits/{tier}", core-api/app/core/plan_limits.py]
   tests:
-  - core-api/tests/modules/admin/test_plan_limits.py::test_put_writes_the_tier_as_the_actor
+  - core-api/tests/modules/admin/test_plan_limits.py::test_put_writes_the_tier_as_the_actor_and_audits_it
   - core-api/tests/core/test_plan_limits.py::test_a_plan_row_is_laid_over_the_yaml_limits_and_leaves_the_rest
   - core-api/tests/core/test_plan_limits.py::test_concurrency_above_the_yaml_ceiling_is_refused
   gap: Limits are counts and sizes; no GPU-minute allowance, no replica caps, no per-plan retention (planning/14).

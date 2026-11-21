@@ -2,21 +2,16 @@
 unscoped connection; the rest of the platform reads them through app/core/task_types.py."""
 import logging
 
-from http import HTTPStatus
-
 from fastapi import APIRouter, Depends
 
-from app.core import admin_audit, task_types
+from app.core import task_types
 from app.core.auth import get_platform_admin
 from app.core.db import get_pool
-from app.core.enums import AdminAuditAction, AdminAuditEntity, TaskType
-from app.core.problem import Problem
+from app.core.enums import TaskType
 from app.core.task_types import TaskInfo, TaskTypeBody
-from app.integrations import data_plane
+from app.modules.admin.task_types import service
 
 logger = logging.getLogger(__name__)
-
-UNKNOWN_SERVING_FUNCTION = "unknown_serving_function"
 
 router = APIRouter(prefix="/v1/admin/task-types", tags=["admin"])
 
@@ -31,10 +26,7 @@ async def list_task_types(actor: str = Depends(get_platform_admin)):
 async def put_task_type(task: TaskType, body: TaskTypeBody, actor: str = Depends(get_platform_admin)):
     """Create or replace one task type. A trainer must already ship in the stable ray_training package; the serving
     functions must exist in the serve files this build sends to the replica."""
-    if missing := data_plane.unknown_serving_functions(body.encoder, body.postprocess):
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, UNKNOWN_SERVING_FUNCTION, f"no such serving function: {', '.join(missing)}")
-    async with (await get_pool()).acquire() as conn, conn.transaction():
-        row = await task_types.put(conn, task, body, actor)
-        await admin_audit.record(conn, actor, AdminAuditAction.TASK_TYPE_PUT, AdminAuditEntity.TASK_TYPE, task, body.model_dump(mode="json"))
+    async with (await get_pool()).acquire() as conn:
+        row = await service.put(conn, task, body, actor)
     logger.info("task type %s set by %s", task, actor)
     return row

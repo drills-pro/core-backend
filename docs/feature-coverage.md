@@ -294,7 +294,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
 | DAT-01 | built | Create, list (cursor) and read datasets | planning/05 Resource model; docs/datasets-plan.md | 3 |
-| DAT-02 | built | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 3 |
+| DAT-02 | built | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 4 |
 | DAT-03 | built | Create an import - presigned PUT to a fixed staging key, upload never passes through the API | planning/06 Datasets | 2 |
 | DAT-04 | built | Import lifecycle - 10 states, compare-and-set transitions, Idempotency-Key, per-tenant active cap | planning/05 Resource model; planning/03 State machines; docs/datasets-architecture.md | 4 |
 | DAT-05 | built | List and read imports | docs/datasets-architecture.md | 1 |
