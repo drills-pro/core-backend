@@ -99,12 +99,19 @@ def test_the_checksum_settings_are_core_apis():
         assert {job_submit.S3_COMPATIBLE_ENV[n] for n in module.CHECKSUM_ENV} == {module.CHECKSUM_WHEN_REQUIRED}
 
 
+def _unset_checksum_env(store, monkeypatch):
+    # S3Store setdefaults these. delenv alone records nothing when they are absent, so set then delete: monkeypatch
+    # then restores "absent" at teardown instead of leaking the setdefault into the rest of the session.
+    for name in store.CHECKSUM_ENV:
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+
+
 @pytest.mark.parametrize("store", STORES)
 def test_every_s3_store_turns_checksums_off_unless_the_job_set_them(store, monkeypatch):
-    for name in store.CHECKSUM_ENV:
-        monkeypatch.delenv(name, raising=False)
+    _unset_checksum_env(store, monkeypatch)
     store.S3Store("bucket", "p/", "http://127.0.0.1:9", "key", "secret")
-    assert {job_submit.S3_COMPATIBLE_ENV[n] for n in store.CHECKSUM_ENV} == {store.CHECKSUM_WHEN_REQUIRED}
+    assert {os.environ[n] for n in store.CHECKSUM_ENV} == {store.CHECKSUM_WHEN_REQUIRED}
     monkeypatch.setenv(store.CHECKSUM_ENV[0], "when_supported")
     store.S3Store("bucket", "p/", "http://127.0.0.1:9", "key", "secret")
     assert os.environ[store.CHECKSUM_ENV[0]] == "when_supported"
@@ -118,6 +125,7 @@ def test_every_package_reads_a_data_url_through_http_get(store):
 
 @pytest.mark.parametrize("store", [core_store, serving_store], ids=["ray_core", "ray_serving"])
 def test_the_local_store_writes_under_the_prefix_and_is_chosen_by_the_file_scheme(store, tmp_path, monkeypatch):
+    _unset_checksum_env(store, monkeypatch)
     monkeypatch.setenv("STAGING_ENDPOINT", f"{store.LOCAL_SCHEME}{tmp_path}")
     chosen = store.store_from_env("bucket", "run/1/")
     assert type(chosen) is store.DirStore
@@ -128,3 +136,8 @@ def test_the_local_store_writes_under_the_prefix_and_is_chosen_by_the_file_schem
     monkeypatch.setenv("STAGING_SECRET_KEY", "s")
     s3 = store.store_from_env("bucket", "run/1/")
     assert (type(s3), s3.bucket, s3.prefix) == (store.S3Store, "bucket", "run/1/")
+
+
+def test_the_store_tests_leave_the_checksum_env_as_they_found_it():
+    # Runs after the store tests above (file order): a leaked setdefault would show here.
+    assert not set(jobs_store.CHECKSUM_ENV) & set(os.environ)
