@@ -1,71 +1,138 @@
 import { useState } from 'react';
-import { Button, Code, HStack, Input, Link, Stack, Table } from '@chakra-ui/react';
+import { Badge, Breadcrumb, Button, Card, Dialog, Field, HStack, Input, LinkBox, LinkOverlay, Portal, Stack } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useParams } from '@tanstack/react-router';
 import { client, unwrap, type Schemas } from '@/api/client';
 import { tenantQuery } from '@/api/queries';
 import { TASK_TYPES } from '@/constants';
-import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
+import { CardGrid, CardSkeletons, Empty, ErrorAlert, Facts, Id, PageHeader, Select, StatusBadge, when } from '@/ui';
 
 export function ProjectsPage() {
   const { tenantId } = useParams({ strict: false }) as { tenantId: string };
-  const qc = useQueryClient();
   const tenant = useQuery(tenantQuery(tenantId)).data;
   const projects = useQuery({ queryKey: ['projects', tenantId], queryFn: () => unwrap(client.GET('/v1/projects')) });
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <Stack gap="4">
+      <PageHeader
+        back={
+          <Breadcrumb.Root size="sm">
+            <Breadcrumb.List>
+              <Breadcrumb.Item>
+                <Breadcrumb.Link asChild>
+                  <RouterLink to="/">Tenants</RouterLink>
+                </Breadcrumb.Link>
+              </Breadcrumb.Item>
+              <Breadcrumb.Separator />
+              <Breadcrumb.Item>
+                <Breadcrumb.CurrentLink>{tenant?.name ?? '…'}</Breadcrumb.CurrentLink>
+              </Breadcrumb.Item>
+            </Breadcrumb.List>
+          </Breadcrumb.Root>
+        }
+        title="Projects"
+        description="Each project holds datasets, training runs and deployments for one task."
+        actions={
+          <Button colorPalette="orange" onClick={() => setCreating(true)}>
+            New project
+          </Button>
+        }
+      />
+      <ErrorAlert error={projects.error} />
+      {projects.isPending ? (
+        <CardSkeletons />
+      ) : projects.data?.items.length ? (
+        <CardGrid>
+          {projects.data.items.map((p) => (
+            <LinkBox key={p.id} asChild>
+              <Card.Root variant="outline" _hover={{ borderColor: 'orange.emphasized', shadow: 'sm' }}>
+                <Card.Header>
+                  <HStack justify="space-between">
+                    <Card.Title>
+                      <LinkOverlay asChild>
+                        <RouterLink to="/t/$tenantId/p/$projectId" params={{ tenantId, projectId: p.id }}>
+                          {p.name}
+                        </RouterLink>
+                      </LinkOverlay>
+                    </Card.Title>
+                    <StatusBadge status={p.status} />
+                  </HStack>
+                </Card.Header>
+                <Card.Body gap="2">
+                  <Badge alignSelf="start" variant="surface">
+                    {p.task_type}
+                  </Badge>
+                  <Facts
+                    items={[
+                      ['Id', <Id key="id" value={p.id} />],
+                      ['Created', when(p.created_at)],
+                    ]}
+                  />
+                </Card.Body>
+              </Card.Root>
+            </LinkBox>
+          ))}
+        </CardGrid>
+      ) : (
+        <Empty title="No projects yet">Create one to start importing a dataset.</Empty>
+      )}
+      {creating && <NewProject tenantId={tenantId} onClose={() => setCreating(false)} />}
+    </Stack>
+  );
+}
+
+function NewProject({ tenantId, onClose }: { tenantId: string; onClose: () => void }) {
+  const qc = useQueryClient();
   const [name, setName] = useState('');
-  const [task, setTask] = useState<Schemas['TaskType']>('image-classification');
+  const [task, setTask] = useState<Schemas['TaskType']>(TASK_TYPES[0]);
   const create = useMutation({
-    mutationFn: () => unwrap(client.POST('/v1/projects', { params: { query: { name, task_type: task } } })),
+    mutationFn: () => unwrap(client.POST('/v1/projects', { params: { query: { name: name.trim(), task_type: task } } })),
     onSuccess: () => {
-      setName('');
+      onClose();
       return qc.invalidateQueries({ queryKey: ['projects', tenantId] });
     },
   });
-
   return (
-    <Section title={`Projects in ${tenant?.name ?? '…'}`}>
-      <HStack>
-        <Input size="sm" placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Select value={task} onChange={(v) => setTask(v as Schemas['TaskType'])} options={TASK_TYPES.map((t) => ({ value: t, label: t }))} />
-        <Button size="sm" colorPalette="orange" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
-          Create
-        </Button>
-      </HStack>
-      <ErrorAlert error={create.error ?? projects.error} />
-      <Stack>
-        <Table.Root size="sm">
-          <Table.Header>
-            <Table.Row>
-              <Table.ColumnHeader>Name</Table.ColumnHeader>
-              <Table.ColumnHeader>Id</Table.ColumnHeader>
-              <Table.ColumnHeader>Task</Table.ColumnHeader>
-              <Table.ColumnHeader>Status</Table.ColumnHeader>
-              <Table.ColumnHeader>Created</Table.ColumnHeader>
-            </Table.Row>
-          </Table.Header>
-          <Table.Body>
-            {projects.data?.items.map((p) => (
-              <Table.Row key={p.id}>
-                <Table.Cell>
-                  <Link asChild colorPalette="orange">
-                    <RouterLink to="/t/$tenantId/p/$projectId" params={{ tenantId, projectId: p.id }}>
-                      {p.name}
-                    </RouterLink>
-                  </Link>
-                </Table.Cell>
-                <Table.Cell>
-                  <Code>{short(p.id)}</Code>
-                </Table.Cell>
-                <Table.Cell>{p.task_type}</Table.Cell>
-                <Table.Cell>
-                  <StatusBadge status={p.status} />
-                </Table.Cell>
-                <Table.Cell>{when(p.created_at)}</Table.Cell>
-              </Table.Row>
-            ))}
-          </Table.Body>
-        </Table.Root>
-      </Stack>
-    </Section>
+    <Dialog.Root open onOpenChange={(e) => !e.open && onClose()}>
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                create.mutate();
+              }}
+            >
+              <Dialog.Header>
+                <Dialog.Title>New project</Dialog.Title>
+              </Dialog.Header>
+              <Dialog.Body>
+                <Stack gap="3">
+                  <Field.Root required>
+                    <Field.Label>Name</Field.Label>
+                    <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label>Task</Field.Label>
+                    <Select value={task} onChange={(v) => setTask(v as Schemas['TaskType'])} options={TASK_TYPES.map((t) => ({ value: t, label: t }))} />
+                  </Field.Root>
+                  <ErrorAlert error={create.error} />
+                </Stack>
+              </Dialog.Body>
+              <Dialog.Footer>
+                <Button variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" colorPalette="orange" disabled={!name.trim()} loading={create.isPending}>
+                  Create
+                </Button>
+              </Dialog.Footer>
+            </form>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
   );
 }
