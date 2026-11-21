@@ -30,7 +30,7 @@ BY_ID = "FROM model_versions WHERE id = $1 AND project_id = $2"  # the version l
 
 def version(**kw):
     """A model_versions row as the promote queries read it."""
-    return {**STORED, "model_id": MODEL, "promotion_status": None, "promotion_error": None, "promotion_error_code": None, **kw}
+    return {**STORED, "model_id": MODEL, "training_run_id": RUN, "publish_metadata": False, "publish_artifact": False, "promotion_status": None, "promotion_error": None, "promotion_error_code": None, **kw}
 
 
 @pytest.fixture
@@ -135,6 +135,7 @@ def test_list_shows_chosen_names_and_customer_labels(env):
     out = run(service.list_versions(CTX, PROJECT))
     assert [(v.mlflow_model_name, v.customer_label) for v in out] == [("clf", "serving"), ("clf", "candidate")]
     assert {v.model_id for v in out} == {model_id}  # what a caller sends as X-Model-Id
+    assert {v.training_run_id for v in out} == {RUN}  # the link back to the run, whose metrics are the version's score
 
 
 def test_publish_flags_are_independent_and_need_one(env):

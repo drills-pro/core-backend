@@ -122,7 +122,7 @@ async def create_deployment(
             raise not_found()
         task = await get_task_type(conn, project_id)
         info = None if task is None else await task_types.get(conn, task)
-        if info is None or not info.enabled or not info.servable or not run.servable:
+        if info is None or not info.enabled or not info.servable or not run.servable_by(info.postprocess):
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_DEPLOYABLE, NOT_DEPLOYABLE_DETAIL)
         risk = None if run.has_test_split else DEPLOY_RISK_DETAIL
         metric, floor = METRIC_FLOORS.get(task, (None, 0.0))

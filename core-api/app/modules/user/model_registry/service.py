@@ -55,8 +55,8 @@ _INSERT = (
 )
 _PROMOTION_COLUMNS = "promotion_status, promotion_error, promotion_error_code"
 _LIST = (
-    f"SELECT id, model_id, mlflow_model_name, mlflow_version, stage, created_at, {_PROMOTION_COLUMNS} FROM model_versions "
-    "WHERE project_id = $1 ORDER BY created_at DESC"
+    f"SELECT id, model_id, training_run_id, mlflow_model_name, mlflow_version, stage, created_at, publish_metadata, publish_artifact, "
+    f"{_PROMOTION_COLUMNS} FROM model_versions WHERE project_id = $1 ORDER BY created_at DESC"
 )
 _BY_ID = (
     f"SELECT id, model_id, mlflow_model_name, mlflow_version, stage, created_at, {_PROMOTION_COLUMNS} FROM model_versions "

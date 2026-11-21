@@ -3181,8 +3181,21 @@
               }
             ]
           },
+          "publish_artifact": {
+            "title": "Publish Artifact",
+            "type": "boolean"
+          },
+          "publish_metadata": {
+            "title": "Publish Metadata",
+            "type": "boolean"
+          },
           "stage": {
             "$ref": "#/components/schemas/ModelStage"
+          },
+          "training_run_id": {
+            "format": "uuid",
+            "title": "Training Run Id",
+            "type": "string"
           }
         },
         "required": [
@@ -3192,7 +3205,10 @@
           "stage",
           "created_at",
           "customer_label",
-          "model_id"
+          "model_id",
+          "training_run_id",
+          "publish_metadata",
+          "publish_artifact"
         ],
         "title": "ModelVersionItem",
         "type": "object"

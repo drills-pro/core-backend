@@ -32,6 +32,7 @@ _RUN_MODEL = (
     "SELECT r.id, r.status, r.mlflow_run_id, COALESCE(r.report -> 'classes', r.report -> 'confusion_matrix' -> 'labels', '[]'::jsonb) AS class_names, r.test_dataset_id, r.metrics, "
     + _VERSION_STATS + " FROM training_runs r LEFT JOIN dataset_versions v ON v.id = r.dataset_version_id WHERE r.id = $1 AND r.project_id = $2"
 )
+CLASSLESS_POSTPROCESSES = frozenset({"regress"})  # ray_serving/postprocess.py functions that never read class_names
 _OWNED = "SELECT 1 FROM training_runs WHERE id = $1 AND project_id = $2 AND tenant_id = $3"
 
 
@@ -50,10 +51,10 @@ class RunModel(BaseModel):
         """A succeeded run whose model was put in its MLflow run (the settle step does that before the run succeeds)."""
         return self.status is TrainingStatus.SUCCEEDED and self.mlflow_run_id is not None
 
-    @property
-    def servable(self) -> bool:
-        """Both served postprocesses (classify, detect) name their results from the class names, so a model without them cannot be served."""
-        return self.has_model and bool(self.class_names)
+    def servable_by(self, postprocess: str | None) -> bool:
+        """The classifying postprocesses (classify, detect, ranked_probabilities) name their results from the class names, so a model
+        without them cannot be served by them; a regression has no classes and returns a bare number."""
+        return self.has_model and (bool(self.class_names) or postprocess in CLASSLESS_POSTPROCESSES)
 
 
 def _with_split(row) -> dict[str, Any]:
