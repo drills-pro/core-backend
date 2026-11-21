@@ -9,10 +9,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from ray_core.constants import Resample
+from ray_core.constants import Outcome, Resample
 from ray_core.result import load_image, preprocessing
 from ray_core.spec import Preprocessing
 from ray_core.tabular import features_of, matrix
+from ray_serving.entrypoints import predict_batch
+from ray_serving.entrypoints.predict_batch import build_report, failed_report
 from ray_serving.inputs import image_encoder, tabular_encoder
 
 INPUT = "pixel_values"
@@ -79,3 +81,10 @@ def test_tabular_rows_become_the_same_array_at_training_and_at_serving():
         feeds, _, _ = encode(row)
         np.testing.assert_array_equal(feeds["features"][0], expected)
         assert feeds["features"].dtype == trained.dtype == np.float32
+
+
+def test_the_batch_report_uses_the_trainers_status_words():
+    """core-api reads one `status` vocabulary from both reports (TrainOutcome); the batch runner writes it as bare strings."""
+    assert (predict_batch.SUCCEEDED, predict_batch.FAILED) == (Outcome.SUCCEEDED, Outcome.FAILED)
+    assert build_report({}, [])["status"] == Outcome.SUCCEEDED
+    assert failed_report(None, ValueError("x"))["status"] == Outcome.FAILED
