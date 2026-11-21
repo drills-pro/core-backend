@@ -4,69 +4,24 @@ preprocessing, the resources the job declares and the hyperparameter defaults an
 Rows are platform data, written only by /v1/admin/training-presets. A run copies the values it used into its job spec, so
 editing a row never changes a past run.
 """
-import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field
 
 from app.core.enums import TaskType
-from app.core.settings import settings
-from app.core.task_catalog import TASK_AUGMENTATIONS, Augmentation, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.recipe import HyperparameterLimits, Recipe
+from app.core.task_catalog import Preprocessing, TextPreprocessing, TrainBaseModel
 
 NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"  # mirrors task_presets_name_check
-REVISION = re.compile(r"^[0-9a-f]{40}$")  # a commit sha, never a branch that moves
 
 
-class HyperparameterRange(BaseModel):
-    default: int
-    min: int
-    max: int
-
-    @model_validator(mode="after")
-    def _ordered(self):
-        if not 1 <= self.min <= self.default <= self.max:
-            raise ValueError("a range needs 1 <= min <= default <= max")
-        return self
-
-
-class HyperparameterLimits(BaseModel):
-    epochs: HyperparameterRange
-    batch_size: HyperparameterRange
-    image_size: HyperparameterRange
-
-
-class PresetBody(BaseModel):
+class PresetBody(Recipe):
     """What an admin writes for one preset."""
 
-    model_config = ConfigDict(extra="forbid")
-
     base_model: TrainBaseModel
-    learning_rate: float = Field(gt=0)
     preprocessing: Preprocessing | TextPreprocessing
-    cpu: float = Field(gt=0)
-    memory_bytes: int = Field(gt=0)
-    gpu: float = Field(ge=0)
-    vram_gb: float | None = Field(default=None, gt=0)  # GPU memory the run may hold, in GiB; the trainer caps itself at it
-    max_runtime_s: int = Field(gt=0)
     hyperparameters: HyperparameterLimits
-    lr_schedule: LrSchedule = LrSchedule.CONSTANT
-    warmup_fraction: float = Field(default=0, ge=0, lt=1)  # of the run's steps, linear from 0 to learning_rate
-    augmentation: Augmentation = Augmentation.NONE
-    early_stopping_patience: int = Field(default=0, ge=0)  # epochs without a better metric before stopping; 0 = off
-
-    def check_task(self, task: TaskType) -> None:
-        """The recipe must be one the task's trainer implements."""
-        if self.augmentation not in TASK_AUGMENTATIONS.get(task, frozenset({Augmentation.NONE})):
-            raise ValueError(f"augmentation {self.augmentation} is not available for {task}")
-
-    @model_validator(mode="after")
-    def _pinned_and_within_the_ceiling(self):
-        if self.base_model is not None and not REVISION.match(self.base_model.revision):
-            raise ValueError("base_model.revision must be a 40-character commit sha")
-        if self.max_runtime_s > settings.training.max_runtime_seconds:  # presigned data reads are sized to the ceiling
-            raise ValueError(f"max_runtime_s is at most {settings.training.max_runtime_seconds}")
-        return self
 
 
 class TaskPreset(PresetBody):
@@ -114,8 +69,8 @@ async def list_for(conn, task: TaskType) -> list[TaskPreset]:
     return [_model(r) for r in await conn.fetch(f"{_SELECT} WHERE task = $1 ORDER BY name", task)]
 
 
-async def put(conn, task: TaskType, name: str, body: PresetBody, actor: str) -> TaskPreset:
-    """Upsert one row from an admin's PresetBody or a bundle's ManifestPreset (same fields; the bundle's may lack a base
+async def put(conn, task: TaskType, name: str, body: Recipe, actor: str) -> TaskPreset:
+    """Upsert one row from an admin's PresetBody or a bundle's ManifestPreset (both a Recipe; the bundle's may lack a base
     model and preprocessing, and its hyperparameters are a dict of defaults)."""
     base, hp = body.base_model, body.hyperparameters
     row = await conn.fetchrow(
