@@ -27,7 +27,6 @@ import httpx
 
 from app.core import admin_audit, task_types
 from app.core.authz import TenantRole, TenantStatus
-from app.core.authz.deps import TenantProblem
 from app.core.db import get_pool
 from app.core.enums import AdminAuditAction, AdminAuditEntity, IdentityStatus, PlanTier, TaskType
 from app.core.problem import Problem, not_found
@@ -35,7 +34,7 @@ from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
 from app.integrations.zitadel import OrgOwner
-from app.modules.admin.tenants.constants import ADMIN_SETTABLE_STATUSES, MAX_SCAN, ORG_STATUSES, ProblemCode
+from app.modules.admin.tenants.constants import MAX_SCAN, ORG_STATUSES, ProblemCode
 from app.modules.admin.tenants.schemas import (
     CreatedTenant,
     TenantDataset,
@@ -289,16 +288,16 @@ async def update_settings(tenant_id: uuid.UUID, settings: TenantSettings, actor:
 
 async def set_status(tenant_id: uuid.UUID, status: str, actor: str) -> TenantStatusOut:
     """tenants.status is what require() enforces. A tenant with a Zitadel org has that org moved
-    too; the UPDATE rolls back if Zitadel refuses, so the two never disagree."""
-    if status not in ADMIN_SETTABLE_STATUSES:
+    too; the UPDATE rolls back if Zitadel refuses, so the two never disagree. That is why the Zitadel call stays
+    inside the transaction: moved after the commit, a refusal or a crash would leave the row and the org
+    disagreeing, and the row lock (which keeps the owner's :delete out meanwhile) would be gone."""
+    if status not in tenants_ctx.ADMIN_SETTABLE_STATUSES:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.STATUS_NOT_SETTABLE, "status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn, conn.transaction():
-        changed = await tenants_ctx.set_status(conn, tenant_id, status)
+        changed = await tenants_ctx.set_status(conn, tenant_id, status)  # 409 for a pending_delete tenant
         if changed is None:
             raise not_found()
-        if changed.previous == TenantStatus.PENDING_DELETE:
-            raise Problem(HTTPStatus.CONFLICT, TenantProblem.PENDING_DELETE, "tenant is pending deletion; only its owner can restore it")
         org_id = changed.org_id
         if org_id:
             async with zitadel.client() as client:

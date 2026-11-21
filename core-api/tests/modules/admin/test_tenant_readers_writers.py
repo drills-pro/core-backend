@@ -3,7 +3,11 @@ import asyncio
 import datetime
 import uuid
 
+import pytest
+
 from app.core.authz import TenantStatus
+from app.core.authz.deps import TenantProblem
+from app.core.problem import Problem
 from app.core.enums import PlanTier
 from app.modules.user.tenants import (
     admin_detail,
@@ -47,6 +51,9 @@ def test_writers():
     assert asyncio.run(merge_settings(FakeConn(row=None), TENANT, {})) is None
     assert asyncio.run(merge_settings(FakeConn(row={"settings": {"a": 1}}), TENANT, {"a": 1})) == {"a": 1}
     assert asyncio.run(set_status(FakeConn(row=None), TENANT, TenantStatus.SUSPENDED)) is None
+    with pytest.raises(Problem) as kept:  # the guard is in the UPDATE; the 409 reports it
+        asyncio.run(set_status(FakeConn(row={"previous": TenantStatus.PENDING_DELETE, "org_id": ""}), TENANT, TenantStatus.ACTIVE))
+    assert kept.value.code == TenantProblem.PENDING_DELETE
     conn = FakeConn(row={"previous": TenantStatus.ACTIVE, "org_id": ""})
     changed = asyncio.run(set_status(conn, TENANT, TenantStatus.SUSPENDED))
     assert (changed.previous, changed.org_id) == (TenantStatus.ACTIVE, "")

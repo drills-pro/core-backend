@@ -11,9 +11,11 @@ from app.modules.user.tenants.readers import (
 )
 from app.modules.user.tenants.routes import router
 from app.modules.user.tenants.schemas import AdminTenantCreated, AdminTenantFull, AdminTenantRow
-from app.modules.user.tenants.writers import insert_admin_tenant, insert_tenant, merge_settings, set_status
+from app.modules.user.tenants.transitions import ADMIN_SETTABLE_STATUSES, set_status
+from app.modules.user.tenants.writers import insert_admin_tenant, insert_tenant, merge_settings
 
 __all__ = [
+    "ADMIN_SETTABLE_STATUSES",
     "AdminTenantCreated",
     "AdminTenantFull",
     "AdminTenantRow",

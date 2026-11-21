@@ -1,6 +1,5 @@
 from enum import StrEnum
 
-from app.core.authz import TenantStatus
 from app.core.enums import IdentityStatus
 
 # Status lives in Zitadel, so it can only be filtered on after enrichment —
@@ -12,9 +11,6 @@ MAX_SCAN = 1000
 
 # The statuses an org shows in the listing's tabs and the summary's counts.
 ORG_STATUSES = (IdentityStatus.ACTIVE, IdentityStatus.SUSPENDED, IdentityStatus.UNKNOWN)
-
-# pending_delete belongs to the owner's delete/restore flow, not to an operator's switch.
-ADMIN_SETTABLE_STATUSES = (TenantStatus.ACTIVE, TenantStatus.SUSPENDED)
 
 
 class ProblemCode(StrEnum):
