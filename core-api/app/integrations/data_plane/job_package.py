@@ -1,140 +1,50 @@
-"""The job packages (`ray-jobs/ray_jobs`, `ray-training/ray_core` as ray_training, `ray-serving/ray_serving`) as zips in the staging bucket, named by their content hash.
+"""The lifecycle of the job packages (`ray-jobs/ray_jobs`, `ray-training/ray_core` as ray_training, `ray-serving/ray_serving`):
+a zip in the staging bucket named by its content hash, registered in `job_packages` as a candidate, smoked on Ray, promoted
+to stable by an admin and retired when superseded. The zips are built and checked in package_zip.py, the bucket is
+package_store.py, the rows and their audit trail core/job_packages.py; this module is the rules that join them.
 
-`register_staged` registers the zip CI put in staging and `publish` builds one from the source tree the image ships with; both register it
-as a candidate in `job_packages`, and an admin promotes it to stable (core/job_packages.py). Jobs run a registered package:
-`presigned_url` hands the Ray job a GET for it and the job holds no extra credential. Outside prod, `resolve_stable`
-publishes and promotes the bundled source itself, so a checkout runs without an admin step.
+`register_staged` registers the zip CI put in staging and `publish` builds one from the source tree the image ships with.
+Jobs run a registered package: `presigned_url` hands the Ray job a GET for it and the job holds no extra credential.
+Outside prod, `resolve_stable` publishes and promotes the bundled source itself (audited as SELF_PUBLISHER), so a checkout
+runs without an admin step.
 """
 import asyncio
-import functools
 import hashlib
-import io
 import json
 import re
-import zipfile
 from datetime import UTC, datetime
-from pathlib import Path
-
 from http import HTTPStatus
 
 import httpx
-from botocore.exceptions import ClientError
 
 from app.core import job_packages, secret_files
 from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus
 from app.core.job_packages import JobPackage
 from app.core.problem import Problem
-from app.core.requirements import RequirementsError, parse_lock, requirements_sha256
+from app.core.requirements import requirements_sha256
 from app.core.settings import settings
 from app.integrations import compute
-from app.integrations.data_plane import job_catalog, job_submit, layout, lakefs
+from app.integrations.data_plane import job_catalog, job_submit, lakefs, layout, package_store
+from app.integrations.data_plane.package_zip import PACKAGE_DIRS, build, invalid, package_key, validate_package
 
-PACKAGE_DIR = Path(__file__).parents[4] / "ray-jobs" / "ray_jobs"  # /ray-jobs/ray_jobs in the image, <repo>/ray-jobs/ray_jobs in the checkout
-TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_core"  # the train driver and the contract (the ray_training package), same layout
-SERVING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-serving" / "ray_serving"  # the shared Serve apps, same layout
-ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive, so the package sits one level down
-ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)  # the zip epoch: the same sources always give the same bytes, hence the same hash
-PACKAGE_DIRS = {JobPackageName.RAY_JOBS: PACKAGE_DIR, JobPackageName.RAY_TRAINING: TRAINING_PACKAGE_DIR, JobPackageName.RAY_SERVING: SERVING_PACKAGE_DIR}
-SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api registers its own source
+SELF_PUBLISHER = "self-publish"  # the actor recorded when a non-prod core-api registers and promotes its own source
 PROD_ENV = "prod"
 NO_STABLE_PACKAGE = "no_stable_package"
-INVALID_PACKAGE = "invalid_package"
-INVALID_REQUIREMENTS = "invalid_requirements"  # a requirements.lock or manifest `requirements` that is not exact pins
-LOCK_FILE = "requirements.lock"  # inside ZIP_ROOT, next to the package directory: Ray still unpacks one top-level directory
+SMOKE_NOT_PASSED = "smoke_not_passed"  # a package or bundle is promoted only once its smoke passed
+SMOKE_NOT_RETRYABLE = "smoke_not_retryable"  # only a candidate whose smoke failed is smoked again
 SMOKE_ATTEMPT_FORMAT = "%Y%m%d%H%M%S"  # the suffix of a retried smoke job id: when the retry started
 SMOKE_TIMEOUT_SECONDS = 1800  # a tiny run, but the first one on a node installs its pinned environment (about 7 minutes cold for the core): the ceiling for a stuck one
 _SMOKE_DEAD = (compute.JobStatus.FAILED, compute.JobStatus.STOPPED)
-MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an upload larger than this is not a package of pure-Python sources
-_S3_NOT_FOUND = "404"
-_S3_NO_SUCH_KEY = "NoSuchKey"
 CORE = JobPackageName.RAY_TRAINING  # the package that holds ray_core, the contract every task bundle runs on
-_uploaded: set[str] = set()
-
-
-@functools.cache
-def build(package_dir: Path = PACKAGE_DIR) -> tuple[bytes, str]:
-    """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable.
-    A `requirements.lock` inside the package directory goes to `package/requirements.lock`, next to the package."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
-            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, path.read_bytes())
-        lock = package_dir / LOCK_FILE  # the package's pinned requirements (planning/26), read back by register_staged
-        if lock.is_file():
-            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, lock.read_bytes())
-    data = buf.getvalue()
-    return data, package_key(package_dir, hashlib.sha256(data).hexdigest())
-
-
-def package_key(package_dir: Path, sha256: str) -> str:
-    return f"{layout.JOB_PACKAGE_ROOT}/{package_dir.parent.name}-{sha256}.zip"
-
-
-def _upload_once(data: bytes, key: str) -> None:
-    if key in _uploaded:
-        return
-    client, bucket = lakefs.s3_client(secret_files.STAGING), settings.data_plane.staging_bucket
-    try:
-        client.head_object(Bucket=bucket, Key=key)
-    except ClientError as e:
-        if e.response["Error"]["Code"] != _S3_NOT_FOUND:
-            raise
-        client.put_object(Bucket=bucket, Key=key, Body=data)
-    _uploaded.add(key)
 
 
 async def publish(name: JobPackageName, actor: str) -> JobPackage:
     """Stage the bundled source of `name` if this version is not in staging yet and register it (a candidate when new)."""
     data, key = build(PACKAGE_DIRS[name])
-    await asyncio.to_thread(_upload_once, data, key)
+    await asyncio.to_thread(package_store.upload_once, data, key)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register(conn, name, hashlib.sha256(data).hexdigest(), key, actor)
-
-
-def _check_upload(name: JobPackageName, data: bytes, sha256: str) -> None:
-    """An upload is the package CI built: pure-Python sources under the package's own directory, hashing to `sha256`."""
-    if len(data) > MAX_PACKAGE_BYTES:
-        raise Problem(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, INVALID_PACKAGE, f"a package is at most {MAX_PACKAGE_BYTES} bytes")
-    if hashlib.sha256(data).hexdigest() != sha256:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body does not hash to the sha256 in the path")
-    try:
-        names = zipfile.ZipFile(io.BytesIO(data)).namelist()
-    except zipfile.BadZipFile:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, "the body is not a zip archive") from None
-    root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
-    if not names or any(n != f"{ZIP_ROOT}/{LOCK_FILE}" and (not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/")) for n in names):
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"every file must be a .py under {root} (or {ZIP_ROOT}/{LOCK_FILE})")
-
-
-def _lock_requirements(data: bytes) -> list[str]:
-    """The pins of the zip's `package/requirements.lock`; [] when it has none (the package runs on the baked image)."""
-    zf = zipfile.ZipFile(io.BytesIO(data))
-    path = f"{ZIP_ROOT}/{LOCK_FILE}"
-    if path not in zf.namelist():
-        return []
-    try:
-        return parse_lock(zf.read(path).decode())
-    except (RequirementsError, UnicodeDecodeError) as e:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_REQUIREMENTS, f"{LOCK_FILE}: {e}") from None
-
-
-def _read_staged(key: str) -> bytes:
-    """The object at `key` in the staging bucket; a missing or oversized one is a 422, not a crash."""
-    client, bucket = lakefs.s3_client(secret_files.STAGING), settings.data_plane.staging_bucket
-    try:
-        size = client.head_object(Bucket=bucket, Key=key)["ContentLength"]
-        if size > MAX_PACKAGE_BYTES:
-            raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"a package is at most {MAX_PACKAGE_BYTES} bytes")
-        return client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    except ClientError as e:
-        if e.response["Error"]["Code"] not in (_S3_NOT_FOUND, _S3_NO_SUCH_KEY):
-            raise
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"{key} is not in the staging bucket") from None
 
 
 async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobPackage:
@@ -143,11 +53,10 @@ async def register_staged(name: JobPackageName, s3_key: str, actor: str) -> JobP
     package_dir = PACKAGE_DIRS[name]
     match = re.fullmatch(rf"{re.escape(package_key(package_dir, '@'))}".replace("@", "([0-9a-f]{64})"), s3_key)
     if match is None:
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_PACKAGE, f"expected a key like {package_key(package_dir, '<sha256>')}")
+        raise invalid(f"expected a key like {package_key(package_dir, '<sha256>')}")
     sha256 = match.group(1)
-    data = await asyncio.to_thread(_read_staged, s3_key)
-    _check_upload(name, data, sha256)
-    requirements = _lock_requirements(data)
+    data = await asyncio.to_thread(package_store.read_staged, s3_key)
+    requirements = validate_package(name, data, sha256)
     async with (await get_pool()).acquire() as conn:
         return await job_packages.register(conn, name, sha256, s3_key, actor, requirements)
 
@@ -205,20 +114,11 @@ async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage | None:
         raise
 
 
-def _read_smoke(key: str) -> bytes | None:
-    try:
-        return lakefs.s3_client(secret_files.STAGING).get_object(Bucket=settings.data_plane.staging_bucket, Key=key)["Body"].read()
-    except ClientError as e:
-        if e.response["Error"]["Code"] not in (_S3_NOT_FOUND, _S3_NO_SUCH_KEY):
-            raise
-        return None
-
-
 async def refresh_smoke(package: JobPackage) -> JobPackage:
     """Settle a pending smoke from what the job left: its smoke.json, else a dead Ray job means failed, else still pending."""
     if package.smoke_status != SmokeStatus.PENDING or package.smoke_job_id is None:
         return package
-    written = await asyncio.to_thread(_read_smoke, layout.smoke_prefix(package.name, package.sha256, _smoke_attempt(package)) + layout.SMOKE_KEY)
+    written = await asyncio.to_thread(package_store.read, layout.smoke_prefix(package.name, package.sha256, _smoke_attempt(package)) + layout.SMOKE_KEY)
     if written is not None:
         outcome = SmokeStatus.PASSED if json.loads(written)["ok"] else SmokeStatus.FAILED
     else:
@@ -232,13 +132,32 @@ async def refresh_smoke(package: JobPackage) -> JobPackage:
         return await job_packages.set_smoke(conn, package.name, package.sha256, outcome)
 
 
+async def require_smoke_passed(package: JobPackage, detail: str) -> None:
+    """The gate of a promotion: a 409 `detail` unless the package's smoke has passed (settled from Ray first)."""
+    if (await refresh_smoke(package)).smoke_status != SmokeStatus.PASSED:
+        raise Problem(HTTPStatus.CONFLICT, SMOKE_NOT_PASSED, detail)
+
+
+async def retry_failed_smoke(package: JobPackage, detail: str) -> JobPackage:
+    """Smoke a candidate whose smoke failed again (after the core or the image was fixed); anything else, or a retry another
+    request won, is a 409 `detail`."""
+    not_retryable = Problem(HTTPStatus.CONFLICT, SMOKE_NOT_RETRYABLE, detail)
+    if package.status != PackageStatus.CANDIDATE or (await refresh_smoke(package)).smoke_status != SmokeStatus.FAILED:
+        raise not_retryable
+    retried = await retry_smoke(package.name, package.sha256)
+    if retried is None:
+        raise not_retryable
+    return retried
+
+
 async def resolve_stable(name: JobPackageName) -> JobPackage:
-    """The package a new job runs: the newest stable one. Outside prod the bundled source is published and promoted first."""
+    """The package a new job runs: the newest stable one. Outside prod the bundled source is published and promoted first,
+    through the same audited promotion an admin's is, so the previous stable is retired."""
     if settings.env != PROD_ENV:
         package = await publish(name, SELF_PUBLISHER)
         if package.status == PackageStatus.CANDIDATE:
             async with (await get_pool()).acquire() as conn:
-                await job_packages.set_status(conn, name, package.sha256, PackageStatus.STABLE, SELF_PUBLISHER)
+                await job_packages.promote(conn, name, package.sha256, SELF_PUBLISHER)
     async with (await get_pool()).acquire() as conn:
         stable = await job_packages.latest_stable(conn, name)
     if stable is None:

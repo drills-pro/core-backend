@@ -23,7 +23,7 @@ def test_a_package_keeps_the_requirements_it_was_registered_with(two_tenants):
         async with two_tenants.app_role() as conn:
             plain = await job_packages.register(conn, JobPackageName.RAY_JOBS, SHA, "k", "ci")
             pinned = await job_packages.register(conn, JobPackageName.RAY_TRAINING, SHA, "k", "ci", PINS)
-            bundle = await job_packages.register_bundle(conn, "task_x", SHA, "k", manifest(), "ci", PINS)
+            bundle = await job_packages.register(conn, "task_x", SHA, "k", "ci", PINS, manifest())
             return plain.requirements, pinned.requirements, bundle.requirements
 
     assert two_tenants.run(register()) == ([], PINS, PINS)

@@ -9,12 +9,18 @@ from http import HTTPStatus
 from app.core import job_packages, presets, task_types
 from app.core.bundle_manifest import BundleManifest
 from app.core.db import get_pool
-from app.core.enums import PackageAuditAction, PackageKind, PackageStatus, SmokeStatus, TaskType
+from app.core.enums import PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import JobPackage, task_package_name
 from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.integrations import data_plane
-from app.modules.admin.task_bundles.constants import AUTO_PROMOTER, DEFAULT_AUTO_PROMOTE, ProblemCode
+from app.modules.admin.task_bundles.constants import (
+    AUTO_PROMOTER,
+    DEFAULT_AUTO_PROMOTE,
+    SMOKE_NOT_PASSED_DETAIL,
+    SMOKE_NOT_RETRYABLE_DETAIL,
+    ProblemCode,
+)
 from app.core.presets import TaskPreset
 from app.core.task_types import TaskInfo
 from app.modules.admin.task_bundles.schemas import BundleSettings, CatalogTask, TaskBundle
@@ -42,7 +48,6 @@ async def _promote(conn, bundle: JobPackage, actor: str) -> JobPackage:
         await presets.delete_others(conn, manifest.slug, [p.name for p in manifest.presets])
         for preset in manifest.presets:
             await presets.put(conn, manifest.slug, preset.name, preset, actor)
-        await job_packages.record(conn, bundle.name, bundle.sha256, PackageAuditAction.PROMOTE, actor)
     return promoted
 
 
@@ -58,16 +63,13 @@ async def set_status(slug: TaskType, sha256: str, status: PackageStatus, actor: 
     async with (await get_pool()).acquire() as conn:
         bundle = await _bundle(conn, slug, sha256)
     if status == PackageStatus.STABLE:
-        if (await data_plane.refresh_package_smoke(bundle)).smoke_status != SmokeStatus.PASSED:
-            raise Problem(HTTPStatus.CONFLICT, ProblemCode.SMOKE_NOT_PASSED, "the bundle's smoke job has not passed")
+        await data_plane.require_package_smoke_passed(bundle, SMOKE_NOT_PASSED_DETAIL)
         async with (await get_pool()).acquire() as conn:
             return await _promote(conn, bundle, actor)
     if bundle.status == PackageStatus.STABLE:
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.BUNDLE_IS_STABLE, "the stable bundle of a task is replaced by promoting another sha")
-    async with (await get_pool()).acquire() as conn, conn.transaction():
-        retired = await job_packages.set_status(conn, bundle.name, sha256, status, actor)
-        await job_packages.record(conn, bundle.name, sha256, PackageAuditAction.RETIRE, actor)
-    return retired
+    async with (await get_pool()).acquire() as conn:
+        return await job_packages.retire(conn, bundle.name, sha256, actor, status)
 
 
 async def list_bundles(slug: TaskType | None = None) -> list[TaskBundle]:
@@ -88,13 +90,7 @@ async def retry_smoke(slug: TaskType, sha256: str) -> TaskBundle:
     """Smoke a candidate whose smoke failed again (after the core or the image was fixed); anything else is a 409."""
     async with (await get_pool()).acquire() as conn:
         bundle = await _bundle(conn, slug, sha256)
-    not_retryable = Problem(HTTPStatus.CONFLICT, ProblemCode.SMOKE_NOT_RETRYABLE, "only a candidate whose smoke failed can be smoked again")
-    if bundle.status != PackageStatus.CANDIDATE or (await data_plane.refresh_package_smoke(bundle)).smoke_status != SmokeStatus.FAILED:
-        raise not_retryable
-    retried = await data_plane.retry_package_smoke(bundle.name, sha256)
-    if retried is None:  # another retry or a promotion got there first
-        raise not_retryable
-    return TaskBundle.of(retried)
+    return TaskBundle.of(await data_plane.retry_failed_package_smoke(bundle, SMOKE_NOT_RETRYABLE_DETAIL))
 
 
 async def catalog() -> list[CatalogTask]:

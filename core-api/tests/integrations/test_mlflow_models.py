@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from app.integrations import data_plane, serve_client
+from app.integrations.data_plane import serving_functions
 from tests.support.task_types import task_info
 from app.integrations.data_plane import access, mlflow
 
@@ -36,7 +37,7 @@ def test_serving_preprocesses_with_what_the_manifest_records():
     Image = pytest.importorskip("PIL.Image")
     np = pytest.importorskip("numpy")
     scope = {}
-    exec(serve_client._source(serve_client.INPUTS_FILE), scope)  # the replica's encoders need neither ray nor onnxruntime
+    exec(serving_functions.source(serving_functions.INPUTS_FILE), scope)  # the replica's encoders need neither ray nor onnxruntime
     buf = io.BytesIO()
     Image.new("RGB", (5, 7), (51, 51, 51)).save(buf, "PNG")
     pre = {"resize": [4, 6], "resample": "bilinear", "rescale": 1 / 255, "mean": [0.5] * 3, "std": [0.25] * 3}

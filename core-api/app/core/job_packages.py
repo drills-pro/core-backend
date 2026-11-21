@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 REQUIREMENTS_CONFLICT = "requirements_conflict"  # two packages of one run pin the same distribution differently
 
-SHA256_PATTERN = r"^[0-9a-f]{64}$"  # mirrors job_packages_sha256_check
 TASK_PACKAGE_PREFIX = "task_"
 TASK_PACKAGE_PATTERN = r"^task_[a-z][a-z0-9-]*$"  # mirrors the task half of job_packages_name_check
 
@@ -53,39 +52,31 @@ def merged_requirements(*packages: JobPackage) -> list[str]:
 
 _SELECT = "SELECT * FROM job_packages"
 _INSERT = (
-    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, requirements) VALUES ($1, $2, $3, $4, $4, $5) "
-    "ON CONFLICT (name, sha256) DO NOTHING"
+    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, kind, manifest, requirements) VALUES ($1, $2, $3, $4, $4, $5, $6, $7) "
+    "ON CONFLICT (name, sha256) DO NOTHING RETURNING true"
 )
 _SET_STATUS = "UPDATE job_packages SET status = $3, updated_by = $4, updated_at = now() WHERE name = $1 AND sha256 = $2 RETURNING *"
 
 _RESET_FAILED_SMOKE = (
     "UPDATE job_packages SET smoke_status = $5, smoke_job_id = NULL WHERE name = $1 AND sha256 = $2 AND status = $3 AND smoke_status = $4 RETURNING *"
 )
-
-
-async def register(conn, name: JobPackageName, sha256: str, s3_key: str, actor: str, requirements: list[str] | None = None) -> JobPackage:
-    """A candidate for this content, or the row that already exists for it."""
-    await conn.execute(_INSERT, name, sha256, s3_key, actor, requirements or [])
-    return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
-
-
-_INSERT_BUNDLE = (
-    "INSERT INTO job_packages (name, sha256, s3_key, published_by, updated_by, kind, manifest, requirements) VALUES ($1, $2, $3, $4, $4, $5, $6, $7) "
-    "ON CONFLICT (name, sha256) DO NOTHING RETURNING true"
-)
 _AUDIT = "INSERT INTO job_package_audit (name, sha256, action, actor) VALUES ($1, $2, $3, $4)"
 
 
-async def record(conn, name: str, sha256: str, action: PackageAuditAction, actor: str) -> None:
-    """Append one job_package_audit row; call it in the transaction of the change it records."""
+async def _record(conn, name: str, sha256: str, action: PackageAuditAction, actor: str) -> None:
+    """Append one job_package_audit row, in the transaction of the change it records."""
     await conn.execute(_AUDIT, name, sha256, action, actor)
 
 
-async def register_bundle(conn, name: str, sha256: str, s3_key: str, manifest: dict, actor: str, requirements: list[str] | None = None) -> JobPackage:
-    """A task bundle candidate with its manifest, audited when new; the row that already exists for this content otherwise."""
+async def register(
+    conn, name: str, sha256: str, s3_key: str, actor: str, requirements: list[str] | None = None, manifest: dict | None = None,
+) -> JobPackage:
+    """A candidate for this content, audited when new; the row that already exists for it otherwise. A `manifest` makes it a
+    task bundle (`name` is task_<slug>), none a runtime package."""
+    kind = PackageKind.RUNTIME if manifest is None else PackageKind.TASK
     async with conn.transaction():
-        if await conn.fetchval(_INSERT_BUNDLE, name, sha256, s3_key, actor, PackageKind.TASK, manifest, requirements or []):
-            await record(conn, name, sha256, PackageAuditAction.REGISTER, actor)
+        if await conn.fetchval(_INSERT, name, sha256, s3_key, actor, kind, manifest, requirements or []):
+            await _record(conn, name, sha256, PackageAuditAction.REGISTER, actor)
         return JobPackage.model_validate(dict(await conn.fetchrow(f"{_SELECT} WHERE name = $1 AND sha256 = $2", name, sha256)))
 
 
@@ -110,22 +101,31 @@ async def list_kind(conn, kind: PackageKind, status: PackageStatus | None = None
 
 
 async def set_status(conn, name: JobPackageName, sha256: str, status: PackageStatus, actor: str) -> JobPackage | None:
+    """The bare status write, unaudited and with no one-stable rule: `promote` and `retire` are the lifecycle's moves."""
     row = await conn.fetchrow(_SET_STATUS, name, sha256, status, actor)
     return None if row is None else JobPackage.model_validate(dict(row))
 
 
-async def retire_stable_except(conn, name: str, sha256: str, actor: str) -> None:
-    """The flip half of a promotion: the stable row of `name` other than `sha256` (one per bundle) becomes retired."""
-    await conn.execute(
-        "UPDATE job_packages SET status = $4, updated_by = $5, updated_at = now() WHERE name = $1 AND status = $2 AND sha256 <> $3",
-        name, PackageStatus.STABLE, sha256, PackageStatus.RETIRED, actor)
-
-
 async def promote(conn, name: str, sha256: str, actor: str) -> JobPackage | None:
-    """Make `sha256` the one stable package of `name`: the previous stable is retired in the same transaction."""
+    """Make `sha256` the one stable package of `name`, audited: the previous stable is retired in the same transaction.
+    None when there is no such package."""
     async with conn.transaction():
-        await retire_stable_except(conn, name, sha256, actor)
-        return await set_status(conn, name, sha256, PackageStatus.STABLE, actor)
+        await conn.execute(
+            "UPDATE job_packages SET status = $4, updated_by = $5, updated_at = now() WHERE name = $1 AND status = $2 AND sha256 <> $3",
+            name, PackageStatus.STABLE, sha256, PackageStatus.RETIRED, actor)
+        promoted = await set_status(conn, name, sha256, PackageStatus.STABLE, actor)
+        if promoted is not None:
+            await _record(conn, name, sha256, PackageAuditAction.PROMOTE, actor)
+        return promoted
+
+
+async def retire(conn, name: str, sha256: str, actor: str, status: PackageStatus = PackageStatus.RETIRED) -> JobPackage | None:
+    """Take a package out of use (`status` retired, or back to candidate), audited. None when there is no such package."""
+    async with conn.transaction():
+        retired = await set_status(conn, name, sha256, status, actor)
+        if retired is not None:
+            await _record(conn, name, sha256, PackageAuditAction.RETIRE, actor)
+        return retired
 
 
 async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> None:
