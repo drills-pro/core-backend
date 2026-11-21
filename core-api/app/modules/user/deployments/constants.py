@@ -184,7 +184,10 @@ INPUT_FIELD_BY_ENCODER = {"image_encoder": "image_base64", "text_encoder": "text
 TABULAR_ENCODER = "tabular_encoder"  # its body is one value per feature column of the model, not one field
 FEATURE_TYPE = "number"
 NUMBER_PLACEHOLDER = "<number>"
+CATEGORY_TYPE = "string"  # a feature column the trainer encoded from text (report.categories): the caller sends the text
+CATEGORY_PLACEHOLDER = "<text>"
 OUTPUT_ITEM_BY_POSTPROCESS = {
+    "regress": {"value": "number"},
     "classify": {"class": "string", "probability": "number"},
     "ranked_probabilities": {"class": "string", "probability": "number"},
     "detect": {"class": "string", "probability": "number", "box": {"x": "number", "y": "number", "width": "number", "height": "number"}},

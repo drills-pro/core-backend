@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from ray_core.constants import Col, Split
-from ray_core.data import hash_split, load_image_dataset, split_for_training
+from ray_core.data import carve_held_out, hash_split, load_image_dataset, require_classes, split_for_training
 from ray_core.errors import BadData
 from ray_core.spec import parse_spec
 from tests.support import MemStore, classification_rows, detection_rows, fake_get, spec_text  # noqa: F401
@@ -45,12 +45,34 @@ def test_an_image_missing_from_the_manifest_is_bad_data(tmp_path):
         load_dataset(spec_for(rows), tmp_path, fake_get(rows, files, manifest_rows=rows[:-1]))
 
 
-def test_training_needs_both_sides(tmp_path):
+def test_training_needs_both_sides_and_a_fifth_is_held_out_when_none_is(tmp_path):
     rows, files = classification_rows()
     for r in rows:
         r[Col.SPLIT] = "train"
-    with pytest.raises(BadData):
-        split_for_training(load_dataset(spec_for(rows), tmp_path, fake_get(rows, files)))
+    ds = load_dataset(spec_for(rows), tmp_path, fake_get(rows, files))
+    train, held_out = split_for_training(ds)  # nothing held out: a strided fifth is
+    assert len(train) + len(held_out) == len(rows) and len(held_out) == len(rows[::5])
+    with pytest.raises(BadData):  # one image cannot be both
+        split_for_training(load_dataset(spec_for(rows[:1]), tmp_path / "one", fake_get(rows[:1], files)))
+
+
+def test_carve_held_out_is_strided_so_every_class_is_reached_and_leaves_a_given_held_out_alone():
+    items = ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2", "b3", "b4"]  # grouped by class, as an index is
+    train, held_out = carve_held_out(items, [])
+    assert held_out == ["a1", "a6"] and "a1" not in train and len(train) == 8
+    assert carve_held_out(items, ["x"]) == (items, ["x"])
+    assert carve_held_out(["a", "b"], []) == (["b"], ["a"]) and carve_held_out(["a"], []) == (["a"], [])
+    equal = [("same",)] * 6  # equal items are told apart by position
+    assert [len(part) for part in carve_held_out(equal, [])] == [4, 2]
+
+
+def test_a_classifier_needs_two_classes(tmp_path):
+    rows, files = classification_rows()
+    for r in rows:
+        r[Col.LABEL] = "red"
+    with pytest.raises(BadData, match="at least 2 classes"):
+        load_dataset(spec_for(rows), tmp_path, fake_get(rows, files))
+    require_classes(["a", "b"])
 
 
 def test_load_image_applies_the_specs_normalisation(tmp_path):

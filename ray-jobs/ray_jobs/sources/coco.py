@@ -3,7 +3,7 @@ import json
 import posixpath
 from typing import Any
 
-from ray_jobs.common.constants import COCO_FILE
+from ray_jobs.common.constants import COCO_FILE, JSON_EXTENSION
 from ray_jobs.common.enums import BOX_FIELDS, Box, Code, Coco, Col
 from ray_jobs.common.labels import check_label_collisions, normalise_label
 from ray_jobs.common.report import Report
@@ -52,10 +52,31 @@ def parse_coco(doc: Any, report: Report) -> list[dict]:
     return list(images.values())
 
 
+def annotation_files(members) -> list:
+    """The COCO document: `annotations.json`, else the archive's only .json file (`instances_train.json`, `_annotations.coco.json`)."""
+    named = [m for m in members if posixpath.basename(m.filename) == COCO_FILE]
+    return named or [m for m in members if posixpath.splitext(m.filename)[1].lower() == JSON_EXTENSION]
+
+
+def clip_boxes(boxes: list[dict], size: tuple[int, int], path: str, report: Report) -> list[dict]:
+    """Boxes cut to the image: an annotation tool may draw past the edge, and a box outside the picture teaches the model nothing.
+    A box with nothing left inside is dropped with a warning."""
+    width, height = size
+    kept = []
+    for b in boxes:
+        x0, y0 = max(b[Box.X], 0), max(b[Box.Y], 0)
+        x1, y1 = min(b[Box.X] + b[Box.WIDTH], width), min(b[Box.Y] + b[Box.HEIGHT], height)
+        if x1 <= x0 or y1 <= y0:
+            report.warn(Code.COCO_INVALID, "box outside the image ignored", path)
+            continue
+        kept.append({**b, Box.X: x0, Box.Y: y0, Box.WIDTH: x1 - x0, Box.HEIGHT: y1 - y0})
+    return kept
+
+
 def ingest_detection(zf, members, limits, report, decode, sink: Sink, split: str | None) -> list[dict]:
-    coco = [m for m in members if posixpath.basename(m.filename) == COCO_FILE]
+    coco = annotation_files(members)
     if len(coco) != 1:
-        report.error(Code.COCO_INVALID, f"expected exactly one {COCO_FILE}, found {len(coco)}")
+        report.error(Code.COCO_INVALID, f"expected exactly one {COCO_FILE} (or one .json file), found {len(coco)}")
         return []
     budget = ByteBudget(limits.extracted_max_bytes)
     try:
@@ -83,9 +104,9 @@ def ingest_detection(zf, members, limits, report, decode, sink: Sink, split: str
         if image_too_large(info, path, limits, report):
             continue
         data = budget.read(zf, info)
-        if check_image(data, path, limits, report, decode):
+        if size := check_image(data, path, limits, report, decode):
             sink(path, data)
-            rows.append(image_row(path, data, None, entry[Col.BOXES], split))
+            rows.append(image_row(path, data, None, clip_boxes(entry[Col.BOXES], size, path, report), split))
     check_label_collisions({b[Box.CATEGORY] for r in rows for b in r[Col.BOXES]}, report)
     if not rows and not report.failed:
         report.error(Code.NO_DATA, "no annotated images found")

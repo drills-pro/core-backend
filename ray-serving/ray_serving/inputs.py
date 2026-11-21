@@ -20,8 +20,15 @@ def image_encoder(pre, tokenizer_url, input_name):
     import numpy as np
     from PIL import Image
 
+    def decode(value):
+        """Plain, URL-safe or unpadded base64, with or without line breaks, or a `data:image/...;base64,` URI."""
+        if not isinstance(value, str):
+            raise ValueError("image_base64 must be a string")
+        value = "".join((value.partition(",")[2] if value.startswith("data:") else value).split())
+        return base64.b64decode(value.replace("-", "+").replace("_", "/") + "=" * (-len(value) % 4))
+
     def encode(body):
-        opened = Image.open(io.BytesIO(base64.b64decode(body["image_base64"])))  # reads the header only
+        opened = Image.open(io.BytesIO(decode(body["image_base64"])))  # reads the header only
         if opened.width * opened.height > MAX_IMAGE_PIXELS:
             raise ValueError(f"image is {opened.width}x{opened.height}, more than {MAX_IMAGE_PIXELS} pixels")
         sent = opened.convert("RGB")
@@ -42,7 +49,8 @@ def text_encoder(pre, tokenizer_url, input_name):
 
     tokenizer = Tokenizer.from_str(urllib.request.urlopen(tokenizer_url, timeout=120).read().decode())
     tokenizer.enable_truncation(pre["max_length"])
-    tokenizer.enable_padding(length=pre["max_length"])
+    # the base model's own pad token (model.json since the trainer records it; an older model used the BERT one, the library's default)
+    tokenizer.enable_padding(length=pre["max_length"], pad_id=pre.get("pad_id") or 0, pad_token=pre.get("pad_token") or "[PAD]")
 
     def encode(body):
         enc = tokenizer.encode(body["text"])
@@ -53,13 +61,19 @@ def text_encoder(pre, tokenizer_url, input_name):
 
 def tabular_encoder(pre, tokenizer_url, input_name):
     """Body {feature: value, ...}: one row in the trainer's feature order (model.json preprocessing.features). A missing or null
-    value is NaN, as at training; a value that is not a number fails the call (bad_input)."""
+    value is NaN, as at training; a value that is not a number fails the call (bad_input). A category column (preprocessing.categories)
+    takes its text, which becomes the index the trainer gave it."""
     import numpy as np
 
     features = pre["features"]
+    codes = {name: {v: i for i, v in enumerate(values)} for name, values in (pre.get("categories") or {}).items()}
+
+    def cell(name, value):
+        if value is None:
+            return np.nan
+        return codes[name].get(str(value), np.nan) if name in codes else float(value)  # a category the model never saw is missing
 
     def encode(body):
-        row = [np.nan if body.get(name) is None else float(body[name]) for name in features]
-        return {input_name: np.array([row], dtype=np.float32)}, 0, 0
+        return {input_name: np.array([[cell(name, body.get(name)) for name in features]], dtype=np.float32)}, 0, 0
 
     return encode

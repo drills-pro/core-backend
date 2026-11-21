@@ -41,3 +41,8 @@ def ranked_probabilities(outputs, class_names, width, height, params):
     probability, best first (the label output is not needed for it)."""
     ranked = sorted(zip(class_names, outputs[1][0].tolist()), key=lambda x: -x[1])
     return [{"class": c, "probability": p} for c, p in ranked]
+
+
+def regress(outputs, class_names, width, height, params):
+    """Tabular regression: the one predicted number, (1, 1) or (1,) -> [{"value": number}]."""
+    return [{"value": float(outputs[0].reshape(-1)[0])}]

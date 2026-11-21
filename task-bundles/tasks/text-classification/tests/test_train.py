@@ -27,7 +27,7 @@ def test_text_classification_trains_exports_and_reports(tiny_bert):
     (logits,) = onnx.run(None, {"input_ids": ids, "attention_mask": np.ones_like(ids)})
     assert logits.shape == (3, 2)
     manifest = json.loads(store.puts[MODEL_MANIFEST_KEY])
-    assert manifest["classes"] == ["neg", "pos"] and manifest["preprocessing"] == {"max_length": MAX_LENGTH, "tokenizer": TOKENIZER_KEY}
+    assert manifest["classes"] == ["neg", "pos"] and manifest["preprocessing"] == {"max_length": MAX_LENGTH, "tokenizer": TOKENIZER_KEY, "pad_id": 0, "pad_token": "[PAD]"}
     tokenizer = Tokenizer.from_str(store.puts[TOKENIZER_KEY].decode())  # what serving tokenizes with
     assert tokenizer.encode("great movie").ids == [tokenizer.token_to_id("great"), tokenizer.token_to_id("movie")]
 

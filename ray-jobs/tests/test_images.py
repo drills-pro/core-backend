@@ -49,3 +49,33 @@ def test_an_oversized_zip_member_is_refused_before_it_is_read_into_memory(monkey
     members = inspect_archive(zf.infolist(), 100, LIMITS, rep)
     ingest_classification(zf, members, LIMITS, rep, fake_decode, objects.__setitem__, None)
     assert Code.IMAGE_TOO_LARGE in codes(rep) and not objects
+
+
+def test_a_wrapper_folder_around_the_classes_is_not_a_class():
+    rows, rep, _ = classify({"ds/cat/1.jpg": JPG, "ds/dog/2.png": PNG})
+    assert not rep.failed and [(r["path"], r["label"]) for r in rows] == [("cat/1.jpg", "cat"), ("dog/2.png", "dog")]
+
+
+def test_split_folders_set_the_split_and_keep_files_of_one_name_apart():
+    rows, rep, objects = classify({"train/cat/1.jpg": JPG, "val/cat/1.jpg": PNG, "Test/dog/2.jpg": JPG})
+    assert not rep.failed
+    assert [(r["path"], r["label"], r["split"]) for r in rows] == [
+        ("train/cat/1.jpg", "cat", "train"), ("val/cat/1.jpg", "cat", "validation"), ("Test/dog/2.jpg", "dog", "test")]
+    assert len(objects) == 3
+
+
+def test_a_wrapper_around_split_folders_and_a_class_named_like_a_split():
+    rows, _, _ = classify({"ds/train/cat/1.jpg": JPG, "ds/test/cat/2.jpg": PNG})
+    assert [(r["path"], r["split"]) for r in rows] == [("train/cat/1.jpg", "train"), ("test/cat/2.jpg", "test")]
+    rows, _, _ = classify({"train/1.jpg": JPG, "test/2.jpg": PNG})  # two classes that happen to be called train and test
+    assert [(r["label"], r["split"]) for r in rows] == [("train", None), ("test", None)]
+
+
+def test_a_folder_of_one_name_that_is_not_every_images_first_folder_is_left_alone():
+    rows, _, _ = classify({"cat/sub/1.jpg": JPG, "dog/sub/2.jpg": PNG})
+    assert [r["label"] for r in rows] == ["cat", "dog"]
+
+
+def test_macos_resource_forks_outside___macosx_are_skipped_not_corrupt():
+    rows, rep, _ = classify({"cat/1.jpg": JPG, "cat/._1.jpg": b"BAD" + JPG, "dog/2.png": PNG})
+    assert not rep.failed and [r["path"] for r in rows] == ["cat/1.jpg", "dog/2.png"]

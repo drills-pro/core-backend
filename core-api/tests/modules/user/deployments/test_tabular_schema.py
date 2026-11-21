@@ -16,8 +16,8 @@ def info(encoder, postprocess):
     return SimpleNamespace(encoder=encoder, postprocess=postprocess)
 
 
-def schema_for(monkeypatch, *, encoder, postprocess, features):
-    row = {"model_id": uuid.uuid4(), "mlflow_version": "3", "features": features}
+def schema_for(monkeypatch, *, encoder, postprocess, features, categories=None):
+    row = {"model_id": uuid.uuid4(), "mlflow_version": "3", "features": features, "categories": categories}
     patch_tenant_conn(monkeypatch, FakeConn(row=row), service)
 
     async def task(conn, project_id):
@@ -40,3 +40,9 @@ def test_the_input_is_one_number_per_feature_column_in_the_models_order(monkeypa
 def test_a_model_without_recorded_features_has_no_input_fields(monkeypatch):
     out = schema_for(monkeypatch, encoder="tabular_encoder", postprocess="ranked_probabilities", features=None)
     assert out.input == {}
+
+
+def test_a_category_column_takes_text_and_a_regression_answers_a_value(monkeypatch):
+    out = schema_for(monkeypatch, encoder="tabular_encoder", postprocess="regress", features=["age", "colour"], categories={"colour": ["blue", "red"]})
+    assert out.input == {"age": "number", "colour": "string"} and out.output == {"predictions": [{"value": "number"}]}
+    assert out.snippets  # built with the placeholders

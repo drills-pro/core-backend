@@ -16,6 +16,8 @@ from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import prediction_store as store, snippets
 from app.modules.user.deployments.constants import (
+    CATEGORY_PLACEHOLDER,
+    CATEGORY_TYPE,
     FEATURE_TYPE,
     INPUT_FIELD_BY_ENCODER,
     NUMBER_PLACEHOLDER,
@@ -229,7 +231,7 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
     """The input and output shape for POST /v1/predict on this deployment, from its task type's encoder and postprocess, and call snippets."""
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT mv.model_id, mv.mlflow_version, r.report -> 'features' AS features FROM deployments d "
+            "SELECT mv.model_id, mv.mlflow_version, r.report -> 'features' AS features, r.report -> 'categories' AS categories FROM deployments d "
             "JOIN model_versions mv ON mv.id = d.model_version_id JOIN training_runs r ON r.id = d.training_run_id "
             "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3",
             deployment_id, project_id, DeploymentStatus.DELETED,
@@ -239,9 +241,9 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
     if row is None or info is None:
         raise not_found()
     if info.encoder == TABULAR_ENCODER:  # one value per feature column, in the model's own order
-        columns = row["features"] or []
-        input_shape = {name: FEATURE_TYPE for name in columns}
-        body_input = {name: NUMBER_PLACEHOLDER for name in columns}
+        columns, categories = row["features"] or [], row["categories"] or {}  # a run from before categories has none
+        input_shape = {name: CATEGORY_TYPE if name in categories else FEATURE_TYPE for name in columns}
+        body_input = {name: CATEGORY_PLACEHOLDER if name in categories else NUMBER_PLACEHOLDER for name in columns}
     else:
         field = INPUT_FIELD_BY_ENCODER.get(info.encoder)
         input_shape = {field: "string"} if field else {}

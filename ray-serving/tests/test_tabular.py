@@ -33,3 +33,32 @@ def test_probabilities_come_back_best_first_with_their_class_names():
     assert out == [{"class": "yes", "probability": pytest.approx(0.7)},
                    {"class": "no", "probability": pytest.approx(0.2)},
                    {"class": "maybe", "probability": pytest.approx(0.1)}]
+
+
+def test_a_category_column_takes_its_text_as_the_index_the_trainer_gave_it():
+    pre = {**PRE, "features": ["age", "colour"], "categories": {"colour": ["blue", "green", "red"]}}
+    encode = tabular_encoder(pre, "", "features")
+    assert encode({"age": 3, "colour": "red"})[0]["features"].tolist() == [[3.0, 2.0]]
+    assert np.isnan(encode({"age": 3, "colour": "purple"})[0]["features"][0][1])  # never seen at training: missing
+    assert np.isnan(encode({"age": 3})[0]["features"][0][1])
+    assert encode({"age": 3, "colour": "green"})[0]["features"].tolist() == [[3.0, 1.0]]
+
+
+def test_text_padding_uses_the_pad_token_the_model_recorded(tmp_path):
+    from tokenizers import Tokenizer, models, pre_tokenizers
+
+    from ray_serving.inputs import text_encoder
+
+    vocab = {"<s>": 0, "<pad>": 1, "hi": 2, "<unk>": 3}  # a RoBERTa-like vocabulary: pad is 1, not 0
+    tok = Tokenizer(models.WordLevel(vocab, unk_token="<unk>"))
+    tok.pre_tokenizer = pre_tokenizers.Whitespace()
+    (tmp_path / "tokenizer.json").write_text(tok.to_str())
+    pre = {"max_length": 4, "tokenizer": "tokenizer.json", "pad_id": 1, "pad_token": "<pad>"}
+    feeds, _, _ = text_encoder(pre, (tmp_path / "tokenizer.json").as_uri(), "input_ids")({"text": "hi"})
+    assert feeds["input_ids"].tolist() == [[2, 1, 1, 1]] and feeds["attention_mask"].tolist() == [[1, 0, 0, 0]]
+
+
+def test_a_regression_answers_one_number():
+    from ray_serving.postprocess import regress
+
+    assert regress([np.array([[130.5]], dtype=np.float32)], [], 0, 0, {}) == [{"value": 130.5}]

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from ray_core.constants import (
-    HASH_HEX_CHARS, LABEL_COLUMN, SPLIT_BUCKETS, SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW, TEXT_COLUMN, Box, Col, Split)
+    HASH_HEX_CHARS, HELD_OUT_STRIDE, LABEL_COLUMN, MIN_CLASSES, SPLIT_BUCKETS, SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW, TEXT_COLUMN, Box, Col, Split)
 from ray_core.errors import BadData
 from ray_core.spec import TrainSpec
 
@@ -41,6 +41,21 @@ def hash_split(sha256: str) -> Split:
     return Split.TRAIN if bucket < SPLIT_TRAIN_BELOW else Split.VALIDATION if bucket < SPLIT_VALIDATION_BELOW else Split.TEST
 
 
+def require_classes(classes: list[str]) -> None:
+    """Classification needs two classes or more: with one, a Hugging Face head becomes a regressor and top-1 is always 1.0."""
+    if len(classes) < MIN_CLASSES:
+        raise BadData(f"a classifier needs at least {MIN_CLASSES} classes, the dataset has {len(classes)}: {classes}")
+
+
+def carve_held_out(train: list, held_out: list) -> tuple[list, list]:
+    """A dataset too small, or too lopsided, for the split to reach every side: with nothing held out, every HELD_OUT_STRIDE-th
+    training item is held out instead. Strided, not the last ones, because items arrive grouped by class; deterministic, so a
+    rerun trains on the same items."""
+    if held_out or len(train) < 2:
+        return train, held_out
+    return [t for i, t in enumerate(train) if i % HELD_OUT_STRIDE], train[::HELD_OUT_STRIDE]
+
+
 def read_index(data: bytes) -> list[dict]:
     import pyarrow.parquet as pq
 
@@ -55,6 +70,7 @@ def load_text_dataset(spec: TrainSpec, get: Get) -> Dataset:
     if not rows:
         raise BadData("data.parquet has no labelled text")
     classes = sorted({str(r[LABEL_COLUMN]) for r in rows})
+    require_classes(classes)
     ids = {c: i for i, c in enumerate(classes)}
     samples = [
         Sample(None, Split(r[Col.SPLIT]) if r.get(Col.SPLIT) else hash_split(hashlib.sha256(r[TEXT_COLUMN].encode()).hexdigest()),
@@ -72,6 +88,8 @@ def load_image_dataset(spec: TrainSpec, work: Path, get: Get, detection: bool) -
                      else {r[Col.LABEL] for r in rows if r[Col.LABEL] is not None})
     if not classes:
         raise BadData("the dataset has no labels" if not detection else "the dataset has no boxes")
+    if not detection:
+        require_classes(classes)
     ids = {c: i for i, c in enumerate(classes)}
     missing = [r[Col.PATH] for r in rows if r[Col.PATH] not in objects]
     if missing:
@@ -99,9 +117,9 @@ def load_image_dataset(spec: TrainSpec, work: Path, get: Get, detection: bool) -
 
 
 def split_for_training(ds: Dataset) -> tuple[list[Sample], list[Sample]]:
-    """(train, eval): evaluation uses `validation`, else `test`; an empty side is bad data, not a crash."""
-    train = ds.split(Split.TRAIN)
-    held_out = ds.split(Split.VALIDATION) or ds.split(Split.TEST)
+    """(train, eval): evaluation uses `validation`, else `test`, else a strided fifth of the training items (carve_held_out);
+    an empty side after that is bad data, not a crash."""
+    train, held_out = carve_held_out(ds.split(Split.TRAIN), ds.split(Split.VALIDATION) or ds.split(Split.TEST))
     if not train or not held_out:
         raise BadData(f"need train and validation/test images, got {len(train)} train and {len(held_out)} held out")
     return train, held_out

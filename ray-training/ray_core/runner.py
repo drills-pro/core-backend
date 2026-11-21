@@ -54,7 +54,8 @@ def upload(spec: TrainSpec, store, result) -> dict:
         store.put(name, path.read_bytes())
     return {**_base(spec), "metrics": result.metrics, "history": result.history, "classes": result.classes, "confusion_matrix": result.confusion,
             "near_duplicates": result.near_duplicates,
-            "features": (result.signature.get("preprocessing") or {}).get("features")}  # tabular: the model's input columns, in order
+            "features": (result.signature.get("preprocessing") or {}).get("features"),  # tabular: the model's input columns, in order
+            "categories": (result.signature.get("preprocessing") or {}).get("categories")}  # tabular: the values of the text columns, by column
 
 
 def execute(spec: TrainSpec, store, get: Get = http_get, trainer: Trainer | None = None) -> dict:

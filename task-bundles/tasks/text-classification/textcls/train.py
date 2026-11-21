@@ -11,6 +11,7 @@ from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from ray_core.constants import CONFUSION_TOP_K, TOKENIZER_KEY
+from ray_core.errors import Unsupported
 from ray_core.data import Dataset, Get, Sample, load_text_dataset, split_for_training
 from ray_core.loop import Kit, fit
 from ray_core.metrics import classification_metrics
@@ -74,6 +75,8 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
     train_set, held_out = split_for_training(ds)
     n = len(ds.classes)
     tokenizer = tokenizer or AutoTokenizer.from_pretrained(spec.base_model, revision=spec.base_revision)  # both passed by the smoke job only
+    if getattr(tokenizer, "backend_tokenizer", None) is None:  # said before the run, not after it: serving needs tokenizer.json
+        raise Unsupported(f"{spec.base_model} has no fast tokenizer, so there is no tokenizer.json to serve with")
     model = model or AutoModelForSequenceClassification.from_pretrained(
         spec.base_model, revision=spec.base_revision, num_labels=n, id2label=dict(enumerate(ds.classes)),
         label2id={c: i for i, c in enumerate(ds.classes)}, ignore_mismatched_sizes=True, use_safetensors=True)
@@ -90,5 +93,6 @@ def train_model(spec: TrainSpec, ds: Dataset, work: Path, model: torch.nn.Module
     signature = {
         "inputs": [{"name": name, "shape": ["batch", pre.max_length], "dtype": "int64"} for name in (INPUT_IDS, ATTENTION_MASK)],
         "outputs": [{"name": "logits", "shape": ["batch", n], "dtype": "float32"}],
-        "preprocessing": {"max_length": pre.max_length, "tokenizer": TOKENIZER_KEY}, "top_k": min(CONFUSION_TOP_K, n)}
+        "preprocessing": {"max_length": pre.max_length, "tokenizer": TOKENIZER_KEY, "pad_id": tokenizer.pad_token_id, "pad_token": tokenizer.pad_token},
+        "top_k": min(CONFUSION_TOP_K, n)}
     return Result(ds.classes, done.metrics, done.history, onnx, signature, {"labels": ds.classes, "matrix": done.confusion}, {TOKENIZER_KEY: tokenizer_file})

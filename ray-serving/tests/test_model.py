@@ -115,3 +115,20 @@ def test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded(spec, m
     with pytest.raises(model.ServeError) as err:
         model.predict(model.load(spec, BASE), body())
     assert err.value.code == model.ErrorCode.BAD_INPUT and "pixels" in str(err.value)
+
+
+@pytest.mark.parametrize("wrap", [
+    lambda b64: "data:image/png;base64," + b64,  # what a browser's FileReader gives
+    lambda b64: b64.replace("+", "-").replace("/", "_").rstrip("="),  # URL-safe, unpadded
+    lambda b64: "\n".join(b64[i:i + 20] for i in range(0, len(b64), 20)),  # wrapped lines
+])
+def test_an_image_may_arrive_as_a_data_uri_url_safe_or_wrapped_base64(spec, wrap):
+    plain = body()
+    loaded = model.load(spec, BASE)
+    assert model.predict(loaded, {"image_base64": wrap(plain["image_base64"])}) == model.predict(loaded, plain)
+
+
+def test_an_image_that_is_not_text_is_bad_input(spec):
+    with pytest.raises(model.ServeError) as err:
+        model.predict(model.load(spec, BASE), {"image_base64": 12})
+    assert err.value.code == model.ErrorCode.BAD_INPUT

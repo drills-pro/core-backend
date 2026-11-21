@@ -58,12 +58,37 @@ def test_xgboost_trains_exports_and_reports():
     assert label.tolist() == [0, 1] and probabilities.shape == (2, 2)
 
 
-def test_a_missing_target_or_no_held_out_rows_is_bad_data():
+def test_bad_tables_are_bad_data():
     rows = rows_from_smoke()
     report = run(spec_for(rows, target="nope"), MemStore(), getter(rows))
     assert (report["status"], report["code"]) == ("failed", FailCode.BAD_DATA)
-    only_train = [{**r, "split": "train"} for r in rows]
-    assert run(spec_for(only_train), MemStore(), getter(only_train))["code"] == FailCode.BAD_DATA
+    one_row = rows[:1]  # one row cannot be both the training and the held-out set
+    assert run(spec_for(one_row), MemStore(), getter(one_row))["code"] == FailCode.BAD_DATA
+    one_class = [{**r, "species": "a"} for r in rows]
+    report = run(spec_for(one_class), MemStore(), getter(one_class))
+    assert report["code"] == FailCode.BAD_DATA and "at least 2 classes" in report["message"]
+
+
+def test_rows_all_marked_train_still_get_a_held_out_fifth():
+    rows = [{**r, "split": "train"} for r in rows_from_smoke()]
+    report = run(spec_for(rows), MemStore(), getter(rows))
+    assert report["status"] == "succeeded", report["message"]
+
+
+def test_a_string_column_with_few_values_is_a_category_the_manifest_records():
+    colours = ["red", "green", "blue"]
+    rows = [{**r, "colour": colours[i % 3]} for i, r in enumerate(rows_from_smoke())]
+    rows[0]["colour"] = None  # a missing value stays missing
+    store = MemStore()
+    report = run(spec_for(rows), store, getter(rows))
+    assert report["status"] == "succeeded", report["message"]
+    pre = json.loads(store.puts[MODEL_MANIFEST_KEY])["preprocessing"]
+    assert pre["features"] == ["x", "y", "flag", "colour"]  # `note` is unique per row: an id, not a category
+    assert pre["categories"] == {"colour": ["blue", "green", "red"]}
+    assert report["features"] == pre["features"] and report["categories"] == pre["categories"]
+    row = np.array([[1.0, 0, 0, pre["categories"]["colour"].index("red")]], dtype=np.float32)
+    label, _ = ort.InferenceSession(store.puts[MODEL_KEY]).run(None, {"features": row})
+    assert label.tolist() == [0]
 
 
 def test_rows_without_a_split_are_hashed_into_one():

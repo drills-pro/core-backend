@@ -1,7 +1,7 @@
 """Zip archive safety: path rules, limits, and a budget on bytes really decompressed."""
 import zipfile
 
-from ray_jobs.common.constants import IGNORED_DIRS, MODE_MASK, READ_CHUNK, SYMLINK_MODE, WINDOWS_DRIVE_RE
+from ray_jobs.common.constants import APPLEDOUBLE_PREFIX, IGNORED_DIRS, MODE_MASK, READ_CHUNK, SYMLINK_MODE, WINDOWS_DRIVE_RE
 from ray_jobs.common.enums import Code
 from ray_jobs.common.limits import LimitExceeded, Limits
 from ray_jobs.common.report import Report
@@ -28,7 +28,7 @@ def inspect_archive(infos: list[zipfile.ZipInfo], archive_size: int, limits: Lim
             report.error(Code.ARCHIVE_UNSAFE_PATH, "absolute path or '..' in archive member", name)
             continue
         parts = [p for p in name.split("/") if p]
-        if IGNORED_DIRS.intersection(parts) or info.is_dir():
+        if IGNORED_DIRS.intersection(parts) or info.is_dir() or (parts and parts[-1].startswith(APPLEDOUBLE_PREFIX)):
             continue
         if is_symlink(info):
             report.error(Code.ARCHIVE_SYMLINK, "symlinks are not allowed", name)

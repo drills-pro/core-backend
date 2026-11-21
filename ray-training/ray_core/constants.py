@@ -21,6 +21,8 @@ ONNX_OPSET = 17
 SPLIT_BUCKETS = 100  # hash split: bucket = int(sha256[:8], 16) % 100
 SPLIT_TRAIN_BELOW, SPLIT_VALIDATION_BELOW = 80, 90  # 80 / 10 / 10
 HASH_HEX_CHARS = 8
+HELD_OUT_STRIDE = 5  # no held-out items after the split: every fifth training item (a fifth, at least one) becomes the held-out set
+MIN_CLASSES = 2  # a classifier of one class is no classifier (and a Hugging Face head of one label is a regressor)
 
 # key names under the run prefix
 REPORT_KEY = "report.json"

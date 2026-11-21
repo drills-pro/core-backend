@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "slug": "tabular-regression",
+  "display_name": "Tabular regression (XGBoost)",
+  "data_kind": "tabular",
+  "contract": 1,
+  "trainer": "xgbreg.train:train",
+  "smoke": "xgbreg.smoke:spec_doc",
+  "servable": true,
+  "serving": {
+    "encoder": "tabular_encoder",
+    "postprocess": "regress"
+  },
+  "monitor": "r2",
+  "hyperparameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "default": "label",
+        "description": "The numeric column of data.parquet to predict."
+      },
+      "n_estimators": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 200,
+        "description": "Boosting rounds (trees)."
+      },
+      "max_depth": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 6,
+        "description": "Deepest a tree may grow."
+      }
+    }
+  },
+  "presets": [
+    {
+      "name": "small",
+      "learning_rate": 0.3,
+      "preprocessing": {},
+      "cpu": 4,
+      "memory_bytes": 8589934592,
+      "gpu": 0,
+      "max_runtime_s": 3600,
+      "hyperparameters": {
+        "target": "label",
+        "n_estimators": 200,
+        "max_depth": 6
+      },
+      "early_stopping_patience": 20
+    },
+    {
+      "name": "large",
+      "learning_rate": 0.1,
+      "preprocessing": {},
+      "cpu": 8,
+      "memory_bytes": 25769803776,
+      "gpu": 0,
+      "max_runtime_s": 14400,
+      "hyperparameters": {
+        "target": "label",
+        "n_estimators": 1000,
+        "max_depth": 8
+      },
+      "early_stopping_patience": 20
+    }
+  ],
+  "requires": [
+    "xgboost",
+    "onnxmltools",
+    "numpy",
+    "pyarrow",
+    "onnx"
+  ],
+  "requirements": [
+    "cloudpickle==3.1.2",
+    "joblib==1.6.0",
+    "narwhals==2.28.0",
+    "onnxmltools==1.16.0",
+    "scikit-learn==1.9.1",
+    "scipy==1.17.1",
+    "skl2onnx==1.20.0",
+    "threadpoolctl==3.8.0",
+    "xgboost==3.2.0"
+  ]
+}
