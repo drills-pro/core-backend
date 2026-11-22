@@ -1,0 +1,14 @@
+[project]
+name = "ray-common"
+version = "0.1.0"
+description = "The code ray_jobs, ray_core and ray_serving share (staging store, spec envelope, report envelope, preprocessing math). Not installed: each package's zip carries ray_common/ beside its own directory"
+requires-python = ">=3.11"  # the Ray image runs 3.11
+dependencies = []  # boto3 (S3Store) and numpy + Pillow (ray_common.preprocess) come from the image of whichever package imports them
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"

@@ -16,6 +16,7 @@ from app.integrations.data_plane import layout
 PACKAGE_DIR = Path(__file__).parents[4] / "ray-jobs" / "ray_jobs"  # /ray-jobs/ray_jobs in the image, <repo>/ray-jobs/ray_jobs in the checkout
 TRAINING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-training" / "ray_core"  # the train driver and the contract (the ray_training package), same layout
 SERVING_PACKAGE_DIR = Path(__file__).parents[4] / "ray-serving" / "ray_serving"  # the shared Serve apps, same layout
+RAY_COMMON_DIR = Path(__file__).parents[4] / "ray-common" / "ray_common"  # the kernel each package ships beside its own code
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive, so the package sits one level down
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)  # the zip epoch: the same sources always give the same bytes, hence the same hash
 PACKAGE_DIRS = {JobPackageName.RAY_JOBS: PACKAGE_DIR, JobPackageName.RAY_TRAINING: TRAINING_PACKAGE_DIR, JobPackageName.RAY_SERVING: SERVING_PACKAGE_DIR}
@@ -28,13 +29,15 @@ MAX_PACKAGE_BYTES = 20 * 1024 * 1024  # an object larger than this is not a pack
 @functools.cache
 def build(package_dir: Path = PACKAGE_DIR) -> tuple[bytes, str]:
     """(zip bytes, staging key). Listed as a job's py_module, Ray unpacks it and the package (`package/ray_jobs/`) is importable.
-    A `requirements.lock` inside the package directory goes to `package/requirements.lock`, next to the package."""
+    The shared `ray_common/` sits beside it, so one source serves all three packages. A `requirements.lock` inside the
+    package directory goes to `package/requirements.lock`, next to the package."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
-            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, path.read_bytes())
+        for base, prefix in ((package_dir, f"{ZIP_ROOT}/{package_dir.name}"), (RAY_COMMON_DIR, f"{ZIP_ROOT}/ray_common")):
+            for path in sorted(p for p in base.rglob("*.py") if "__pycache__" not in p.parts):
+                info = zipfile.ZipInfo(f"{prefix}/{path.relative_to(base).as_posix()}", ZIP_TIMESTAMP)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(info, path.read_bytes())
         lock = package_dir / LOCK_FILE  # the package's pinned requirements (planning/26), read back by validate_package
         if lock.is_file():
             info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)
@@ -63,14 +66,19 @@ def open_archive(data: bytes, sha256: str) -> zipfile.ZipFile:
 
 
 def validate_package(name: JobPackageName, data: bytes, sha256: str) -> list[str]:
-    """What CI built for `name`: pure-Python sources under the package's own directory (and its requirements.lock), hashing
-    to `sha256`. Returns the lock's pins; [] when it has none (the package runs on the baked image)."""
+    """What CI built for `name`: pure-Python sources under the package's own directory and `package/ray_common/` (plus its
+    requirements.lock), hashing to `sha256`. Returns the lock's pins; [] when it has none (the baked image has them)."""
     zf = open_archive(data, sha256)
     names = zf.namelist()
     root = f"{ZIP_ROOT}/{PACKAGE_DIRS[name].name}/"
+    shared = f"{ZIP_ROOT}/ray_common/"
     lock = f"{ZIP_ROOT}/{LOCK_FILE}"
-    if not names or any(n != lock and (not n.startswith(root) or not n.endswith(".py") or ".." in n.split("/")) for n in names):
-        raise invalid(f"every file must be a .py under {root} (or {lock})")
+    def allowed(n: str) -> bool:
+        return n == lock or ((n.startswith(root) or n.startswith(shared)) and n.endswith(".py") and ".." not in n.split("/"))
+    if not names or not all(allowed(n) for n in names):
+        raise invalid(f"every file must be a .py under {root} or {shared} (or {lock})")
+    if f"{shared}__init__.py" not in names:
+        raise invalid(f"{shared}__init__.py is required")
     if lock not in names:
         return []
     try:

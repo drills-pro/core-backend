@@ -17,15 +17,17 @@ DIRS = {"ray_jobs": ROOT / "ray-jobs" / "ray_jobs", "ray_training": ROOT / "ray-
 ZIP_ROOT = "package"  # Ray unpacks a remote zip's single top-level directory in place of the archive
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 LOCK_FILE = "requirements.lock"  # in the package directory; the zip carries it at package/requirements.lock (planning/26)
+RAY_COMMON = ROOT / "ray-common" / "ray_common"  # one shared source, shipped beside each package in its zip
 
 
 def build(package_dir: Path) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(p for p in package_dir.rglob("*.py") if "__pycache__" not in p.parts):
-            info = zipfile.ZipInfo(f"{ZIP_ROOT}/{package_dir.name}/{path.relative_to(package_dir).as_posix()}", ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, path.read_bytes())
+        for base, prefix in ((package_dir, f"{ZIP_ROOT}/{package_dir.name}"), (RAY_COMMON, f"{ZIP_ROOT}/ray_common")):
+            for path in sorted(p for p in base.rglob("*.py") if "__pycache__" not in p.parts):
+                info = zipfile.ZipInfo(f"{prefix}/{path.relative_to(base).as_posix()}", ZIP_TIMESTAMP)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(info, path.read_bytes())
         lock = package_dir / LOCK_FILE
         if lock.is_file():
             info = zipfile.ZipInfo(f"{ZIP_ROOT}/{LOCK_FILE}", ZIP_TIMESTAMP)

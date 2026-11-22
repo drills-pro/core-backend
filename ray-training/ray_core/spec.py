@@ -1,12 +1,11 @@
 """The train job spec: envelope plus the `kind: train` payload of docs/trainer-plan.md (core-api TrainSpec mirrors it).
 
 The trainer keeps no preset table: base model, learning rate and preprocessing all come from the spec (core-api's task_catalog)."""
-import json
 from dataclasses import dataclass, field
 
+from ray_common.spec import parse_envelope
 from ray_core.constants import (
-    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, SPEC_VERSION, Augmentation, JobKind, LrSchedule,
-    Resample)
+    DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS, DEFAULT_IMAGE_SIZE, DEFAULT_SEED, Augmentation, JobKind, LrSchedule, Resample)
 
 
 @dataclass(frozen=True)
@@ -72,11 +71,7 @@ def parse_preprocessing(pre: dict) -> Preprocessing | TextPreprocessing | None:
 
 
 def parse_spec(text: str) -> TrainSpec:
-    doc = json.loads(text)
-    if doc.get("spec_version") != SPEC_VERSION:
-        raise ValueError(f"job spec version {doc.get('spec_version')!r} not supported, expected {SPEC_VERSION}")
-    if doc.get("kind") != JobKind.TRAIN:
-        raise ValueError(f"job kind {doc.get('kind')!r} is not run by ray_core")
+    doc = parse_envelope(text, JobKind.TRAIN, "ray_core")
     p, data = doc["payload"], doc["payload"]["data"]
     task, preset = p["task"], p["preset"]
     base, hp = p.get("base_model") or {}, p.get("hyperparameters") or {}

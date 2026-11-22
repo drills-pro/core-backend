@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ray_common.preprocess import image_to_chw
 from ray_core.constants import ONNX_OPSET
 from ray_core.spec import Preprocessing, TrainSpec
 
@@ -56,11 +57,9 @@ def seed_everything(seed: int) -> None:
 def load_image(file: Path, size: int, pre: Preprocessing) -> tuple[torch.Tensor, int, int]:
     """(CHW float tensor resized to size x size and normalised by `pre`, original width, original height)."""
     with Image.open(file) as im:
-        im = im.convert("RGB")
-        w, h = im.size
-        arr = np.asarray(im.resize((size, size), Image.Resampling[pre.resample.name]), dtype=np.float32) * pre.rescale
-    arr = (arr - np.array(pre.mean, dtype=np.float32)) / np.array(pre.std, dtype=np.float32)
-    return torch.from_numpy(arr).permute(2, 0, 1).contiguous(), w, h
+        width, height = im.size
+        arr = image_to_chw(im, (size, size), pre.resample, pre.rescale, pre.mean, pre.std)  # ray_common: serving runs the same code
+    return torch.from_numpy(arr).contiguous(), width, height
 
 
 def preprocessing(spec: TrainSpec) -> dict:

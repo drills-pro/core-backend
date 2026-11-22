@@ -16,6 +16,7 @@ on:
       - "ray-jobs/**"
       - "ray-serving/**"
       - "ray-training/ray_core/**"
+      - "ray-common/ray_common/**"
       - ".github/workflows/ray-jobs-image.yml"
       - ".github/workflows/ray-image.yml"
       - "scripts/ray-image-smoke.py"

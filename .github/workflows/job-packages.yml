@@ -20,6 +20,7 @@ on:
       - "ray-jobs/ray_jobs/**"
       - "ray-training/ray_core/**"
       - "ray-serving/ray_serving/**"
+      - "ray-common/ray_common/**"
       - "scripts/build-job-package.py"
       - ".github/workflows/job-packages.yml"
   workflow_dispatch:

@@ -1,13 +1,14 @@
 """Closed sets and named values of the trainer contract. Layout mirrors core-api / ray_jobs (test_spec.py checks the spec)."""
 from enum import StrEnum
 
+from ray_common.constants import HTTP_TIMEOUT_SECONDS, REPORT_KEY, REPORT_SCHEMA_VERSION, SMOKE_KEY, SPEC_VERSION  # noqa: F401 - shared with the other Ray packages
+from ray_common.enums import Box, Col, JobKind, Split  # noqa: F401
+from ray_common.enums import Status as Outcome  # noqa: F401 - the report's status words (core-api TrainOutcome)
+
 CONTRACT = 1  # the contract a task bundle declares in manifest.json (`contract`); a bundle runs only on a ray_core serving it
-SPEC_VERSION = 1  # job spec version this code reads (core-api app/integrations/job_spec.py)
-REPORT_SCHEMA_VERSION = 1
 TRAINER_VERSION = "0.1.0"
 DEFAULT_EPOCHS, DEFAULT_BATCH_SIZE, DEFAULT_IMAGE_SIZE, DEFAULT_SEED = 30, 16, 224, 42  # core-api job_spec.py defaults
 NO_ALARM = 0  # signal.alarm(0) cancels
-HTTP_TIMEOUT_SECONDS = 60
 EVENTS_TIMEOUT_SECONDS = 5  # a progress post that takes longer is dropped: it must never hold up an epoch
 ROOT_RANK = 0  # the Ray Train worker that evaluates, exports and uploads
 LOCAL_GPUS_ENV = "TRAIN_NUM_GPUS"  # CI sets 0 so the remote task needs no GPU; production leaves it unset (= 1)
@@ -25,8 +26,6 @@ HELD_OUT_STRIDE = 5  # no held-out items after the split: every fifth training i
 MIN_CLASSES = 2  # a classifier of one class is no classifier (and a Hugging Face head of one label is a regressor)
 
 # key names under the run prefix
-REPORT_KEY = "report.json"
-SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 MODEL_KEY = "model.onnx"
 MODEL_MANIFEST_KEY = "model.json"
 TRAIN_STATE_DIR = "train-state"  # Ray Train checkpoints: top-level <bucket>/train-state/<job_id>/, expired by a bucket lifecycle rule
@@ -68,43 +67,9 @@ FLIP_PROBABILITY = 0.5
 CROP_PAD_DIVISOR = 8  # flip_crop pads each side by image_size / 8 before cropping back
 
 
-class Split(StrEnum):
-    TRAIN = "train"
-    VALIDATION = "validation"
-    TEST = "test"
-
-
-class Col(StrEnum):
-    """Columns of index.parquet (ray_jobs.common.enums.Col)."""
-
-    PATH = "path"
-    SIZE = "size"
-    SHA256 = "sha256"
-    LABEL = "label"
-    BOXES = "boxes"
-    SPLIT = "split"
-
-
-class Box(StrEnum):
-    CATEGORY = "category"
-    X = "x"
-    Y = "y"
-    WIDTH = "width"
-    HEIGHT = "height"
-
-
 class FailCode(StrEnum):
     OOM = "oom"
     BAD_DATA = "bad_data"
     UNSUPPORTED = "unsupported"
     TIMEOUT = "timeout"
     INTERNAL = "internal"
-
-
-class Outcome(StrEnum):
-    SUCCEEDED = "succeeded"  # core-api TrainOutcome
-    FAILED = "failed"
-
-
-class JobKind(StrEnum):
-    TRAIN = "train"

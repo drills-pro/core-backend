@@ -5,6 +5,7 @@ on:
     paths:
       - "core-api/**"
       - "ray-jobs/**"
+      - "ray-common/ray_common/**"  # core-api's baked zip builder reads the shared kernel
       - "compose/postgres/**"
       - "docker-compose.yml"
       - "scripts/lint-migrations.py"
@@ -31,6 +32,7 @@ jobs:
             core-api:
               - 'core-api/**'
               - 'ray-jobs/**'
+              - 'ray-common/ray_common/**'
       - id: sha
         run: |
           if [ "${GITHUB_REF#refs/heads/}" = "main" ]; then
