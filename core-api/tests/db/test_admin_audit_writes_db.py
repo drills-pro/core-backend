@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.enums import AdminAuditAction, AdminAuditEntity
+from app.core.pagination import PageParams
 from app.modules.admin.model_catalog import service
 from app.modules.admin.model_catalog.schemas import CatalogModelCreate
 from tests.support import TenantCtx
@@ -53,11 +54,12 @@ def test_the_audit_log_lists_what_was_written_filtered_and_counted(as_app, monke
         async with as_app.app_role():
             created = await service.create(BODY, ACTOR)
             await service.set_status(created.id, "disabled", ACTOR)
-            mine, total = await log.list_entries(AdminAuditEntity.MODEL_CATALOG, ACTOR, 1, 0)
-            return [e.action for e in mine], total, await log.list_entries(AdminAuditEntity.TENANT, ACTOR, 10, 0)
+            mine, total = await log.list_entries(AdminAuditEntity.MODEL_CATALOG, ACTOR, PageParams(page_size=1, page_token=None))
+            other, other_total = await log.list_entries(AdminAuditEntity.TENANT, ACTOR, PageParams(page_size=10, page_token=None))
+            return [e.action for e in mine.items], total, other.items, other_total
 
-    actions, total, none = as_app.run(read())
-    assert (actions, total, none) == ([AdminAuditAction.MODEL_CATALOG_DISABLE], 2, ([], 0))
+    actions, total, none, other_total = as_app.run(read())
+    assert (actions, total, none, other_total) == ([AdminAuditAction.MODEL_CATALOG_DISABLE], 2, [], 0)
 
 
 def test_a_refused_write_leaves_no_audit_row(as_app):
