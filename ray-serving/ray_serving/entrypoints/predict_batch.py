@@ -15,9 +15,11 @@ import sys
 from enum import StrEnum
 from typing import Callable
 
+from ray_common.enums import Status
+from ray_common.report import dataset_ref, envelope
 from ray_serving import model
 from ray_serving.batch_spec import INDEX_PATH_COLUMN, allowed_base, parse_spec
-from ray_serving.constants import MAX_REPORT_FAILURES, PREDICTIONS_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION
+from ray_serving.constants import MAX_REPORT_FAILURES, PREDICTIONS_KEY, REPORT_KEY
 from ray_serving.store import http_get, store_from_env
 
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")  # an object repr's address differs per process: the same bad item must give the same message
@@ -27,7 +29,7 @@ def _message(text: str) -> str:
     return _ADDRESS.sub("", text)
 
 
-OK, SUCCEEDED, FAILED = "ok", "succeeded", "failed"
+OK, SUCCEEDED, FAILED = "ok", Status.SUCCEEDED, Status.FAILED  # OK is the per-item flag of predictions.jsonl, the others the report's status words
 
 
 class ItemCode(StrEnum):
@@ -97,23 +99,24 @@ def ray_predict(payload: dict, items: list[dict]) -> list[dict]:
              "code": str(r["code"]) or None, "message": str(r["message"]) or None} for r in done]
 
 
-def _base(payload: dict | None) -> dict:
+def _dataset(payload: dict | None) -> dict:
     data = (payload or {}).get("data") or {}
-    return {"schema_version": REPORT_SCHEMA_VERSION, "dataset": {"version_id": data.get("version_id"), "lakefs_commit": data.get("lakefs_commit")}}
+    return dataset_ref(data.get("version_id"), data.get("lakefs_commit"))
 
 
 def build_report(payload: dict, rows: list[dict]) -> dict:
     failures = [{k: r[k] for k in ("path", "code", "message")} for r in rows if not r[OK]]
     counts = {"total": len(rows), SUCCEEDED: len(rows) - len(failures), FAILED: len(failures)}
     dead = bool(rows) and not counts[SUCCEEDED]
-    return {**_base(payload), "status": FAILED if dead else SUCCEEDED, "code": ItemCode.ALL_ITEMS_FAILED if dead else None,
-            "message": "no item could be predicted" if dead else None, "counts": counts,
-            "failures": failures[:MAX_REPORT_FAILURES], "failures_truncated": len(failures) > MAX_REPORT_FAILURES}
+    return envelope(
+        FAILED if dead else SUCCEEDED, ItemCode.ALL_ITEMS_FAILED if dead else None, "no item could be predicted" if dead else None,
+        dataset=_dataset(payload), counts=counts, failures=failures[:MAX_REPORT_FAILURES], failures_truncated=len(failures) > MAX_REPORT_FAILURES)
 
 
 def failed_report(payload: dict | None, e: BaseException) -> dict:
-    return {**_base(payload), "status": FAILED, "code": ItemCode.INTERNAL, "message": f"{type(e).__name__}: {e}",
-            "counts": {"total": 0, SUCCEEDED: 0, FAILED: 0}, "failures": [], "failures_truncated": False}
+    return envelope(
+        FAILED, ItemCode.INTERNAL, f"{type(e).__name__}: {e}", dataset=_dataset(payload),
+        counts={"total": 0, SUCCEEDED: 0, FAILED: 0}, failures=[], failures_truncated=False)
 
 
 def run(payload: dict, store, predict=ray_predict, fetch: Fetch = http_get) -> dict:

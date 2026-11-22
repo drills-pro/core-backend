@@ -1,29 +1,10 @@
 """Closed sets of the job: row and params keys, Hugging Face and COCO keys, issue codes."""
 from enum import StrEnum
 
-
-class Col(StrEnum):
-    """Columns of index.parquet and keys of one row; INDEX_COLUMNS mirrors layout.INDEX_COLUMNS (drift-tested)."""
-
-    PATH = "path"
-    SIZE = "size"
-    SHA256 = "sha256"
-    LABEL = "label"
-    BOXES = "boxes"
-    SPLIT = "split"
+from ray_common.enums import Box, Col, JobKind  # noqa: F401 - shared with the other Ray packages (drift-tested against core-api)
 
 
-class Box(StrEnum):
-    """Keys of one detection box; BOX_FIELDS mirrors layout.BOX_FIELDS (drift-tested)."""
-
-    CATEGORY = "category"
-    X = "x"
-    Y = "y"
-    WIDTH = "width"
-    HEIGHT = "height"
-
-
-INDEX_COLUMNS = tuple(Col)
+INDEX_COLUMNS = tuple(Col)  # mirrors layout.INDEX_COLUMNS (drift-tested)
 BOX_FIELDS = tuple(Box)
 
 
@@ -83,12 +64,6 @@ class Coco(StrEnum):
     IMAGE_ID = "image_id"
     CATEGORY_ID = "category_id"
     BBOX = "bbox"
-
-
-class JobKind(StrEnum):
-    """Mirrors job_spec.JobKind (drift-tested); only INGEST is run by this package."""
-
-    INGEST = "ingest"
 
 
 class Source(StrEnum):

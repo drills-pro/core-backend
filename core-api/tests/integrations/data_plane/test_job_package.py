@@ -30,6 +30,7 @@ def test_the_zip_is_deterministic_and_named_by_its_hash():
     assert key == f"{layout.JOB_PACKAGE_ROOT}/ray-jobs-{hashlib.sha256(data).hexdigest()}.zip"
     names = zipfile.ZipFile(io.BytesIO(data)).namelist()
     assert "package/ray_jobs/__init__.py" in names and "package/ray_jobs/entrypoints/upload_images.py" in names
+    assert "package/ray_common/__init__.py" in names and "package/ray_common/spec.py" in names
     assert not any("__pycache__" in n or n.startswith("tests") for n in names)
     package_zip.build.cache_clear()
     assert package_zip.build() == (data, key)
@@ -38,11 +39,26 @@ def test_the_zip_is_deterministic_and_named_by_its_hash():
 def test_ray_makes_the_unpacked_zip_importable_and_the_entrypoint_runs_as_main(tmp_path):
     data, _ = package_zip.build()
     zipfile.ZipFile(io.BytesIO(data)).extractall(tmp_path)  # what Ray does for a py_module: the directory holding ray_jobs/ goes on the path
+    root = tmp_path / package_zip.ZIP_ROOT
     argv = shlex.split(job_submit.command(f"{job_catalog.ENTRYPOINTS}.{job_catalog.JobType.UPLOAD_CSV.value}", "{}"))
     argv[0] = sys.executable  # `python` on PATH may be another interpreter
-    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, env={"PYTHONPATH": str(tmp_path / package_zip.ZIP_ROOT)})
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, env={"PYTHONPATH": str(root)})
     assert "ModuleNotFoundError" not in done.stderr and done.returncode != 0
     assert "job spec version None" in done.stderr  # reached main() of the entrypoint: the spec {} is refused
+
+
+@pytest.mark.parametrize("name, module", [
+    (JobPackageName.RAY_JOBS, "ray_jobs.spec"),
+    (JobPackageName.RAY_TRAINING, "ray_core.spec"),
+    (JobPackageName.RAY_SERVING, "ray_serving.batch_spec"),
+])
+def test_every_unpacked_zip_imports_the_shared_kernel(tmp_path, name, module):
+    data, _ = package_zip.build(package_zip.PACKAGE_DIRS[name])
+    zipfile.ZipFile(io.BytesIO(data)).extractall(tmp_path)
+    done = subprocess.run([sys.executable, "-c", f"import ray_common, {module}"], cwd=tmp_path,
+                          capture_output=True, text=True, env={"PYTHONPATH": str(tmp_path / package_zip.ZIP_ROOT)})
+    assert done.returncode == 0, done.stderr
+    assert "ModuleNotFoundError" not in done.stderr
 
 
 @pytest.fixture
@@ -128,7 +144,8 @@ def test_another_package_is_zipped_the_same_way_under_its_own_name(tmp_path):
     (package / "__init__.py").write_text("")
     data, key = package_zip.build(package)
     assert key == f"{layout.JOB_PACKAGE_ROOT}/ray-training-{hashlib.sha256(data).hexdigest()}.zip"
-    assert zipfile.ZipFile(io.BytesIO(data)).namelist() == ["package/ray_training/__init__.py"]
+    names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+    assert "package/ray_training/__init__.py" in names and "package/ray_common/__init__.py" in names
 
 
 def _zip(files: dict[str, str | bytes]) -> bytes:
@@ -150,7 +167,7 @@ def _register(key, name=JobPackageName.RAY_TRAINING):
     return run(job_package.register_staged(name, key, "ci"))
 
 
-CORE_INIT = {"package/ray_core/__init__.py": ""}
+CORE_INIT = {"package/ray_core/__init__.py": "", "package/ray_common/__init__.py": ""}
 
 
 def test_a_staged_package_is_read_back_and_registered_as_a_candidate(s3, db):
@@ -181,7 +198,11 @@ def test_a_lock_that_is_not_exact_pins_is_refused(s3, db, lock):
 @pytest.mark.parametrize("names", [
     ["package/ray_jobs/__init__.py"],  # another package's directory
     ["package/ray_core/../evil.py"], ["package/ray_core/data.bin"], ["ray_core/__init__.py"], ["setup.py"], ["requirements.lock"],
-    ["package/ray_core/requirements.lock"], []])
+    ["package/ray_core/requirements.lock"], [],
+    ["package/ray_core/__init__.py"],  # a package without the shared kernel
+    ["package/ray_core/__init__.py", "package/ray_common/__init__.py", "package/ray_common/../evil.py"],
+    ["package/ray_core/__init__.py", "package/ray_common/__init__.py", "package/ray_common/data.bin"],
+])
 def test_a_staged_package_must_be_python_files_under_its_own_directory(s3, db, names):
     key = _stage(s3, _zip({n: "" for n in names}))
     with pytest.raises(Problem) as err:

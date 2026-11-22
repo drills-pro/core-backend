@@ -1,62 +1,9 @@
-"""The staging bucket (S3, write only) and presigned HTTP reads. boto3 is imported lazily."""
-import base64
+"""The staging bucket (S3, write only) and presigned HTTP reads: ray_common.store, re-exported here, plus the Ray Train storage root."""
 import os
-from pathlib import Path
-from urllib.request import urlopen
 
-from ray_core.constants import HTTP_TIMEOUT_SECONDS, TRAIN_STATE_DIR
-
-CHECKSUM_ENV = ("AWS_REQUEST_CHECKSUM_CALCULATION", "AWS_RESPONSE_CHECKSUM_VALIDATION")
-CHECKSUM_WHEN_REQUIRED = "when_required"
-
-
-class S3Store:
-    """Staging bucket under one prefix."""
-
-    def __init__(self, bucket: str, prefix: str, endpoint: str, access_key: str, secret_key: str):
-        import boto3
-
-        # boto3 >= 1.36 signs a checksum trailer into every PutObject unless told otherwise; the staging store (an S3-compatible
-        # endpoint, not AWS) answers that with SignatureDoesNotMatch. The env vars are read by every boto3 version, the older
-        # ones ignore them (the Config options of the same name do not exist there).
-        for name in CHECKSUM_ENV:
-            os.environ.setdefault(name, CHECKSUM_WHEN_REQUIRED)
-        self.bucket, self.prefix = bucket, prefix
-        self.client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
-
-    def put(self, key: str, data: bytes) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=self.prefix + key, Body=data)
-
-
-def data_url(data: bytes) -> str:
-    """A `data:` URL http_get serves: how a smoke spec carries its fixture, so any node can read it."""
-    return "data:application/octet-stream;base64," + base64.b64encode(data).decode()
-
-
-def http_get(url: str) -> bytes:
-    with urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as resp:  # noqa: S310 - presigned URL core-api put in the spec
-        return resp.read()
-
-
-LOCAL_SCHEME = "file://"  # STAGING_ENDPOINT=file:///dir writes under /dir/<prefix>: local runs and CI, no S3 needed
-
-
-class DirStore:
-    def __init__(self, root: str, prefix: str):
-        self.root = Path(root) / prefix
-
-    def put(self, key: str, data: bytes) -> None:
-        path = self.root / key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-
-
-def store_from_env(bucket: str, prefix: str):
-    """Staging credentials are env vars set by the submitter, never in the spec."""
-    endpoint = os.environ["STAGING_ENDPOINT"]
-    if endpoint.startswith(LOCAL_SCHEME):
-        return DirStore(endpoint.removeprefix(LOCAL_SCHEME), prefix)
-    return S3Store(bucket, prefix, endpoint, os.environ["STAGING_ACCESS_KEY"], os.environ["STAGING_SECRET_KEY"])
+from ray_common.constants import CHECKSUM_ENV, CHECKSUM_WHEN_REQUIRED, LOCAL_SCHEME  # noqa: F401 - re-exported for callers and drift tests
+from ray_common.store import DirStore, S3Store, data_url, http_get, store_from_env  # noqa: F401 - the names callers and tests import from here
+from ray_core.constants import TRAIN_STATE_DIR
 
 
 def train_state_storage(bucket: str, prefix: str):

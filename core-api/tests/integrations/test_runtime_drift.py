@@ -1,6 +1,6 @@
-"""The three Ray packages (ray-jobs, ray-training, ray-serving) ship as separate zips, so each keeps its own copy of what they share
-with core-api and with each other: the layout keys, the vocabularies, the staging store, the spec envelope check. These tests fail
-when a copy drifts. (ray_serving's numpy-bound code is cross-checked in ray-serving/tests, which runs where numpy is installed.)"""
+"""The three Ray packages (= separate zips) import their shared kernel from `ray_common`, which each zip carries beside its own
+code. These tests fail when a package's re-export or mirrored vocabulary drifts from core-api or from that kernel.
+(ray_serving's numpy-bound code is cross-checked in ray-serving/tests, which runs where numpy is installed.)"""
 import base64
 import os
 
@@ -97,6 +97,7 @@ def test_the_checksum_settings_are_core_apis():
     for module in (jobs_store, core_store, serving_store):
         assert module.CHECKSUM_ENV == tuple(job_submit.S3_COMPATIBLE_ENV), module.__name__
         assert {job_submit.S3_COMPATIBLE_ENV[n] for n in module.CHECKSUM_ENV} == {module.CHECKSUM_WHEN_REQUIRED}
+
 
 
 def _unset_checksum_env(store, monkeypatch):

@@ -1,41 +1,17 @@
-"""The staging bucket (S3) and plain HTTP reads. boto3 is imported lazily."""
-import os
+"""The staging bucket (S3, ray_common.store) and plain HTTP reads, plus the parallel uploader of the ingest job."""
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from ray_jobs.common.constants import HTTP_TIMEOUT_SECONDS, UPLOAD_KEY, UPLOAD_MAX_PENDING, UPLOAD_THREADS
+from ray_common.constants import CHECKSUM_ENV, CHECKSUM_WHEN_REQUIRED  # noqa: F401 - re-exported for callers and drift tests
+from ray_common.store import ResponseTooLarge, S3Store  # noqa: F401 - S3Store is re-exported: ray_jobs callers import it from here
+from ray_common.store import http_get as _http_get
+from ray_jobs.common.constants import UPLOAD_KEY, UPLOAD_MAX_PENDING, UPLOAD_THREADS
 from ray_jobs.common.enums import Code
 from ray_jobs.common.limits import LimitExceeded
 
 Sink = Callable[[str, bytes], None]
-
-CHECKSUM_ENV = ("AWS_REQUEST_CHECKSUM_CALCULATION", "AWS_RESPONSE_CHECKSUM_VALIDATION")  # same as ray_core.store (drift-tested in core-api)
-CHECKSUM_WHEN_REQUIRED = "when_required"
-
-
-class S3Store:
-    """Staging bucket under one prefix. boto3 imported lazily."""
-
-    def __init__(self, bucket: str, prefix: str, endpoint: str, access_key: str, secret_key: str):
-        import boto3
-
-        # boto3 >= 1.36 signs a checksum trailer into every PutObject unless told otherwise; the staging store (S3-compatible, not AWS)
-        # answers with SignatureDoesNotMatch. core-api sets these in the job's env too; setdefault keeps an explicit value.
-        for name in CHECKSUM_ENV:
-            os.environ.setdefault(name, CHECKSUM_WHEN_REQUIRED)
-        self.bucket, self.prefix = bucket, prefix
-        self.client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
-
-    def size(self, key: str) -> int:
-        return self.client.head_object(Bucket=self.bucket, Key=self.prefix + key)["ContentLength"]
-
-    def download(self, key: str, path: Path) -> None:
-        self.client.download_file(self.bucket, self.prefix + key, str(path))
-
-    def put(self, key: str, data: bytes) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=self.prefix + key, Body=data)
 
 
 class ParallelSink:
@@ -77,13 +53,10 @@ class ParallelSink:
 
 def http_get(url: str, max_bytes: int | None = None) -> bytes:
     """GET a presigned or huggingface.co URL; with max_bytes, stop reading one byte past the cap."""
-    from urllib.request import urlopen
-
-    with urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as resp:  # noqa: S310 - presigned or huggingface.co URL built by this job
-        data = resp.read(None if max_bytes is None else max_bytes + 1)
-    if max_bytes is not None and len(data) > max_bytes:
-        raise LimitExceeded(Code.HF_TOO_LARGE, f"a download is over {max_bytes} bytes")
-    return data
+    try:
+        return _http_get(url, max_bytes)
+    except ResponseTooLarge:
+        raise LimitExceeded(Code.HF_TOO_LARGE, f"a download is over {max_bytes} bytes") from None
 
 
 def fetch_upload(store, upload_max_bytes: int, tmp: Path) -> Path:

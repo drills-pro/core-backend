@@ -82,7 +82,7 @@ jobs:
         run: |
           docker run --rm --shm-size=2g \
             -e PYTHONDONTWRITEBYTECODE=1 \
-            -e PYTHONPATH=/src/ray-jobs:/src/ray-serving:/src/ray-training \
+            -e PYTHONPATH=/src/ray-jobs:/src/ray-serving:/src/ray-training:/src/ray-common \
             -v "$GITHUB_WORKSPACE:/src:ro" \
             --entrypoint python "$SMOKE_TAG" \
             /src/scripts/ray-image-smoke.py ${{ inputs.smoke-args }}

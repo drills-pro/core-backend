@@ -15,6 +15,7 @@ on:
     paths:
       - "task-bundles/**"
       - "ray-training/ray_core/**"  # a contract change must still run every bundle
+      - "ray-common/ray_common/**"  # the shared preprocessing/spec kernel the bundle tests import
       - "scripts/build-bundle.sh"
       - ".github/workflows/task-bundles.yml"
   pull_request:
@@ -51,7 +52,7 @@ jobs:
         run: |
           for dir in task-bundles/tasks/*/; do
             echo "::group::${dir}"
-            (cd "$dir" && PYTHONPATH=".:${GITHUB_WORKSPACE}/ray-training" "${GITHUB_WORKSPACE}/ray-training/.venv/bin/python" -m pytest tests -q)
+            (cd "$dir" && PYTHONPATH=".:${GITHUB_WORKSPACE}/ray-training:${GITHUB_WORKSPACE}/ray-common" "${GITHUB_WORKSPACE}/ray-training/.venv/bin/python" -m pytest tests -q)
             echo "::endgroup::"
           done
 

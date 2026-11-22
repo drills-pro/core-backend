@@ -9,8 +9,8 @@ import math
 import tempfile
 from pathlib import Path
 
-from ray_core.constants import (
-    MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, REPORT_SCHEMA_VERSION, TRAINER_VERSION, FailCode, Outcome)
+from ray_common.report import dataset_ref, envelope
+from ray_core.constants import MODEL_KEY, MODEL_MANIFEST_KEY, REPORT_KEY, TRAINER_VERSION, FailCode, Outcome
 from ray_core.data import Get
 from ray_core.errors import TrainFailure
 from ray_core.registry import Trainer, load
@@ -34,10 +34,9 @@ def failed_report(spec: TrainSpec | None, code: FailCode, message: str) -> dict:
 
 
 def _base(spec: TrainSpec | None) -> dict:
-    return {
-        "schema_version": REPORT_SCHEMA_VERSION, "task": spec and spec.task, "preset": spec and spec.preset,
-        "dataset": spec and {"version_id": spec.version_id, "lakefs_commit": spec.lakefs_commit},
-        "status": Outcome.SUCCEEDED, "code": None, "message": None, "metrics": {}, "history": [], "confusion_matrix": None}
+    return envelope(
+        Outcome.SUCCEEDED, task=spec and spec.task, preset=spec and spec.preset,
+        dataset=spec and dataset_ref(spec.version_id, spec.lakefs_commit), metrics={}, history=[], confusion_matrix=None)
 
 
 def upload(spec: TrainSpec, store, result) -> dict:

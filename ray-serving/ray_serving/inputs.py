@@ -17,8 +17,9 @@ def image_encoder(pre, tokenizer_url, input_name):
     import base64
     import io
 
-    import numpy as np
     from PIL import Image
+
+    from ray_common.preprocess import image_to_chw
 
     def decode(value):
         """Plain, URL-safe or unpadded base64, with or without line breaks, or a `data:image/...;base64,` URI."""
@@ -31,11 +32,8 @@ def image_encoder(pre, tokenizer_url, input_name):
         opened = Image.open(io.BytesIO(decode(body["image_base64"])))  # reads the header only
         if opened.width * opened.height > MAX_IMAGE_PIXELS:
             raise ValueError(f"image is {opened.width}x{opened.height}, more than {MAX_IMAGE_PIXELS} pixels")
-        sent = opened.convert("RGB")
-        width, height = pre["resize"]
-        img = sent.resize((width, height), getattr(Image, pre["resample"].upper()))
-        arr = (np.asarray(img, dtype=np.float32) * pre["rescale"] - np.array(pre["mean"], dtype=np.float32)) / np.array(pre["std"], dtype=np.float32)
-        return {input_name: arr.transpose(2, 0, 1)[None, ...]}, sent.width, sent.height
+        chw = image_to_chw(opened, tuple(pre["resize"]), pre["resample"], pre["rescale"], pre["mean"], pre["std"])
+        return {input_name: chw[None, ...]}, opened.width, opened.height
 
     return encode
 
@@ -63,17 +61,12 @@ def tabular_encoder(pre, tokenizer_url, input_name):
     """Body {feature: value, ...}: one row in the trainer's feature order (model.json preprocessing.features). A missing or null
     value is NaN, as at training; a value that is not a number fails the call (bad_input). A category column (preprocessing.categories)
     takes its text, which becomes the index the trainer gave it."""
-    import numpy as np
+    from ray_common.preprocess import tabular_matrix
 
     features = pre["features"]
-    codes = {name: {v: i for i, v in enumerate(values)} for name, values in (pre.get("categories") or {}).items()}
-
-    def cell(name, value):
-        if value is None:
-            return np.nan
-        return codes[name].get(str(value), np.nan) if name in codes else float(value)  # a category the model never saw is missing
+    categories = pre.get("categories") or {}
 
     def encode(body):
-        return {input_name: np.array([[cell(name, body.get(name)) for name in features]], dtype=np.float32)}, 0, 0
+        return {input_name: tabular_matrix([[body.get(name) for name in features]], features, categories)}, 0, 0
 
     return encode
