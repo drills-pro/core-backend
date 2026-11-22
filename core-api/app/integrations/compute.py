@@ -6,7 +6,7 @@ Two backends behind `settings.compute.backend`, chosen per call so a config flip
   rayjob         a KubeRay `RayJob` custom resource created through the Kubernetes API; status is read from
                  the CR, so nothing polls a Ray head, and the control plane holds no credential to one
 
-Callers pass a JobSpec and keep the returned job id (also the handle for `logs`); status values are Ray's job states either way.
+Callers pass a Submission and keep the returned job id (also the handle for `logs`); status values are Ray's job states either way.
 """
 import json
 import shlex
@@ -58,7 +58,9 @@ class JobState(BaseModel):
     started_at: datetime | None = None
 
 
-class JobSpec(BaseModel):
+class Submission(BaseModel):
+    """How one Ray job is submitted (entrypoint, resources, env); what the job does is the document in job_spec.py."""
+
     entrypoint: str
     metadata: dict[str, str] = Field(default_factory=dict)
     env_vars: dict[str, str] = Field(default_factory=dict)
@@ -81,13 +83,13 @@ def requirements_runtime_env(requirements: list[str]) -> dict:
     return {"uv": {"packages": requirements, "uv_pip_install_options": cfg.uv_options}, "config": {"setup_timeout_seconds": cfg.setup_timeout_seconds}}
 
 
-def runtime_env(spec: JobSpec) -> dict:
+def runtime_env(spec: Submission) -> dict:
     """The job's Ray runtime_env: what Ray sets up before the entrypoint runs."""
     env = {k: v for k, v in (("env_vars", spec.env_vars), ("py_modules", spec.py_modules)) if v}
     return {**env, **requirements_runtime_env(spec.requirements)}
 
 
-def rayjob_manifest(spec: JobSpec, name: str) -> dict:
+def rayjob_manifest(spec: Submission, name: str) -> dict:
     cfg = settings.compute.rayjob
     body: dict = {
         "entrypoint": spec.entrypoint,
@@ -161,7 +163,7 @@ def _dashboard() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=settings.ray.dashboard, timeout=DASHBOARD_TIMEOUT_SECONDS)
 
 
-def _dashboard_payload(spec: JobSpec) -> dict:
+def _dashboard_payload(spec: Submission) -> dict:
     # Ray's job API has no deadline, so the entrypoint carries it (GNU timeout, present in the Ray images).
     entrypoint = f"timeout {spec.timeout_seconds} sh -c {shlex.quote(spec.entrypoint)}" if spec.timeout_seconds else spec.entrypoint
     payload: dict = {"entrypoint": entrypoint, "metadata": spec.metadata}
@@ -181,7 +183,7 @@ def _dashboard_payload(spec: JobSpec) -> dict:
 
 
 class _DashboardBackend:
-    async def submit(self, spec: JobSpec) -> str:
+    async def submit(self, spec: Submission) -> str:
         async with _dashboard() as client:
             resp = await client.post(DASHBOARD_JOBS_PATH, json=_dashboard_payload(spec))
             resp.raise_for_status()
@@ -207,7 +209,7 @@ class _DashboardBackend:
 
 
 class _RayJobBackend:
-    async def submit(self, spec: JobSpec) -> str:
+    async def submit(self, spec: Submission) -> str:
         name = spec.submission_id or f"{DEFAULT_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
         async with _kube() as client:
             resp = await client.post(_rayjobs(), json=rayjob_manifest(spec, name))
@@ -247,7 +249,7 @@ class _RayJobBackend:
 
 
 class _Backend(Protocol):
-    async def submit(self, spec: JobSpec) -> str: ...
+    async def submit(self, spec: Submission) -> str: ...
     async def state(self, job_id: str) -> JobState: ...
     async def stop(self, job_id: str) -> None: ...
     async def logs(self, job_id: str) -> str: ...
@@ -258,7 +260,7 @@ def _backend() -> _Backend:
     return _RayJobBackend() if settings.compute.backend == Backend.RAYJOB else _DashboardBackend()
 
 
-async def submit(spec: JobSpec) -> str:
+async def submit(spec: Submission) -> str:
     """Start the job and return its id (the submission id when the caller gave one)."""
     return await _backend().submit(spec)
 

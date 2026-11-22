@@ -8,21 +8,20 @@ import pytest
 from app.core.problem import Problem
 from app.modules.user.deployments import promotion_worker as worker
 from app.modules.user.deployments.constants import PROMOTION_FAILED_DETAIL
+from app.modules.user.model_registry import PendingPromotion
 from tests.support import FakeConn
 from tests.support.counted_conn import patch_counted_conn
 
 TENANT, PROJECT, VERSION, SERVING = str(uuid.uuid4()), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-ROW = {"id": VERSION, "project_id": PROJECT, "promotion_actor": "user-1", "promotion_acknowledged_risk": True}
+ROW = PendingPromotion(id=VERSION, project_id=PROJECT, promotion_actor="user-1", promotion_acknowledged_risk=True)
 
 
 @pytest.fixture
 def env(monkeypatch):
     e = type("Env", (), {})()
     e.steps, e.serving = [], SERVING
-    e.conn = FakeConn()
-    patch_counted_conn(monkeypatch, e.conn, worker)
 
-    async def serving_version(conn, version_id):
+    async def serving_version(tenant_id, version_id):
         return e.serving
 
     async def ensure_deployed(ctx, project_id, version_id, acknowledge_risk=False):
@@ -121,27 +120,27 @@ def test_putting_the_deployment_back_never_hides_the_real_failure(env, monkeypat
 
 
 def test_one_failing_promotion_does_not_stop_the_next(env, monkeypatch):
-    other = {**ROW, "id": uuid.uuid4()}
+    other = ROW.model_copy(update={"id": uuid.uuid4()})
     pending = [ROW, other]
 
-    async def tenants(sql):
-        return [(uuid.UUID(TENANT),)]
+    async def tenants():
+        return [TENANT]
 
-    async def pending_promotions(conn, tenant_id):
+    async def pending_promotions(tenant_id):
         return pending
 
     calls = []
 
     async def settle_one(tenant_id, row):
-        calls.append(row["id"])
+        calls.append(row.id)
         if row is ROW:
             raise RuntimeError("could not even mark it failed")
 
-    monkeypatch.setattr(worker.job_lifecycle, "fetch", tenants)
+    monkeypatch.setattr(worker, "pending_promotion_tenants", tenants)
     monkeypatch.setattr(worker, "pending_promotions", pending_promotions)
     monkeypatch.setattr(worker, "_settle", settle_one)
     asyncio.run(worker.process_promotions())
-    assert calls == [ROW["id"], other["id"]]
+    assert calls == [ROW.id, other.id]
 
 
 def test_the_worker_is_polled():
@@ -185,14 +184,13 @@ def test_a_swap_stops_the_demoted_versions_active_deployment_and_a_rollback_star
     async def flip(ctx, project_id, version_id):
         moves.append(("flip", version_id))
 
-    async def serving_version(conn_, version_id):
+    async def serving_version(tenant_id, version_id):
         return old
 
     monkeypatch.setattr(service, "_move", move)
     monkeypatch.setattr(service, "start_deployment", start)
     monkeypatch.setattr(worker, "complete_promotion", flip)
     monkeypatch.setattr(worker, "serving_version", serving_version)
-    patch_counted_conn(monkeypatch, conn, worker)
-    asyncio.run(worker._settle(TENANT, {**ROW, "id": new}))
+    asyncio.run(worker._settle(TENANT, ROW.model_copy(update={"id": new})))
     assert moves == [(d_new, S.ACTIVE, "start"), ("flip", new), (d_old, S.STOPPED, "stop")]  # started first, the old one stopped last
     assert (rows[d_new]["status"], rows[d_old]["status"]) == (S.ACTIVE, S.STOPPED)  # one version live, and the stopped row is kept

@@ -18,7 +18,7 @@ from app.core import audit
 from app.core.authz import AuthzContext
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
-from app.integrations import data_plane
+from app.integrations import data_plane, job_lifecycle
 from app.integrations.data_plane import ModelStage
 from app.modules.user.model_registry.constants import (
     CUSTOMER_STAGE_LABELS,
@@ -36,6 +36,7 @@ from app.modules.user.model_registry.constants import (
 from app.modules.user.model_registry.schemas import (
     ModelVersion,
     ModelVersionItem,
+    PendingPromotion,
     PromotedVersion,
     PublishState,
     RegisteredVersion,
@@ -84,7 +85,7 @@ _FAILED = (
     "UPDATE model_versions SET promotion_status = $3, promotion_error = $4, promotion_error_code = $5 WHERE id = $1 AND project_id = $2 AND promotion_status = $6 "
     "RETURNING id"
 )
-_EMIT = "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) VALUES ($1, $2, $3, $4, $5)"
+_PENDING_TENANTS = "SELECT pending_promotion_tenant_ids()"
 _RUN_OF = (
     "SELECT tr.mlflow_run_id FROM model_versions mv JOIN training_runs tr ON tr.id = mv.training_run_id "
     "WHERE mv.id = $1 AND mv.project_id = $2"
@@ -204,14 +205,21 @@ def _promotion_of(row) -> dict:
     return {key: row[key] for key in ("promotion_status", "promotion_error", "promotion_error_code")}
 
 
-async def pending_promotions(conn, tenant_id: str) -> list:
-    """The tenant's promotions the worker has not settled: (id, project_id, promotion_actor, promotion_acknowledged_risk), oldest first."""
-    return await conn.fetch(_PENDING, tenant_id, PromotionStatus.PENDING)
+async def pending_promotion_tenants() -> list[str]:
+    """The tenants that have a promotion the worker has not settled."""
+    return [str(row[0]) for row in await job_lifecycle.fetch(_PENDING_TENANTS)]
 
 
-async def serving_version(conn, version_id: uuid.UUID) -> uuid.UUID | None:
+async def pending_promotions(tenant_id: str) -> list[PendingPromotion]:
+    """The tenant's promotions the worker has not settled, oldest first."""
+    async with TenantConn(tenant_id) as conn:
+        return [PendingPromotion.model_validate(dict(row)) for row in await conn.fetch(_PENDING, tenant_id, PromotionStatus.PENDING)]
+
+
+async def serving_version(tenant_id: str, version_id: uuid.UUID) -> uuid.UUID | None:
     """The Production version of the model `version_id` belongs to (another one), if it has one: what keeps serving until a promotion settles."""
-    return await conn.fetchval(_SERVING_OF, version_id, ModelStage.PRODUCTION)
+    async with TenantConn(tenant_id) as conn:
+        return await conn.fetchval(_SERVING_OF, version_id, ModelStage.PRODUCTION)
 
 
 async def _restore(tenant_id: str, project_id: uuid.UUID, moved: list[tuple[str, str, ModelStage]]) -> None:
@@ -249,7 +257,7 @@ async def complete_promotion(ctx: AuthzContext, project_id: uuid.UUID, version_i
             await conn.execute(_PROMOTED, version_id, ModelStage.PRODUCTION)
             await audit.record_for(
                 conn, ctx, project_id, AuditAction.ROLLBACK if rollback else AuditAction.PROMOTE, EntityType.MODEL_VERSION, version_id)
-            await conn.execute(_EMIT, tenant_id, project_id, PROMOTION_EVENT_PROMOTED, version_id, ModelStage.PRODUCTION)
+            await job_lifecycle.emit_event(conn, tenant_id, project_id, PROMOTION_EVENT_PROMOTED, version_id, ModelStage.PRODUCTION)
     except Exception:
         await _restore(tenant_id, project_id, moved)
         raise
@@ -260,7 +268,7 @@ async def fail_promotion(ctx: AuthzContext, project_id: uuid.UUID, version_id: u
     async with TenantConn(ctx.tenant_id) as conn:
         failed = await conn.fetchrow(_FAILED, version_id, project_id, PromotionStatus.FAILED, error, code, PromotionStatus.PENDING)
         if failed is not None:
-            await conn.execute(_EMIT, ctx.tenant_id, project_id, PROMOTION_EVENT_FAILED, version_id, PromotionStatus.FAILED)
+            await job_lifecycle.emit_event(conn, ctx.tenant_id, project_id, PROMOTION_EVENT_FAILED, version_id, PromotionStatus.FAILED)
 
 
 async def set_publish(

@@ -10,6 +10,7 @@ from app.core.settings import settings
 from app.core.task_catalog import TextPreprocessing
 from app.integrations.job_spec import Resources, TrainPayload
 from app.modules.user.training.train_spec import _SPEC_OWN
+from tests.support.check_mirror import assert_mirrors
 from tests.support.presets import IMAGENET, LIMITS, REVISION, preset
 
 BODY = {
@@ -47,17 +48,11 @@ def test_a_bundle_row_without_a_base_model_reads_back_with_its_default_values():
     assert preset().hyperparameters.epochs.default == LIMITS["epochs"]["default"]  # an admin row keeps its bounds
 
 
-def _check(constraint):
-    from tests.core.test_task_types import _latest_check
-
-    return _latest_check(constraint)
-
-
 def test_the_recipe_checks_mirror_the_enums():
     from app.core.task_catalog import Augmentation, LrSchedule
 
-    assert _check("task_presets_lr_schedule_check") == {s.value for s in LrSchedule}
-    assert _check("task_presets_augmentation_check") == {a.value for a in Augmentation}
+    assert_mirrors("task_presets", "lr_schedule", LrSchedule)
+    assert_mirrors("task_presets", "augmentation", Augmentation)
 
 
 def test_the_recipe_defaults_are_todays_behaviour():

@@ -14,12 +14,13 @@ from app.core.plan_limits import PlanLimitsBody
 from app.core.problem import Problem
 from app.core.settings import settings
 from tests.support import FakeConn
+from tests.support.check_mirror import assert_mirrors
 
 MIGRATIONS = Path(__file__).parents[2] / "migrations"
 SQL = next(MIGRATIONS.glob("*_plan_limits.sql")).read_text()
 PREDICT_SQL = next(MIGRATIONS.glob("*_plan_limits_predict.sql")).read_text()
-DEPLOYMENTS_SQL = next(MIGRATIONS.glob("*_deployments_quota_idempotency.sql")).read_text().split("-- migrate:down")[0]
 INTERNAL_SQL = next(MIGRATIONS.glob("*_internal_plan_tier.sql")).read_text().split("-- migrate:down")[0]
+DEPLOYMENTS_SQL = next(MIGRATIONS.glob("*_deployments_quota_idempotency.sql")).read_text().split("-- migrate:down")[0]
 
 
 def groups(**over) -> dict:
@@ -40,9 +41,8 @@ def test_the_columns_and_the_tier_check_mirror_the_models_and_the_enum():
     added = re.findall(r"ADD COLUMN (\w+) jsonb NOT NULL", PREDICT_SQL)
     added += re.findall(r"ADD COLUMN (\w+) jsonb NOT NULL", DEPLOYMENTS_SQL)
     assert columns + added == list(PlanLimitsBody.model_fields)
-    for table in ("tenants", "plan_limits"):  # the latest CHECK on each table, which the internal tier migration rewrote
-        tiers = re.search(rf"ADD CONSTRAINT {table}_plan_tier_check\s+CHECK \(plan_tier IN \(([^)]*)\)", INTERNAL_SQL).group(1)
-        assert set(re.findall(r"'([^']+)'", tiers)) == {t.value for t in PlanTier}
+    for table in ("tenants", "plan_limits"):
+        assert_mirrors(table, "plan_tier", PlanTier)
 
 
 def test_every_tier_is_seeded_with_the_yaml_values():

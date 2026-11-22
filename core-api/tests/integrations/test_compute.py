@@ -1,4 +1,4 @@
-"""The compute seam: the same JobSpec on both backends, RayJob against a fake Kubernetes API."""
+"""The compute seam: the same Submission on both backends, RayJob against a fake Kubernetes API."""
 import asyncio
 import json
 
@@ -8,7 +8,7 @@ import pytest
 from app.core.settings import settings
 from app.integrations import compute
 
-SPEC = compute.JobSpec(
+SPEC = compute.Submission(
     entrypoint="python job.py", metadata={"tenant_id": "t1", "import_id": "i1"}, env_vars={"K": "v"},
     num_cpus=2, memory=1024, resources={"cpu_pool": 1}, submission_id="ingest-1", timeout_seconds=60, py_modules=["http://pkg/a.zip"],
 )

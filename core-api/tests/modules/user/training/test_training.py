@@ -1,10 +1,8 @@
 """Training routes (job.read / job.create / job.cancel through the real router, database faked), and the lifecycle
 the reconciler drives: a run ends with the job's report, success needs Ray and the report to agree."""
 import asyncio
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -24,6 +22,7 @@ from app.modules.user.model_registry import RegisteredVersion
 from app.modules.user.training import create_service, effects, persist, routes, run_service, service, train_spec
 from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
+from tests.support.check_mirror import assert_mirrors
 from tests.support.presets import LIMITS, preset_row
 from tests.support.task_types import seeded
 from tests.support.job_table import FakeJobTable, patch
@@ -35,7 +34,6 @@ BUNDLE_SHA = "f" * 64
 VERSION, DATASET = uuid.uuid4(), uuid.uuid4()
 BODY = {"dataset_version_id": str(VERSION), "preset": "small"}
 HEADERS = {"Idempotency-Key": "k"}
-MIGRATIONS = Path(__file__).parents[4] / "migrations"
 
 
 def run_row(**over):
@@ -680,9 +678,7 @@ def test_a_stopped_job_never_seen_running_is_not_dated_by_ray(monkeypatch):
 # ---- the enums and the database agree ----
 
 def test_the_status_check_mirrors_the_enum():
-    sql = (MIGRATIONS / "20261017172706_init.sql").read_text()
-    clause = re.search(r"status\s+text NOT NULL DEFAULT 'submitted'\s+CHECK \(status IN \(([^)]*)\)\)", sql)
-    assert set(re.findall(r"'([^']+)'", clause.group(1))) == {s.value for s in TrainingStatus}
+    assert_mirrors("training_runs", "status", TrainingStatus)
 
 
 # ---- reads and failure paths the tests above do not reach ----
