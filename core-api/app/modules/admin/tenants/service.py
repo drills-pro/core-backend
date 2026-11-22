@@ -27,15 +27,15 @@ import httpx
 
 from app.core import admin_audit, task_types
 from app.core.authz import TenantRole, TenantStatus
-from app.core.authz.deps import TenantProblem
 from app.core.db import get_pool
 from app.core.enums import AdminAuditAction, AdminAuditEntity, IdentityStatus, PlanTier, TaskType
+from app.core.pagination import Page, PageParams
 from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.core.tenant_settings import TenantSettings
 from app.integrations import zitadel
 from app.integrations.zitadel import OrgOwner
-from app.modules.admin.tenants.constants import ADMIN_SETTABLE_STATUSES, MAX_SCAN, ORG_STATUSES, ProblemCode
+from app.modules.admin.tenants.constants import ORG_STATUSES, ProblemCode
 from app.modules.admin.tenants.schemas import (
     CreatedTenant,
     TenantDataset,
@@ -89,25 +89,31 @@ async def _owners(client: httpx.AsyncClient, org_ids: list[str | None]) -> list[
     return await asyncio.gather(*(one(org_id) for org_id in org_ids))
 
 
-async def list_page(q: str | None, plan_tier: str | None, status: str | None, limit: int, offset: int) -> TenantPage:
-    """One page of every tenant, newest last, filtered on name, plan and (after enrichment) Zitadel status."""
+async def list_page(q: str | None, plan_tier: str | None, status: str | None, page: PageParams) -> TenantPage:
+    """One keyset page of every tenant, newest last, filtered on name, plan and (before the page is cut) Zitadel status.
+
+    The org's status lives in Zitadel, so the filtered set's ids and orgs are read first, the status filter narrows
+    them, and the page (with its counters) is a keyset query over what is left. The ids are all that is held for the
+    whole set; the rows and Zitadel owners are fetched for the page only."""
     async with (await get_pool()).acquire() as conn:
-        rows = await tenants_ctx.admin_list(conn, q, plan_tier, MAX_SCAN)
+        orgs = await tenants_ctx.admin_orgs(conn, q, plan_tier)
 
     async with zitadel.client() as client:
         org_states = await zitadel.list_org_states(client)
-        tenants = [(row, org_states.get(row.zitadel_org_id, IdentityStatus.UNKNOWN)) for row in rows]
+        states = {org.id: org_states.get(org.zitadel_org_id, IdentityStatus.UNKNOWN) for org in orgs}
         # Before the status filter, so a status-filtered request still knows
         # what the other tabs hold and a back-office UI doesn't have to ask
         # three times to label them.
-        status_counts = collections.Counter(s for _, s in tenants)
-        if status is not None:
-            tenants = [(row, s) for row, s in tenants if s == status]
+        status_counts = collections.Counter(states.values())
+        wanted = [tenant_id for tenant_id, s in states.items() if status is None or s == status]
 
-        page = tenants[offset : offset + limit]
-        owners = await _owners(client, [row.zitadel_org_id for row, _ in page])
-    items = [TenantListItem(**row.model_dump(), status=s, owner=o) for (row, s), o in zip(page, owners)]
-    return TenantPage(rows=items, total=len(tenants), status_counts=status_counts)
+        async with (await get_pool()).acquire() as conn:
+            rows = await tenants_ctx.admin_list(conn, wanted, page)
+        owners = await _owners(client, [row.zitadel_org_id for row in rows.items])
+    items = [TenantListItem(**row.model_dump(), status=states[row.id], owner=o) for row, o in zip(rows.items, owners)]
+    return TenantPage(
+        page=Page(items=items, next_page_token=rows.next_page_token), total=len(wanted), status_counts=status_counts
+    )
 
 
 async def create_tenant(name: str, plan_tier: str, zitadel_org_id: str | None, actor: str) -> CreatedTenant:
@@ -189,7 +195,7 @@ async def _discard_org(client: httpx.AsyncClient, org_id: str) -> None:
 
 async def summary() -> TenantsSummary:
     """Platform-wide totals, counted in Postgres (admin_platform_stats()) rather than over
-    the listing's rows, so the numbers don't stop at MAX_SCAN or at one page.
+    the listing's rows, so the numbers don't stop at one page.
 
     `status_counts` degrades like the listing: with Zitadel unreachable every
     organisation counts as unknown, which is honest about not knowing rather
@@ -289,16 +295,16 @@ async def update_settings(tenant_id: uuid.UUID, settings: TenantSettings, actor:
 
 async def set_status(tenant_id: uuid.UUID, status: str, actor: str) -> TenantStatusOut:
     """tenants.status is what require() enforces. A tenant with a Zitadel org has that org moved
-    too; the UPDATE rolls back if Zitadel refuses, so the two never disagree."""
-    if status not in ADMIN_SETTABLE_STATUSES:
+    too; the UPDATE rolls back if Zitadel refuses, so the two never disagree. That is why the Zitadel call stays
+    inside the transaction: moved after the commit, a refusal or a crash would leave the row and the org
+    disagreeing, and the row lock (which keeps the owner's :delete out meanwhile) would be gone."""
+    if status not in tenants_ctx.ADMIN_SETTABLE_STATUSES:
         raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.STATUS_NOT_SETTABLE, "status must be 'active' or 'suspended'")
 
     async with (await get_pool()).acquire() as conn, conn.transaction():
-        changed = await tenants_ctx.set_status(conn, tenant_id, status)
+        changed = await tenants_ctx.set_status(conn, tenant_id, status)  # 409 for a pending_delete tenant
         if changed is None:
             raise not_found()
-        if changed.previous == TenantStatus.PENDING_DELETE:
-            raise Problem(HTTPStatus.CONFLICT, TenantProblem.PENDING_DELETE, "tenant is pending deletion; only its owner can restore it")
         org_id = changed.org_id
         if org_id:
             async with zitadel.client() as client:

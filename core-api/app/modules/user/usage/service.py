@@ -10,16 +10,15 @@ active when the usage occurred.
 import uuid
 
 from app.core.authz import AuthzContext
+from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.tenant_conn import TenantConn
 from app.modules.user.projects import get_team_id
 from app.modules.user.usage.schemas import UsageEvent, UsageTotal
 
 PRICING_VERSION = "v1-raw-gpu-seconds"
+OCCURRED_AT = "occurred_at"  # the events' sort column; the bigserial id breaks ties
 
-_PROJECT_EVENTS = (
-    "SELECT id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version "
-    "FROM usage_events WHERE project_id = $1 ORDER BY occurred_at DESC LIMIT $2 OFFSET $3"
-)
+_PROJECT_EVENTS = "SELECT id, resource_type, quantity, unit, occurred_at, source_ref, pricing_version FROM usage_events WHERE project_id = $1"
 _ORG_TOTALS = (
     "SELECT project_id, resource_type, unit, SUM(quantity) AS total_quantity "
     "FROM usage_events GROUP BY project_id, resource_type, unit ORDER BY project_id, resource_type"
@@ -30,11 +29,16 @@ _TEAM_TOTALS = (
 )
 
 
-async def project_events(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[UsageEvent]:
-    """FR4: raw usage_events visible mid-period, not a month-end-only report."""
+async def project_events(ctx: AuthzContext, project_id: uuid.UUID, page: PageParams) -> Page[UsageEvent]:
+    """FR4: raw usage_events visible mid-period, not a month-end-only report. Newest first."""
+    cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=2, column=OCCURRED_AT, id_type=int)
     async with TenantConn(ctx.tenant_id) as conn:
-        rows = await conn.fetch(_PROJECT_EVENTS, project_id, limit, offset)
-    return [UsageEvent.model_validate(dict(r)) for r in rows]
+        rows = await conn.fetch(
+            f"{_PROJECT_EVENTS} {cond} ORDER BY {order_by(SortDir.DESC, OCCURRED_AT)} LIMIT {page.page_size + 1}",
+            project_id,
+            *args,
+        )
+    return build_page(rows, page.page_size, UsageEvent, column=OCCURRED_AT)
 
 
 async def org_totals(ctx: AuthzContext) -> list[UsageTotal]:

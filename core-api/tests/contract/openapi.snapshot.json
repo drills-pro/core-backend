@@ -3421,6 +3421,114 @@
         "title": "PackageStatus",
         "type": "string"
       },
+      "Page_ActivityItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[ActivityItem]",
+        "type": "object"
+      },
+      "Page_AdminAuditEntry_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAuditEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[AdminAuditEntry]",
+        "type": "object"
+      },
+      "Page_AdminModelVersion_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminModelVersion"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[AdminModelVersion]",
+        "type": "object"
+      },
+      "Page_AdminModel_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminModel"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[AdminModel]",
+        "type": "object"
+      },
       "Page_AuditEntry_": {
         "properties": {
           "items": {
@@ -3556,6 +3664,33 @@
         "title": "Page[ProjectListItem]",
         "type": "object"
       },
+      "Page_Team_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Team"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[Team]",
+        "type": "object"
+      },
       "Page_TenantAuditEntry_": {
         "properties": {
           "items": {
@@ -3581,6 +3716,60 @@
           "items"
         ],
         "title": "Page[TenantAuditEntry]",
+        "type": "object"
+      },
+      "Page_TenantListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TenantListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[TenantListItem]",
+        "type": "object"
+      },
+      "Page_TrainingRunSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingRunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[TrainingRunSummary]",
         "type": "object"
       },
       "Page_TrashedDataset_": {
@@ -3635,6 +3824,33 @@
           "items"
         ],
         "title": "Page[TrashedProject]",
+        "type": "object"
+      },
+      "Page_UsageEvent_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsageEvent"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Token"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "Page[UsageEvent]",
         "type": "object"
       },
       "PlanLimits": {
@@ -7403,25 +7619,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -7462,11 +7683,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ActivityItem"
-                  },
-                  "title": "Response List Activity V1 Admin Activity Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ActivityItem_"
                 }
               }
             },
@@ -7596,25 +7813,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -7655,11 +7877,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AdminAuditEntry"
-                  },
-                  "title": "Response List Audit Log V1 Admin Audit Log Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_AdminAuditEntry_"
                 }
               }
             },
@@ -8743,25 +8961,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -8802,11 +9025,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AdminModel"
-                  },
-                  "title": "Response List Models V1 Admin Models Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_AdminModel_"
                 }
               }
             },
@@ -8897,7 +9116,7 @@
     },
     "/v1/admin/models/{version_id}/versions": {
       "get": {
-        "description": "Every version of the model this version belongs to, newest first.\n\nAddressed by one of its versions \u2014 the id the listing already handed\nout \u2014 rather than by (project, name), so the caller has no second key\nto spell and nothing to escape. An id that names no version answers\nwith an empty list, the same as a model whose project was deleted.",
+        "description": "Every version of the model this version belongs to, newest first.\n\nAddressed by one of its versions \u2014 the id the listing already handed\nout \u2014 rather than by (project, name), so the caller has no second key\nto spell and nothing to escape. An id that names no version answers\nwith an empty page, the same as a model whose project was deleted.",
         "operationId": "list_model_versions_v1_admin_models__version_id__versions_get",
         "parameters": [
           {
@@ -8912,25 +9131,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -8971,11 +9195,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AdminModelVersion"
-                  },
-                  "title": "Response List Model Versions V1 Admin Models  Version Id  Versions Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_AdminModelVersion_"
                 }
               }
             },
@@ -10252,25 +10472,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -10311,11 +10536,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TenantListItem"
-                  },
-                  "title": "Response List Tenants V1 Admin Tenants Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_TenantListItem_"
                 }
               }
             },
@@ -17675,25 +17896,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -17750,11 +17976,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TrainingRunSummary"
-                  },
-                  "title": "Response List Training Runs V1 Projects  Project Id  Training Runs Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_TrainingRunSummary_"
                 }
               }
             },
@@ -18412,25 +18634,30 @@
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -18487,11 +18714,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UsageEvent"
-                  },
-                  "title": "Response Project Usage V1 Projects  Project Id  Usage Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_UsageEvent_"
                 }
               }
             },
@@ -19177,25 +19400,30 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
+            "name": "page_size",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Limit",
+              "title": "Page Size",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "offset",
+            "name": "page_token",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Token"
             }
           },
           {
@@ -19252,11 +19480,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Team"
-                  },
-                  "title": "Response List Teams V1 Teams Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_Team_"
                 }
               }
             },

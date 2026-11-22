@@ -13,5 +13,3 @@ class ModelStatus(StrEnum):
 class ProblemCode(StrEnum):
     INVALID_FILTER = "invalid_filter"
 
-
-TOTAL_COLUMN = "total"  # count(*) OVER () on every row: the pager's, not part of a row

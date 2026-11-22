@@ -25,7 +25,7 @@ def test_listing_shapes_rows_and_reports_the_filtered_total(admin):
     res = admin(AdminConn(fetches={"admin_models(": [model()]})).get(URL)
     assert res.status_code == 200
     assert res.headers["X-Total-Count"] == "7"
-    row = res.json()[0]
+    row = res.json()["items"][0]
     assert (row["model_name"], row["version_count"], row["status"], row["tenant_name"]) == ("m", 3, "deployed", "Acme")
     assert "total" not in row  # the pager column is not part of a row
 
@@ -33,14 +33,14 @@ def test_listing_shapes_rows_and_reports_the_filtered_total(admin):
 def test_listing_passes_every_filter_to_the_function(admin):
     conn = AdminConn()
     res = admin(conn).get(URL, params={"q": "m", "tenant_id": str(TENANT), "task_type": "image-classification",
-                                       "visibility": "private", "status": "stopped", "limit": 5, "offset": 10})
+                                       "visibility": "private", "status": "stopped", "page_size": 5})
     assert res.status_code == 200
-    assert conn.calls[0][1] == (5, 10, TENANT, "image-classification", "private", "stopped", "m")
+    assert conn.calls[0][1] == (6, None, None, TENANT, "image-classification", "private", "stopped", "m")  # +1 lookahead
 
 
 def test_an_empty_listing_says_zero(admin):
     res = admin(AdminConn()).get(URL)
-    assert (res.json(), res.headers["X-Total-Count"]) == ([], "0")
+    assert (res.json(), res.headers["X-Total-Count"]) == ({"items": [], "next_page_token": None}, "0")
 
 
 @pytest.mark.parametrize("param, value", [("status", "paused"), ("visibility", "public")])
@@ -57,14 +57,14 @@ def test_an_unknown_task_type_is_422(admin):
 
 def test_versions_are_addressed_by_one_of_them(admin):
     conn = AdminConn(fetches={"admin_model_versions": [dict(version(), total=2), dict(version(), total=2)]})
-    res = admin(conn).get(f"{URL}/{VERSION}/versions", params={"limit": 2, "offset": 1})
-    assert (res.status_code, len(res.json()), res.headers["X-Total-Count"]) == (200, 2, "2")
-    assert conn.calls[0][1] == (VERSION, 2, 1)
+    res = admin(conn).get(f"{URL}/{VERSION}/versions", params={"page_size": 2})
+    assert (res.status_code, len(res.json()["items"]), res.headers["X-Total-Count"]) == (200, 2, "2")
+    assert conn.calls[0][1] == (VERSION, 3, None, None)  # +1 lookahead
 
 
 def test_versions_of_an_unknown_id_is_an_empty_list(admin):
     res = admin(AdminConn()).get(f"{URL}/{VERSION}/versions")
-    assert (res.status_code, res.json(), res.headers["X-Total-Count"]) == (200, [], "0")
+    assert (res.status_code, res.json(), res.headers["X-Total-Count"]) == (200, {"items": [], "next_page_token": None}, "0")
 
 
 def test_summary_is_the_stats_row(admin):

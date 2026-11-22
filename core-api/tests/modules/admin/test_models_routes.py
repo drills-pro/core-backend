@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from app.core import problem
 from app.main import create_app
 from app.modules.admin.models import routes as model_routes, service as model_service
-from app.modules.admin.models.constants import TOTAL_COLUMN, ModelStatus, ProblemCode
+from app.core.pagination import TOTAL_COLUMN
+from app.modules.admin.models.constants import ModelStatus, ProblemCode
 from app.modules.admin.tenants import detail, service as tenant_service
 from tests.support import FakeConn, TenantCtx
 
@@ -47,16 +48,16 @@ def call(monkeypatch):
 
 def test_the_list_is_one_row_per_model_with_the_filtered_total_in_a_header(call):
     conn = FakeConn(rowset=[model()])
-    res = call(model_service, model_routes.router, conn, "/v1/admin/models?status=deployed&limit=10&offset=20")
+    res = call(model_service, model_routes.router, conn, "/v1/admin/models?status=deployed&page_size=10")
     assert res.status_code == 200 and res.headers["X-Total-Count"] == str(TOTAL)
-    assert res.json()[0]["model_name"] == "model" and res.json()[0]["version_count"] == 3
+    assert res.json()["items"][0]["model_name"] == "model" and res.json()["items"][0]["version_count"] == 3
     args = conn.calls[0][1]
-    assert args[:2] == (10, 20) and args[5] == ModelStatus.DEPLOYED  # limit, offset, tenant, task, visibility, status, q
+    assert args[:3] == (11, None, None) and args[6] == ModelStatus.DEPLOYED  # page_size+1 lookahead, cursor, tenant, task, visibility, status, q
 
 
 def test_an_empty_page_still_says_zero_in_the_total_header(call):
     res = call(model_service, model_routes.router, FakeConn(rowset=[]), "/v1/admin/models")
-    assert res.json() == [] and res.headers["X-Total-Count"] == "0"
+    assert res.json() == {"items": [], "next_page_token": None} and res.headers["X-Total-Count"] == "0"
 
 
 @pytest.mark.parametrize("filter", ["status=nope", "visibility=nope"])
@@ -69,13 +70,13 @@ def test_an_unknown_filter_is_a_400_not_an_empty_page(call, filter):
 def test_versions_are_listed_for_the_version_id_the_listing_handed_out(call):
     conn = FakeConn(rowset=[version(), version(version="2", stage="None")])
     res = call(model_service, model_routes.router, conn, f"/v1/admin/models/{ID}/versions")
-    assert [v["version"] for v in res.json()] == ["3", "2"] and res.headers["X-Total-Count"] == str(TOTAL)
+    assert [v["version"] for v in res.json()["items"]] == ["3", "2"] and res.headers["X-Total-Count"] == str(TOTAL)
     assert conn.calls[0][1][0] == ID
 
 
 def test_an_id_that_names_no_version_is_an_empty_list(call):
     res = call(model_service, model_routes.router, FakeConn(rowset=[]), f"/v1/admin/models/{ID}/versions")
-    assert res.status_code == 200 and res.json() == []
+    assert res.status_code == 200 and res.json() == {"items": [], "next_page_token": None}
 
 
 def test_the_summary_is_the_platform_wide_counts(call):

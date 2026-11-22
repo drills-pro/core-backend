@@ -12,29 +12,29 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.auth import get_platform_admin
+from app.core.pagination import Page, PageParams, set_total_header
 from app.modules.admin.activity import service
 from app.modules.admin.activity.schemas import ActivityItem, ActivityStats
 
 router = APIRouter(prefix="/v1/admin/activity", tags=["admin"])
 
 
-@router.get("", dependencies=[Depends(get_platform_admin)], response_model=list[ActivityItem])
+@router.get("", dependencies=[Depends(get_platform_admin)], response_model=Page[ActivityItem])
 async def list_activity(
     response: Response,
     q: str | None = Query(default=None, description="matches actor, action, entity, tenant or project"),
     tenant_id: uuid.UUID | None = Query(default=None, description="one organisation only"),
     entity_type: str | None = Query(default=None, description="project | project_member | ..."),
     days: int | None = Query(default=None, ge=1, le=3650, description="only the last N days"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: PageParams = Depends(),
 ):
     """Every recorded action, newest first.
 
     `X-Total-Count` carries the size of the filtered set so a pager costs
     no second request — the same contract as `GET /v1/admin/tenants`."""
-    rows, total = await service.list_activity(q, tenant_id, entity_type, days, limit, offset)
-    response.headers["X-Total-Count"] = str(total)
-    return rows
+    items, total = await service.list_activity(q, tenant_id, entity_type, days, page)
+    set_total_header(response, total)
+    return items
 
 
 @router.get("/summary", dependencies=[Depends(get_platform_admin)], response_model=ActivityStats)
