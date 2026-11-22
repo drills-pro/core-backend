@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Alert, Button, Code, HStack, Input, Stack, Table, Text, Textarea } from '@chakra-ui/react';
+import { Alert, Badge, Button, Card, Code, HStack, Input, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, newKey, unwrap } from '@/api/client';
 import { cfg } from '@/config';
 import { DEPLOY_DONE, DEPLOY_ENDED, DeployStatus, POLL_MS, PREDICT_SCOPE, RunStatus } from '@/constants';
-import { CopyButton, ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
+import { CardGrid, ConfirmDialog, CopyButton, Empty, ErrorAlert, Facts, Id, Section, Select, short, StatusBadge, when } from '@/ui';
 import { runsQuery } from './Training';
 
 export function Deployments({ projectId }: { projectId: string }) {
@@ -18,7 +18,6 @@ export function Deployments({ projectId }: { projectId: string }) {
   });
   const [runId, setRunId] = useState('');
   const [deploymentId, setDeploymentId] = useState('');
-  const [body, setBody] = useState('{\n  "input": {}\n}');
 
   const deploy = useMutation({
     mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/deployments', { params: { path, query: { training_run_id: runId }, header: { 'Idempotency-Key': newKey() } } })),
@@ -41,133 +40,134 @@ export function Deployments({ projectId }: { projectId: string }) {
       unwrap(client.DELETE('/v1/projects/{project_id}/deployments/{deployment_id}', { params: { path: { ...path, deployment_id: id } } })),
     onSettled,
   });
-  // Through the session route, not /v1/predict: same Serve path, no predict key needed, and the call is logged.
+  // The try-it log: console predictions made through the session route, newest first.
   const test = useQuery({
-    queryKey: ['test-calls', path.project_id, deploymentId],
+    queryKey: ['test-calls', projectId, deploymentId],
     queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/deployments/{deployment_id}/test-calls', { params: { path: { ...path, deployment_id: deploymentId } } })),
     enabled: !!deploymentId,
   });
 
+  const [confirm, setConfirm] = useState<{ kind: 'stop' | 'delete'; id: string } | null>(null);
   const succeeded = (runs.data?.items ?? []).filter((r) => r.status === RunStatus.SUCCEEDED);
+  const selected = deployments.data?.find((d) => d.id === deploymentId);
+  const closeConfirm = () => {
+    stop.reset();
+    remove.reset();
+    setConfirm(null);
+  };
   return (
-    <>
-    <Section title="3. Deploy and predict">
-      <HStack>
-        <Select
-          value={runId}
-          onChange={setRunId}
-          placeholder="A succeeded run"
-          options={succeeded.map((r) => ({ value: r.id, label: `${short(r.id)} ${r.preset ?? ''}` }))}
-        />
-        <Button size="sm" colorPalette="orange" disabled={!runId} loading={deploy.isPending} onClick={() => deploy.mutate()}>
-          Deploy
-        </Button>
-      </HStack>
-      <ErrorAlert error={deploy.error ?? deployments.error ?? stop.error ?? start.error ?? remove.error} />
-      {deploy.data?.predict_key && (
-        <Alert.Root status="info">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Title>Predict key (shown once)</Alert.Title>
-            <Alert.Description>
-              <HStack>
-                <Code>{deploy.data.predict_key}</Code>
-                <CopyButton text={deploy.data.predict_key} />
-              </HStack>
-              <Code display="block" whiteSpace="pre-wrap" mt="2" p="2" fontSize="xs">
-                {`curl -X POST ${cfg.apiUrl}/v1/predict/${deploy.data.id} \\
+    <Stack gap="4">
+      <Section title="Deploy a run" description="Serve a succeeded training run behind a predict route.">
+        <HStack wrap="wrap">
+          <Select
+            value={runId}
+            onChange={setRunId}
+            placeholder="A succeeded run"
+            options={succeeded.map((r) => ({ value: r.id, label: `${short(r.id)} ${r.preset ?? ''}` }))}
+          />
+          <Button colorPalette="orange" disabled={!runId} loading={deploy.isPending} onClick={() => deploy.mutate()}>
+            Deploy
+          </Button>
+        </HStack>
+        <ErrorAlert error={deploy.error ?? deployments.error ?? start.error} />
+        {deploy.data?.predict_key && (
+          <Alert.Root status="info">
+            <Alert.Indicator />
+            <Alert.Content>
+              <Alert.Title>Predict key (shown once)</Alert.Title>
+              <Alert.Description>
+                <HStack>
+                  <Code>{deploy.data.predict_key}</Code>
+                  <CopyButton text={deploy.data.predict_key} />
+                </HStack>
+                <Code display="block" whiteSpace="pre-wrap" mt="2" p="2" fontSize="xs">
+                  {`curl -X POST ${cfg.apiUrl}/v1/predict/${deploy.data.id} \\
   -H 'X-Predict-Key: ${deploy.data.predict_key}' \\
   -H 'Content-Type: application/json' \\
   -d '{"inputs": []}'`}
-              </Code>
-            </Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
-      <Table.Root size="sm">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeader>Deployment</Table.ColumnHeader>
-            <Table.ColumnHeader>Route</Table.ColumnHeader>
-            <Table.ColumnHeader>Status</Table.ColumnHeader>
-            <Table.ColumnHeader>Created</Table.ColumnHeader>
-            <Table.ColumnHeader />
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
+                </Code>
+              </Alert.Description>
+            </Alert.Content>
+          </Alert.Root>
+        )}
+      </Section>
+
+      <Section title="Deployments" description="Pick one to send it a test call.">
+        {deployments.data?.length === 0 && <Empty title="No deployments yet" />}
+        <CardGrid>
           {deployments.data?.map((d) => (
-            <Table.Row key={d.id} onClick={() => setDeploymentId(d.id)} cursor="pointer" bg={d.id === deploymentId ? 'orange.subtle' : undefined}>
-              <Table.Cell>
-                <Code>{short(d.id)}</Code>
-              </Table.Cell>
-              <Table.Cell>{d.route_prefix}</Table.Cell>
-              <Table.Cell>
-                <StatusBadge status={d.status} />
-              </Table.Cell>
-              <Table.Cell>{when(d.created_at)}</Table.Cell>
-              <Table.Cell textAlign="end">
-                <HStack justify="flex-end">
-                  {d.status === DeployStatus.STOPPED && (
-                    <Button size="xs" variant="outline" loading={start.isPending && start.variables === d.id} onClick={(e) => { e.stopPropagation(); start.mutate(d.id); }}>
-                      Start
-                    </Button>
-                  )}
-                  {!DEPLOY_ENDED.includes(d.status) && (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      loading={stop.isPending && stop.variables === d.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Stop deployment ${short(d.id)}? Predict will answer 409 until you start it again.`)) stop.mutate(d.id);
-                      }}
-                    >
-                      Stop
-                    </Button>
-                  )}
-                  {d.status !== DeployStatus.DELETED && (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      colorPalette="red"
-                      loading={remove.isPending && remove.variables === d.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Delete deployment ${short(d.id)}? Its predict key is cleared.`)) remove.mutate(d.id);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  )}
+            <Card.Root
+              key={d.id}
+              size="sm"
+              variant="outline"
+              cursor="pointer"
+              borderColor={d.id === deploymentId ? 'orange.emphasized' : undefined}
+              bg={d.id === deploymentId ? 'orange.subtle' : undefined}
+              onClick={() => setDeploymentId(d.id)}
+            >
+              <Card.Header>
+                <HStack justify="space-between">
+                  <Id value={d.id} />
+                  <StatusBadge status={d.status} />
                 </HStack>
-              </Table.Cell>
-            </Table.Row>
+              </Card.Header>
+              <Card.Body>
+                <Facts
+                  items={[
+                    ['Route', <Code key="r" fontSize="xs">{d.route_prefix}</Code>],
+                    ['Created', when(d.created_at)],
+                  ]}
+                />
+              </Card.Body>
+              <Card.Footer justifyContent="flex-end">
+                {d.status === DeployStatus.STOPPED && (
+                  <Button size="xs" variant="outline" loading={start.isPending && start.variables === d.id} onClick={(e) => { e.stopPropagation(); start.mutate(d.id); }}>
+                    Start
+                  </Button>
+                )}
+                {!DEPLOY_ENDED.includes(d.status) && (
+                  <Button size="xs" variant="outline" onClick={(e) => { e.stopPropagation(); setConfirm({ kind: 'stop', id: d.id }); }}>
+                    Stop
+                  </Button>
+                )}
+                {d.status !== DeployStatus.DELETED && (
+                  <Button size="xs" variant="outline" colorPalette="red" onClick={(e) => { e.stopPropagation(); setConfirm({ kind: 'delete', id: d.id }); }}>
+                    Delete
+                  </Button>
+                )}
+              </Card.Footer>
+            </Card.Root>
           ))}
-        </Table.Body>
-      </Table.Root>
+        </CardGrid>
+      </Section>
+
       {deploymentId && (
-        <Stack>
-          <Text fontWeight="semibold">Test call to {short(deploymentId)}</Text>
-          <Textarea fontFamily="mono" fontSize="sm" rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
-          <HStack>
-            <Text color="fg.muted">Recent test calls are read from the audit trail below.</Text>
-          </HStack>
+        <Section title={`Test calls of ${short(deploymentId)}`} description={selected ? `Status: ${selected.status}` : undefined}>
           <ErrorAlert error={test.error} />
           {test.data && (
             <Code display="block" whiteSpace="pre-wrap" p="2" fontSize="xs">
               {JSON.stringify(test.data, null, 2)}
             </Code>
           )}
-        </Stack>
+        </Section>
       )}
-    </Section>
-    <ModelsAndKeys projectId={projectId} />
-    </>
+
+      {confirm?.kind === 'stop' && (
+        <ConfirmDialog title={`Stop deployment ${short(confirm.id)}?`} confirmLabel="Stop" loading={stop.isPending} error={stop.error} onClose={closeConfirm} onConfirm={() => stop.mutate(confirm.id, { onSuccess: closeConfirm })}>
+          <Text>Predict answers 409 until you start it again.</Text>
+        </ConfirmDialog>
+      )}
+      {confirm?.kind === 'delete' && (
+        <ConfirmDialog title={`Delete deployment ${short(confirm.id)}?`} confirmLabel="Delete" danger loading={remove.isPending} error={remove.error} onClose={closeConfirm} onConfirm={() => remove.mutate(confirm.id, { onSuccess: closeConfirm })}>
+          <Text>Its predict key is cleared.</Text>
+        </ConfirmDialog>
+      )}
+    </Stack>
   );
 }
 
 /** Model ids for `POST /v1/predict`, and the project API keys that call it. Key secrets live in state only. */
-function ModelsAndKeys({ projectId }: { projectId: string }) {
+export function ModelsAndKeys({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const path = { project_id: projectId };
   const models = useQuery({
@@ -195,102 +195,110 @@ function ModelsAndKeys({ projectId }: { projectId: string }) {
     onSettled,
   });
 
+  const [revoking, setRevoking] = useState<(typeof keys.data extends (infer K)[] | undefined ? K : never) | null>(null);
   const model = models.data?.find((m) => m.id === modelId);
   return (
-    <Section title="4. Models and API keys">
-      <ErrorAlert error={models.error ?? keys.error ?? create.error ?? revoke.error} />
-      <Table.Root size="sm">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeader>Model</Table.ColumnHeader>
-            <Table.ColumnHeader>X-Model-Id</Table.ColumnHeader>
-            <Table.ColumnHeader>Revision</Table.ColumnHeader>
-            <Table.ColumnHeader>Stage</Table.ColumnHeader>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
+    <Stack gap="4">
+      <ErrorAlert error={models.error ?? keys.error ?? create.error} />
+      <Section title="Models" description="The ids POST /v1/predict needs. Pick one to fill the example call below.">
+        {models.data?.length === 0 && <Empty title="No models yet">A succeeded training run registers one.</Empty>}
+        <CardGrid>
           {models.data?.map((m) => (
-            <Table.Row key={m.id} onClick={() => setModelId(m.id)} cursor="pointer" bg={m.id === modelId ? 'orange.subtle' : undefined}>
-              <Table.Cell>{m.mlflow_model_name}</Table.Cell>
-              <Table.Cell>
-                <HStack>
-                  <Code>{m.model_id}</Code>
-                  <CopyButton text={m.model_id} />
+            <Card.Root
+              key={m.id}
+              size="sm"
+              variant="outline"
+              cursor="pointer"
+              borderColor={m.id === modelId ? 'orange.emphasized' : undefined}
+              bg={m.id === modelId ? 'orange.subtle' : undefined}
+              onClick={() => setModelId(m.id)}
+            >
+              <Card.Header>
+                <HStack justify="space-between">
+                  <Card.Title>{m.mlflow_model_name}</Card.Title>
+                  <Badge variant="surface">{m.stage}</Badge>
                 </HStack>
-              </Table.Cell>
-              <Table.Cell>
-                <HStack>
-                  <Code>{m.mlflow_version}</Code>
-                  <CopyButton text={m.mlflow_version} />
-                </HStack>
-              </Table.Cell>
-              <Table.Cell>{m.stage}</Table.Cell>
-            </Table.Row>
+              </Card.Header>
+              <Card.Body>
+                <Facts
+                  items={[
+                    [
+                      'X-Model-Id',
+                      <HStack key="i">
+                        <Code fontSize="xs">{m.model_id}</Code>
+                        <CopyButton text={m.model_id} />
+                      </HStack>,
+                    ],
+                    [
+                      'Revision',
+                      <HStack key="r">
+                        <Code fontSize="xs">{m.mlflow_version}</Code>
+                        <CopyButton text={m.mlflow_version} />
+                      </HStack>,
+                    ],
+                  ]}
+                />
+              </Card.Body>
+            </Card.Root>
           ))}
-        </Table.Body>
-      </Table.Root>
-      <HStack>
-        <Input size="sm" placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Button size="sm" colorPalette="orange" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
-          Create predict key
-        </Button>
-      </HStack>
-      {secret && (
-        <Alert.Root status="info">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Title>API key (shown once)</Alert.Title>
-            <Alert.Description>
-              <HStack>
-                <Code>{secret}</Code>
-                <CopyButton text={secret} />
-                <Button size="xs" variant="ghost" onClick={() => setSecret(undefined)}>
-                  Dismiss
-                </Button>
-              </HStack>
-            </Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
-      <Table.Root size="sm">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeader>Key</Table.ColumnHeader>
-            <Table.ColumnHeader>Prefix</Table.ColumnHeader>
-            <Table.ColumnHeader>Scopes</Table.ColumnHeader>
-            <Table.ColumnHeader>Created</Table.ColumnHeader>
-            <Table.ColumnHeader />
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
+        </CardGrid>
+      </Section>
+
+      <Section title="API keys" description="Project keys that may call predict. A secret is shown once, when you create it.">
+        <HStack>
+          <Input size="sm" maxW="xs" placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Button colorPalette="orange" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+            Create predict key
+          </Button>
+        </HStack>
+        {secret && (
+          <Alert.Root status="info">
+            <Alert.Indicator />
+            <Alert.Content>
+              <Alert.Title>API key (shown once)</Alert.Title>
+              <Alert.Description>
+                <HStack>
+                  <Code>{secret}</Code>
+                  <CopyButton text={secret} />
+                  <Button size="xs" variant="ghost" onClick={() => setSecret(undefined)}>
+                    Dismiss
+                  </Button>
+                </HStack>
+              </Alert.Description>
+            </Alert.Content>
+          </Alert.Root>
+        )}
+        {keys.data?.length === 0 && <Empty title="No keys yet" />}
+        <CardGrid min="18rem">
           {keys.data?.map((k) => (
-            <Table.Row key={k.id}>
-              <Table.Cell>{k.name}</Table.Cell>
-              <Table.Cell>
-                <Code>{k.prefix}</Code>
-              </Table.Cell>
-              <Table.Cell>{k.scopes.join(', ')}</Table.Cell>
-              <Table.Cell>{when(k.created_at)}</Table.Cell>
-              <Table.Cell textAlign="end">
-                {k.revoked_at ? (
-                  <StatusBadge status="revoked" />
-                ) : (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    loading={revoke.isPending && revoke.variables === k.id}
-                    onClick={() => window.confirm(`Revoke key ${k.name}?`) && revoke.mutate(k.id)}
-                  >
+            <Card.Root key={k.id} size="sm" variant="subtle" opacity={k.revoked_at ? 0.6 : 1}>
+              <Card.Header>
+                <HStack justify="space-between">
+                  <Card.Title>{k.name}</Card.Title>
+                  {k.revoked_at ? <StatusBadge status="revoked" /> : <Code>{k.prefix}</Code>}
+                </HStack>
+              </Card.Header>
+              <Card.Body>
+                <Facts
+                  items={[
+                    ['Scopes', k.scopes.join(', ')],
+                    ['Created', when(k.created_at)],
+                  ]}
+                />
+              </Card.Body>
+              {!k.revoked_at && (
+                <Card.Footer justifyContent="flex-end">
+                  <Button size="xs" variant="outline" colorPalette="red" onClick={() => setRevoking(k)}>
                     Revoke
                   </Button>
-                )}
-              </Table.Cell>
-            </Table.Row>
+                </Card.Footer>
+              )}
+            </Card.Root>
           ))}
-        </Table.Body>
-      </Table.Root>
-      <Stack>
-        <Text fontWeight="semibold">Call POST /v1/predict{model ? ` for ${model.mlflow_model_name}` : ' (click a model row)'}</Text>
+        </CardGrid>
+      </Section>
+
+      <Section title={`Call POST /v1/predict${model ? ` for ${model.mlflow_model_name}` : ''}`} description={model ? undefined : 'Pick a model above to fill in its ids.'}>
         <Code display="block" whiteSpace="pre-wrap" p="2" fontSize="xs">
           {`curl -X POST ${cfg.apiUrl}/v1/predict \\
   -H 'Authorization: Bearer ${secret ?? '<key>'}' \\
@@ -299,7 +307,24 @@ function ModelsAndKeys({ projectId }: { projectId: string }) {
   -H 'Content-Type: application/json' \\
   -d '{"input": {}, "metadata": {}}'`}
         </Code>
-      </Stack>
-    </Section>
+      </Section>
+
+      {revoking && (
+        <ConfirmDialog
+          title={`Revoke key ${revoking.name}?`}
+          confirmLabel="Revoke"
+          danger
+          loading={revoke.isPending}
+          error={revoke.error}
+          onClose={() => {
+            revoke.reset();
+            setRevoking(null);
+          }}
+          onConfirm={() => revoke.mutate(revoking.id, { onSuccess: () => setRevoking(null) })}
+        >
+          <Text>Calls that use it stop working. This cannot be undone.</Text>
+        </ConfirmDialog>
+      )}
+    </Stack>
   );
 }

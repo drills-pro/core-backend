@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Button, Code, Field, HStack, Input, SimpleGrid, Table, Text } from '@chakra-ui/react';
+import { Button, Card, Code, Field, HStack, Input, SimpleGrid, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, client, newKey, unwrap, type Schemas } from '@/api/client';
 import { IMPORT_DONE, ImportStatus, POLL_MS } from '@/constants';
-import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
+import { CardGrid, Empty, ErrorAlert, Facts, Id, Section, Select, short, StatusBadge, when } from '@/ui';
 
 type Source = Schemas['ImportSource'];
 type Params = Schemas['ImportParams'];
@@ -85,96 +85,92 @@ export function Datasets({ projectId, datasetId, onDataset }: { projectId: strin
   });
 
   return (
-    <Section title="1. Dataset">
-      <HStack>
-        <Select
-          value={datasetId}
-          onChange={onDataset}
-          placeholder="Pick a dataset"
-          options={(datasets.data?.items ?? []).map((d) => ({ value: d.id, label: `${d.name} (${short(d.id)})` }))}
-        />
-        <Input size="sm" placeholder="New dataset name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Button size="sm" disabled={!name.trim()} loading={createDataset.isPending} onClick={() => createDataset.mutate()}>
-          Create
-        </Button>
-      </HStack>
-      <ErrorAlert error={datasets.error ?? createDataset.error} />
+    <Stack gap="4">
+      <Section title="Dataset" description="Pick the dataset to work on, or create a new one. The Training tab uses the one chosen here.">
+        <HStack wrap="wrap">
+          <Select
+            value={datasetId}
+            onChange={onDataset}
+            placeholder="Pick a dataset"
+            options={(datasets.data?.items ?? []).map((d) => ({ value: d.id, label: `${d.name} (${short(d.id)})` }))}
+          />
+          <Input size="sm" maxW="xs" placeholder="New dataset name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Button size="sm" disabled={!name.trim()} loading={createDataset.isPending} onClick={() => createDataset.mutate()}>
+            Create
+          </Button>
+        </HStack>
+        <ErrorAlert error={datasets.error ?? createDataset.error} />
+      </Section>
 
+      {!datasetId && <Empty title="No dataset selected">Pick or create a dataset above to import data into it.</Empty>}
       {datasetId && (
         <>
-          <Text fontWeight="semibold">New import</Text>
-          <SimpleGrid columns={{ base: 1, md: 3 }} gap="2">
-            <Field.Root>
-              <Field.Label>Source</Field.Label>
-              <Select value={source} onChange={(v) => setSource(v as Source)} options={[{ value: 'huggingface', label: 'Hugging Face' }, { value: 'upload', label: 'Upload a file' }]} />
-            </Field.Root>
-            {source === 'huggingface' ? (
-              <>
-                <Field.Root required>
-                  <Field.Label>Repo</Field.Label>
-                  <Input size="sm" placeholder="owner/name" value={params.repo ?? ''} onChange={(e) => setParam('repo')(e.target.value)} />
-                </Field.Root>
-                <Field.Root>
-                  <Field.Label>Revision</Field.Label>
-                  <Input size="sm" placeholder="main" value={params.revision ?? ''} onChange={(e) => setParam('revision')(e.target.value)} />
-                </Field.Root>
-                <Field.Root>
-                  <Field.Label>Split</Field.Label>
-                  <Select value={params.split ?? ''} onChange={setParam('split')} placeholder="(all)" options={SPLITS.map((s) => ({ value: s, label: s }))} />
-                </Field.Root>
-                <Field.Root>
-                  <Field.Label>Column</Field.Label>
-                  <Input size="sm" value={params.column ?? ''} onChange={(e) => setParam('column')(e.target.value)} />
-                </Field.Root>
-              </>
-            ) : (
-              <Field.Root required>
-                <Field.Label>File</Field.Label>
-                <Input size="sm" type="file" p="1" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <Section title="New import" description="Creates the import, uploads the file when the source is one, and starts it.">
+            <SimpleGrid columns={{ base: 1, md: 3 }} gap="3">
+              <Field.Root>
+                <Field.Label>Source</Field.Label>
+                <Select value={source} onChange={(v) => setSource(v as Source)} options={[{ value: 'huggingface', label: 'Hugging Face' }, { value: 'upload', label: 'Upload a file' }]} />
               </Field.Root>
-            )}
-            <Field.Root>
-              <Field.Label>Target</Field.Label>
-              <Input size="sm" placeholder="label column (tabular)" value={params.target ?? ''} onChange={(e) => setParam('target')(e.target.value)} />
-            </Field.Root>
-          </SimpleGrid>
-          <HStack>
-            <Button
-              size="sm"
-              colorPalette="orange"
-              loading={runImport.isPending}
-              disabled={source === 'upload' ? !file : !params.repo}
-              onClick={() => runImport.mutate()}
-            >
-              Create and start import
-            </Button>
-          </HStack>
-          <ErrorAlert error={runImport.error ?? act.error ?? imports.error} />
+              {source === 'huggingface' ? (
+                <>
+                  <Field.Root required>
+                    <Field.Label>Repo</Field.Label>
+                    <Input size="sm" placeholder="owner/name" value={params.repo ?? ''} onChange={(e) => setParam('repo')(e.target.value)} />
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label>Revision</Field.Label>
+                    <Input size="sm" placeholder="main" value={params.revision ?? ''} onChange={(e) => setParam('revision')(e.target.value)} />
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label>Split</Field.Label>
+                    <Select value={params.split ?? ''} onChange={setParam('split')} placeholder="(all)" options={SPLITS.map((s) => ({ value: s, label: s }))} />
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label>Column</Field.Label>
+                    <Input size="sm" value={params.column ?? ''} onChange={(e) => setParam('column')(e.target.value)} />
+                  </Field.Root>
+                </>
+              ) : (
+                <Field.Root required>
+                  <Field.Label>File</Field.Label>
+                  <Input size="sm" type="file" p="1" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                </Field.Root>
+              )}
+              <Field.Root>
+                <Field.Label>Target</Field.Label>
+                <Input size="sm" placeholder="label column (tabular)" value={params.target ?? ''} onChange={(e) => setParam('target')(e.target.value)} />
+              </Field.Root>
+            </SimpleGrid>
+            <HStack>
+              <Button colorPalette="orange" loading={runImport.isPending} disabled={source === 'upload' ? !file : !params.repo} onClick={() => runImport.mutate()}>
+                Create and start import
+              </Button>
+            </HStack>
+            <ErrorAlert error={runImport.error ?? act.error ?? imports.error} />
+          </Section>
 
-          <Table.Root size="sm">
-            <Table.Header>
-              <Table.Row>
-                <Table.ColumnHeader>Import</Table.ColumnHeader>
-                <Table.ColumnHeader>Source</Table.ColumnHeader>
-                <Table.ColumnHeader>Status</Table.ColumnHeader>
-                <Table.ColumnHeader>Created</Table.ColumnHeader>
-                <Table.ColumnHeader />
-              </Table.Row>
-            </Table.Header>
-            <Table.Body>
+          <Section title="Imports">
+            {imports.data?.items.length === 0 && <Empty title="No imports yet" />}
+            <CardGrid>
               {imports.data?.items.map((i) => (
-                <Table.Row key={i.id}>
-                  <Table.Cell>
-                    <Code>{short(i.id)}</Code>
-                  </Table.Cell>
-                  <Table.Cell>{i.source === 'huggingface' ? i.params.repo : 'upload'}</Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge status={i.status} />
-                  </Table.Cell>
-                  <Table.Cell>{when(i.created_at)}</Table.Cell>
-                  <Table.Cell>
-                    <HStack justify="end">
-                      {i.status === ImportStatus.AWAITING_REVIEW && (
+                <Card.Root key={i.id} size="sm" variant="subtle">
+                  <Card.Header>
+                    <HStack justify="space-between">
+                      <Id value={i.id} />
+                      <StatusBadge status={i.status} />
+                    </HStack>
+                  </Card.Header>
+                  <Card.Body>
+                    <Facts
+                      items={[
+                        ['Source', i.source === 'huggingface' ? i.params.repo : 'upload'],
+                        ['Created', when(i.created_at)],
+                      ]}
+                    />
+                  </Card.Body>
+                  {!IMPORT_DONE.includes(i.status) && (
+                    <Card.Footer justifyContent="flex-end">
+                      {i.status === ImportStatus.AWAITING_REVIEW ? (
                         <>
                           <Button size="xs" colorPalette="green" onClick={() => act.mutate({ id: i.id, action: 'commit' })}>
                             Commit
@@ -183,38 +179,41 @@ export function Datasets({ projectId, datasetId, onDataset }: { projectId: strin
                             Discard
                           </Button>
                         </>
-                      )}
-                      {!IMPORT_DONE.includes(i.status) && i.status !== ImportStatus.AWAITING_REVIEW && (
+                      ) : (
                         <Button size="xs" variant="outline" onClick={() => act.mutate({ id: i.id, action: 'cancel' })}>
                           Cancel
                         </Button>
                       )}
-                    </HStack>
-                  </Table.Cell>
-                </Table.Row>
+                    </Card.Footer>
+                  )}
+                </Card.Root>
               ))}
-            </Table.Body>
-          </Table.Root>
+            </CardGrid>
+          </Section>
 
-          <Text fontWeight="semibold">Versions</Text>
-          <Table.Root size="sm">
-            <Table.Body>
+          <Section title="Versions" description="Each committed import is a new immutable version; training starts from one.">
+            {versions.data?.items.length === 0 && <Empty title="No versions yet">Commit an import to create one.</Empty>}
+            <CardGrid min="14rem">
               {versions.data?.items.map((v) => (
-                <Table.Row key={v.id}>
-                  <Table.Cell>v{v.number}</Table.Cell>
-                  <Table.Cell>
-                    <Code>{short(v.id)}</Code>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <Code fontSize="xs">{JSON.stringify(v.stats)}</Code>
-                  </Table.Cell>
-                  <Table.Cell>{when(v.created_at)}</Table.Cell>
-                </Table.Row>
+                <Card.Root key={v.id} size="sm" variant="subtle">
+                  <Card.Body gap="1">
+                    <HStack justify="space-between">
+                      <Text fontWeight="semibold">v{v.number}</Text>
+                      <Id value={v.id} />
+                    </HStack>
+                    <Code display="block" whiteSpace="pre-wrap" fontSize="xs">
+                      {JSON.stringify(v.stats)}
+                    </Code>
+                    <Text fontSize="xs" color="fg.muted">
+                      {when(v.created_at)}
+                    </Text>
+                  </Card.Body>
+                </Card.Root>
               ))}
-            </Table.Body>
-          </Table.Root>
+            </CardGrid>
+          </Section>
         </>
       )}
-    </Section>
+    </Stack>
   );
 }

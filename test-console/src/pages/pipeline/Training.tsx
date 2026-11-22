@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Button, Code, HStack, Table } from '@chakra-ui/react';
+import { Badge, Button, Card, Dialog, HStack, Portal, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, newKey, unwrap } from '@/api/client';
 import { lineageQuery } from '@/api/queries';
 import { DEFAULT_SEED, POLL_MS, RUN_DONE, RunStatus } from '@/constants';
-import { ErrorAlert, Section, Select, short, StatusBadge, when } from '@/ui';
+import { CardGrid, Empty, ErrorAlert, Facts, Id, Section, Select, short, StatusBadge, when } from '@/ui';
 import { versionsQuery } from './Datasets';
 
 export const runsQuery = (projectId: string) => ({
@@ -18,7 +18,7 @@ function RunDeployment({ projectId, runId }: { projectId: string; runId: string 
   if (!data?.deployment) return <>-</>;
   return (
     <HStack>
-      <Code>{short(data.deployment.id)}</Code>
+      <Id value={data.deployment.id} />
       <StatusBadge status={data.deployment.status} />
     </HStack>
   );
@@ -62,77 +62,129 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
     refetchInterval: POLL_MS,
   });
 
+  const run = runs.data?.items.find((r) => r.id === stepsOf);
   return (
-    <Section title="2. Training">
-      <HStack>
-        <Select
-          value={versionId}
-          onChange={setVersionId}
-          placeholder={datasetId ? 'Dataset version' : 'Pick a dataset above'}
-          options={(versions.data?.items ?? []).map((v) => ({ value: v.id, label: `v${v.number} (${short(v.id)})` }))}
-        />
-        <Select
-          value={preset}
-          onChange={setPreset}
-          placeholder="Preset"
-          options={(presets.data ?? []).map((p) => ({ value: p.name, label: `${p.name} (${p.gpu ? `${p.gpu} GPU` : `${p.cpu} CPU`})` }))}
-        />
-        <Button size="sm" colorPalette="orange" disabled={!versionId || !preset} loading={start.isPending} onClick={() => start.mutate()}>
-          Start run
-        </Button>
-      </HStack>
-      <ErrorAlert error={presets.error ?? start.error ?? cancel.error ?? runs.error} />
-      <Table.Root size="sm">
-        <Table.Header>
-          <Table.Row>
-            <Table.ColumnHeader>Run</Table.ColumnHeader>
-            <Table.ColumnHeader>Preset</Table.ColumnHeader>
-            <Table.ColumnHeader>Status</Table.ColumnHeader>
-            <Table.ColumnHeader>Metrics</Table.ColumnHeader>
-            <Table.ColumnHeader>Deployment</Table.ColumnHeader>
-            <Table.ColumnHeader>Created</Table.ColumnHeader>
-            <Table.ColumnHeader />
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
+    <Stack gap="4">
+      <Section title="Start a run" description="Train a preset on one dataset version.">
+        <HStack wrap="wrap">
+          <Select
+            value={versionId}
+            onChange={setVersionId}
+            placeholder={datasetId ? 'Dataset version' : 'Pick a dataset on the Dataset tab'}
+            options={(versions.data?.items ?? []).map((v) => ({ value: v.id, label: `v${v.number} (${short(v.id)})` }))}
+          />
+          <Select
+            value={preset}
+            onChange={setPreset}
+            placeholder="Preset"
+            options={(presets.data ?? []).map((p) => ({ value: p.name, label: `${p.name} (${p.gpu ? `${p.gpu} GPU` : `${p.cpu} CPU`})` }))}
+          />
+          <Button colorPalette="orange" disabled={!versionId || !preset} loading={start.isPending} onClick={() => start.mutate()}>
+            Start run
+          </Button>
+        </HStack>
+        <ErrorAlert error={presets.error ?? start.error ?? cancel.error ?? runs.error} />
+      </Section>
+
+      <Section title="Runs">
+        {runs.data?.items.length === 0 && <Empty title="No runs yet" />}
+        <CardGrid min="22rem">
           {runs.data?.items.map((r) => (
-            <Table.Row key={r.id}>
-              <Table.Cell>
-                <Code>{short(r.id)}</Code>
-              </Table.Cell>
-              <Table.Cell>{r.preset}</Table.Cell>
-              <Table.Cell>
-                <StatusBadge status={r.status} />
-              </Table.Cell>
-              <Table.Cell>
-                <Code fontSize="xs">{r.metrics ? JSON.stringify(r.metrics) : '-'}</Code>
-              </Table.Cell>
-              <Table.Cell>{r.status === RunStatus.SUCCEEDED ? <RunDeployment projectId={projectId} runId={r.id} /> : '-'}</Table.Cell>
-              <Table.Cell>{when(r.created_at)}</Table.Cell>
-              <Table.Cell>
-                <HStack justify="end">
-                  <Button size="xs" variant="outline" onClick={() => setStepsOf(stepsOf === r.id ? null : r.id)}>
-                    {stepsOf === r.id ? 'Hide steps' : 'Steps'}
-                  </Button>
-                  {!RUN_DONE.includes(r.status) && (
-                    <Button size="xs" variant="outline" onClick={() => cancel.mutate(r.id)}>
-                      Cancel
-                    </Button>
-                  )}
+            <Card.Root key={r.id} size="sm" variant="subtle">
+              <Card.Header>
+                <HStack justify="space-between">
+                  <HStack>
+                    <Id value={r.id} />
+                    {r.preset && <Badge variant="surface">{r.preset}</Badge>}
+                  </HStack>
+                  <StatusBadge status={r.status} />
                 </HStack>
-              </Table.Cell>
-            </Table.Row>
+              </Card.Header>
+              <Card.Body gap="2">
+                <Metrics metrics={r.metrics} />
+                <Facts
+                  items={[
+                    ['Deployment', r.status === RunStatus.SUCCEEDED ? <RunDeployment key="d" projectId={projectId} runId={r.id} /> : '-'],
+                    ['Created', when(r.created_at)],
+                  ]}
+                />
+              </Card.Body>
+              <Card.Footer justifyContent="flex-end">
+                <Button size="xs" variant="outline" onClick={() => setStepsOf(r.id)}>
+                  Steps
+                </Button>
+                {!RUN_DONE.includes(r.status) && (
+                  <Button size="xs" variant="outline" colorPalette="red" loading={cancel.isPending && cancel.variables === r.id} onClick={() => cancel.mutate(r.id)}>
+                    Cancel
+                  </Button>
+                )}
+              </Card.Footer>
+            </Card.Root>
           ))}
-        </Table.Body>
-      </Table.Root>
+        </CardGrid>
+      </Section>
+
       {stepsOf && (
-        <>
-          <ErrorAlert error={steps.error} />
-          <Code display="block" whiteSpace="pre-wrap" maxH="96" overflow="auto" p="2" fontSize="xs">
-            {steps.data?.steps.map((s) => `${s.key}: ${s.state}${s.epochs ? ` (epoch ${s.epoch ?? 0}/${s.epochs})` : ''}${s.failure ? ` - ${s.failure}` : ''}`).join('\n') || '(no steps yet)'}
-          </Code>
-        </>
+        <Dialog.Root open size="lg" scrollBehavior="inside" onOpenChange={(e) => !e.open && setStepsOf(null)}>
+          <Portal>
+            <Dialog.Backdrop />
+            <Dialog.Positioner>
+              <Dialog.Content>
+                <Dialog.Header>
+                  <Dialog.Title>Steps of run {short(stepsOf)}</Dialog.Title>
+                  {run && <StatusBadge status={run.status} />}
+                </Dialog.Header>
+                <Dialog.Body>
+                  <Stack gap="2">
+                    <ErrorAlert error={steps.error} />
+                    {steps.data?.steps.length === 0 && <Empty title="No steps yet" />}
+                    {steps.data?.steps.map((s) => (
+                      <HStack key={s.key} justify="space-between" align="start" p="2" rounded="md" bg="bg.subtle">
+                        <Stack gap="0">
+                          <Text fontWeight="medium" fontSize="sm">
+                            {s.key}
+                          </Text>
+                          {s.epochs ? (
+                            <Text fontSize="xs" color="fg.muted">
+                              epoch {s.epoch ?? 0}/{s.epochs}
+                            </Text>
+                          ) : null}
+                          {s.failure && (
+                            <Text fontSize="xs" color="fg.error">
+                              {s.failure}
+                            </Text>
+                          )}
+                        </Stack>
+                        <StatusBadge status={s.state} />
+                      </HStack>
+                    ))}
+                  </Stack>
+                </Dialog.Body>
+                <Dialog.Footer>
+                  <Button variant="outline" onClick={() => setStepsOf(null)}>
+                    Close
+                  </Button>
+                </Dialog.Footer>
+              </Dialog.Content>
+            </Dialog.Positioner>
+          </Portal>
+        </Dialog.Root>
       )}
-    </Section>
+    </Stack>
+  );
+}
+
+/** A run's metrics as labelled chips instead of raw JSON. */
+function Metrics({ metrics }: { metrics: unknown }) {
+  const entries = metrics && typeof metrics === 'object' ? Object.entries(metrics as Record<string, unknown>) : [];
+  if (entries.length === 0) return <Text fontSize="sm" color="fg.muted">No metrics yet</Text>;
+  return (
+    <HStack wrap="wrap" gap="1">
+      {entries.map(([k, v]) => (
+        <Badge key={k} variant="outline">
+          {k} {typeof v === 'number' ? Number(v.toPrecision(4)) : String(v)}
+        </Badge>
+      ))}
+    </HStack>
   );
 }

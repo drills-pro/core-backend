@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Button, Code, Dialog, Portal, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Button, Card, Code, Dialog, HStack, Portal, Stack, Switch, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, unwrap, type Schemas } from '@/api/client';
 import { packageKeys, useTaskBundles } from '@/api/packages';
 import { PACKAGE_ERROR_MESSAGES, PackageStatus } from '@/constants';
 import { ConfirmChange, type Change } from '@/pages/ConfirmChange';
-import { PackageTable } from '@/pages/PackageTable';
-import { CodedError, ErrorAlert, Section } from '@/ui';
+import { PackageList } from '@/pages/PackageList';
+import { CardGrid, CardSkeletons, CodedError, Empty, ErrorAlert, Section } from '@/ui';
 
 type Bundle = Schemas['TaskBundle'];
 
@@ -43,7 +43,7 @@ export function TaskBundlesSection() {
       <CodedError error={retry.error} messages={PACKAGE_ERROR_MESSAGES} />
       {[...bySlug].map(([slug, bundles]) => (
         <Section key={slug} title={`task_${slug}`} actions={<AutoPromote slug={slug} />}>
-          <PackageTable
+          <PackageList
             packages={bundles}
             retrying={retry.isPending ? retry.variables?.sha256 : undefined}
             onRetry={(p) => retry.mutate(p as Bundle)}
@@ -56,7 +56,8 @@ export function TaskBundlesSection() {
           />
         </Section>
       ))}
-      {list.data?.length === 0 && <Text color="fg.muted">No task bundles registered.</Text>}
+      {list.isPending && <CardSkeletons count={2} />}
+      {list.data?.length === 0 && <Empty title="No task bundles registered" />}
       {change && <ConfirmChange change={change} onClose={() => setChange(null)} />}
       {detail && <ManifestDialog bundle={detail} onClose={() => setDetail(null)} />}
     </Stack>
@@ -77,11 +78,12 @@ function AutoPromote({ slug }: { slug: Schemas['TaskType'] }) {
   });
   if (settings.error || set.error) return <ErrorAlert error={settings.error ?? set.error} />;
   if (!settings.data) return null;
-  const on = settings.data.auto_promote;
   return (
-    <Button size="xs" variant="outline" loading={set.isPending} onClick={() => set.mutate(!on)}>
-      Auto-promote: {on ? 'on' : 'off'}
-    </Button>
+    <Switch.Root size="sm" colorPalette="orange" checked={settings.data.auto_promote} disabled={set.isPending} onCheckedChange={(e) => set.mutate(e.checked)}>
+      <Switch.HiddenInput />
+      <Switch.Control />
+      <Switch.Label>Auto-promote when smoke passes</Switch.Label>
+    </Switch.Root>
   );
 }
 
@@ -108,26 +110,22 @@ function ManifestDialog({ bundle, onClose }: { bundle: Bundle; onClose: () => vo
                   {JSON.stringify(m.hyperparameters ?? {}, null, 2)}
                 </Code>
                 <Text fontWeight="semibold">Presets</Text>
-                <Table.Root size="sm">
-                  <Table.Header>
-                    <Table.Row>
-                      <Table.ColumnHeader>Name</Table.ColumnHeader>
-                      <Table.ColumnHeader>Base model</Table.ColumnHeader>
-                      <Table.ColumnHeader>GPU</Table.ColumnHeader>
-                      <Table.ColumnHeader>VRAM (GB)</Table.ColumnHeader>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {m.presets?.map((p) => (
-                      <Table.Row key={p.name}>
-                        <Table.Cell>{p.name}</Table.Cell>
-                        <Table.Cell>{p.base_model ?? '-'}</Table.Cell>
-                        <Table.Cell>{p.gpu ?? '-'}</Table.Cell>
-                        <Table.Cell>{p.vram_gb ?? '-'}</Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table.Root>
+                <CardGrid min="14rem">
+                  {m.presets?.map((p) => (
+                    <Card.Root key={p.name} size="sm" variant="subtle">
+                      <Card.Body gap="1">
+                        <Text fontWeight="semibold">{p.name}</Text>
+                        <Text fontSize="sm" color="fg.muted">
+                          {p.base_model ?? 'no base model'}
+                        </Text>
+                        <HStack>
+                          <Badge>{p.gpu ? `${p.gpu} GPU` : 'CPU'}</Badge>
+                          {p.vram_gb != null && <Badge>{p.vram_gb} GB VRAM</Badge>}
+                        </HStack>
+                      </Card.Body>
+                    </Card.Root>
+                  ))}
+                </CardGrid>
               </Stack>
             </Dialog.Body>
             <Dialog.Footer>

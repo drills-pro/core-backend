@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Button, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Button, Card, Code, Dialog, Field, HStack, Input, Portal, SimpleGrid, Stack, Switch, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, unwrap, type Schemas } from '@/api/client';
 import { CATALOG_ERROR_MESSAGES, CATALOG_SOURCE, CATALOG_STATUSES, CatalogStatus, REVISION_PATTERN, TASK_TYPES } from '@/constants';
-import { CodedError, ErrorAlert, Section, Select, StatusBadge, when } from '@/ui';
+import { CardGrid, CardSkeletons, CodedError, ConfirmDialog, Empty, Facts, PageHeader, Select, when } from '@/ui';
 
 type Entry = Schemas['AdminCatalogModel'];
 type Form = { repo_id: string; revision: string; display_name: string; task: string; license: string; params: string; size_bytes: string };
 
 const EMPTY: Form = { repo_id: '', revision: '', display_name: '', task: TASK_TYPES[0], license: '', params: '', size_bytes: '' };
 const KEY = ['model-catalog'];
+const REVISION_SHOWN = 8;
 const taskOptions = TASK_TYPES.map((t) => ({ value: t, label: t }));
 const num = (v: string) => (v.trim() === '' ? null : Number(v));
 
@@ -19,16 +20,11 @@ export function CatalogModelsPage() {
   const qc = useQueryClient();
   const [task, setTask] = useState('');
   const [status, setStatus] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'add' } | { kind: 'edit' | 'delete'; model: Entry } | null>(null);
   const list = useQuery({
     queryKey: [...KEY, task, status],
     queryFn: () =>
-      unwrap(
-        client.GET('/v1/admin/model-catalog', {
-          params: { query: { task: task || undefined, status: (status || undefined) as Schemas['CatalogStatus'] | undefined } },
-        }),
-      ),
+      unwrap(client.GET('/v1/admin/model-catalog', { params: { query: { task: task || undefined, status: (status || undefined) as Schemas['CatalogStatus'] | undefined } } })),
   });
   const done = () => qc.invalidateQueries({ queryKey: KEY });
   const toggle = useMutation({
@@ -43,206 +39,190 @@ export function CatalogModelsPage() {
   const remove = useMutation({
     mutationFn: (id: string) => unwrap(client.DELETE('/v1/admin/model-catalog/{model_id}', { params: { path: { model_id: id } } })),
     onSuccess: () => {
-      setDeleting(null);
+      setDialog(null);
       return done();
     },
   });
+  const close = () => {
+    remove.reset();
+    setDialog(null);
+  };
 
   return (
     <Stack gap="4">
-      <Text color="fg.muted">
-        Base models tenants may fine-tune, pinned by Hugging Face commit. Only enabled entries reach tenants; the API checks the Hub, the task registry and the licence
-        allow-list when you add one.
-      </Text>
-      <AddForm onDone={done} />
-      <Section
-        title="Models"
+      <PageHeader
+        title="Model catalog"
+        description="Base models tenants may fine-tune, pinned by Hugging Face commit. Only enabled entries reach tenants; the API checks the Hub, the task registry and the licence allow-list when you add one."
         actions={
-          <HStack>
-            <Select value={task} onChange={setTask} options={taskOptions} placeholder="Any task" />
-            <Select value={status} onChange={setStatus} options={CATALOG_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="Any status" />
-          </HStack>
+          <Button colorPalette="orange" onClick={() => setDialog({ kind: 'add' })}>
+            Add a model
+          </Button>
         }
-      >
-        <ErrorAlert error={list.error} />
-        <CatalogError error={toggle.error ?? remove.error} />
-        <Table.Root size="sm">
-          <Table.Header>
-            <Table.Row>
-              <Table.ColumnHeader>Model</Table.ColumnHeader>
-              <Table.ColumnHeader>Task</Table.ColumnHeader>
-              <Table.ColumnHeader>Licence</Table.ColumnHeader>
-              <Table.ColumnHeader>Params</Table.ColumnHeader>
-              <Table.ColumnHeader>Size (bytes)</Table.ColumnHeader>
-              <Table.ColumnHeader>Status</Table.ColumnHeader>
-              <Table.ColumnHeader>Updated</Table.ColumnHeader>
-              <Table.ColumnHeader />
-            </Table.Row>
-          </Table.Header>
-          <Table.Body>
-            {list.data?.map((m) =>
-              editing === m.id ? (
-                <EditRow key={m.id} m={m} onClose={() => setEditing(null)} onDone={done} />
-              ) : (
-                <Table.Row key={m.id}>
-                  <Table.Cell>
-                    {m.display_name}
-                    <br />
-                    <Code fontSize="xs">
-                      {m.repo_id}@{m.revision.slice(0, 8)}
-                    </Code>
-                  </Table.Cell>
-                  <Table.Cell>{m.task}</Table.Cell>
-                  <Table.Cell>{m.license}</Table.Cell>
-                  <Table.Cell>{m.params ?? '-'}</Table.Cell>
-                  <Table.Cell>{m.size_bytes ?? '-'}</Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge status={m.status} />
-                  </Table.Cell>
-                  <Table.Cell>
-                    {when(m.updated_at)} by {m.updated_by}
-                  </Table.Cell>
-                  <Table.Cell>
-                    {deleting === m.id ? (
-                      <HStack justify="end">
-                        <Text fontSize="xs">Delete {m.display_name}?</Text>
-                        <Button size="xs" colorPalette="red" loading={remove.isPending} onClick={() => remove.mutate(m.id)}>
-                          Delete
-                        </Button>
-                        <Button size="xs" variant="outline" onClick={() => setDeleting(null)}>
-                          Cancel
-                        </Button>
-                      </HStack>
-                    ) : (
-                      <HStack justify="end">
-                        <Button size="xs" variant="outline" onClick={() => setEditing(m.id)}>
-                          Edit
-                        </Button>
-                        <Button size="xs" variant="outline" loading={toggle.isPending && toggle.variables?.id === m.id} onClick={() => toggle.mutate(m)}>
-                          {m.status === CatalogStatus.ENABLED ? 'Disable' : 'Enable'}
-                        </Button>
-                        <Button size="xs" variant="outline" colorPalette="red" onClick={() => setDeleting(m.id)}>
-                          Delete
-                        </Button>
-                      </HStack>
-                    )}
-                  </Table.Cell>
-                </Table.Row>
-              ),
-            )}
-          </Table.Body>
-        </Table.Root>
-        {list.data?.length === 0 && <Text color="fg.muted">No models match.</Text>}
-      </Section>
+      />
+      <HStack wrap="wrap">
+        <Select value={task} onChange={setTask} options={taskOptions} placeholder="Any task" />
+        <Select value={status} onChange={setStatus} options={CATALOG_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="Any status" />
+      </HStack>
+      <CatalogError error={list.error ?? toggle.error} />
+      {list.isPending && <CardSkeletons />}
+      {list.data?.length === 0 && <Empty title="No models match" />}
+      <CardGrid min="22rem">
+        {list.data?.map((m) => (
+          <Card.Root key={m.id} variant="outline" opacity={m.status === CatalogStatus.ENABLED ? 1 : 0.8}>
+            <Card.Header>
+              <HStack justify="space-between" align="start">
+                <Stack gap="0.5">
+                  <Card.Title>{m.display_name}</Card.Title>
+                  <Code fontSize="xs">
+                    {m.repo_id}@{m.revision.slice(0, REVISION_SHOWN)}
+                  </Code>
+                </Stack>
+                <Switch.Root
+                  size="sm"
+                  colorPalette="green"
+                  checked={m.status === CatalogStatus.ENABLED}
+                  disabled={toggle.isPending && toggle.variables?.id === m.id}
+                  onCheckedChange={() => toggle.mutate(m)}
+                >
+                  <Switch.HiddenInput aria-label={`${m.display_name} enabled`} />
+                  <Switch.Control />
+                </Switch.Root>
+              </HStack>
+              <HStack>
+                <Badge colorPalette={m.status === CatalogStatus.ENABLED ? 'green' : 'gray'}>{m.status}</Badge>
+                <Badge variant="surface">{m.task}</Badge>
+              </HStack>
+            </Card.Header>
+            <Card.Body>
+              <Facts
+                items={[
+                  ['Licence', m.license],
+                  ['Params', m.params ?? '-'],
+                  ['Size (bytes)', m.size_bytes ?? '-'],
+                  ['Updated', `${when(m.updated_at)} by ${m.updated_by}`],
+                ]}
+              />
+            </Card.Body>
+            <Card.Footer justifyContent="flex-end">
+              <Button size="xs" variant="outline" onClick={() => setDialog({ kind: 'edit', model: m })}>
+                Edit
+              </Button>
+              <Button size="xs" variant="outline" colorPalette="red" onClick={() => setDialog({ kind: 'delete', model: m })}>
+                Delete
+              </Button>
+            </Card.Footer>
+          </Card.Root>
+        ))}
+      </CardGrid>
+      {dialog?.kind === 'add' && <ModelDialog onClose={close} onDone={done} />}
+      {dialog?.kind === 'edit' && <ModelDialog model={dialog.model} onClose={close} onDone={done} />}
+      {dialog?.kind === 'delete' && (
+        <ConfirmDialog title={`Delete ${dialog.model.display_name}?`} confirmLabel="Delete" danger loading={remove.isPending} error={remove.error} onClose={close} onConfirm={() => remove.mutate(dialog.model.id)}>
+          <Text>A model that projects or training runs still use cannot be deleted: disable it instead.</Text>
+        </ConfirmDialog>
+      )}
     </Stack>
   );
 }
 
-function AddForm({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState(EMPTY);
-  const set = (k: keyof Form) => (e: { currentTarget: { value: string } }) => setF({ ...f, [k]: e.currentTarget.value });
-  const add = useMutation({
-    mutationFn: () =>
-      unwrap(
-        client.POST('/v1/admin/model-catalog', {
-          body: {
-            repo_id: f.repo_id.trim(),
-            revision: f.revision.trim(),
-            display_name: f.display_name.trim(),
-            source: CATALOG_SOURCE,
-            status: CatalogStatus.ENABLED,
-            task: f.task,
-            license: f.license.trim(),
-            params: num(f.params),
-            size_bytes: num(f.size_bytes),
-          },
-        }),
-      ),
-    onSuccess: () => {
-      setF(EMPTY);
-      return onDone();
-    },
-  });
-  const valid = f.repo_id.trim() && new RegExp(`^${REVISION_PATTERN}$`).test(f.revision.trim()) && f.display_name.trim() && f.license.trim();
-  return (
-    <Section title="Add a model">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          add.mutate();
-        }}
-      >
-        <Stack gap="2">
-          <HStack wrap="wrap">
-            <Input w="xs" placeholder="Hub repo id, e.g. org/name" value={f.repo_id} onChange={set('repo_id')} />
-            <Input w="md" placeholder="Commit sha (40 hex)" value={f.revision} onChange={set('revision')} />
-            <Input w="xs" placeholder="Display name" value={f.display_name} onChange={set('display_name')} />
-          </HStack>
-          <HStack wrap="wrap">
-            <Select value={f.task} onChange={(task) => setF({ ...f, task })} options={taskOptions} />
-            <Input w="2xs" placeholder="Licence" value={f.license} onChange={set('license')} />
-            <Input w="2xs" type="number" min="1" placeholder="Params (optional)" value={f.params} onChange={set('params')} />
-            <Input w="2xs" type="number" min="0" placeholder="Size bytes (optional)" value={f.size_bytes} onChange={set('size_bytes')} />
-            <Button type="submit" colorPalette="orange" disabled={!valid} loading={add.isPending}>
-              Add
-            </Button>
-          </HStack>
-          <CatalogError error={add.error} />
-        </Stack>
-      </form>
-    </Section>
+/** Add (no `model`) or edit one. Repo and revision are fixed once added: a different one is a different model, so a new entry. */
+function ModelDialog({ model, onClose, onDone }: { model?: Entry; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState<Form>(
+    model ? { ...EMPTY, repo_id: model.repo_id, revision: model.revision, display_name: model.display_name, task: model.task, license: model.license, params: String(model.params ?? ''), size_bytes: String(model.size_bytes ?? '') } : EMPTY,
   );
-}
-
-/** Repo and revision are fixed: a different one is a different model, so it is a new entry. */
-function EditRow({ m, onClose, onDone }: { m: Entry; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ display_name: m.display_name, task: m.task, license: m.license, params: String(m.params ?? ''), size_bytes: String(m.size_bytes ?? '') });
+  const set = (k: keyof Form) => (e: { currentTarget: { value: string } }) => setF({ ...f, [k]: e.currentTarget.value });
   const save = useMutation({
     mutationFn: () =>
-      unwrap(
-        client.PATCH('/v1/admin/model-catalog/{model_id}', {
-          params: { path: { model_id: m.id } },
-          body: { display_name: f.display_name.trim(), task: f.task, license: f.license.trim(), params: num(f.params), size_bytes: num(f.size_bytes) },
-        }),
-      ),
+      model
+        ? unwrap(
+            client.PATCH('/v1/admin/model-catalog/{model_id}', {
+              params: { path: { model_id: model.id } },
+              body: { display_name: f.display_name.trim(), task: f.task, license: f.license.trim(), params: num(f.params), size_bytes: num(f.size_bytes) },
+            }),
+          )
+        : unwrap(
+            client.POST('/v1/admin/model-catalog', {
+              body: {
+                repo_id: f.repo_id.trim(),
+                revision: f.revision.trim(),
+                display_name: f.display_name.trim(),
+                source: CATALOG_SOURCE,
+                status: CatalogStatus.ENABLED,
+                task: f.task,
+                license: f.license.trim(),
+                params: num(f.params),
+                size_bytes: num(f.size_bytes),
+              },
+            }),
+          ),
     onSuccess: () => {
       onDone();
       onClose();
     },
   });
+  const valid = f.display_name.trim() && f.license.trim() && (model || (f.repo_id.trim() && new RegExp(`^${REVISION_PATTERN}$`).test(f.revision.trim())));
   return (
-    <Table.Row>
-      <Table.Cell>
-        <Input size="sm" value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.currentTarget.value })} />
-        <Code fontSize="xs">
-          {m.repo_id}@{m.revision.slice(0, 8)}
-        </Code>
-      </Table.Cell>
-      <Table.Cell>
-        <Select value={f.task} onChange={(task) => setF({ ...f, task })} options={taskOptions} />
-      </Table.Cell>
-      <Table.Cell>
-        <Input size="sm" value={f.license} onChange={(e) => setF({ ...f, license: e.currentTarget.value })} />
-      </Table.Cell>
-      <Table.Cell>
-        <Input size="sm" type="number" min="1" value={f.params} onChange={(e) => setF({ ...f, params: e.currentTarget.value })} />
-      </Table.Cell>
-      <Table.Cell>
-        <Input size="sm" type="number" min="0" value={f.size_bytes} onChange={(e) => setF({ ...f, size_bytes: e.currentTarget.value })} />
-      </Table.Cell>
-      <Table.Cell colSpan={2}>
-        <CatalogError error={save.error} />
-      </Table.Cell>
-      <Table.Cell>
-        <HStack justify="end">
-          <Button size="xs" colorPalette="green" disabled={!f.display_name.trim() || !f.license.trim()} loading={save.isPending} onClick={() => save.mutate()}>
-            Save
-          </Button>
-          <Button size="xs" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-        </HStack>
-      </Table.Cell>
-    </Table.Row>
+    <Dialog.Root open size="lg" onOpenChange={(e) => !e.open && onClose()}>
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                save.mutate();
+              }}
+            >
+              <Dialog.Header>
+                <Dialog.Title>{model ? `Edit ${model.display_name}` : 'Add a model'}</Dialog.Title>
+              </Dialog.Header>
+              <Dialog.Body>
+                <Stack gap="3">
+                  <SimpleGrid columns={{ base: 1, md: 2 }} gap="3">
+                    <Field.Root required disabled={!!model}>
+                      <Field.Label>Hub repo id</Field.Label>
+                      <Input placeholder="org/name" value={f.repo_id} onChange={set('repo_id')} />
+                    </Field.Root>
+                    <Field.Root required disabled={!!model}>
+                      <Field.Label>Commit sha</Field.Label>
+                      <Input placeholder="40 hex characters" value={f.revision} onChange={set('revision')} />
+                    </Field.Root>
+                    <Field.Root required>
+                      <Field.Label>Display name</Field.Label>
+                      <Input value={f.display_name} onChange={set('display_name')} />
+                    </Field.Root>
+                    <Field.Root required>
+                      <Field.Label>Licence</Field.Label>
+                      <Input value={f.license} onChange={set('license')} />
+                    </Field.Root>
+                    <Field.Root>
+                      <Field.Label>Task</Field.Label>
+                      <Select value={f.task} onChange={(task) => setF({ ...f, task })} options={taskOptions} />
+                    </Field.Root>
+                    <Field.Root>
+                      <Field.Label>Params (optional)</Field.Label>
+                      <Input type="number" min="1" value={f.params} onChange={set('params')} />
+                    </Field.Root>
+                    <Field.Root>
+                      <Field.Label>Size in bytes (optional)</Field.Label>
+                      <Input type="number" min="0" value={f.size_bytes} onChange={set('size_bytes')} />
+                    </Field.Root>
+                  </SimpleGrid>
+                  <CatalogError error={save.error} />
+                </Stack>
+              </Dialog.Body>
+              <Dialog.Footer>
+                <Button variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" colorPalette="orange" disabled={!valid} loading={save.isPending}>
+                  {model ? 'Save' : 'Add'}
+                </Button>
+              </Dialog.Footer>
+            </form>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
   );
 }

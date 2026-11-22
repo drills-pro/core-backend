@@ -7,10 +7,10 @@ import { cfg } from '@/config';
 export function LoginPage() {
   const returnTo = useSearch({ from: '/login' }).return_to ?? '/';
   return (
-    <Center minH="100vh" p="4">
-      <Card.Root w="full" maxW="md">
+    <Center minH="100vh" p="4" bg="bg.subtle">
+      <Card.Root w="full" maxW="md" variant="elevated">
         <Card.Body gap="4">
-          <Heading>drills.pro test console</Heading>
+          <Heading size="xl">drills.pro admin console</Heading>
           <Text color="fg.muted">Staff only. Drives the pipeline on prod inside an internal test tenant.</Text>
           {!cfg.clientId && (
             <Alert.Root status="warning">
