@@ -9,7 +9,7 @@ import asyncpg
 from app.core import audit, plan_limits
 from app.core import task_types
 from app.core.authz import AuthzContext, CallSource
-from app.core.idempotency import insert_once, replay
+from app.core.idempotency import Cap, check_cap, insert_capped, replay
 from app.core.metrics import usage as usage_metrics
 from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
 from app.core.tenant_conn import TenantConn
@@ -64,8 +64,8 @@ def rate_limit_for(plan_tier: str | None) -> int:
     return PLAN_TIER_RATE_LIMITS.get(plan_tier, PLAN_TIER_RATE_LIMITS[PlanTier.FREE])
 
 
-_LOCK_TENANT = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
 _ACTIVE_COUNT = "SELECT count(*) FROM deployments WHERE tenant_id = $1 AND id <> $2 AND status = ANY($3::text[])"
+_CAP = Cap(DEPLOYMENT_LOCK_PREFIX, _ACTIVE_COUNT, plan_limits.max_active_deployments, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL)
 _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key = $2"
 # A deployment serves one model version, which comes from one run (versions are 1:1 with runs today). Asked by the run (deprecated),
 # it serves the newest version registered from it, NULL when none is.
@@ -83,15 +83,6 @@ _INSERT = (
 )
 _QUOTA_STATUSES = [str(s) for s in QUOTA_STATUSES]
 _STATE_COLUMNS = "id, project_id, training_run_id, model_version_id, status, route_prefix, rate_limit_per_minute, created_at"
-
-
-async def _check_quota(conn, tenant_id: str, deployment_id: uuid.UUID, *, lock: bool = False) -> None:
-    """429 when the tenant's other active or deploying deployments already fill the plan's slots. `lock` serialises tenants'
-    writes on an advisory lock first, so two concurrent creates cannot both take the last slot."""
-    if lock:
-        await conn.fetchval(_LOCK_TENANT, f"{DEPLOYMENT_LOCK_PREFIX}{tenant_id}")
-    if await conn.fetchval(_ACTIVE_COUNT, tenant_id, deployment_id, _QUOTA_STATUSES) >= await plan_limits.max_active_deployments(conn, tenant_id):
-        raise Problem(HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL)
 
 
 def _replay(row, training_run_id: uuid.UUID) -> DeploymentCreated:
@@ -152,7 +143,7 @@ async def create_deployment(
             if existing_main and existing_main["status"] == DeploymentStatus.STOPPED:
                 raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
-        await _check_quota(conn, ctx.tenant_id, existing_main["id"] if existing_main else uuid.uuid4())  # cheap early answer; the one that counts is under the lock below
+        await check_cap(conn, _CAP, ctx.tenant_id, existing_main["id"] if existing_main else uuid.uuid4(), _QUOTA_STATUSES)  # cheap early answer; the one that counts is under the lock below
 
     # The predictor apps load the model on its first request: nothing to start, so the deployment is active at once.
     deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
@@ -169,8 +160,8 @@ async def _write_deployment(
     a violation is 409. A `main` re-deploy moves the one row to the new version (and takes the new key)."""
     try:
         async with TenantConn(ctx.tenant_id) as conn:
-            await _check_quota(conn, ctx.tenant_id, deployment_id, lock=True)
             if existing_main is not None:
+                await check_cap(conn, _CAP, ctx.tenant_id, deployment_id, _QUOTA_STATUSES, lock=True)
                 row = await job_lifecycle.advance(
                     conn, DEPLOYMENTS, dict(existing_main), DeploymentStatus.ACTIVE,
                     training_run_id=training_run_id, ray_job_id=None, serving=Serving.SHARED, idempotency_key=idempotency_key,
@@ -186,8 +177,8 @@ async def _write_deployment(
             # system uses to call /predict, separate from the tenant/JWT
             # scope used everywhere else. Only the hash is stored.
             predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
-            row, created = await insert_once(
-                conn, _INSERT,
+            row, created = await insert_capped(
+                conn, _CAP, ctx.tenant_id, (deployment_id, _QUOTA_STATUSES), _INSERT,
                 (deployment_id, ctx.tenant_id, project_id, training_run_id, None, route_prefix, hash_key(predict_key),
                  rate_limit_for(plan_tier), Serving.SHARED, DeploymentStatus.ACTIVE, idempotency_key, risk_acknowledged, model_version_id),
                 _BY_KEY, (project_id, idempotency_key),
@@ -315,7 +306,7 @@ async def _move(
     predict key, so it can never match again."""
     async with TenantConn(ctx.tenant_id) as conn:
         if to in QUOTA_STATUSES:  # starting takes a slot back: stopped freed it
-            await _check_quota(conn, ctx.tenant_id, deployment_id, lock=True)
+            await check_cap(conn, _CAP, ctx.tenant_id, deployment_id, _QUOTA_STATUSES, lock=True)
         row = await conn.fetchrow(
             f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3 FOR UPDATE",  # noqa: S608
             deployment_id, project_id, DeploymentStatus.DELETED,

@@ -19,7 +19,6 @@ LIVE_VERSION_DETAIL = "this version is serving; promote another version to repla
 PROMOTION_IN_PROGRESS_DETAIL = "another version of this model is being promoted; wait for it to finish"
 PROMOTION_EVENT_PROMOTED = "model.promoted"  # the outbox kinds of a promotion that finished and of one that failed (entity_id = the version)
 PROMOTION_EVENT_FAILED = "model.promotion_failed"
-PROMOTION_TENANTS_SQL = "SELECT pending_promotion_tenant_ids()"
 
 
 class PromotionStatus(StrEnum):

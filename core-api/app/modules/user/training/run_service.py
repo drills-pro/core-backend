@@ -5,6 +5,7 @@ from http import HTTPStatus
 
 from app.core import audit
 from app.core.authz import AuthzContext
+from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.core.problem import Problem, not_found
@@ -23,17 +24,18 @@ from app.modules.user.training.schemas import (
 logger = logging.getLogger(__name__)
 
 
-async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, limit: int, offset: int) -> list[TrainingRunSummary]:
+async def list_runs(ctx: AuthzContext, project_id: uuid.UUID, page: PageParams) -> Page[TrainingRunSummary]:
+    """The project's runs, newest first."""
     async with TenantConn(ctx.tenant_id) as conn:
+        cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=2)
         rows = await conn.fetch(
             "SELECT id, status, dataset_ref, dataset_version_id, preset, ray_job_id, mlflow_run_id, config, metrics, created_at, completed_at "
-            "FROM training_runs WHERE project_id = $1 "
-            "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            f"FROM training_runs WHERE project_id = $1 {cond} "
+            f"ORDER BY {order_by(SortDir.DESC)} LIMIT {page.page_size + 1}",
             project_id,
-            limit,
-            offset,
+            *args,
         )
-    return [TrainingRunSummary.model_validate(dict(r)) for r in rows]
+    return build_page(rows, page.page_size, TrainingRunSummary)
 
 
 async def get_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID) -> TrainingRun:

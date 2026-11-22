@@ -60,25 +60,69 @@ def bearer(monkeypatch):
     return roles
 
 
+def tenant_of(authorization, x_tenant_id):
+    return asyncio.run(tenancy.get_tenant_id(asyncio.run(tenancy.get_optional_claims(authorization)), x_tenant_id))
+
+
+def actor_of(authorization, x_user_id):
+    return asyncio.run(tenancy.get_actor(asyncio.run(tenancy.get_optional_claims(authorization)), x_user_id))
+
+
 def test_a_verified_member_acts_in_the_tenant_they_name(bearer):
     tenant = uuid.uuid4()
     bearer[tenant] = "owner"
-    assert asyncio.run(tenancy.get_tenant_id(authorization="Bearer t", x_tenant_id=str(tenant))) == str(tenant)
+    assert tenant_of("Bearer t", str(tenant)) == str(tenant)
 
 
 def test_a_verified_non_member_gets_a_404_not_a_hint_that_the_tenant_exists(bearer):
     with pytest.raises(Problem) as err:
-        asyncio.run(tenancy.get_tenant_id(authorization="Bearer t", x_tenant_id=str(uuid.uuid4())))
+        tenant_of("Bearer t", str(uuid.uuid4()))
     assert err.value.status_code == 404
 
 
 def test_the_actor_of_a_bearer_request_is_the_token_subject_not_a_header(bearer):
-    assert asyncio.run(tenancy.get_actor(authorization="Bearer t", x_user_id="someone-else")) == SUB
+    assert actor_of("Bearer t", "someone-else") == SUB
 
 
 def test_a_non_bearer_authorization_falls_through_to_the_dev_headers(monkeypatch):
     monkeypatch.setattr(settings.auth, "dev_headers", True)
-    assert asyncio.run(tenancy.get_tenant_id(authorization="Basic abc", x_tenant_id="dev-tenant")) == "dev-tenant"
+    assert tenant_of("Basic abc", "dev-tenant") == "dev-tenant"
+
+
+def test_a_request_verifies_its_token_once_however_many_dependencies_read_it(monkeypatch):
+    from fastapi import Depends
+
+    from tests.support import make_client
+
+    verified = []
+    monkeypatch.setattr(tenancy, "verify_token", lambda token: verified.append(token) or auth.Claims({"sub": SUB}, token))
+
+    async def get_pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(SimpleNamespace(fetchval=_member)))
+
+    async def _member(sql, sub, tenant_id):
+        return "owner"
+
+    monkeypatch.setattr(tenancy, "get_pool", get_pool)
+    client = make_client()
+
+    @client.app.get("/x")
+    async def route(tenant_id: str = Depends(tenancy.get_tenant_id), actor: str = Depends(tenancy.get_actor)):
+        return {"tenant": tenant_id, "actor": actor}
+
+    r = client.get("/x", headers={"Authorization": "Bearer t", "X-Tenant-Id": str(uuid.uuid4())})
+    assert (r.status_code, r.json()["actor"], verified) == (200, SUB, ["t"])
+
+
+def test_the_dev_header_rule_is_one_helper(monkeypatch):
+    monkeypatch.setattr(settings.auth, "dev_headers", True)
+    assert auth.dev_header("a", "X-A") == "a" and auth.dev_header(None, "X-A", default="d") == "d"
+    with pytest.raises(Problem) as err:
+        auth.dev_header(None, "X-A")
+    assert (err.value.status_code, err.value.code) == (401, "unauthenticated")
+    monkeypatch.setattr(settings.auth, "dev_headers", False)
+    with pytest.raises(Problem):
+        auth.dev_header("a", "X-A", default="d")
 
 
 # --- authz deps ---------------------------------------------------------------------------------------------------

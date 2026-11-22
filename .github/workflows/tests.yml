@@ -84,7 +84,7 @@ jobs:
         run: .venv/bin/python -m pytest tests -q -rs
       - name: ray-serving tests (a skip is printed, not silent)
         working-directory: ray-serving
-        run: PYTHONPATH=. ../ray-training/.venv/bin/python -m pytest tests -q -rs
+        run: PYTHONPATH=.:../ray-common ../ray-training/.venv/bin/python -m pytest tests -q -rs
 
   # A real Postgres, migrated the way the cluster does it: RLS has to hold for core_app, which the fake connection
   # in the other suites cannot show. scripts/db-tests.sh starts the compose postgres, runs dbmate, then tests/db.

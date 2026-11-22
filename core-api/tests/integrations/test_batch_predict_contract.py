@@ -34,10 +34,11 @@ def test_the_runner_mirrors_the_spec_constants_and_the_layout():
 
 
 def test_every_job_kind_is_run_by_exactly_one_package():
-    ray_jobs_kinds = {k.value for k in ingest_enums.JobKind}
-    trainer_kinds = {k.value for k in trainer.JobKind}
-    assert not (ray_jobs_kinds | trainer_kinds) & {batch.PREDICT_BATCH_KIND}
-    assert ray_jobs_kinds | trainer_kinds | {batch.PREDICT_BATCH_KIND} == {k.value for k in JobKind}
+    # ray_common now owns JobKind; each package advertises only the runner it can run.
+    assert ingest_enums.JobKind.INGEST == JobKind.INGEST
+    assert trainer.JobKind.TRAIN == JobKind.TRAIN
+    assert batch.PREDICT_BATCH_KIND == JobKind.PREDICT_BATCH.value
+    assert set(JobKind) == {ingest_enums.JobKind.INGEST, trainer.JobKind.TRAIN, batch.PREDICT_BATCH_KIND}
 
 
 def test_the_batch_model_is_the_replicas_model_spec_and_core_apis_served_model():

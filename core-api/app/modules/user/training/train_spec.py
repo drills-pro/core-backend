@@ -5,8 +5,9 @@ from http import HTTPStatus
 from typing import Any
 
 from app.core.bundle_manifest import hyperparameter_errors
-from app.core.presets import HyperparameterRange, TaskPreset
+from app.core.presets import TaskPreset
 from app.core.problem import Problem
+from app.core.recipe import HyperparameterRange
 from app.core.requirements import requirements_sha256
 from app.core.settings import settings
 from app.core.task_types import TaskInfo
@@ -20,6 +21,9 @@ from app.modules.user.training.constants import (
     ProblemCode,
 )
 from app.modules.user.training.schemas import HyperparameterOverrides, TrainingRunCreate
+
+
+_SPEC_OWN = frozenset({"hyperparameters"})  # a run's own: the preset's bounds resolved against the request, not copied
 
 
 def submission_id(run_id: uuid.UUID) -> str:
@@ -84,13 +88,7 @@ async def build(
             trainer=task.trainer,
             data_kind=task.data_kind,
             preset=preset.name,
-            base_model=preset.base_model,
-            learning_rate=preset.learning_rate,
-            preprocessing=preset.preprocessing,
-            lr_schedule=preset.lr_schedule,
-            warmup_fraction=preset.warmup_fraction,
-            augmentation=preset.augmentation,
-            early_stopping_patience=preset.early_stopping_patience,
+            **preset.values_for(TrainPayload, exclude=_SPEC_OWN),
             data=data,
             hyperparameters=hyperparameters,
             seed=body.seed,
@@ -98,5 +96,5 @@ async def build(
             bundle_sha256=pins and pins[1],
             requirements_sha256=requirements_sha256(requirements) if requirements else None,
         ),
-        resources=Resources(cpu=preset.cpu, memory_bytes=preset.memory_bytes, gpu=preset.gpu, vram_gb=preset.vram_gb, max_runtime_s=preset.max_runtime_s),
+        resources=Resources(**preset.values_for(Resources)),
     )

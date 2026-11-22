@@ -19,9 +19,9 @@ def test_every_deployment_status_maps_to_a_model_status(two_tenants, deployment)
 
     async def go():
         await t.conn.execute("UPDATE deployments SET status = $2 WHERE tenant_id = $1", t.a, deployment)
-        rows = await t.conn.fetch("SELECT status FROM admin_models(10, 0, $1, NULL, NULL, NULL, NULL)", t.a)
+        rows = await t.conn.fetch("SELECT status FROM admin_models(10, NULL, NULL, $1, NULL, NULL, NULL, NULL)", t.a)
         assert [r["status"] for r in rows] == [EXPECTED[deployment]]
-        rows = await t.conn.fetch("SELECT status FROM admin_model_versions((SELECT id FROM model_versions WHERE tenant_id = $1), 10, 0)", t.a)
+        rows = await t.conn.fetch("SELECT status FROM admin_model_versions((SELECT id FROM model_versions WHERE tenant_id = $1), 10, NULL, NULL)", t.a)
         assert [r["status"] for r in rows] == [EXPECTED[deployment]]
         stats = await t.conn.fetchrow("SELECT * FROM admin_model_stats()")
         assert stats["stopped_count"] >= (EXPECTED[deployment] == ModelStatus.STOPPED)

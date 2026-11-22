@@ -1,17 +1,18 @@
-"""Constants the job shares with core-api. The layout and task slugs mirror core-api (tests/ingest_job/test_contract.py asserts equality)."""
+"""Constants the job shares with core-api. The layout and task slugs mirror core-api (tests/ingest_job/test_contract.py asserts equality);
+the ones every Ray package needs (SPEC_VERSION, REPORT_KEY, SMOKE_KEY, REPORT_SCHEMA_VERSION, HTTP_TIMEOUT_SECONDS) come from ray_common."""
 import re
+
+from ray_common.constants import HTTP_TIMEOUT_SECONDS, REPORT_KEY, REPORT_SCHEMA_VERSION, SMOKE_KEY, SPEC_VERSION  # noqa: F401 - shared with the other Ray packages
+from ray_common.enums import Split
 
 # --- layout (mirrors app/integrations/data_plane/layout.py; tests/ingest_job asserts equality) ---
 UPLOAD_KEY = "upload/source"
-REPORT_KEY = "report.json"
-SMOKE_KEY = "smoke.json"  # written by the smoke job: {"ok": bool} (core-api layout.SMOKE_KEY)
 OUT_PREFIX = "out/"
 OBJECTS_PREFIX = "objects/"
 INDEX_KEY = "index.parquet"
 DATA_KEY = "data.parquet"
 SCHEMA_KEY = "schema.json"
-SPLITS = ("train", "validation", "test")
-REPORT_SCHEMA_VERSION = 1
+SPLITS = tuple(m.value for m in Split)
 MAX_REPORT_ISSUES = 200
 
 # --- task slugs (mirror app.core.enums.TaskType) ---
@@ -25,8 +26,6 @@ LABEL_COLUMN = "label"  # a tabular target is renamed to this at import, so the 
 IMAGE_TASKS = (IMAGE_CLASSIFICATION, OBJECT_DETECTION)
 TABULAR_TASKS = (TABULAR_CLASSIFICATION, TABULAR_REGRESSION)
 
-SPEC_VERSION = 1  # the job spec version this code reads (core-api app/integrations/job_spec.py)
-HTTP_TIMEOUT_SECONDS = 60
 UPLOAD_THREADS = 16  # object uploads in flight at once: one blocking PutObject per image is a round trip each
 UPLOAD_MAX_PENDING = 32  # uploads queued or running; the next image waits, so memory holds at most this many images
 NO_ALARM = 0  # signal.alarm(0) cancels

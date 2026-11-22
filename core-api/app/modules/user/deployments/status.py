@@ -19,7 +19,6 @@ _S = DeploymentStatus
 DEPLOYMENTS = job_lifecycle.JobTable(
     name="deployment",
     table="deployments",
-    tenants_fn="inflight_deploy_tenant_ids",  # ponytail: never called (no sweep); JobTable requires one
     inflight=(),
     transitions={
         _S.DEPLOYING: frozenset({_S.ACTIVE, _S.DELETED}),

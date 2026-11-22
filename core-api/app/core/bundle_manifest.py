@@ -13,10 +13,10 @@ from jsonschema.validators import validator_for
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.enums import TaskType
-from app.core.presets import NAME_PATTERN, REVISION
+from app.core.presets import NAME_PATTERN
+from app.core.recipe import Recipe
 from app.core.requirements import Requirements
-from app.core.settings import settings
-from app.core.task_catalog import TASK_AUGMENTATIONS, Augmentation, DataKind, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
+from app.core.task_catalog import DataKind
 from app.core.task_types import IDENTIFIER_PATTERN, TRAINER_PATTERN
 
 MANIFEST_FILE = "manifest.json"
@@ -35,39 +35,17 @@ class ServingFunctions(BaseModel):
     postprocess: str = Field(pattern=IDENTIFIER_PATTERN)
 
 
-class ManifestPreset(BaseModel):
+class ManifestPreset(Recipe):
     """One preset the bundle owns: a task_presets row once the bundle is promoted. `hyperparameters` are its default values
     (the bundle's JSON Schema bounds them); a task that trains from scratch (tabular) has no base model and no preprocessing."""
 
-    model_config = ConfigDict(extra="forbid")
-
     name: str = Field(pattern=NAME_PATTERN)
-    base_model: TrainBaseModel | None = None
-    learning_rate: float = Field(gt=0)
-    preprocessing: Preprocessing | TextPreprocessing | None = None
-    cpu: float = Field(gt=0)
-    memory_bytes: int = Field(gt=0)
-    gpu: float = Field(ge=0)
-    vram_gb: float | None = Field(default=None, gt=0)
-    max_runtime_s: int = Field(gt=0)
-    lr_schedule: LrSchedule = LrSchedule.CONSTANT
-    warmup_fraction: float = Field(default=0, ge=0, lt=1)
-    augmentation: Augmentation = Augmentation.NONE
-    early_stopping_patience: int = Field(default=0, ge=0)
     hyperparameters: dict[str, Any] = {}
 
     @field_validator("preprocessing", mode="before")
     @classmethod
     def _empty_is_none(cls, value):
         return None if value == {} else value
-
-    @model_validator(mode="after")
-    def _pinned_and_within_the_ceiling(self):
-        if self.base_model is not None and not REVISION.match(self.base_model.revision):
-            raise ValueError("base_model.revision must be a 40-character commit sha")
-        if self.max_runtime_s > settings.training.max_runtime_seconds:
-            raise ValueError(f"max_runtime_s is at most {settings.training.max_runtime_seconds}")
-        return self
 
 
 class BundleManifest(BaseModel):
@@ -107,8 +85,10 @@ class BundleManifest(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("preset names must be unique")
         for p in self.presets:
-            if p.augmentation not in TASK_AUGMENTATIONS.get(self.slug, frozenset({Augmentation.NONE})):
-                raise ValueError(f"preset {p.name}: augmentation {p.augmentation} is not available for {self.slug}")
+            try:
+                p.check_task(self.slug)
+            except ValueError as e:
+                raise ValueError(f"preset {p.name}: {e}") from None
             if errors := hyperparameter_errors(self.hyperparameters, p.hyperparameters):
                 raise ValueError(f"preset {p.name}: " + "; ".join(errors))
         return self

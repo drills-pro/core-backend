@@ -1,21 +1,18 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from app.core.authz import Action, AuthzContext, require
+from app.core.pagination import Page, PageParams
 from app.modules.user.teams import service
 from app.modules.user.teams.schemas import Team
 
 router = APIRouter(prefix="/v1/teams", tags=["teams"])
 
 
-@router.get("", response_model=list[Team])
-async def list_teams(
-    ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-):
-    return await service.list_teams(ctx, limit, offset)
+@router.get("", response_model=Page[Team])
+async def list_teams(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
+    return await service.list_teams(ctx, page)
 
 
 @router.post("", status_code=201, response_model=Team)

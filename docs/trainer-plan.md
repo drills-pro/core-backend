@@ -1,6 +1,6 @@
 # Trainer plan: image classification and object detection
 
-Status: draft, 2026-10-27. Scope from the owner: both tasks in the first trainer slice, one GPU plus a CPU pool, `report.json` instead of the events API for now. Builds on planning 06, 07, 16, 17 and `docs/datasets-plan.md`; where this page differs from them it says so.
+Status: built (the first slice shipped; this page keeps the original design and decisions). Where the code differs: training runs as a Ray Train `TorchTrainer` (`ray_core/entrypoints/train.py`, `ray_core/worker.py`) rather than a bare Ray task, the package is `ray-training/ray_core` (staged under the name `ray_training`), and each task's trainer is a bundle in `task-bundles/tasks/<slug>/`. See `docs/ray-parallelism.md`, `docs/job-spec.md` and `../planning/25-task-bundles.md`. Scope at the time, from the owner: both tasks in the first trainer slice, one GPU plus a CPU pool, `report.json` instead of the events API for now. Builds on planning 06, 07, 16, 17 and `docs/datasets-plan.md`; where this page differs from them it says so.
 
 ## Decisions
 
@@ -21,7 +21,7 @@ The cluster (k8s `apps/ray/app/raycluster.yaml`): head with `num-cpus: 0`, one `
 Training must, because the GPU belongs to the worker, not the driver:
 
 ```python
-# ray_training/entrypoints/train.py  (driver, runs on the CPU pool: entrypointResources={"cpu_pool": 1}, entrypointNumGpus=0)
+# ray_core/entrypoints/train.py  (driver, runs on the CPU pool: entrypointResources={"cpu_pool": 1}, entrypointNumGpus=0)
 ray.init(address="auto")                      # join the cluster the job was submitted to
 ref = train.options(num_gpus=1, num_cpus=8, memory=...).remote(spec)   # runs on the GPU worker
 report = ray.get(ref)                          # blocks; a cancelled job raises here

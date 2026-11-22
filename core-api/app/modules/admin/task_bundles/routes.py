@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Path
 
 from app.core.auth import get_platform_admin
 from app.core.enums import TaskType
-from app.core.job_packages import SHA256_PATTERN
+from app.core.patterns import SHA256_PATTERN
 from app.core.presets import NAME_PATTERN, TaskPreset
 from app.core.task_types import TaskInfo
 from app.modules.admin.task_bundles import service

@@ -51,3 +51,12 @@ class RegisteredVersion(BaseModel):
 
     mlflow_model_name: str
     mlflow_version: str
+
+
+class PendingPromotion(BaseModel):
+    """A promotion the worker has yet to settle: who asked for it and whether they acknowledged the deploy risk."""
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    promotion_actor: str | None
+    promotion_acknowledged_risk: bool

@@ -7,7 +7,7 @@ not built; they need the owner's go-ahead because each adds a job kind or a prod
 
 | Area | Ray feature | What it buys | Where |
 |---|---|---|---|
-| Training | Ray Train `TorchTrainer`, data parallel, resumable | one run spreads across the workers a preset asks for; a killed worker resumes from a checkpoint | `ray-training/ray_training/entrypoints/train.py`, `loop.py` |
+| Training | Ray Train `TorchTrainer`, data parallel, resumable | one run spreads across the workers a preset asks for; a killed worker resumes from a checkpoint | `ray-training/ray_core/entrypoints/train.py`, `ray_core/loop.py`, `ray_core/worker.py` |
 | Training placement | driver on the CPU pool (`cpu_pool` resource), trainer task `num_gpus` per preset | a run waits (PENDING) for the GPU instead of failing; the CPU driver never holds the card | docs/trainer-plan.md, `app/core/presets.py` |
 | Ingest | Ray jobs (`ray_jobs`), `compute.backend` = `ray_dashboard` or `rayjob` | dataset imports run on the CPU worker group, off the API pods | `ray-jobs/`, `app/integrations/compute.py` |
 | Serving | Ray Serve, two shared apps (`predictor-cpu`, `predictor-gpu`), multiplexed models, `max_ongoing_requests` | any number of deployments share replicas; a replica keeps its 8 most recent models loaded | `ray-serving/ray_serving/app.py`, `app/integrations/serve_config.py` |
@@ -30,7 +30,7 @@ not built; they need the owner's go-ahead because each adds a job kind or a prod
    `ray_serving.entrypoints.predict_batch`, package `JobPackageName.RAY_SERVING`), a `predict_batches` table (RLS, status, report
    read-back, CHECK mirrored from an enum), a reconciler like the training one, GPU-seconds metering and a quota (concurrent batch
    jobs per tenant, items per job), `layout` prefix and presigned read of `predictions.jsonl` for the customer, and a Ray Data run
-   on the cluster (unverified: `ray.data` needs pandas, which the ray-training dev venv lacks; the CI jobs do not run `ray-serving/tests`).
+   on the cluster (unverified on a cluster: `ray.data` needs pandas; CI runs `ray-serving/tests` in the `ray-training` job of `tests.yml`).
    Ceiling: the driver collects all rows (`take_all`) before writing, so very large sets need `write_json` to the staging prefix.
 2. **Hyperparameter search (`kind: tune`).** Ray Tune with the ASHA scheduler over the bounds that already live in
    `task_presets.hyperparameters` (min, max, default). Each trial is the existing Ray Train run; `max_concurrent_trials` caps GPU use;

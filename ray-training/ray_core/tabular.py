@@ -5,6 +5,7 @@ import json
 
 import numpy as np
 
+from ray_common.preprocess import tabular_matrix
 from ray_core.constants import Col, Split
 from ray_core.data import carve_held_out, hash_split
 from ray_core.errors import BadData
@@ -47,11 +48,5 @@ def features_of(rows: list[dict], target: str) -> tuple[list[str], dict[str, lis
 
 
 def matrix(rows: list[dict], features: list[str], categories: dict[str, list[str]]) -> np.ndarray:
-    """Rows -> float32 feature matrix; a missing value is NaN."""
-    codes = {c: {v: i for i, v in enumerate(values)} for c, values in categories.items()}
-
-    def cell(row: dict, column: str) -> float:
-        value = row[column]
-        return np.nan if value is None else codes[column][value] if column in codes else float(value)
-
-    return np.array([[cell(r, c) for c in features] for r in rows], dtype=np.float32)
+    """Rows -> float32 feature matrix; a missing value is NaN (ray_common: serving encodes a row the same way)."""
+    return tabular_matrix([[r[c] for c in features] for r in rows], features, categories)

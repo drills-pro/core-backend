@@ -176,5 +176,3 @@ sequenceDiagram
   untrusted archives and images, so a parser exploit could read or overwrite other tenants' staged data. Fix:
   per-import STS credentials or presigned URLs for the single prefix. The credential also appears in Ray's
   `runtime_env`.
-- Training creation (`POST /training-runs`) returns 501 until the trainer slice rewires it to dataset version ids
-  (see Deferred in [datasets-plan.md](datasets-plan.md)).

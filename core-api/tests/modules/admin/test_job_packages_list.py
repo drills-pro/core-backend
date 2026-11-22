@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.enums import JobPackageName, PackageStatus, SmokeStatus
-from app.modules.admin.job_packages import routes
+from app.modules.admin.job_packages import routes, service
 from tests.modules.admin.conftest import ADMIN_HEADERS, AdminConn
 from tests.support import TenantCtx, make_client
 
@@ -26,8 +26,8 @@ def api(monkeypatch, dev_headers):
         async def settle(pkg):
             return pkg.model_copy(update={"smoke_status": SmokeStatus.PASSED})
 
-        monkeypatch.setattr(routes, "get_pool", get_pool)
-        monkeypatch.setattr(routes.data_plane, "refresh_package_smoke", settle)
+        monkeypatch.setattr(service, "get_pool", get_pool)
+        monkeypatch.setattr(service.data_plane, "refresh_package_smoke", settle)
         return make_client(routes.router, headers=headers)
 
     return build

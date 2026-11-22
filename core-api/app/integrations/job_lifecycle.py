@@ -95,7 +95,7 @@ class JobTable(BaseModel):
 
     name: str
     table: str
-    tenants_fn: str  # SECURITY DEFINER function listing the tenants with in-flight rows
+    tenants_fn: str | None = None  # SECURITY DEFINER function listing the tenants with in-flight rows; None = no sweep covers this table
     inflight: tuple[str, ...]
     transitions: Mapping[str, frozenset[str]]
     columns: frozenset[str] = frozenset()
@@ -169,6 +169,7 @@ def judge(job: JobTable, row: dict, ray: JobStatus | None, now: datetime) -> Ver
 
 
 def tenants_sql(job: JobTable) -> str:
+    assert job.tenants_fn, f"{job.name} has no tenants_fn: it is never swept"
     return f"SELECT {job.tenants_fn}()"  # noqa: S608
 
 
@@ -203,9 +204,14 @@ def settle_backoff(attempts: int) -> float:
 _EMIT = "INSERT INTO events (tenant_id, project_id, kind, entity_id, status) VALUES ($1, $2, $3, $4, $5)"
 
 
+async def emit_event(conn, tenant_id, project_id, kind: str, entity_id, status) -> None:
+    """One outbox row of any kind; call it inside the transaction that wrote the change."""
+    await conn.execute(_EMIT, tenant_id, project_id, kind, entity_id, str(status))
+
+
 async def emit(conn, job: JobTable, tenant_id, project_id, entity_id, status) -> None:
     """The outbox row for a job entering `status`; call it inside the transaction that wrote the row."""
-    await conn.execute(_EMIT, tenant_id, project_id, f"{job.name}.{status}", entity_id, str(status))
+    await emit_event(conn, tenant_id, project_id, f"{job.name}.{status}", entity_id, status)
 
 
 def advance_sql(job: JobTable, columns: list[str], stamp_completed: bool) -> str:

@@ -41,7 +41,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | JOB-12 | jobs | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
 | 2 | partial | JOB-14 | jobs | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | Detection is by Ray state and a fixed deadline (LOST_JOB_GRACE_SECONDS); there are no heartbeats to go silent, so a hung job is found only at the deadline. |
 | 2 | partial | JOB-23 | jobs | Per-plan limits stored as data and edited by an operator (imports, runs, archives, images, tables, predict, deployments) | Limits are counts and sizes; no GPU-minute allowance, no replica caps, no per-plan retention (planning/14). |
-| 2 | partial | JOB-25 | jobs | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | tests.yml runs core-api, ray-jobs and the Postgres isolation matrix on pull requests; ray-training and ray-serving tests (the trainer and the model runtime) are not run in CI, and branch protection is not visible from the repo. |
+| 2 | partial | JOB-25 | jobs | Contract tests as a hard merge gate (job spec, report schema, trainer contract, DB isolation) | tests.yml runs core-api, ray-jobs, ray-training, ray-serving and the Postgres isolation matrix on pull requests; branch protection is not visible from the repo. |
 | 2 | partial | PRD-16 | predict | Usage - one event per 2xx prediction id, none for failures, replays or retries | Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter. |
 | 2 | partial | PRD-21 | predict | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | Only JSON with image_base64 (or text) is read, header-first with a pixel limit; no multipart and no image-URL input, so no SSRF path exists to guard. |
 | 2 | partial | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge. |
@@ -72,7 +72,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | REG-11 | registry | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py). |
 | 1 | partial | TRN-03 | training | Customer steps of a run (no raw job log, no report message) | Steps and a failure code only; the raw log is no longer served to customers (ops read Ray). No per-epoch metrics in the steps. |
 | 1 | partial | TRN-06 | training | Presets are data, copied into the spec; project preset list for the training form | No GPU-minute estimate and no cost preview on the list (planning/22). |
-| 1 | partial | TRN-29 | training | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI and ray-training tests are outside CI. |
+| 1 | partial | TRN-29 | training | Licence policy - no AGPL trainer, licence scan and golden-metric tests in CI | No AGPL trainer is used (RT-DETRv2 via Transformers), but no licence scan runs in CI. |
 | 1 | deferred | DAT-26 | datasets | Tombstoning dataset versions for erasure inside immutable history | Designed with the erasure flow. |
 | 1 | deferred | DAT-27 | datasets | Labeling (Label Studio behind core-api) | Stretch slot in planning/20. |
 | 1 | deferred | DAT-28 | datasets | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | Plus GET /v1/catalog/datasets and the catalog tables, which do not exist (GET /v1/catalog/models lists the presets' base models). |
@@ -91,16 +91,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 
 **Built with no test at all:** none (the test suite refuses this)
 
-**Tested only by suites CI does not run** (`ray-training/`, `ray-serving/`; `.github/workflows/tests.yml` runs core-api, ray-jobs and the Postgres isolation matrix):
+**Tested only by suites CI does not run** (`.github/workflows/tests.yml` runs core-api, ray-jobs, ray-training, ray-serving and the Postgres isolation matrix):
 
-| Id | Status | Feature | Tests |
-|---|---|---|---|
-| TRN-23 | built | Data-parallel training across workers (Ray Train), only rank 0 uploads | ray-training/tests/test_driver.py::test_several_workers_train_one_model_and_only_the_root_rank_uploads, ray-training/tests/test_scaling.py::test_a_preset_gpu_is_workers_with_one_gpu_each_or_a_share_of_one |
-| TRN-24 | built | GPU memory sharing - declared vram_gb, per-process memory fraction, admission by sum of fractions | ray-training/tests/test_gpu_share.py::test_only_a_fraction_on_a_cuda_machine_is_capped, ray-training/tests/test_gpu_share.py::test_a_declared_vram_caps_the_job_at_the_smaller_of_it_and_its_share |
-| TRN-25 | built | Hash-based splits when none is given, a held-out test split | ray-training/tests/test_data.py::test_hash_split_is_deterministic_and_roughly_80_10_10, ray-training/tests/test_data.py::test_the_split_column_wins_and_null_rows_are_hashed |
-| SRV-02 | built | Multiplexed model loading by id (ONNX Runtime), recent models stay loaded | ray-serving/tests/test_model.py::test_a_loaded_model_ranks_the_classes, ray-serving/tests/test_model.py::test_a_missing_model_is_model_load_failed_and_an_unknown_function_is_its_own_code |
-| SRV-08 | partial | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | ray-serving/tests/test_model.py::test_a_url_outside_the_artifact_store_is_refused, ray-serving/tests/test_model.py::test_a_redirect_is_not_followed, ray-serving/tests/test_model.py::test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded |
-| PRD-21 | partial | Input forms - multipart, base64 JSON, image URL with SSRF guard, decompression-bomb guard | ray-serving/tests/test_model.py::test_an_image_over_the_pixel_limit_is_bad_input_before_it_is_decoded |
+none
 
 **Built, but the tests cited are whole files, not named behaviours** (look here for thin coverage):
 
@@ -294,7 +287,7 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
 | DAT-01 | built | Create, list (cursor) and read datasets | planning/05 Resource model; docs/datasets-plan.md | 3 |
-| DAT-02 | built | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 3 |
+| DAT-02 | built | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 4 |
 | DAT-03 | built | Create an import - presigned PUT to a fixed staging key, upload never passes through the API | planning/06 Datasets | 2 |
 | DAT-04 | built | Import lifecycle - 10 states, compare-and-set transitions, Idempotency-Key, per-tenant active cap | planning/05 Resource model; planning/03 State machines; docs/datasets-architecture.md | 4 |
 | DAT-05 | built | List and read imports | docs/datasets-architecture.md | 1 |

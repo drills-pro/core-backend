@@ -18,6 +18,8 @@ COPY ray-jobs/ray_jobs /ray-jobs/ray_jobs
 COPY ray-training/ray_core /ray-training/ray_core
 # The shared Serve apps (ray_serving), staged the same way.
 COPY ray-serving/ray_serving /ray-serving/ray_serving
+# The shared kernel each staged zip carries beside its own package; build() reads it from here outside prod.
+COPY ray-common/ray_common /ray-common/ray_common
 # Read by the cluster's backend-migrate Job: an init container runs `cp -R /migrations/. /work/` and
 # dbmate (its own image) applies them. This image ships no migration runner.
 COPY core-api/migrations /migrations

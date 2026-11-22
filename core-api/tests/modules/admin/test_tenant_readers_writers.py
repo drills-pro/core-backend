@@ -3,8 +3,12 @@ import asyncio
 import datetime
 import uuid
 
+import pytest
+
 from app.core.authz import TenantStatus
-from app.core.enums import PlanTier
+from app.core.authz.deps import TenantProblem
+from app.core.problem import Problem
+from app.core.pagination import PageParams
 from app.modules.user.tenants import (
     admin_detail,
     admin_list,
@@ -23,9 +27,10 @@ COUNTS = {"project_count": 2, "member_count": 3}
 
 def test_admin_list_rows_are_typed_and_filters_are_passed_through():
     conn = FakeConn(rowset=[{**BASE, **COUNTS}])
-    [row] = asyncio.run(admin_list(conn, "ac", "pro", 10))
+    page = asyncio.run(admin_list(conn, [TENANT], PageParams(page_size=10, page_token=None)))
+    [row] = page.items
     assert (row.name, row.project_count, row.member_count) == ("Acme", 2, 3)
-    assert conn.calls[0][1] == ("ac", "pro", 10, PlanTier.INTERNAL)
+    assert conn.calls[0][1] == ([TENANT],)  # no cursor on the first page
 
 
 def test_org_ids_and_platform_stats():
@@ -47,6 +52,9 @@ def test_writers():
     assert asyncio.run(merge_settings(FakeConn(row=None), TENANT, {})) is None
     assert asyncio.run(merge_settings(FakeConn(row={"settings": {"a": 1}}), TENANT, {"a": 1})) == {"a": 1}
     assert asyncio.run(set_status(FakeConn(row=None), TENANT, TenantStatus.SUSPENDED)) is None
+    with pytest.raises(Problem) as kept:  # the guard is in the UPDATE; the 409 reports it
+        asyncio.run(set_status(FakeConn(row={"previous": TenantStatus.PENDING_DELETE, "org_id": ""}), TENANT, TenantStatus.ACTIVE))
+    assert kept.value.code == TenantProblem.PENDING_DELETE
     conn = FakeConn(row={"previous": TenantStatus.ACTIVE, "org_id": ""})
     changed = asyncio.run(set_status(conn, TENANT, TenantStatus.SUSPENDED))
     assert (changed.previous, changed.org_id) == (TenantStatus.ACTIVE, "")

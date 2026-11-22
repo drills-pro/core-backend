@@ -20,6 +20,7 @@ from tests.support import classification_rows, parquet, spec_doc
 
 ROOT = Path(__file__).resolve().parents[1]
 RAY = Path(sys.executable).parent / "ray"
+SHARED = ROOT.parent / "ray-common"  # ray_common ships beside ray_core inside the job zip
 
 
 @pytest.fixture(scope="module")
@@ -29,7 +30,7 @@ def head(tmp_path_factory):
     with socket.socket() as s:
         s.bind(("", 0))
         port = s.getsockname()[1]
-    env = {**os.environ, "PYTHONPATH": str(ROOT), "STAGING_ENDPOINT": f"file://{staging}", "TRAIN_NUM_GPUS": "0"}
+    env = {**os.environ, "PYTHONPATH": f"{ROOT}:{SHARED}", "STAGING_ENDPOINT": f"file://{staging}", "TRAIN_NUM_GPUS": "0"}
     subprocess.run([RAY, "start", "--head", f"--port={port}", "--num-cpus=4", "--num-gpus=0", "--include-dashboard=false",
                     "--disable-usage-stats"], env=env, check=True, capture_output=True)
     yield staging
@@ -54,7 +55,7 @@ def hang_server():
 
 
 def drive(staging, doc) -> tuple[subprocess.CompletedProcess, dict]:
-    env = {**os.environ, "PYTHONPATH": str(ROOT), "STAGING_ENDPOINT": f"file://{staging}", "TRAIN_NUM_GPUS": "0"}
+    env = {**os.environ, "PYTHONPATH": f"{ROOT}:{SHARED}", "STAGING_ENDPOINT": f"file://{staging}", "TRAIN_NUM_GPUS": "0"}
     proc = subprocess.run([sys.executable, "-m", "ray_core.entrypoints.train", json.dumps(doc)], env=env,
                           capture_output=True, text=True, timeout=300)
     report = json.loads((staging / doc["payload"]["prefix"] / REPORT_KEY).read_text())
@@ -105,7 +106,7 @@ def in_process(head, monkeypatch):
     from ray_core.entrypoints import train as entry
 
     monkeypatch.setenv("STAGING_ENDPOINT", f"file://{head}")
-    ray.init(address="auto", runtime_env={"env_vars": {"PYTHONPATH": str(ROOT)}}, ignore_reinit_error=True)
+    ray.init(address="auto", runtime_env={"env_vars": {"PYTHONPATH": f"{ROOT}:{SHARED}"}}, ignore_reinit_error=True)
     yield entry
     ray.shutdown()
 

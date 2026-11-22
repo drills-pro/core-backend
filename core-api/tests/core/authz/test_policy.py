@@ -1,7 +1,4 @@
 """The role -> actions table of planning/04, restated independently, and the pure policy function."""
-import re
-from pathlib import Path
-
 import pytest
 
 from app.core.authz import ROLE_ACTIONS, Action, DefaultAccess, InviteRole, Role, Scope, TenantRole, TenantStatus, Visibility, allowed_actions
@@ -10,6 +7,7 @@ from app.modules.user.datasets.constants import ImportSource, ImportStatus
 from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.training.constants import TrainingStatus
 from app.modules.user.usage.constants import UsageResource
+from tests.support.check_mirror import assert_mirrors
 
 VIEWER = {"project.read", "dataset.read", "job.read", "model.read", "deployment.read", "usage.read"}
 TABLE = {
@@ -75,35 +73,23 @@ def test_tenant_level_actions_are_not_granted_by_project_roles():
 
 
 # Drift: each enum equals the CHECK constraint that mirrors it, read from the migration files.
-MIGRATIONS = "\n".join(  # the up part of each file, in order: the last definition wins
-    p.read_text().split("-- migrate:down")[0] for p in sorted((Path(__file__).parents[3] / "migrations").glob("*.sql"))
-)
-
-
-def _check_values(constraint: str) -> set[str]:
-    """The IN (...) list of the last definition of a named CHECK constraint (or a column's inline one)."""
-    found = re.findall(rf"{constraint}\s+CHECK \(\w+ IN \(([^)]*)\)\)", MIGRATIONS)
-    assert found, f"no CHECK named {constraint} in the migrations"
-    return set(re.findall(r"'([^']+)'", found[-1]))
-
-
 @pytest.mark.parametrize(
-    ("enum", "constraint"),
+    ("enum", "table", "column"),
     [
-        (Role, "CONSTRAINT project_members_role_check"),
-        (Scope, "CONSTRAINT api_key_scopes_scope_check"),
-        (Visibility, "CONSTRAINT projects_visibility_check"),
-        (DefaultAccess, "CONSTRAINT projects_default_access_check"),
-        (TenantStatus, "CONSTRAINT tenants_status_check"),
-        (InviteRole, "CONSTRAINT tenant_invitations_role_check"),
-        (TaskType, "CONSTRAINT projects_task_type_check"),
-        (ImportStatus, "CONSTRAINT dataset_imports_status_check"),
-        (ImportSource, "CONSTRAINT dataset_imports_source_check"),
-        (DeploymentStatus, "CONSTRAINT deployments_status_check"),
-        (TrainingStatus, r"status\s+text NOT NULL DEFAULT 'submitted'(?=\s+CHECK \(status IN \([^)]*'cancelled')"),  # training_runs.status, inline in init (the only one with 'cancelled')
-        (UsageResource, r"resource_type\s+text NOT NULL"),  # usage_events.resource_type, inline in init
-        (TenantRole, r"role\s+text NOT NULL"),  # tenant_members.role, inline in the shared-pool migration
+        (Role, "project_members", "role"),
+        (Scope, "api_key_scopes", "scope"),
+        (Visibility, "projects", "visibility"),
+        (DefaultAccess, "projects", "default_access"),
+        (TenantStatus, "tenants", "status"),
+        (InviteRole, "tenant_invitations", "role"),
+        (TaskType, "projects", "task_type"),
+        (ImportStatus, "dataset_imports", "status"),
+        (ImportSource, "dataset_imports", "source"),
+        (DeploymentStatus, "deployments", "status"),
+        (TrainingStatus, "training_runs", "status"),
+        (UsageResource, "usage_events", "resource_type"),
+        (TenantRole, "tenant_members", "role"),
     ],
 )
-def test_enum_matches_its_check_constraint(enum, constraint):
-    assert {m.value for m in enum} == _check_values(constraint)
+def test_enum_matches_its_check_constraint(enum, table, column):
+    assert_mirrors(table, column, enum)

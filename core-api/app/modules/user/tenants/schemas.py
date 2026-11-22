@@ -54,6 +54,13 @@ class TenantStatusChange(BaseModel):
     org_id: str
 
 
+class AdminTenantOrg(BaseModel):
+    """A tenant and the Zitadel org it maps to (None for one created without an org)."""
+
+    id: uuid.UUID
+    zitadel_org_id: str | None
+
+
 class AdminTenantCreated(BaseModel):
     """The row POST /v1/admin/tenants inserts."""
 

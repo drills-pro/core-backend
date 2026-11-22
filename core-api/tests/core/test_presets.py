@@ -2,10 +2,15 @@
 import pytest
 from pydantic import ValidationError
 
+from app.core.bundle_manifest import ManifestPreset
 from app.core.enums import TaskType
 from app.core.presets import PresetBody
+from app.core.recipe import Recipe
 from app.core.settings import settings
 from app.core.task_catalog import TextPreprocessing
+from app.integrations.job_spec import Resources, TrainPayload
+from app.modules.user.training.train_spec import _SPEC_OWN
+from tests.support.check_mirror import assert_mirrors
 from tests.support.presets import IMAGENET, LIMITS, REVISION, preset
 
 BODY = {
@@ -43,17 +48,11 @@ def test_a_bundle_row_without_a_base_model_reads_back_with_its_default_values():
     assert preset().hyperparameters.epochs.default == LIMITS["epochs"]["default"]  # an admin row keeps its bounds
 
 
-def _check(constraint):
-    from tests.core.test_task_types import _latest_check
-
-    return _latest_check(constraint)
-
-
 def test_the_recipe_checks_mirror_the_enums():
     from app.core.task_catalog import Augmentation, LrSchedule
 
-    assert _check("task_presets_lr_schedule_check") == {s.value for s in LrSchedule}
-    assert _check("task_presets_augmentation_check") == {a.value for a in Augmentation}
+    assert_mirrors("task_presets", "lr_schedule", LrSchedule)
+    assert_mirrors("task_presets", "augmentation", Augmentation)
 
 
 def test_the_recipe_defaults_are_todays_behaviour():
@@ -79,3 +78,26 @@ def test_the_augmentation_must_be_one_the_tasks_trainer_has(task, augmentation, 
 def test_a_bad_recipe_is_refused(over):
     with pytest.raises(ValidationError):
         PresetBody.model_validate({**BODY, **over})
+
+
+@pytest.mark.parametrize("over", [
+    {"base_model": {"repo_id": "org/model", "revision": "main"}},
+    {"max_runtime_s": settings.training.max_runtime_seconds + 1},
+])
+def test_a_bundles_preset_is_held_to_the_same_pin_and_ceiling(over):
+    recipe = {k: v for k, v in BODY.items() if k != "hyperparameters"}
+    assert ManifestPreset.model_validate({"name": "small", **recipe}).base_model.revision == REVISION
+    with pytest.raises(ValidationError):
+        ManifestPreset.model_validate({"name": "small", **recipe, **over})
+
+
+def test_a_job_spec_declares_every_recipe_field_it_copies_the_way_the_recipe_does():
+    """TrainPayload spells its fields out for the committed wire schema; this keeps them equal to the recipe's."""
+    resources = set(Resources.model_fields)
+    assert resources <= set(Recipe.model_fields)
+    for name, field in Recipe.model_fields.items():
+        if name in resources:
+            continue
+        mine = TrainPayload.model_fields[name]  # a recipe field the payload lacks fails here
+        if name not in _SPEC_OWN:
+            assert (mine.annotation, mine.metadata) == (field.annotation, field.metadata), name

@@ -5,6 +5,7 @@ import pytest
 from app.core.authz import Action, CallSource, keys
 from app.core.problem import Problem
 from app.core.settings import settings
+from tests.support.check_mirror import assert_mirrors
 from tests.support.predict_env import BODY, MODEL, PROJECT, TENANT, build
 
 USER = "user-1"
@@ -90,10 +91,5 @@ def test_without_dev_headers_a_call_with_no_credentials_is_the_one_invalid_key_4
 
 
 def test_the_prediction_sources_are_the_check_constraint():
-    import re
-    from pathlib import Path
-
-    migration = next((Path(__file__).parents[4] / "migrations").glob("*_promote_deploys_console_predict.sql")).read_text()
-    found = re.search(r"CONSTRAINT predictions_source_check CHECK \(source IN \(([^)]*)\)\)", migration)
-    assert {m.value for m in CallSource} == set(re.findall(r"'([^']+)'", found.group(1)))
+    assert_mirrors("predictions", "source", CallSource)
 

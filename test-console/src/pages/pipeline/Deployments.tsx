@@ -42,17 +42,13 @@ export function Deployments({ projectId }: { projectId: string }) {
     onSettled,
   });
   // Through the session route, not /v1/predict: same Serve path, no predict key needed, and the call is logged.
-  const test = useMutation({
-    mutationFn: () =>
-      unwrap(
-        client.POST('/v1/projects/{project_id}/deployments/{deployment_id}/test', {
-          params: { path: { ...path, deployment_id: deploymentId } },
-          body: JSON.parse(body),
-        }),
-      ),
+  const test = useQuery({
+    queryKey: ['test-calls', path.project_id, deploymentId],
+    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/deployments/{deployment_id}/test-calls', { params: { path: { ...path, deployment_id: deploymentId } } })),
+    enabled: !!deploymentId,
   });
 
-  const succeeded = (runs.data ?? []).filter((r) => r.status === RunStatus.SUCCEEDED);
+  const succeeded = (runs.data?.items ?? []).filter((r) => r.status === RunStatus.SUCCEEDED);
   return (
     <>
     <Section title="3. Deploy and predict">
@@ -154,15 +150,12 @@ export function Deployments({ projectId }: { projectId: string }) {
           <Text fontWeight="semibold">Test call to {short(deploymentId)}</Text>
           <Textarea fontFamily="mono" fontSize="sm" rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
           <HStack>
-            <Button size="sm" colorPalette="orange" loading={test.isPending} onClick={() => test.mutate()}>
-              Send
-            </Button>
-            {test.data && <Text color="fg.muted">{test.data.latency_ms.toFixed(0)} ms</Text>}
+            <Text color="fg.muted">Recent test calls are read from the audit trail below.</Text>
           </HStack>
           <ErrorAlert error={test.error} />
           {test.data && (
             <Code display="block" whiteSpace="pre-wrap" p="2" fontSize="xs">
-              {JSON.stringify(test.data.response, null, 2)}
+              {JSON.stringify(test.data, null, 2)}
             </Code>
           )}
         </Stack>

@@ -16,6 +16,7 @@ on:
     paths:
       - "ray-training/**"
       - "ray-serving/**"
+      - "ray-common/ray_common/**"
       - ".github/workflows/ray-training-image.yml"
       - ".github/workflows/ray-image.yml"
       - "scripts/ray-image-smoke.py"

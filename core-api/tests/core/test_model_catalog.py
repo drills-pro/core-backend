@@ -6,18 +6,14 @@ import pytest
 
 from app.core.enums import CatalogSource, CatalogStatus
 from app.core.settings import settings
+from tests.support.check_mirror import assert_mirrors
 
 MIGRATION = next((Path(__file__).parents[2] / "migrations").glob("*_model_catalog.sql")).read_text()
 
 
-def _check(constraint: str) -> set[str]:
-    clause = re.search(rf"CONSTRAINT {constraint} CHECK \(\w+ IN \(([^)]*)\)\)", MIGRATION).group(1)
-    return set(re.findall(r"'([^']+)'", clause))
-
-
-@pytest.mark.parametrize("constraint, enum", [("model_catalog_status_check", CatalogStatus), ("model_catalog_source_check", CatalogSource)])
-def test_the_checks_mirror_the_enums(constraint, enum):
-    assert _check(constraint) == {e.value for e in enum}
+@pytest.mark.parametrize("column, enum", [("status", CatalogStatus), ("source", CatalogSource)])
+def test_the_checks_mirror_the_enums(column, enum):
+    assert_mirrors("model_catalog", column, enum)
 
 
 def test_the_seeded_licences_are_on_the_allowlist():

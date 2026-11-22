@@ -29,13 +29,14 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.auth import get_platform_admin
 from app.core.enums import TaskType
+from app.core.pagination import Page, PageParams, set_total_header
 from app.modules.admin.models import service
 from app.modules.admin.models.schemas import AdminModel, AdminModelVersion, ModelStats
 
 router = APIRouter(prefix="/v1/admin/models", tags=["admin"])
 
 
-@router.get("", dependencies=[Depends(get_platform_admin)], response_model=list[AdminModel])
+@router.get("", dependencies=[Depends(get_platform_admin)], response_model=Page[AdminModel])
 async def list_models(
     response: Response,
     q: str | None = Query(default=None, description="matches model, project or organisation"),
@@ -43,34 +44,32 @@ async def list_models(
     task_type: TaskType | None = Query(default=None),
     visibility: str | None = Query(default=None, description="private | internal"),
     status: str | None = Query(default=None, description="deployed | deploying | stopped | not_deployed"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: PageParams = Depends(),
 ):
     """Every registered model, newest first, one row per model.
 
     `X-Total-Count` carries the size of the filtered set so a pager costs
     no second request — the same contract as the other admin listings."""
-    rows, total = await service.list_models(q, tenant_id, task_type, visibility, status, limit, offset)
-    response.headers["X-Total-Count"] = str(total)
-    return rows
+    items, total = await service.list_models(q, tenant_id, task_type, visibility, status, page)
+    set_total_header(response, total)
+    return items
 
 
-@router.get("/{version_id}/versions", dependencies=[Depends(get_platform_admin)], response_model=list[AdminModelVersion])
+@router.get("/{version_id}/versions", dependencies=[Depends(get_platform_admin)], response_model=Page[AdminModelVersion])
 async def list_model_versions(
     response: Response,
     version_id: uuid.UUID,
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: PageParams = Depends(),
 ):
     """Every version of the model this version belongs to, newest first.
 
     Addressed by one of its versions — the id the listing already handed
     out — rather than by (project, name), so the caller has no second key
     to spell and nothing to escape. An id that names no version answers
-    with an empty list, the same as a model whose project was deleted."""
-    rows, total = await service.list_versions(version_id, limit, offset)
-    response.headers["X-Total-Count"] = str(total)
-    return rows
+    with an empty page, the same as a model whose project was deleted."""
+    items, total = await service.list_versions(version_id, page)
+    set_total_header(response, total)
+    return items
 
 
 @router.get("/summary", dependencies=[Depends(get_platform_admin)], response_model=ModelStats)

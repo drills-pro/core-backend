@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 from app.core import problem
 from app.core.enums import PackageAuditAction, PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import JobPackage
+from app.integrations import data_plane
+from app.integrations.data_plane import job_package
 from app.modules.admin.task_bundles import routes, service
 from app.modules.admin.task_bundles.constants import AUTO_PROMOTER, ProblemCode
-from tests.integrations.data_plane.test_job_package import package_row
 from tests.support import FakeConn, TenantCtx
+from tests.support.packages import package_row
 from tests.support.bundles import SLUG, manifest
 from tests.support.presets import preset_row
 from tests.support.task_types import task_row
@@ -65,6 +67,7 @@ def call(monkeypatch):
         monkeypatch.setattr(service, "get_pool", get_pool)
         monkeypatch.setattr(service.data_plane, "start_package_smoke", unchanged)
         monkeypatch.setattr(service.data_plane, "refresh_package_smoke", unchanged)
+        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)  # the gates of a promotion and a retry settle the smoke through it
         app = FastAPI()
         problem.install(app)
         app.dependency_overrides[routes.get_platform_admin] = lambda: "ops"
@@ -94,8 +97,8 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
     res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
     assert res.status_code == 200 and res.json()["status"] == "stable"
     assert conn.sql()[1:] == [
-        "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO task_types", "DELETE FROM task_presets",
-        *["INSERT INTO task_presets"] * 3, "INSERT INTO job_package_audit"]
+        "SELECT * FROM job_packages", "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO job_package_audit", "INSERT INTO task_types", "DELETE FROM task_presets",
+        *["INSERT INTO task_presets"] * 3]
     by_sql = {sql.split(" (")[0]: args for sql, args in conn.calls}
     assert by_sql["INSERT INTO task_types"] == (SLUG, "images", "imgcls.train:train", True, "image_encoder", "classify", SHA, "ops")
     assert by_sql["DELETE FROM task_presets WHERE task = $1 AND NOT"] == (SLUG, ["small", "medium", "large"])
@@ -107,7 +110,7 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
 def test_a_bundle_whose_smoke_has_not_passed_is_not_promoted(call):
     conn = Conn(bundle_row())
     res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 409 and res.json()["code"] == ProblemCode.SMOKE_NOT_PASSED and len(conn.calls) == 1
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_PASSED and len(conn.calls) == 1
 
 
 def test_retiring_a_candidate_is_audited_and_the_stable_one_is_refused(call):
@@ -164,11 +167,11 @@ def test_only_a_failed_candidate_bundle_is_smoked_again(call, monkeypatch):
     async def retry(name, sha):
         return JobPackage.model_validate(bundle_row(smoke_job_id="smoke-2"))
 
-    monkeypatch.setattr(service.data_plane, "retry_package_smoke", retry)
+    monkeypatch.setattr(job_package, "retry_smoke", retry)
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(bundle_row(smoke_status=SmokeStatus.FAILED)))
     assert res.status_code == 200 and res.json()["smoke_job_id"] == "smoke-2"
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(_passed()))
-    assert res.status_code == 409 and res.json()["code"] == ProblemCode.SMOKE_NOT_RETRYABLE
+    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE
 
 
 @pytest.fixture
@@ -182,6 +185,7 @@ def poller(monkeypatch):
 
         monkeypatch.setattr(service, "get_pool", get_pool)
         monkeypatch.setattr(service.data_plane, "refresh_package_smoke", unchanged)
+        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)
         monkeypatch.setattr(service.settings.training, "bundle_auto_promote", enabled)
         asyncio.run(service.auto_promote())
         return [args for sql, args in conn.calls if sql.startswith("INSERT INTO job_package_audit")]
