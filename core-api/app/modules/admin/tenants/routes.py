@@ -11,30 +11,30 @@ import json
 from fastapi import APIRouter, Body, Depends, Query, Response
 
 from app.core.auth import get_platform_admin
+from app.core.pagination import Page, PageParams, set_total_header
 from app.modules.admin.tenants import service
 from app.modules.admin.tenants.schemas import CreatedTenant, TenantListItem, TenantsSummary
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
 
-@router.get("", dependencies=[Depends(get_platform_admin)], response_model=list[TenantListItem])
+@router.get("", dependencies=[Depends(get_platform_admin)], response_model=Page[TenantListItem])
 async def list_tenants(
     response: Response,
     q: str | None = Query(default=None, description="case-insensitive match on tenant name"),
     plan_tier: str | None = Query(default=None, description="free | pro | enterprise | internal (left out unless asked for)"),
     status: str | None = Query(default=None, description="active | suspended | unknown"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: PageParams = Depends(),
 ):
     """Every tenant, newest last.
 
     `X-Total-Count` carries the size of the filtered set and
     `X-Status-Counts` its active/suspended/unknown breakdown, so a pager
     and status tabs cost no extra requests."""
-    page = await service.list_page(q, plan_tier, status, limit, offset)
-    response.headers["X-Status-Counts"] = json.dumps(page.status_counts)  # StrEnum keys dump as their values
-    response.headers["X-Total-Count"] = str(page.total)
-    return page.rows
+    listing = await service.list_page(q, plan_tier, status, page)
+    response.headers["X-Status-Counts"] = json.dumps(listing.status_counts)  # StrEnum keys dump as their values
+    set_total_header(response, listing.total)
+    return listing.page
 
 
 @router.post("", status_code=201, response_model=CreatedTenant)

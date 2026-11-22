@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.core.authz import TenantStatus
 from app.core.enums import IdentityStatus
+from app.core.pagination import Page
 from app.core.tenant_settings import TenantSettings
 from app.integrations.zitadel import OrgOwner, OrgUser
 from app.modules.user.tenants import AdminTenantCreated, AdminTenantFull, AdminTenantRow
@@ -18,7 +19,7 @@ class TenantListItem(AdminTenantRow):
 
 
 class TenantPage(BaseModel):
-    rows: list[TenantListItem]
+    page: Page[TenantListItem]
     total: int  # the size of the filtered set
     status_counts: dict[IdentityStatus, int]  # the filtered set by status, before the status filter
 

@@ -33,7 +33,7 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
   const versions = useQuery(versionsQuery(projectId, datasetId));
   const runs = useQuery({
     ...runsQuery(projectId),
-    refetchInterval: (q) => (q.state.data?.some((r) => !RUN_DONE.includes(r.status)) ? POLL_MS : false),
+    refetchInterval: (q) => (q.state.data?.items.some((r) => !RUN_DONE.includes(r.status)) ? POLL_MS : false),
   });
   const [versionId, setVersionId] = useState('');
   const [preset, setPreset] = useState('');
@@ -95,7 +95,7 @@ export function Training({ projectId, datasetId }: { projectId: string; datasetI
           </Table.Row>
         </Table.Header>
         <Table.Body>
-          {runs.data?.map((r) => (
+          {runs.data?.items.map((r) => (
             <Table.Row key={r.id}>
               <Table.Cell>
                 <Code>{short(r.id)}</Code>

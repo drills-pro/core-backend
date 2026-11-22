@@ -15,36 +15,31 @@ import datetime
 import uuid
 
 from app.core.db import get_pool
+from app.core.pagination import Page, PageParams, build_page, cursor_args, total_of
 from app.integrations import zitadel
 from app.integrations.zitadel import OrgUser
 from app.modules.admin.activity.schemas import ActivityItem, ActivityStats
 from app.modules.user.tenants import get_org_ids
 
-TOTAL_COLUMN = "total"  # count(*) OVER () on every row: the pager's, not part of a row
-_ACTIVITY = "SELECT * FROM admin_activity($1, $2, $3, $4, $5, $6)"
+_ACTIVITY = "SELECT * FROM admin_activity($1, $2, $3, $4, $5, $6, $7)"
 _STATS = "SELECT * FROM admin_activity_stats()"
 
 
 async def list_activity(
-    q: str | None, tenant_id: uuid.UUID | None, entity_type: str | None, days: int | None, limit: int, offset: int
-) -> tuple[list[ActivityItem], int]:
+    q: str | None, tenant_id: uuid.UUID | None, entity_type: str | None, days: int | None, page: PageParams
+) -> tuple[Page[ActivityItem], int]:
     """One page of every recorded action, newest first, and the size of the filtered set."""
     since = None
     if days is not None:
         since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
 
     async with (await get_pool()).acquire() as conn:
-        rows = await conn.fetch(_ACTIVITY, limit, offset, tenant_id, entity_type, q, since)
-        # count(*) OVER () has no row to ride on when the filter matches
-        # nothing, which is the one case the header has to be told about.
-        total = rows[0][TOTAL_COLUMN] if rows else 0
+        rows = await conn.fetch(_ACTIVITY, page.page_size + 1, *cursor_args(page.page_token), tenant_id, entity_type, q, since)
         orgs = await _org_ids(conn, {row["tenant_id"] for row in rows})
 
     names = await _actor_names(orgs)
-    items = [
-        ActivityItem.model_validate(dict(row, actor_name=names.get((row["tenant_id"], row["actor"])))) for row in rows
-    ]
-    return items, total
+    named = [dict(row, actor_name=names.get((row["tenant_id"], row["actor"]))) for row in rows]
+    return build_page(named, page.page_size, ActivityItem), total_of(rows)
 
 
 async def summary() -> ActivityStats:

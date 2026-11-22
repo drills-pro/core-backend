@@ -41,7 +41,7 @@ entries:
   tests:
   - core-api/tests/modules/user/training/test_training.py::test_viewer_lists_runs
   - core-api/tests/modules/user/training/test_events.py::test_get_shows_the_latest_event_and_the_epoch_history
-  note: The list still pages by limit/offset, not by cursor (planning/05 Pagination).
+  note: The list pages by keyset with page_token/page_size (planning/05 Pagination).
 - id: TRN-03
   area: training
   title: Customer steps of a run (no raw job log, no report message)

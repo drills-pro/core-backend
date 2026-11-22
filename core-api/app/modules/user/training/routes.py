@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.core.authz import Action, AuthzContext, public, require
 from app.core.problem import Problem
 from app.core.idempotency import IdempotencyKey
+from app.core.pagination import Page, PageParams
 from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
 from app.modules.user.training import create_service, events_service, preset_service, run_service
 from app.modules.user.training.constants import MAX_EVENT_BODY_BYTES, ProblemCode
@@ -58,14 +59,11 @@ async def create_training_run(
     return await create_service.create_run(ctx, project_id, body, idempotency_key)
 
 
-@router.get("", response_model=list[TrainingRunSummary])
+@router.get("", response_model=Page[TrainingRunSummary])
 async def list_training_runs(
-    project_id: uuid.UUID,
-    ctx: AuthzContext = Depends(require(Action.JOB_READ)),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    project_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.JOB_READ)), page: PageParams = Depends()
 ):
-    return await run_service.list_runs(ctx, project_id, limit, offset)
+    return await run_service.list_runs(ctx, project_id, page)
 
 
 @router.get("/{run_id}", response_model=TrainingRun)

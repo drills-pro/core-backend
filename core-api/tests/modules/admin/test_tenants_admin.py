@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from app.core.enums import AdminAuditAction, AdminAuditEntity
+from app.core.pagination import encode_token
 from tests.modules.admin.conftest import AdminConn, zitadel_orgs
 from tests.support import audits
 
@@ -16,6 +17,7 @@ NOW = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
 URL = "/v1/admin/tenants"
 ORG_SEARCH, MEMBER_SEARCH, USER_SEARCH = "/admin/v1/orgs/_search", "/members/_search", "/users/_search"
 LIST_SQL = "admin_tenant_stats"
+ORGS_SQL = "SELECT id, zitadel_org_id FROM tenants"
 
 
 def tenant_row(tid, name, org, **kw):
@@ -30,49 +32,86 @@ HUMAN = {"userId": "u-human", "userType": "TYPE_HUMAN", "roles": ["ORG_OWNER"], 
 MACHINE = {"userId": "u-bot", "userType": "TYPE_MACHINE", "roles": ["ORG_OWNER"], "preferredLoginName": "bot"}
 
 
+class TenantsConn(AdminConn):
+    """The two listing queries: every filtered (id, org), then the keyset page of the ids it is handed (oldest first, LIMIT as asked)."""
+
+    def __init__(self, rows):
+        super().__init__()
+        self.rows = rows
+
+    async def fetch(self, sql, *args):
+        self.calls.append((sql, args))
+        if LIST_SQL not in sql:
+            return [{"id": r["id"], "zitadel_org_id": r["zitadel_org_id"]} for r in self.rows]
+        limit = int(sql.rsplit("LIMIT ", 1)[1])
+        after = args[1:]  # (created_at, id) of the cursor, when there is one
+        kept = [r for r in self.rows if r["id"] in args[0] and (not after or (r["created_at"], str(r["id"])) > (after[0], str(after[1])))]
+        return kept[:limit]
+
+
+def at(seconds):
+    return NOW + datetime.timedelta(seconds=seconds)
+
+
 @pytest.fixture
 def three_tenants(zitadel_stub):
     zitadel_stub.routes[ORG_SEARCH] = zitadel_orgs(o1="ORG_STATE_ACTIVE", o2="ORG_STATE_INACTIVE")
     zitadel_stub.routes[MEMBER_SEARCH] = owners(MACHINE, HUMAN)
-    return AdminConn(fetches={LIST_SQL: [tenant_row(T1, "A", "o1"), tenant_row(T2, "B", "o2"), tenant_row(T3, "C", None)]})
+    rows = [tenant_row(T1, "A", "o1", ), tenant_row(T2, "B", "o2"), tenant_row(T3, "C", None)]
+    return TenantsConn([dict(r, created_at=at(i)) for i, r in enumerate(rows)])
 
 
 def test_listing_joins_zitadel_status_and_owner(admin, three_tenants):
     res = admin(three_tenants).get(URL)
     assert res.status_code == 200
-    assert [(r["name"], r["status"]) for r in res.json()] == [("A", "active"), ("B", "suspended"), ("C", "unknown")]
-    assert res.json()[0]["owner"] == {"user_id": "u-human", "display_name": "Ada", "login_name": "ada@x"}  # human beats the machine user
-    assert res.json()[2]["owner"] is None  # no org, nobody to ask
+    items = res.json()["items"]
+    assert [(r["name"], r["status"]) for r in items] == [("A", "active"), ("B", "suspended"), ("C", "unknown")]
+    assert items[0]["owner"] == {"user_id": "u-human", "display_name": "Ada", "login_name": "ada@x"}  # human beats the machine user
+    assert items[2]["owner"] is None  # no org, nobody to ask
+    assert res.json()["next_page_token"] is None
     assert res.headers["X-Total-Count"] == "3"
     assert json.loads(res.headers["X-Status-Counts"]) == {"active": 1, "suspended": 1, "unknown": 1}
 
 
 def test_status_filter_narrows_the_page_but_not_the_counts(admin, three_tenants):
     res = admin(three_tenants).get(URL, params={"status": "suspended"})
-    assert [r["name"] for r in res.json()] == ["B"]
+    assert [r["name"] for r in res.json()["items"]] == ["B"]
     assert res.headers["X-Total-Count"] == "1"
     assert json.loads(res.headers["X-Status-Counts"])["active"] == 1
 
 
 def test_listing_pages_the_filtered_set(admin, three_tenants):
-    res = admin(three_tenants).get(URL, params={"limit": 1, "offset": 1})
-    assert [r["name"] for r in res.json()] == ["B"]
-    assert res.headers["X-Total-Count"] == "3"
+    first = admin(three_tenants).get(URL, params={"page_size": 1})
+    assert [r["name"] for r in first.json()["items"]] == ["A"]
+    assert first.json()["next_page_token"] == encode_token(at(0), T1)
+    assert first.headers["X-Total-Count"] == "3"
+    second = admin(three_tenants).get(URL, params={"page_size": 2, "page_token": first.json()["next_page_token"]})
+    assert [r["name"] for r in second.json()["items"]] == ["B", "C"] and second.json()["next_page_token"] is None
+    assert second.headers["X-Total-Count"] == "3"  # the filtered set, not what is left after the cursor
+
+
+def test_a_status_filter_pages_the_narrowed_set(admin, three_tenants):
+    res = admin(three_tenants).get(URL, params={"status": "active", "page_size": 1})
+    assert [r["name"] for r in res.json()["items"]] == ["A"] and res.json()["next_page_token"] is None
+
+
+def test_an_invalid_cursor_is_400(admin, three_tenants):
+    res = admin(three_tenants).get(URL, params={"page_token": "garbage"})
+    assert (res.status_code, res.json()["code"]) == (400, "invalid_page_token")
 
 
 def test_listing_passes_the_filters_to_the_query(admin, three_tenants):
     admin(three_tenants).get(URL, params={"q": "ac", "plan_tier": "pro"})
     sql, args = three_tenants.calls[0]
-    assert args[:2] == ("ac", "pro")
+    assert ORGS_SQL in sql and args[:2] == ("ac", "pro")
 
 
 def test_listing_survives_zitadel_being_down(admin, zitadel_stub):
     zitadel_stub.routes[ORG_SEARCH] = httpx.ConnectError("down")
     zitadel_stub.routes[MEMBER_SEARCH] = httpx.ConnectError("down")
-    conn = AdminConn(fetches={LIST_SQL: [tenant_row(T1, "A", "o1")]})
-    res = admin(conn).get(URL)
+    res = admin(TenantsConn([tenant_row(T1, "A", "o1")])).get(URL)
     assert res.status_code == 200
-    assert (res.json()[0]["status"], res.json()[0]["owner"]) == ("unknown", None)
+    assert (res.json()["items"][0]["status"], res.json()["items"][0]["owner"]) == ("unknown", None)
 
 
 def test_summary_counts_in_postgres_and_statuses_from_the_tenants_own_orgs(admin, zitadel_stub):

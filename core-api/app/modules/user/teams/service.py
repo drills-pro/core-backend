@@ -1,19 +1,22 @@
 import uuid
 
 from app.core.authz import AuthzContext
+from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_clause, order_by
 from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.modules.user.teams import writers
 from app.modules.user.teams.schemas import Team
 
-_LIST = "SELECT id, name, created_at FROM teams ORDER BY created_at LIMIT $1 OFFSET $2"
+_LIST = "SELECT id, name, created_at FROM teams WHERE true"
 _GET = "SELECT id, name, created_at FROM teams WHERE id = $1"
 
 
-async def list_teams(ctx: AuthzContext, limit: int, offset: int) -> list[Team]:
+async def list_teams(ctx: AuthzContext, page: PageParams) -> Page[Team]:
+    """The tenant's teams, oldest first."""
+    cond, args = keyset_clause(page.page_token, SortDir.ASC, first_param=1)
     async with TenantConn(ctx.tenant_id) as conn:
-        rows = await conn.fetch(_LIST, limit, offset)
-    return [Team.model_validate(dict(r)) for r in rows]
+        rows = await conn.fetch(f"{_LIST} {cond} ORDER BY {order_by(SortDir.ASC)} LIMIT {page.page_size + 1}", *args)
+    return build_page(rows, page.page_size, Team)
 
 
 async def create_team(ctx: AuthzContext, name: str) -> Team:
