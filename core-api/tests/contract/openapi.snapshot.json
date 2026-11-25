@@ -11937,22 +11937,6 @@
           },
           {
             "in": "header",
-            "name": "x-model-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Model-Id"
-            }
-          },
-          {
-            "in": "header",
             "name": "x-tenant-id",
             "required": false,
             "schema": {
@@ -12056,22 +12040,6 @@
               ],
               "title": "X-Project-Id"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-model-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Model-Id"
-            }
           }
         ],
         "responses": {
@@ -12145,22 +12113,6 @@
                 }
               ],
               "title": "X-Project-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-model-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Model-Id"
             }
           }
         ],
@@ -12252,22 +12204,6 @@
                 }
               ],
               "title": "X-Project-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-model-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Model-Id"
             }
           }
         ],

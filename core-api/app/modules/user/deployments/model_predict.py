@@ -225,6 +225,9 @@ async def predict(
         plan_limit = service.rate_limit_for(await get_plan_tier(conn, uuid.UUID(ctx.tenant_id)))
     if row is None:  # no such deployment, another project's, or no main one: one body
         raise not_found()
+    # The key's allowlist names models (the project's registered model): the deployment's model must be on it.
+    if not ctx.allows_model(str(row["model_id"])):
+        raise Problem(HTTPStatus.FORBIDDEN, KernelProblemCode.FORBIDDEN, "this key may not use that model")
     model_uuid = row["model_id"]
     if row["status"] != DeploymentStatus.ACTIVE:  # deploying, stopped or failed: one code here
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"the model's deployment is {row['status']}, not active")

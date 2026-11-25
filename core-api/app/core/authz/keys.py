@@ -4,7 +4,7 @@ project: the X-Project-Id header may only confirm the key's project, never choos
 
     missing, unknown, revoked or expired key, or X-Project-Id missing/different  -> 401 invalid_api_key (one body)
     key without the scope                                                         -> 403 forbidden, naming the scope
-    model outside a non-empty allowlist                                           -> 403 forbidden
+    (the model allowlist is checked by the route, once it knows the model a call names)
     tenant not active (suspended or pending deletion)                             -> 503 tenant_suspended
 """
 import hashlib
@@ -66,12 +66,11 @@ def invalid_api_key() -> Problem:
 
 
 def require_key(scope: Scope):
-    """Route dependency: authenticate the key, check its scope and (when X-Model-Id is sent) its model allowlist."""
+    """Route dependency: authenticate the key and check its scope. The model allowlist is the route's check (see KeyContext.allows_model)."""
 
     async def dependency(
         authorization: str | None = Header(default=None),
         x_project_id: str | None = Header(default=None),
-        x_model_id: str | None = Header(default=None),
     ) -> KeyContext:
         secret = (authorization or "").removeprefix("Bearer ")
         if not secret.startswith(KEY_PREFIX):
@@ -89,8 +88,6 @@ def require_key(scope: Scope):
             raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, ProblemCode.TENANT_SUSPENDED, "this tenant is not active")
         if scope not in ctx.scopes:
             raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, f"missing scope {scope}", scope=scope.value)
-        if not ctx.allows_model(x_model_id):
-            raise Problem(HTTPStatus.FORBIDDEN, ProblemCode.FORBIDDEN, "this key may not use that model")
         async with pool.acquire() as conn:
             await conn.execute("SELECT api_key_touch($1)", ctx.key_id)  # last_used_at, written at most once a minute
         return ctx
@@ -108,14 +105,13 @@ def require_caller(scope: Scope, action: Action):
     async def dependency(
         authorization: str | None = Header(default=None),
         x_project_id: str | None = Header(default=None),
-        x_model_id: str | None = Header(default=None),
         x_tenant_id: str | None = Header(default=None),
         x_user_id: str | None = Header(default=None),
     ) -> KeyContext:
         bearer = (authorization or "").removeprefix("Bearer ")
         member = (bearer and not bearer.startswith(KEY_PREFIX)) or (not authorization and settings.auth.dev_headers and x_tenant_id)
         if not member:
-            return await key_dependency(authorization, x_project_id, x_model_id)
+            return await key_dependency(authorization, x_project_id)
         claims = await get_optional_claims(authorization)
         tenant_id = await resolve_tenant_id(claims, x_tenant_id)
         actor = resolve_actor(claims, x_user_id)

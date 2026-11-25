@@ -3,7 +3,6 @@ POST /v1/predict under RLS (tenant A's key cannot reach tenant B's model), recor
 import asyncpg
 import pytest
 
-from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.deployments import model_predict
 from app.modules.user.deployments.status import VERSION_LIVE_STATUSES, DeploymentStatus
 from app.modules.user.model_registry import service as registry
@@ -60,21 +59,22 @@ def test_the_deployment_drift_check_names_the_statuses_the_index_holds(two_tenan
     t.run(go())
 
 
-def test_tenant_a_cannot_resolve_tenant_bs_model_but_resolves_its_own(two_tenants):
+def test_tenant_a_cannot_resolve_tenant_bs_deployment_but_resolves_its_own_and_its_main(two_tenants):
     t = two_tenants
 
     async def go():
         for tenant in (t.a, t.b):
             await t.conn.execute(LINK, tenant, DeploymentStatus.ACTIVE)
-        def look(conn, model, project):
-            return conn.fetchrow(
-                model_predict._RESOLVE, model, project, None, DeploymentStatus.DELETED, DeploymentStatus.ACTIVE, ModelStage.PRODUCTION)
-
-        ids = {k: await t.conn.fetchrow("SELECT id, project_id FROM models WHERE tenant_id = $1", k) for k in (t.a, t.b)}
+            await t.conn.execute("UPDATE deployments SET main = true WHERE tenant_id = $1", tenant)
+        deployments = {k: await t.conn.fetchrow("SELECT id, project_id FROM deployments WHERE tenant_id = $1", k) for k in (t.a, t.b)}
         async with t.as_tenant(t.a) as conn:
-            assert (await look(conn, ids[t.a]["id"], ids[t.a]["project_id"]))["mlflow_version"] == "1"
-            assert await look(conn, ids[t.b]["id"], ids[t.b]["project_id"]) is None  # RLS hides it
-            assert await look(conn, ids[t.b]["id"], ids[t.a]["project_id"]) is None  # and so does the project filter
+            own = await conn.fetchrow(model_predict._RESOLVE, deployments[t.a]["id"], deployments[t.a]["project_id"], DeploymentStatus.DELETED)
+            assert own["mlflow_version"] == "1"
+            # RLS hides another tenant's deployment, and so does the project filter.
+            assert await conn.fetchrow(model_predict._RESOLVE, deployments[t.b]["id"], deployments[t.b]["project_id"], DeploymentStatus.DELETED) is None
+            assert await conn.fetchrow(model_predict._RESOLVE, deployments[t.b]["id"], deployments[t.a]["project_id"], DeploymentStatus.DELETED) is None
+            # A call with no model names the project's main deployment, which is the tenant's own.
+            assert (await conn.fetchrow(model_predict._RESOLVE_MAIN, deployments[t.a]["project_id"], DeploymentStatus.DELETED))["id"] == deployments[t.a]["id"]
 
     t.run(go())
 

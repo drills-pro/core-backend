@@ -131,15 +131,13 @@ def test_missing_scope_is_403_naming_the_scope(client, pool):
     assert "predict" in body["detail"]
 
 
-def test_model_allowlist_is_enforced_and_empty_means_any_model(client, pool):
-    limited, open_ = pool.add(models=[MODEL]), pool.add()
-    assert call(client, limited, model=MODEL).status_code == 200
-    for model in (OTHER_MODEL, None):
-        r = call(client, limited, model=model)
-        assert (r.status_code, r.json()["code"]) == (403, "forbidden")
-    assert call(client, limited, model="not-a-uuid").status_code == 403
-    assert call(client, open_, model=OTHER_MODEL).status_code == 200
-    assert call(client, open_).status_code == 200
+def test_the_key_dependency_accepts_any_model_header_the_route_checks_the_allowlist(client, pool):
+    # The allowlist is checked by the predict route once it knows the deployment's model (test_model_predict), so a
+    # deployment id in X-Model-Id is not refused here.
+    limited = pool.add(models=[MODEL])
+    assert call(client, limited, model=OTHER_MODEL).status_code == 200
+    assert call(client, limited, model="not-a-uuid").status_code == 200
+    assert call(client, limited).status_code == 200
 
 
 def test_key_context_allows_model():

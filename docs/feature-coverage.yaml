@@ -497,7 +497,7 @@ entries:
   code: [core-api/migrations/20261109182100_models_and_deployment_version.sql, core-api/app/modules/user/model_registry/service.py]
   tests:
   - core-api/tests/db/test_models_db.py::test_record_version_joins_the_model_of_its_name_and_makes_one_per_name
-  - core-api/tests/db/test_models_db.py::test_tenant_a_cannot_resolve_tenant_bs_model_but_resolves_its_own
+  - core-api/tests/db/test_models_db.py::test_tenant_a_cannot_resolve_tenant_bs_deployment_but_resolves_its_own_and_its_main
   note: Built after the 2026-11-05 audit; revision is the MLflow version number.
 - id: REG-08
   area: registry
@@ -993,7 +993,7 @@ entries:
   old: F11
   code: [core-api/app/modules/user/api_keys/constants.py, core-api/app/core/authz/keys.py]
   tests:
-  - core-api/tests/core/authz/test_keys.py::test_model_allowlist_is_enforced_and_empty_means_any_model
+  - core-api/tests/core/authz/test_keys.py::test_the_key_dependency_accepts_any_model_header_the_route_checks_the_allowlist
   - core-api/tests/core/authz/test_keys.py::test_missing_scope_is_403_naming_the_scope
   - core-api/tests/modules/user/api_keys/test_api_keys.py::test_unknown_scope_is_422
 - id: PRD-05

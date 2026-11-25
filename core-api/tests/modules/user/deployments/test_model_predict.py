@@ -11,7 +11,7 @@ from app.modules.user.deployments import model_predict, routes
 from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import METADATA_MAX_BYTES, PREDICTION_ID_PREFIX
 from app.modules.user.deployments.status import DeploymentStatus
-from tests.support.predict_env import BODY, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
+from tests.support.predict_env import BODY, MODEL, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
 
 @pytest.fixture
 def env(monkeypatch):
@@ -63,9 +63,10 @@ def test_401_for_an_unknown_key_and_for_another_project(env):
     assert env.post(project=uuid.uuid4()).status_code == 401
 
 
-def test_403_for_a_model_outside_the_key_allowlist_and_200_inside_it(env):
+def test_403_for_a_key_whose_allowlist_lacks_the_deployments_model_and_200_when_it_has_it(env):
     assert env.post(secret=env.add_key(models=[uuid.uuid4()])).status_code == 403
-    assert env.post(secret=env.add_key(models=[DEPLOYMENT])).status_code == 200
+    assert env.post(secret=env.add_key(models=[MODEL])).status_code == 200
+    assert env.post(secret=env.add_key(models=[DEPLOYMENT])).status_code == 403  # a deployment id is not a model
 
 
 @pytest.mark.parametrize("model", [uuid.uuid4(), "not-a-uuid"])
