@@ -3,8 +3,7 @@ import { Badge, Button, Card, Code, Dialog, HStack, Portal, Stack, Switch, Text 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, unwrap, type Schemas } from '@/api/client';
 import { packageKeys, useTaskBundles } from '@/api/packages';
-import { PACKAGE_ERROR_MESSAGES, PackageStatus } from '@/constants';
-import { ConfirmChange, type Change } from '@/pages/ConfirmChange';
+import { PACKAGE_ERROR_MESSAGES } from '@/constants';
 import { PackageList } from '@/pages/PackageList';
 import { CardGrid, CardSkeletons, CodedError, Empty, ErrorAlert, Section } from '@/ui';
 
@@ -23,7 +22,6 @@ const manifestOf = (b: Bundle) => (b.manifest ?? {}) as Manifest;
 export function TaskBundlesSection() {
   const qc = useQueryClient();
   const list = useTaskBundles();
-  const [change, setChange] = useState<Change | null>(null);
   const [detail, setDetail] = useState<Bundle | null>(null);
   const retry = useMutation({
     mutationFn: (b: Bundle) => unwrap(client.POST('/v1/admin/task-bundles/{slug}/{sha256}/smoke', { params: { path: { slug: b.slug, sha256: b.sha256 } } })),
@@ -36,8 +34,8 @@ export function TaskBundlesSection() {
   return (
     <Stack gap="4">
       <Text color="fg.muted">
-        Task bundles: one per task type, each carrying the trainer, the hyperparameter schema and the presets. Promoting one rewrites that task's row and presets and
-        retires the previous active bundle; promoting an older sha is the rollback.
+        Task bundles: one per task type, each carrying the trainer, the hyperparameter schema and the presets. The active bundle of a task rewrites its row and
+        presets when it becomes active; the previous one is retired automatically.
       </Text>
       <ErrorAlert error={list.error} />
       <CodedError error={retry.error} messages={PACKAGE_ERROR_MESSAGES} />
@@ -47,7 +45,6 @@ export function TaskBundlesSection() {
             packages={bundles}
             retrying={retry.isPending ? retry.variables?.sha256 : undefined}
             onRetry={(p) => retry.mutate(p as Bundle)}
-            onAction={(a) => setChange({ ...a, slug, replaces: bundles.find((b) => b.status === PackageStatus.STABLE) })}
             extra={(p) => (
               <Button size="xs" variant="outline" onClick={() => setDetail(p as Bundle)}>
                 Manifest
@@ -58,7 +55,6 @@ export function TaskBundlesSection() {
       ))}
       {list.isPending && <CardSkeletons count={2} />}
       {list.data?.length === 0 && <Empty title="No task bundles registered" />}
-      {change && <ConfirmChange change={change} onClose={() => setChange(null)} />}
       {detail && <ManifestDialog bundle={detail} onClose={() => setDetail(null)} />}
     </Stack>
   );

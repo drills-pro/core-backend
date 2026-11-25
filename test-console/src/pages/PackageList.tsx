@@ -4,20 +4,17 @@ import type { Pkg } from '@/api/packages';
 import { PackageStatus, SmokeStatus } from '@/constants';
 import { CardGrid, Facts, StatusBadge, when } from '@/ui';
 
-export type PackageAction = { pkg: Pkg; status: Pkg['status']; rollback?: boolean };
-
 const SHA_SHOWN = 12;
 const sha = (p: Pkg) => p.sha256.slice(0, SHA_SHOWN);
 
 type Handlers = {
-  onAction: (a: PackageAction) => void;
   onRetry?: (p: Pkg) => void;
   retrying?: string;
   extra?: (p: Pkg) => ReactNode;
 };
 
 /** One package name (or task slug): its single active (stable) package as a hero card, candidates as cards beside it,
- * retired ones folded away. Pure view: what a button does is the caller's, so runtime packages and bundles share it. */
+ * retired ones folded away. Read-only: CI moves the active package, so the only action here is retrying a failed smoke. */
 export function PackageList({ packages, ...h }: { packages: Pkg[] } & Handlers) {
   const [showRetired, setShowRetired] = useState(false);
   const active = packages.find((p) => p.status === PackageStatus.STABLE);
@@ -31,7 +28,7 @@ export function PackageList({ packages, ...h }: { packages: Pkg[] } & Handlers) 
       ) : (
         <Alert.Root status="warning" size="sm">
           <Alert.Indicator />
-          <Alert.Title>No active package: promote a candidate whose smoke passed.</Alert.Title>
+          <Alert.Title>No active package: a candidate becomes active once its smoke passed.</Alert.Title>
         </Alert.Root>
       )}
       {candidates.length > 0 && (
@@ -60,10 +57,9 @@ export function PackageList({ packages, ...h }: { packages: Pkg[] } & Handlers) 
   );
 }
 
-function PackageCard({ pkg: p, hero, onAction, onRetry, retrying, extra }: { pkg: Pkg; hero?: boolean } & Handlers) {
+function PackageCard({ pkg: p, hero, onRetry, retrying, extra }: { pkg: Pkg; hero?: boolean } & Handlers) {
   const retired = p.status === PackageStatus.RETIRED;
   const smokeFailed = p.status === PackageStatus.CANDIDATE && p.smoke_status === SmokeStatus.FAILED;
-  const canPromote = !hero && p.smoke_status === SmokeStatus.PASSED;
   return (
     <Card.Root size="sm" variant="outline" borderColor={hero ? 'green.emphasized' : undefined} bg={hero ? 'green.subtle' : undefined} opacity={retired ? 0.75 : 1}>
       <Card.Header>
@@ -96,16 +92,6 @@ function PackageCard({ pkg: p, hero, onAction, onRetry, retrying, extra }: { pkg
         {onRetry && smokeFailed && (
           <Button size="xs" variant="outline" loading={retrying === p.sha256} onClick={() => onRetry(p)}>
             Retry smoke
-          </Button>
-        )}
-        {canPromote && (
-          <Button size="xs" colorPalette="green" onClick={() => onAction({ pkg: p, status: PackageStatus.STABLE, rollback: retired })}>
-            {retired ? 'Roll back to this' : 'Promote'}
-          </Button>
-        )}
-        {p.status === PackageStatus.CANDIDATE && (
-          <Button size="xs" variant="outline" colorPalette="red" onClick={() => onAction({ pkg: p, status: PackageStatus.RETIRED })}>
-            Retire
           </Button>
         )}
       </Card.Footer>

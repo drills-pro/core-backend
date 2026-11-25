@@ -98,7 +98,7 @@ class PackageDb:
             if row is not None:
                 row |= {"status": status, "updated_by": actor}
             return row
-        if sql.startswith("UPDATE") and "smoke_job_id = NULL" in sql:  # reset_failed_smoke: a compare-and-set
+        if sql.startswith("UPDATE") and "smoke_job_id = NULL" in sql:  # reset_smoke: a compare-and-set
             name, sha, status, was, now = args
             row = self.rows.get((name, sha))
             if row is None or row["status"] != status or row["smoke_status"] != was:

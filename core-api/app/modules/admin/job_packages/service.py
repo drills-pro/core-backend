@@ -1,14 +1,20 @@
-"""The admin's moves on a runtime package: publish or register a candidate, promote, retire, smoke again. The rules (smoke
-gate, one stable, audit) are the lifecycle's (data_plane/job_package.py, core/job_packages.py); each write here is one
-transaction. A gateway call (Ray, S3) never runs inside a pooled connection, so a promotion reads the row, settles its
-smoke, then writes in a connection of its own."""
+"""The job packages' moves: publish or register a version, and make it a package's target once its smoke passed. CI calls
+`target` for every new version, and the poller `promote_targets` moves targets that became eligible. The rules (smoke gate,
+one target per name, the core x bundle re-check, audit) are the lifecycle's (data_plane/job_package.py, core/job_packages.py);
+each write here is one transaction. A gateway call (Ray, S3) never runs inside a pooled connection, so a move reads the row,
+settles its smoke, then writes in a connection of its own."""
+import logging
+
 from app.core import job_packages
 from app.core.db import get_pool
-from app.core.enums import JobPackageName, PackageStatus
-from app.core.job_packages import JobPackage
+from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus, TaskType
+from app.core.job_packages import TASK_PACKAGE_PREFIX, JobPackage
 from app.core.problem import not_found
 from app.integrations import data_plane
-from app.modules.admin.job_packages.constants import SMOKE_NOT_PASSED_DETAIL, SMOKE_NOT_RETRYABLE_DETAIL
+from app.modules.admin import task_bundles
+from app.modules.admin.job_packages.constants import AUTO_PROMOTER, SMOKE_NOT_RETRYABLE_DETAIL
+
+logger = logging.getLogger(__name__)
 
 
 async def list_packages(name: JobPackageName) -> list[JobPackage]:
@@ -22,26 +28,73 @@ async def publish(name: JobPackageName, actor: str) -> JobPackage:
     return await data_plane.start_package_smoke(await data_plane.publish_package(name, actor))
 
 
-async def register(name: JobPackageName, s3_key: str, actor: str) -> JobPackage:
-    return await data_plane.start_package_smoke(await data_plane.register_staged_package(name, s3_key, actor))
+async def _register(name: str, s3_key: str, actor: str) -> JobPackage:
+    if name.startswith(TASK_PACKAGE_PREFIX):
+        return await task_bundles.register_bundle(name, s3_key, actor)
+    return await data_plane.start_package_smoke(await data_plane.register_staged_package(JobPackageName(name), s3_key, actor))
 
 
-async def set_status(name: JobPackageName, sha256: str, status: PackageStatus, actor: str) -> JobPackage:
-    """Promote a candidate to stable (once its smoke passed; the previous stable is retired) or retire a package."""
-    # ponytail: a bundle promoted while the core's smoke ran is not in it; re-smoke the core if that matters
-    if status == PackageStatus.STABLE:
-        async with (await get_pool()).acquire() as conn:
-            current = await job_packages.get(conn, name, sha256)
-        if current is not None:
-            await data_plane.require_package_smoke_passed(current, SMOKE_NOT_PASSED_DETAIL)
-        async with (await get_pool()).acquire() as conn:
-            package = await job_packages.promote(conn, name, sha256, actor)
-    else:
-        async with (await get_pool()).acquire() as conn:
-            package = await job_packages.retire(conn, name, sha256, actor, status)
-    if package is None:
+async def _promote(package: JobPackage, actor: str) -> JobPackage:
+    if package.kind == PackageKind.TASK:
+        return await task_bundles.promote_bundle(package, actor)
+    async with (await get_pool()).acquire() as conn:
+        return await job_packages.promote(conn, package.name, package.sha256, actor)
+
+
+async def _bundle_targets_moved_since(core: JobPackage) -> bool:
+    """The core's smoke ran against the bundle targets that were stable when it started (its `updated_at`): a bundle target
+    promoted after that is one the core was not smoked with."""
+    async with (await get_pool()).acquire() as conn:
+        bundles = await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.STABLE)
+    return any(b.updated_at > core.updated_at for b in bundles)
+
+
+async def _move(package: JobPackage, actor: str) -> JobPackage:
+    """Make a candidate whose smoke passed the target of its package. The core moves only while the bundle targets it was
+    smoked with are still the stable ones; otherwise it is smoked again and that new candidate is returned."""
+    if package.name == data_plane.CORE_PACKAGE and await _bundle_targets_moved_since(package):
+        return await data_plane.restart_package_smoke(package)
+    promoted = await _promote(package, actor)
+    if promoted is None:
         raise not_found()
-    return package
+    return promoted
+
+
+async def target(name: str, s3_key: str, actor: str) -> JobPackage:
+    """CI's call for a version: register the staged zip, smoke it, and make it the target once its smoke passed. A version
+    already known is not registered again: one that passed moves now (a rollback, or the same push again), one that failed is
+    smoked again, and one still running is left to `promote_targets`."""
+    package = await _register(name, s3_key, actor)
+    if package.status == PackageStatus.STABLE:
+        return package
+    settled = await data_plane.refresh_package_smoke(package)
+    if settled.smoke_status == SmokeStatus.PASSED:
+        return await _move(settled, actor)
+    if settled.smoke_status == SmokeStatus.FAILED and settled.status == PackageStatus.CANDIDATE:
+        return await data_plane.retry_failed_package_smoke(settled, SMOKE_NOT_RETRYABLE_DETAIL)
+    return settled
+
+
+async def promote_targets() -> None:
+    """Poller: the newest candidate whose smoke passed becomes its package's target. A candidate pushed before the current target
+    does not replace it (an older push that settles late, or a rollback's target). A task bundle waits while its slug opted out
+    or the bundle switch is off."""
+    async with (await get_pool()).acquire() as conn:
+        candidates = await job_packages.list_status(conn, PackageStatus.CANDIDATE)  # oldest first
+        current = {p.name: p for p in await job_packages.list_status(conn, PackageStatus.STABLE)}
+    for candidate in candidates:
+        settled = await data_plane.refresh_package_smoke(candidate)
+        if settled.smoke_status != SmokeStatus.PASSED:
+            continue
+        target_now = current.get(candidate.name)
+        if target_now is not None and candidate.updated_at <= target_now.updated_at:
+            continue
+        if candidate.kind == PackageKind.TASK and not await task_bundles.auto_promote_allowed(TaskType(candidate.manifest["slug"])):
+            continue
+        moved = await _move(settled, AUTO_PROMOTER)
+        if moved.status == PackageStatus.STABLE:
+            current[candidate.name] = moved
+            logger.info("job package %s %s became its target after its smoke passed", moved.name, moved.sha256)
 
 
 async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage:

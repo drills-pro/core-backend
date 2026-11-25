@@ -1,15 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 
-from app.core.enums import PackageStatus
 
-
-class StatusBody(BaseModel):
+class TargetBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: PackageStatus
-
-
-class RegisterBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    s3_key: str  # in the staging bucket: jobs/<ray-jobs|ray-training>-<sha256>.zip
+    s3_key: str  # in the staging bucket: jobs/<ray-jobs|ray-training|ray-serving>-<sha256>.zip, or jobs/<slug>-<sha256>.zip for a task

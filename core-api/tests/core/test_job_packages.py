@@ -62,15 +62,6 @@ def test_promoting_leaves_one_stable_and_audits_it():
     assert db.audit[2:] ==[(NAME, A, PackageAuditAction.PROMOTE, "ops"), (NAME, B, PackageAuditAction.PROMOTE, "ops")]
 
 
-def test_retiring_audits_it_and_an_unknown_package_leaves_no_trail():
-    db = _registered(A)
-    assert asyncio.run(job_packages.retire(db, NAME, A, "ops")).status == PackageStatus.RETIRED
-    assert db.audit[-1] == (NAME, A, PackageAuditAction.RETIRE, "ops")
-    trail = list(db.audit)
-    assert asyncio.run(job_packages.retire(db, NAME, B, "ops")) is None and asyncio.run(job_packages.promote(db, NAME, B, "ops")) is None
-    assert db.audit == trail
-
-
 def test_promoting_an_unknown_package_leaves_the_stable_one_alone():
     db = _registered(A)
     asyncio.run(job_packages.promote(db, NAME, A, "ops"))

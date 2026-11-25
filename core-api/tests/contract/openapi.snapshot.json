@@ -599,25 +599,6 @@
         "title": "BundleSettingsBody",
         "type": "object"
       },
-      "BundleStatusBody": {
-        "additionalProperties": false,
-        "description": "stable promotes the bundle (and rewrites the task's row and presets from its manifest); retired takes it out of use.",
-        "properties": {
-          "status": {
-            "enum": [
-              "stable",
-              "retired"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "BundleStatusBody",
-        "type": "object"
-      },
       "CatalogModel": {
         "description": "One enabled catalog entry: a base model pinned by commit, with the licence it was admitted under.",
         "properties": {
@@ -4497,20 +4478,6 @@
         "title": "ProjectUpdated",
         "type": "object"
       },
-      "RegisterBody": {
-        "additionalProperties": false,
-        "properties": {
-          "s3_key": {
-            "title": "S3 Key",
-            "type": "string"
-          }
-        },
-        "required": [
-          "s3_key"
-        ],
-        "title": "RegisterBody",
-        "type": "object"
-      },
       "Resample": {
         "description": "PIL resampling filter of the resize to a square `image_size` (the trainer mirrors this enum, contract-tested).",
         "enum": [
@@ -4791,19 +4758,6 @@
         "title": "Stats",
         "type": "object"
       },
-      "StatusBody": {
-        "additionalProperties": false,
-        "properties": {
-          "status": {
-            "$ref": "#/components/schemas/PackageStatus"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "StatusBody",
-        "type": "object"
-      },
       "StepKey": {
         "description": "The steps a customer sees for a training run, in order.",
         "enum": [
@@ -4844,6 +4798,20 @@
           "csv_max_columns"
         ],
         "title": "Tables",
+        "type": "object"
+      },
+      "TargetBody": {
+        "additionalProperties": false,
+        "properties": {
+          "s3_key": {
+            "title": "S3 Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "s3_key"
+        ],
+        "title": "TargetBody",
         "type": "object"
       },
       "TaskBundle": {
@@ -7500,17 +7468,19 @@
         ]
       }
     },
-    "/v1/admin/job-packages/{name}/register": {
+    "/v1/admin/job-packages/{name}/target": {
       "post": {
-        "description": "Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads\nthe object back and checks its hash and contents.",
-        "operationId": "register_package_v1_admin_job_packages__name__register_post",
+        "description": "CI's call for a version: the staged zip is checked, registered, smoked, and becomes the target of its package once the smoke\npassed (the poller moves it). A version that already passed moves at once, which is how a rollback is made. Nobody has to act\nin between: a failed smoke is run again by the next call.",
+        "operationId": "target_package_v1_admin_job_packages__name__target_post",
         "parameters": [
           {
             "in": "path",
             "name": "name",
             "required": true,
             "schema": {
-              "$ref": "#/components/schemas/JobPackageName"
+              "pattern": "^(ray_jobs|ray_training|ray_serving|task_[a-z][a-z0-9-]*)$",
+              "title": "Name",
+              "type": "string"
             }
           },
           {
@@ -7550,7 +7520,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RegisterBody"
+                "$ref": "#/components/schemas/TargetBody"
               }
             }
           },
@@ -7578,7 +7548,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Register Package",
+        "summary": "Target Package",
         "tags": [
           "admin"
         ]
@@ -7663,100 +7633,6 @@
           }
         },
         "summary": "Retry Package Smoke",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/v1/admin/job-packages/{name}/{sha256}/status": {
-      "put": {
-        "description": "Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.\nA ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25.",
-        "operationId": "set_package_status_v1_admin_job_packages__name___sha256__status_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/JobPackageName"
-            }
-          },
-          {
-            "in": "path",
-            "name": "sha256",
-            "required": true,
-            "schema": {
-              "pattern": "^[0-9a-f]{64}$",
-              "title": "Sha256",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-admin-user",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-User"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StatusBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobPackage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Package Status",
         "tags": [
           "admin"
         ]
@@ -9137,82 +9013,6 @@
         ]
       }
     },
-    "/v1/admin/task-bundles/register": {
-      "post": {
-        "description": "Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records\na candidate and starts its smoke on the stable core.",
-        "operationId": "register_bundle_v1_admin_task_bundles_register_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-admin-user",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-User"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskBundle"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Register Bundle",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
     "/v1/admin/task-bundles/{slug}": {
       "get": {
         "operationId": "list_slug_bundles_v1_admin_task_bundles__slug__get",
@@ -9363,7 +9163,7 @@
         ]
       },
       "put": {
-        "description": "auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a PUT .../status.",
+        "description": "auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a target call.",
         "operationId": "put_bundle_settings_v1_admin_task_bundles__slug__settings_put",
         "parameters": [
           {
@@ -9447,7 +9247,7 @@
     },
     "/v1/admin/task-bundles/{slug}/{sha256}": {
       "get": {
-        "description": "One bundle; CI polls this for smoke_status after register.",
+        "description": "One bundle; CI polls this for smoke_status after its target call.",
         "operationId": "get_bundle_v1_admin_task_bundles__slug___sha256__get",
         "parameters": [
           {
@@ -9608,100 +9408,6 @@
           }
         },
         "summary": "Retry Bundle Smoke",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/v1/admin/task-bundles/{slug}/{sha256}/status": {
-      "put": {
-        "description": "Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and\npresets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.",
-        "operationId": "set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "slug",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/TaskType"
-            }
-          },
-          {
-            "in": "path",
-            "name": "sha256",
-            "required": true,
-            "schema": {
-              "pattern": "^[0-9a-f]{64}$",
-              "title": "Sha256",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-admin-user",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Admin-User"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BundleStatusBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskBundle"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Bundle Status",
         "tags": [
           "admin"
         ]

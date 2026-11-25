@@ -1323,14 +1323,16 @@ entries:
   gap: Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum.
 - id: JOB-11
   area: jobs
-  title: Job packages - content-hash zips, candidate to stable to retired, smoke gate, CI publish
+  title: Job packages - content-hash zips, CI target call, smoke gate, the target moves when smoke passes
   source: planning/06 Where code lives (zip only); docs/runtime-contract.md
   status: built
   old: F08
-  code: ["GET /v1/admin/job-packages/{name}", "POST /v1/admin/job-packages/{name}/publish", "POST /v1/admin/job-packages/{name}/register", "PUT /v1/admin/job-packages/{name}/{sha256}/status", "POST /v1/admin/job-packages/{name}/{sha256}/smoke", core-api/app/core/job_packages.py, scripts/build-job-package.py]
+  code: ["GET /v1/admin/job-packages/{name}", "POST /v1/admin/job-packages/{name}/publish", "POST /v1/admin/job-packages/{name}/target", "POST /v1/admin/job-packages/{name}/{sha256}/smoke", core-api/app/core/job_packages.py, scripts/build-job-package.py]
   tests:
-  - core-api/tests/modules/admin/test_job_packages.py::test_a_package_whose_smoke_has_not_passed_cannot_be_promoted
-  - core-api/tests/modules/admin/test_job_packages.py::test_a_failed_candidate_is_smoked_again
+  - core-api/tests/modules/admin/test_package_targets.py::test_the_newest_passed_candidate_becomes_the_target_when_there_is_none
+  - core-api/tests/modules/admin/test_job_packages.py::test_target_of_a_version_whose_smoke_passed_moves_it_now_and_audits_the_actor
+  - core-api/tests/modules/admin/test_job_packages.py::test_target_of_a_version_whose_smoke_failed_smokes_it_again
+  - core-api/tests/integrations/data_plane/test_job_package.py::test_a_passed_smoke_is_run_again_from_pending_under_a_new_attempt
   - core-api/tests/integrations/data_plane/test_job_package.py::test_the_zip_is_deterministic_and_named_by_its_hash
   - core-api/tests/integrations/data_plane/test_job_package.py::test_prod_runs_only_a_promoted_package
 - id: JOB-12
