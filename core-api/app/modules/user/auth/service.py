@@ -46,6 +46,12 @@ async def find_created(user_sub: str, idempotency_key: str) -> TenantCreated | N
     return None if ref is None else TenantCreated(id=ref.id, name=ref.name, slug=ref.slug)
 
 
+async def slug_available(slug: str) -> bool:
+    """One point lookup on the unique slug index; no transaction, no write."""
+    async with (await get_pool()).acquire() as conn:
+        return not await slug_taken(conn, slug)
+
+
 async def _slug_for(conn, name: str, requested: str | None) -> str | None:
     """The slug to insert. A requested one is taken as is (a clash is a 409); otherwise the name's own if free,
     else None, and the tenants_set_slug trigger appends the tenant id's prefix."""

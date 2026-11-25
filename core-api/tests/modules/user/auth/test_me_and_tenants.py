@@ -110,6 +110,13 @@ def test_a_requested_slug_is_used_as_is(monkeypatch):
     assert not any("SELECT true" in s for s, _ in conn.calls)
 
 
+def test_slug_availability_is_one_lookup_and_writes_nothing(monkeypatch):
+    conn = FakeConn(row=None, vals={"SELECT true": True})
+    _patch(monkeypatch, conn)
+    assert asyncio.run(service.slug_available("acme")) is False
+    assert len(conn.calls) == 1 and "SELECT true FROM tenants" in conn.calls[0][0]
+
+
 @pytest.mark.parametrize("slug", ["ab", "x" * 41, "-a-b", "a--b", "has space", "admin", "Upper"])
 def test_bad_slugs_are_rejected(slug):
     with pytest.raises(ValueError):
@@ -181,3 +188,23 @@ def test_accepting_again_returns_the_workspace_and_audits_nothing(monkeypatch):
     out = asyncio.run(member_routes.accept_invitation("tok", Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     assert (out.tenant_id, out.role) == (T9, "member")
     assert len(conn.calls) == 1
+
+
+def test_slug_available_route_answers_the_lookup_and_caps_the_length(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.core import problem
+
+    async def available(slug):
+        return slug == "free"
+
+    monkeypatch.setattr(service, "slug_available", available)
+    app = FastAPI()
+    problem.install(app)
+    app.dependency_overrides[routes.get_profile_claims] = lambda: None
+    app.include_router(routes.router)
+    client = TestClient(app)
+    assert client.get("/v1/me/tenant-slug-available", params={"slug": "free"}).json() == {"slug": "free", "available": True}
+    assert client.get("/v1/me/tenant-slug-available", params={"slug": "taken"}).json()["available"] is False
+    assert client.get("/v1/me/tenant-slug-available", params={"slug": "x" * 41}).status_code == 422

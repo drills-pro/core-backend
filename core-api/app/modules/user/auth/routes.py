@@ -2,7 +2,7 @@
 access token, core/auth.py verifies it, core/tenancy.py checks membership (ADR-021)."""
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.core import rate_limit
 from app.core.auth import Claims, get_claims, get_profile_claims
@@ -10,6 +10,7 @@ from app.core.authz import TenantRole, allowed_actions, public
 from app.core.authz.policy import TENANT_ACTIONS
 from app.core.idempotency import IDEMPOTENCY_HEADER
 from app.core.problem import Problem
+from app.core.schemas import TENANT_SLUG_MAX_LENGTH
 from app.modules.user.auth import service
 from app.modules.user.auth.constants import (
     TENANT_KEY_MAX_LENGTH,
@@ -23,7 +24,7 @@ from app.modules.user.auth.constants import (
     VERIFY_STATUS_USER_RATE_KEY,
     ProblemCode,
 )
-from app.modules.user.auth.schemas import EmailVerificationStatus, Me, TenantCreate, TenantCreated, TenantSummary
+from app.modules.user.auth.schemas import EmailVerificationStatus, Me, SlugAvailability, TenantCreate, TenantCreated, TenantSummary
 
 router = APIRouter(prefix="/v1", tags=["auth"])
 
@@ -47,6 +48,12 @@ async def me(claims: Claims = Depends(get_profile_claims)):
         sub=claims.subject, email=claims.email, email_verified=claims.email_verified, name=claims.display_name,
         tenants=[TenantSummary(**dict(t), capabilities=_capabilities(t["role"])) for t in tenants],
     )
+
+
+@router.get("/me/tenant-slug-available", dependencies=[Depends(public)], response_model=SlugAvailability)  # signed in, no tenant yet
+async def tenant_slug_available(slug: str = Query(max_length=TENANT_SLUG_MAX_LENGTH), claims: Claims = Depends(get_profile_claims)):
+    """Whether a workspace handle is free: one indexed lookup. The create still decides if another request takes it first."""
+    return SlugAvailability(slug=slug, available=await service.slug_available(slug))
 
 
 @router.get("/me/email-verification", dependencies=[Depends(public)], response_model=EmailVerificationStatus)  # self-scoped

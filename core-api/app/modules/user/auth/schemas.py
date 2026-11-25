@@ -18,6 +18,11 @@ class TenantCreated(BaseModel):
     role: TenantRole = TenantRole.OWNER
 
 
+class SlugAvailability(BaseModel):
+    slug: str
+    available: bool
+
+
 class TenantSummary(BaseModel):
     id: uuid.UUID
     name: str

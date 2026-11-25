@@ -5224,6 +5224,24 @@
         "title": "SharingResult",
         "type": "object"
       },
+      "SlugAvailability": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "available"
+        ],
+        "title": "SlugAvailability",
+        "type": "object"
+      },
       "SmokeStatus": {
         "description": "Mirrors the job_packages_smoke_status_check constraint: how a package's smoke job went.",
         "enum": [
@@ -11921,6 +11939,66 @@
           }
         },
         "summary": "Send Email Verification",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/me/tenant-slug-available": {
+      "get": {
+        "description": "Whether a workspace handle is free: one indexed lookup. The create still decides if another request takes it first.",
+        "operationId": "tenant_slug_available_v1_me_tenant_slug_available_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlugAvailability"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tenant Slug Available",
         "tags": [
           "auth"
         ]
