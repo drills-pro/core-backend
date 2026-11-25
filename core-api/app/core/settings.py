@@ -9,7 +9,6 @@ Secrets are not here. `secrets:` holds the *path* of each JSON file; app/core/se
 reads them.
 """
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -163,7 +162,6 @@ class Serving(_Section):
     max_inflight_per_deployment: int  # fallback for a tier without a plan_limits row: concurrent requests to one deployment in one core-api process; more get 429
     max_active_deployments_per_tenant: int  # fallback for a tier without a plan_limits row: deployments a tenant may have active or deploying
     predict_calls_retention_days: int  # predict_calls rows older than this are purged
-    test_calls_retention_days: int  # deployment_test_calls rows (the try-it payloads) older than this are purged
     package_url_ttl_seconds: int  # how long the presigned URL of the ray_serving zip in the Serve config works (S3 caps it at 7 days)
     apps: ServingApps
 
@@ -176,7 +174,6 @@ class Predict(_Section):
     lease_seconds: int  # how long a claimed (or sync idempotent) prediction belongs to its worker before it is taken back
     background_retention_days: int  # a finished background prediction keeps its input and output this long
     sync_retention_hours: int  # a sync prediction sent with an Idempotency-Key is replayable this long
-    legacy_sunset: datetime  # the Sunset header of the deprecated POST /v1/predict/{deployment_id}: when it may stop answering (timezone required)
     inline_max_bytes: int  # an input or output whose JSON is larger than this is stored in the staging bucket and the row keeps only its key
     in_progress_wait_seconds: float  # a retry of a sync call that is still running waits this long for it, then gets 409 request_in_progress
 

@@ -1,15 +1,12 @@
 """Try-it log: a filtered list of stored predictions (source=console) with a bounded limit; the old log table is still purged."""
-import asyncio
-import re
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 
 from app.core.authz import CallSource
-from app.modules.user.deployments import calls, routes, service
+from app.modules.user.deployments import routes, service
 from app.modules.user.deployments.constants import (
     TEST_CALLS_DEFAULT_LIMIT,
     TEST_CALLS_MAX_LIMIT,
@@ -67,26 +64,6 @@ def test_the_log_of_another_deployment_is_404(listing):
     conn = listing("")[1]
     conn.vals["FROM deployments"] = None
     assert listing("")[0].status_code == 404
-
-
-def test_the_purge_asks_for_the_configured_retention(monkeypatch):
-    conn = FakeConn(val=0)
-
-    async def get_pool():
-        return SimpleNamespace(acquire=lambda: _Acquire(conn))
-
-    monkeypatch.setattr(calls, "get_pool", get_pool)
-    asyncio.run(calls.purge_test_calls())
-    (sql, args), = conn.calls
-    assert "purge_test_calls" in sql and args == (calls.settings.serving.test_calls_retention_days,)
-
-
-def test_the_purge_is_polled_and_the_function_is_granted():
-    from app import background
-
-    assert any(fn is calls.purge_test_calls for _, fn, _ in background.POLLERS)
-    assert re.search(r"GRANT EXECUTE ON FUNCTION purge_test_calls\(integer\) TO core_app", MIGRATION)
-    assert "SECURITY DEFINER SET search_path" in MIGRATION
 
 
 class _Acquire:

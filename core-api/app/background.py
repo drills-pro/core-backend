@@ -18,7 +18,6 @@ from app.modules.user.deployments import (
     process_predictions,
     purge_predict_calls,
     purge_stored_predictions,
-    purge_test_calls,
 )
 from app.modules.user.training import reconcile_inflight_runs
 from app.modules.user.webhooks import dispatch_webhooks
@@ -42,7 +41,6 @@ POLLERS = (
     ("rate-limit-purge", rate_limit.purge, SWEEP_INTERVAL_SECONDS),
     ("serving-ensure", ensure_serving, SERVING_ENSURE_INTERVAL_SECONDS),
     ("predict-calls-purge", purge_predict_calls, PURGE_INTERVAL_SECONDS),
-    ("test-calls-purge", purge_test_calls, PURGE_INTERVAL_SECONDS),
     ("prediction-worker", process_predictions, PREDICTION_WORKER_INTERVAL_SECONDS),
     ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
     ("job-packages-audit-purge", job_packages.purge_audit, PURGE_INTERVAL_SECONDS),

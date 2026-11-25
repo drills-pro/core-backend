@@ -634,7 +634,7 @@ entries:
   status: built
   code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/start"]
   tests:
-  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_is_active_again_on_the_shared_apps_even_for_a_leftover_legacy_row
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_is_active_again_on_the_shared_apps
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full
 - id: DEP-05
   area: deployment
@@ -948,7 +948,7 @@ entries:
   title: Inference latency and call metrics
   source: planning/11 Observability
   status: built
-  code: [core-api/app/core/metrics/inference.py, core-api/app/core/metrics/predict.py]
+  code: [core-api/app/core/metrics/inference.py]
   tests:
   - core-api/tests/core/test_metrics.py
 # ------------------------------------------------------------------ PREDICT API
