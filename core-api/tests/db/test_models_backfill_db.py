@@ -63,7 +63,7 @@ async def seed(conn, key_rows):
                            "VALUES ($1, $2, $3, $4, $5, $6)", tenant, project, uuid.UUID(RUN[run]), name, version, datetime.fromisoformat(created + "T00:00:00+00:00"))
     # R3 has an older deleted and a live deployment; R1 a stopped one; R5 has no model_versions row at all.
     for run, status, created in [(3, "deleted", "2026-04-01"), (3, "active", "2026-04-02"), (1, "stopped", "2026-04-03"),
-                                 (5, "active", "2026-04-04"), (2, "failed", "2026-04-05"), (4, "deploying", "2026-04-06")]:
+                                 (5, "active", "2026-04-04"), (2, "stopped", "2026-04-05"), (4, "stopped", "2026-04-06")]:
         tenant, project = await conn.fetchrow("SELECT tenant_id, project_id FROM training_runs WHERE id = $1", uuid.UUID(RUN[run]))
         await conn.execute("INSERT INTO deployments (tenant_id, project_id, training_run_id, ray_job_id, route_prefix, status, created_at) "
                            "VALUES ($1, $2, $3, 'job', '/r' || $4, $5, $6)",

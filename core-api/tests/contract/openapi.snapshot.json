@@ -2906,10 +2906,6 @@
             "title": "Deployed Count",
             "type": "integer"
           },
-          "deploying_count": {
-            "title": "Deploying Count",
-            "type": "integer"
-          },
           "model_count": {
             "title": "Model Count",
             "type": "integer"
@@ -2934,7 +2930,6 @@
         "required": [
           "model_count",
           "deployed_count",
-          "deploying_count",
           "stopped_count",
           "not_deployed_count",
           "project_count",
@@ -2947,7 +2942,6 @@
         "description": "The statuses admin_models() derives from a model's newest deployment (a test checks the function names each).",
         "enum": [
           "deployed",
-          "deploying",
           "stopped",
           "not_deployed"
         ],
@@ -8267,7 +8261,7 @@
             }
           },
           {
-            "description": "deployed | deploying | stopped | not_deployed",
+            "description": "deployed | stopped | not_deployed",
             "in": "query",
             "name": "status",
             "required": false,
@@ -8280,7 +8274,7 @@
                   "type": "null"
                 }
               ],
-              "description": "deployed | deploying | stopped | not_deployed",
+              "description": "deployed | stopped | not_deployed",
               "title": "Status"
             }
           },

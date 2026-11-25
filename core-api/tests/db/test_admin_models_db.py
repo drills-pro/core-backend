@@ -6,9 +6,7 @@ from app.modules.user.deployments.status import DeploymentStatus
 
 EXPECTED = {
     DeploymentStatus.ACTIVE: ModelStatus.DEPLOYED,
-    DeploymentStatus.DEPLOYING: ModelStatus.DEPLOYING,
     DeploymentStatus.STOPPED: ModelStatus.STOPPED,
-    DeploymentStatus.FAILED: ModelStatus.STOPPED,
     DeploymentStatus.DELETED: ModelStatus.STOPPED,
 }
 

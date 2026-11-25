@@ -198,8 +198,6 @@ class IdentityStatus(StrEnum):
 class DeploymentStatus(StrEnum):
     """Mirrors the deployments.status CHECK constraint."""
 
-    DEPLOYING = "deploying"  # written only by retired legacy serving; a leftover row can still be re-deployed or deleted
     ACTIVE = "active"
     STOPPED = "stopped"
-    FAILED = "failed"  # written only by retired legacy serving; a leftover row can be re-deployed or deleted
     DELETED = "deleted"

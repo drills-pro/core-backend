@@ -71,7 +71,7 @@ def test_stop_of_a_stopped_deployment_is_a_repeat_not_an_error_and_writes_no_aud
     assert out.status == S.STOPPED and audited(env) == [] and moves(env) == []
 
 
-@pytest.mark.parametrize("current", [S.DEPLOYING, S.FAILED])
+@pytest.mark.parametrize("current", [S.DELETED])
 def test_stop_of_a_deployment_that_is_not_active_is_409(env, current):
     env.conn.rows = {UPDATE: None, SELECT: row(current)}
     with pytest.raises(HTTPException) as e:
@@ -87,7 +87,7 @@ def test_a_missing_or_deleted_deployment_is_404(env):
         assert e.value.status_code == 404
 
 
-@pytest.mark.parametrize("current", [S.ACTIVE, S.STOPPED, S.FAILED, S.DEPLOYING])
+@pytest.mark.parametrize("current", [S.ACTIVE, S.STOPPED])
 def test_delete_clears_the_predict_key_and_audits(env, current):
     env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(current)}
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
@@ -110,23 +110,13 @@ def test_a_repeated_start_does_not_deploy_again(env):
     assert audited(env) == [] and moves(env) == []
 
 
-def test_start_of_a_failed_deployment_is_409(env):
-    env.conn.rows = {UPDATE: row(S.ACTIVE), SELECT: row(S.FAILED)}
-    with pytest.raises(HTTPException) as e:
-        run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
-    assert (e.value.status_code, e.value.code) == (409, ProblemCode.INVALID_TRANSITION) and moves(env) == []
-
-
 # ---- what the rest of the surface answers ----
 
 def test_a_stopped_deployment_answers_409_with_its_own_code():
     with pytest.raises(HTTPException) as stopped:
         predict.require_active(S.STOPPED)
-    with pytest.raises(HTTPException) as failed:
-        predict.require_active(S.FAILED)
     predict.require_active(S.ACTIVE)
     assert (stopped.value.status_code, stopped.value.code) == (409, ProblemCode.STOPPED)
-    assert (failed.value.status_code, failed.value.code) == (409, ProblemCode.NOT_ACTIVE)
 
 
 def test_list_get_and_test_calls_leave_deleted_rows_out(env):

@@ -33,7 +33,7 @@ def test_a_run_with_a_live_deployment_cannot_get_another(two_tenants, held):
     t.run(go())
 
 
-@pytest.mark.parametrize("released", [DeploymentStatus.FAILED, DeploymentStatus.DELETED])
+@pytest.mark.parametrize("released", [DeploymentStatus.DELETED])
 def test_a_failed_or_deleted_deployment_releases_its_run(two_tenants, released):
     t = two_tenants
 
@@ -50,7 +50,7 @@ def test_moving_a_deployment_onto_a_held_run_is_rejected_too(two_tenants):
     t = two_tenants
 
     async def go():
-        await t.conn.execute(SET_STATUS, t.a, DeploymentStatus.FAILED)
+        await t.conn.execute(SET_STATUS, t.a, DeploymentStatus.DELETED)
         await t.conn.execute(INSERT, t.a, DeploymentStatus.ACTIVE, None)  # holds the run
         await t.conn.execute(
             "INSERT INTO training_runs (tenant_id, project_id, idempotency_key, ray_job_id, dataset_ref) "
@@ -69,10 +69,10 @@ def test_an_idempotency_key_is_taken_once_per_project(two_tenants):
     t = two_tenants
 
     async def go():
-        await t.conn.execute(SET_STATUS, t.a, DeploymentStatus.FAILED)  # frees the run, the key is what is tested
-        await t.conn.execute(INSERT, t.a, DeploymentStatus.FAILED, "k")
-        assert await rejected(t.conn, INSERT, t.a, DeploymentStatus.FAILED, "k")
-        assert not await rejected(t.conn, INSERT, t.a, DeploymentStatus.FAILED, None)  # old rows have no key: any number
-        assert not await rejected(t.conn, INSERT, t.a, DeploymentStatus.FAILED, None)
+        await t.conn.execute(SET_STATUS, t.a, DeploymentStatus.DELETED)  # frees the run, the key is what is tested
+        await t.conn.execute(INSERT, t.a, DeploymentStatus.DELETED, "k")
+        assert await rejected(t.conn, INSERT, t.a, DeploymentStatus.DELETED, "k")
+        assert not await rejected(t.conn, INSERT, t.a, DeploymentStatus.DELETED, None)  # old rows have no key: any number
+        assert not await rejected(t.conn, INSERT, t.a, DeploymentStatus.DELETED, None)
 
     t.run(go())

@@ -68,6 +68,6 @@ def test_versions_of_an_unknown_id_is_an_empty_list(admin):
 
 
 def test_summary_is_the_stats_row(admin):
-    stats = dict(model_count=5, deployed_count=2, deploying_count=1, stopped_count=1, not_deployed_count=1, project_count=4, version_count=9)
+    stats = dict(model_count=5, deployed_count=2, stopped_count=1, not_deployed_count=1, project_count=4, version_count=9)
     res = admin(AdminConn(rows={"admin_model_stats": stats})).get(f"{URL}/summary")
     assert (res.status_code, res.json()) == (200, stats)

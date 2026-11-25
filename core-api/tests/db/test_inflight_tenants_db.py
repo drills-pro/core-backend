@@ -4,14 +4,12 @@ import pytest
 from app.core.authz import TenantStatus
 from app.modules.user.datasets.constants import ImportStatus
 from app.modules.user.deployments.constants import PredictionMode, PredictionStatus
-from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.training.constants import TrainingStatus
 
 # (sweep function, what puts the tenant's seeded row in flight, the in-flight status)
 SWEEPS = (
     ("inflight_training_tenant_ids", "UPDATE training_runs SET status = $2 WHERE tenant_id = $1", TrainingStatus.SUBMITTED),
     ("inflight_import_tenant_ids", "UPDATE dataset_imports SET status = $2 WHERE tenant_id = $1", ImportStatus.QUEUED),
-    ("inflight_deploy_tenant_ids", "UPDATE deployments SET status = $2 WHERE tenant_id = $1", DeploymentStatus.DEPLOYING),
     ("inflight_prediction_tenant_ids",
      f"UPDATE predictions SET status = $2, mode = '{PredictionMode.BACKGROUND}' WHERE tenant_id = $1", PredictionStatus.QUEUED),
 )
