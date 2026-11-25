@@ -53,10 +53,10 @@ from app.modules.user.datasets.schemas import DatasetImport, DatasetVersion, Imp
 logger = logging.getLogger(__name__)
 
 
-_LOCK_DATASET = "SELECT id FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE"
+_LOCK_DATASET = "SELECT id FROM datasets WHERE project_id = $1 AND id = $2 FOR UPDATE"
 _IMPORT = (
     "SELECT i.* FROM dataset_imports i JOIN datasets d ON d.id = i.dataset_id "
-    "WHERE i.id = $1 AND i.dataset_id = $2 AND d.project_id = $3 AND d.deleted_at IS NULL"
+    "WHERE i.id = $1 AND i.dataset_id = $2 AND d.project_id = $3"
 )
 _BY_KEY = "SELECT * FROM dataset_imports WHERE dataset_id = $1 AND idempotency_key = $2"
 _BASE_EXISTS = "SELECT 1 FROM dataset_versions WHERE id = $1 AND dataset_id = $2"

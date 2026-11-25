@@ -9,11 +9,11 @@ from app.core.enums import TaskType
 from app.core.problem import not_found
 from app.modules.user.projects import get_task_type
 
-_LIVE_DATASET = "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL"
+_LIVE_DATASET = "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2"
 _IN_PROJECT = "SELECT 1 FROM datasets WHERE id = $1 AND project_id = $2"
 _VERSION_SOURCE = (
     "SELECT v.dataset_id, v.lakefs_commit FROM dataset_versions v JOIN datasets d ON d.id = v.dataset_id "
-    "WHERE v.id = $1 AND d.project_id = $2 AND d.deleted_at IS NULL"
+    "WHERE v.id = $1 AND d.project_id = $2"
 )
 _VERSION_REF = "SELECT id, dataset_id, number, created_at FROM dataset_versions WHERE id = $1"
 _DATASET = "SELECT 1 FROM datasets WHERE id = $1 AND tenant_id = $2"
