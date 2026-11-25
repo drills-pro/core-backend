@@ -2,6 +2,7 @@ name: Test console image
 
 on:
   push:
+    branches: [main]
     paths:
       - "test-console/**"
       - ".github/workflows/test-console-image.yml"

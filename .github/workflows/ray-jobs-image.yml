@@ -5,6 +5,7 @@ name: Build the Ray jobs image
 # request only builds and tests. The k8s PR is not merged from here: merging it restarts the Ray head and the workers.
 on:
   push:
+    branches: [main]
     paths:
       - "ray-jobs/Dockerfile"
       - "ray-jobs/pyproject.toml"
