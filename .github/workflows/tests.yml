@@ -5,10 +5,9 @@ name: Tests
 # request reports every check below; mark them required in the repo's branch protection:
 #   core-api tests, ray-jobs tests, ray-training tests, tenant isolation (Postgres)
 # docker-publish.yml calls this workflow before it builds an image (workflow_call), so a red test cannot ship one.
+# No push trigger: that call already runs the suite on each push to main, so a push would run it twice.
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_call:
 
 permissions:
@@ -32,18 +31,13 @@ jobs:
         run: .venv/bin/python -m pytest tests/core/test_locks.py -q
       - name: Tests (with coverage; fails under tool.coverage.report.fail_under)
         working-directory: core-api
-        run: .venv/bin/python -m pytest tests -q --cov=app --cov-report=term-missing:skip-covered --cov-report=xml
+        run: .venv/bin/python -m pytest tests -q --cov=app --cov-report=term-missing:skip-covered
       - name: Coverage report
         if: always()
         working-directory: core-api
         run: |
           echo '### core-api coverage' >> "$GITHUB_STEP_SUMMARY"
           .venv/bin/python -m coverage report --skip-covered --skip-empty --format=markdown >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: core-api-coverage
-          path: core-api/coverage.xml
       - name: Lint
         run: core-api/.venv/bin/ruff check .
 
