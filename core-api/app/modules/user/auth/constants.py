@@ -1,3 +1,4 @@
+import string
 from enum import StrEnum
 
 TENANT_KEY_MAX_LENGTH = 128  # the tenant_create_keys.key column
@@ -29,3 +30,9 @@ class ProblemCode(StrEnum):
     EMAIL_ALREADY_VERIFIED = "email_already_verified"  # the caller's token predates the verification: sign in again
     NO_EMAIL = "no_email"  # the identity has no address to verify
     IDENTITY_UNAVAILABLE = "identity_unavailable"  # Zitadel did not answer
+
+# A workspace handle from its name; when the name's handle is taken, SLUG_SUFFIX_LENGTH random characters end it.
+DEFAULT_SLUG_BASE = "workspace"  # a name with no ASCII letters has no handle of its own
+SLUG_SUFFIX_LENGTH = 5
+SLUG_SUFFIX_TRIES = 5
+SLUG_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits

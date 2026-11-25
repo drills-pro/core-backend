@@ -1,6 +1,7 @@
 """Sign-in bookkeeping, email verification and tenant creation for /v1/me, /v1/me/email-verification and
 POST /v1/tenants; routes.py only translates HTTP."""
 import logging
+import secrets
 import uuid
 from http import HTTPStatus
 
@@ -12,11 +13,19 @@ from app.core.auth import Claims
 from app.core.authz import TenantRole
 from app.core.db import get_pool
 from app.core.problem import Problem
-from app.core.schemas import slugify
+from app.core.schemas import TENANT_SLUG_MAX_LENGTH, slugify
 from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import zitadel
-from app.modules.user.auth.constants import TENANT_SLUG_CONSTRAINT, ZITADEL_VERIFY_URL_TEMPLATE, ProblemCode
+from app.modules.user.auth.constants import (
+    DEFAULT_SLUG_BASE,
+    SLUG_SUFFIX_ALPHABET,
+    SLUG_SUFFIX_LENGTH,
+    SLUG_SUFFIX_TRIES,
+    TENANT_SLUG_CONSTRAINT,
+    ZITADEL_VERIFY_URL_TEMPLATE,
+    ProblemCode,
+)
 from app.modules.user.auth.schemas import EmailVerificationStatus, TenantCreate, TenantCreated
 from app.modules.user.teams import DEFAULT_TEAM_NAME, create_team
 from app.modules.user.tenant_members import add_member, upsert_principal
@@ -52,15 +61,20 @@ async def slug_available(slug: str) -> bool:
         return not await slug_taken(conn, slug)
 
 
-async def _slug_for(conn, name: str, requested: str | None) -> str | None:
-    """The slug to insert. A requested one is taken as is (a clash is a 409); otherwise the name's own if free,
-    else None, and the tenants_set_slug trigger appends the tenant id's prefix."""
+async def _slug_for(conn, name: str, requested: str | None) -> str:
+    """The slug to insert. A requested one is taken as is (a clash is a 409). Otherwise the name's own slug, or, when another
+    workspace has it, the same with a random ending: the user only names the workspace, the handle is ours to make."""
     if requested:
         return requested
-    suggested = slugify(name)
-    if suggested and not await slug_taken(conn, suggested):
-        return suggested
-    return None
+    base = slugify(name) or DEFAULT_SLUG_BASE
+    if not await slug_taken(conn, base):
+        return base
+    for _ in range(SLUG_SUFFIX_TRIES):
+        ending = "".join(secrets.choice(SLUG_SUFFIX_ALPHABET) for _ in range(SLUG_SUFFIX_LENGTH))
+        candidate = f"{base[: TENANT_SLUG_MAX_LENGTH - SLUG_SUFFIX_LENGTH - 1].rstrip('-')}-{ending}"
+        if not await slug_taken(conn, candidate):
+            return candidate
+    raise Problem(HTTPStatus.CONFLICT, ProblemCode.SLUG_TAKEN, "could not find a free handle for this name, try another name")
 
 
 async def create_tenant(claims: Claims, body: TenantCreate, idempotency_key: str) -> TenantCreated:

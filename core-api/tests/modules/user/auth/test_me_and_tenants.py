@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timezone
 import uuid
 
@@ -77,7 +78,7 @@ def test_replay_with_the_same_key_returns_the_first_tenant_and_creates_nothing(m
 
 
 def test_first_call_claims_the_key_before_inserting_the_tenant(monkeypatch):
-    conn = FakeConn(row=None, rows=_TEAM_ROW, val="acme")
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"INSERT INTO tenants": "acme"}, val=None)
     _patch(monkeypatch, conn)
     asyncio.run(_create(Claims({"sub": "u", "email": "a@b.co", "email_verified": True})))
     sqls = [s for s, _ in conn.calls]
@@ -97,11 +98,22 @@ def _inserted_slug(conn):
     return next(a[2] for s, a in conn.calls if "INSERT INTO tenants" in s)
 
 
-def test_slug_is_derived_from_the_name_when_free_and_left_to_the_trigger_when_taken(monkeypatch):
-    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"SELECT true": None, "INSERT INTO tenants": "acme-inc"})
-    assert _create_with(None, conn, monkeypatch).slug == "acme-inc" and _inserted_slug(conn) == "acme-inc"
-    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"SELECT true": True, "INSERT INTO tenants": "acme-inc-1a2b3c4d"})
-    assert _create_with(None, conn, monkeypatch).slug == "acme-inc-1a2b3c4d" and _inserted_slug(conn) is None
+def test_slug_is_the_name_when_free_and_the_name_with_a_random_ending_when_taken(monkeypatch):
+    async def free(conn, slug):
+        return False
+
+    async def taken_base(conn, slug):
+        return slug == "acme-inc"
+
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"INSERT INTO tenants": "acme-inc"})
+    monkeypatch.setattr(service, "slug_taken", free)
+    _create_with(None, conn, monkeypatch)
+    assert _inserted_slug(conn) == "acme-inc"
+
+    conn = FakeConn(row=None, rows=_TEAM_ROW, vals={"INSERT INTO tenants": "acme-inc-x7k2q"})
+    monkeypatch.setattr(service, "slug_taken", taken_base)
+    _create_with(None, conn, monkeypatch)
+    assert re.fullmatch(r"acme-inc-[a-z0-9]{5}", _inserted_slug(conn))
 
 
 def test_a_requested_slug_is_used_as_is(monkeypatch):
