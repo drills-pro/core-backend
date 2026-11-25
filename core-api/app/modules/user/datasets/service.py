@@ -45,7 +45,7 @@ async def list_datasets(ctx: AuthzContext, project_id: uuid.UUID, page: PagePara
     async with TenantConn(ctx.tenant_id) as conn:
         cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=2)
         rows = await conn.fetch(
-            f"SELECT {_COLUMNS} FROM datasets WHERE project_id = $1 AND deleted_at IS NULL {cond} "
+            f"SELECT {_COLUMNS} FROM datasets WHERE project_id = $1 {cond} "
             f"ORDER BY {order_by(SortDir.DESC)} LIMIT {page.page_size + 1}",
             project_id,
             *args,
@@ -57,7 +57,7 @@ async def list_datasets(ctx: AuthzContext, project_id: uuid.UUID, page: PagePara
 async def get_dataset(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID) -> DatasetSummary:
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            f"SELECT {_COLUMNS} FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL",
+            f"SELECT {_COLUMNS} FROM datasets WHERE project_id = $1 AND id = $2",
             project_id,
             dataset_id,
         )
@@ -71,7 +71,7 @@ async def list_versions(
 ) -> Page[DatasetVersion]:
     async with TenantConn(ctx.tenant_id) as conn:
         if await conn.fetchval(
-            "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL", project_id, dataset_id
+            "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2", project_id, dataset_id
         ) is None:
             raise not_found()
         cond, args = keyset_clause(page.page_token, SortDir.DESC, first_param=2)
