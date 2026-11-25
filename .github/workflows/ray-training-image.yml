@@ -6,6 +6,7 @@ name: Build the Ray trainer image
 # restarts the Ray head and the GPU worker.
 on:
   push:
+    branches: [main]
     paths:
       - "ray-training/Dockerfile"
       - "ray-training/pyproject.toml"
