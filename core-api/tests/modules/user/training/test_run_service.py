@@ -157,27 +157,6 @@ def _register(monkeypatch, row):
 RUN_ROW = {"id": uuid.uuid4(), "status": S.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": []}
 
 
-def test_register_hands_the_mlflow_run_to_the_registry(monkeypatch):
-    calls = _register(monkeypatch, RUN_ROW)
-    assert asyncio.run(run_service.register_model(CTX, PROJECT, RUN_ROW["id"], "clf")) == "version"
-    assert calls == [("clf", "mlflow-1")]
-
-
-@pytest.mark.parametrize("row", [{**RUN_ROW, "status": S.FAILED}, {**RUN_ROW, "status": S.RUNNING}, {**RUN_ROW, "mlflow_run_id": None}])
-def test_only_a_succeeded_run_with_an_mlflow_run_registers(monkeypatch, row):
-    calls = _register(monkeypatch, row)
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(run_service.register_model(CTX, PROJECT, RUN_ROW["id"], "clf"))
-    assert e.value.status_code == 409 and not calls
-
-
-def test_register_of_another_projects_run_is_404(monkeypatch):
-    calls = _register(monkeypatch, None)
-    with pytest.raises(Problem) as e:
-        asyncio.run(run_service.register_model(CTX, PROJECT, RUN_ROW["id"], "clf"))
-    assert e.value.status_code == 404 and not calls
-
-
 def test_a_run_whose_job_never_started_ends_failed_and_is_counted(monkeypatch):
     env = Env(monkeypatch, S.SUBMITTED)
     asyncio.run(service.fail_unstarted(CTX.tenant_id, env.row["id"], "mlflow-1", PROJECT))

@@ -9,7 +9,7 @@ from app.integrations import compute, data_plane
 from app.integrations.data_plane import FailureCode, RunStatus, TrainReport
 from app.modules.user.model_registry import RegisteredVersion, register_in_mlflow
 from app.modules.user.training import decide
-from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TrainingStatus
+from app.modules.user.training.constants import TrainingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -73,4 +73,4 @@ async def register_model(tenant_id: str, row: dict) -> RegisteredVersion | None:
     written only by the compare-and-set winner."""
     if row["mlflow_run_id"] is None:
         return None
-    return await register_in_mlflow(tenant_id, row["project_id"], DEFAULT_MODEL_NAME, row["mlflow_run_id"])
+    return await register_in_mlflow(tenant_id, row["project_id"], str(row["project_id"]), row["mlflow_run_id"], str(row["id"]))

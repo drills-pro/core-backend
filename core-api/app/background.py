@@ -16,7 +16,6 @@ from app.modules.admin.task_bundles import auto_promote_bundles
 from app.modules.user.datasets import expire_stale_imports, purge_deleted_datasets, reconcile_inflight_imports
 from app.modules.user.deployments import (
     process_predictions,
-    process_promotions,
     purge_predict_calls,
     purge_stored_predictions,
     purge_test_calls,
@@ -32,7 +31,6 @@ PURGE_INTERVAL_SECONDS = 3600
 SERVING_ENSURE_INTERVAL_SECONDS = 60
 WEBHOOK_INTERVAL_SECONDS = 5
 BUNDLE_PROMOTE_INTERVAL_SECONDS = 30  # a smoke takes minutes; promotion follows within this
-PROMOTION_WORKER_INTERVAL_SECONDS = 2  # a promotion to Production waits at most this long to be deployed
 PREDICTION_WORKER_INTERVAL_SECONDS = 1  # background predictions wait at most this long to be picked up (planning/24 Q7)
 
 
@@ -49,7 +47,6 @@ POLLERS = (
     ("prediction-worker", process_predictions, PREDICTION_WORKER_INTERVAL_SECONDS),
     ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
     ("job-packages-audit-purge", job_packages.purge_audit, PURGE_INTERVAL_SECONDS),
-    ("promotion-worker", process_promotions, PROMOTION_WORKER_INTERVAL_SECONDS),
     ("webhook-dispatch", dispatch_webhooks, WEBHOOK_INTERVAL_SECONDS),
     ("bundle-auto-promote", auto_promote_bundles, BUNDLE_PROMOTE_INTERVAL_SECONDS),
 )

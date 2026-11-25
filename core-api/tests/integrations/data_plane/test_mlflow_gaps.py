@@ -9,7 +9,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from app.core.problem import Problem
-from app.integrations.data_plane import access, lakefs, layout, mlflow, prediction_payloads
+from app.integrations.data_plane import access, layout, mlflow
 from tests.support import FakeConn, TenantCtx
 
 T, P, D, V, RUN = (str(uuid.uuid4()) for _ in range(5))
@@ -195,7 +195,7 @@ def registry(monkeypatch, create_status):
 
 def test_an_already_registered_model_name_is_fine(monkeypatch):
     seen = registry(monkeypatch, 400)
-    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "r")) == "3"
+    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "r", "tr")) == "3"
     created = next(body for _, path, body in seen if path == "model-versions/create")
     assert created["name"] == mlflow.registered_model_name(T, P, "clf") and created["source"] == "runs:/r/model"
 
@@ -203,32 +203,6 @@ def test_an_already_registered_model_name_is_fine(monkeypatch):
 def test_any_other_registry_failure_raises(monkeypatch):
     registry(monkeypatch, 500)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(mlflow.register_model_version(T, P, "clf", "r"))
+        asyncio.run(mlflow.register_model_version(T, P, "clf", "r", "tr"))
 
 
-def test_a_stage_transition_names_the_namespaced_model_and_keeps_other_versions(monkeypatch):
-    version = {"name": mlflow.registered_model_name(T, P, "clf"), "version": "3", "current_stage": "Staging"}
-    seen = stub(monkeypatch, lambda r: httpx.Response(200, json={"model_version": version}))
-    got = asyncio.run(mlflow.transition_stage(T, P, "clf", "3", mlflow.ModelStage.STAGING))
-    assert got == mlflow.ModelVersion(**version)
-    assert seen[0][2] == {"name": version["name"], "version": "3", "stage": "Staging", "archive_existing_versions": False}
-
-
-def test_a_refused_stage_transition_raises(monkeypatch):
-    stub(monkeypatch, lambda r: httpx.Response(404, json={}))
-    with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(mlflow.transition_stage(T, P, "clf", "3", mlflow.ModelStage.PRODUCTION))
-
-
-# --- prediction payloads: the real client factory and the non-missing error ---------------------------------------
-
-def test_a_store_error_other_than_missing_is_not_reported_as_a_missing_payload(monkeypatch):
-    class Denied:
-        def get_object(self, **kw):
-            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
-
-    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: Denied())
-    monkeypatch.setattr(prediction_payloads.secret_files, "get", lambda name: {"endpoint": "http://s3", "access_key": "k", "secret_key": "s"})
-    key = prediction_payloads._prefix(T, P, RUN) + "input.json"
-    with pytest.raises(ClientError):
-        asyncio.run(prediction_payloads.load(T, P, RUN, key))

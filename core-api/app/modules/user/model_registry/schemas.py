@@ -4,9 +4,6 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.integrations.data_plane import ModelStage
-from app.modules.user.model_registry.constants import PromotionStatus
-
 
 class VersionRef(BaseModel):
     """A model_versions row as stored: `mlflow_model_name` is MLflow's tenant- and project-namespaced name."""
@@ -14,28 +11,14 @@ class VersionRef(BaseModel):
     id: uuid.UUID
     mlflow_model_name: str
     mlflow_version: str
-    stage: ModelStage
 
 
 class ModelVersion(VersionRef):
     created_at: datetime
 
 
-class Promotion(BaseModel):
-    """A promotion to Production that has not finished: pending (the stage flips once the deployment is active) or failed (stages unchanged)."""
-
-    promotion_status: PromotionStatus | None = None
-    promotion_error: str | None = None
-    promotion_error_code: str | None = None  # the problem code of the error, e.g. deploy_risk_unacknowledged
-
-
-class ModelVersionItem(ModelVersion, Promotion):
-    customer_label: str
-    model_id: uuid.UUID  # X-Model-Id of POST /v1/predict; the revision there is mlflow_version
-
-
-class PromotedVersion(VersionRef, Promotion):
-    customer_label: str
+class ModelVersionItem(ModelVersion):
+    model_id: uuid.UUID  # the project's registered model the version belongs to
 
 
 class PublishState(BaseModel):
@@ -51,12 +34,3 @@ class RegisteredVersion(BaseModel):
 
     mlflow_model_name: str
     mlflow_version: str
-
-
-class PendingPromotion(BaseModel):
-    """A promotion the worker has yet to settle: who asked for it and whether they acknowledged the deploy risk."""
-
-    id: uuid.UUID
-    project_id: uuid.UUID
-    promotion_actor: str | None
-    promotion_acknowledged_risk: bool

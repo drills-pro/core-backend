@@ -14,25 +14,16 @@ import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from http import HTTPStatus
 
 from pydantic import BaseModel
 
-from app.core import plan_limits, rate_limit, task_types
-from app.core.authz import TenantStatus
-from app.core.db import get_pool
-from app.core.metrics import inference as inference_metrics
-from app.core.problem import Problem, ProblemCode as KernelProblemCode
+from app.core import plan_limits, task_types
+from app.core.problem import Problem
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
-from app.modules.user.deployments import calls
 from app.modules.user.deployments.constants import (
     DEFAULT_COMPUTE_TARGET,
-    METADATA_FIELD,
-    PREDICTIONS_FIELD,
-    RATE_LIMIT_WINDOW_SECONDS,
-    RETRY_AFTER_HEADER,
     SERVE_ERROR_STATUS,
     SETTING_COMPUTE_TARGET,
     STOPPED_DETAIL,
@@ -43,7 +34,6 @@ from app.modules.user.deployments.constants import (
 from app.modules.user.deployments.status import DeploymentStatus
 from app.modules.user.projects import get_settings, get_task_type
 from app.modules.user.training import get_run_model
-from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 _NO_MODEL = "the deployment's run has no servable model"
 
@@ -148,74 +138,3 @@ async def answer(tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUID
     size = len(json.dumps(body))
     check_size(size, limits)
     return await call(tenant_id, project_id, deployment_id, run_id, body, size, limits.max_inflight_per_deployment)
-
-
-async def authenticate(deployment_id: uuid.UUID, predict_key: str):
-    """The deployment row for a valid predict key, or the Problem that refuses the call (401, suspended tenant, not active, 429). Runs
-    before the route reads the body, so an unauthenticated caller makes it buffer nothing."""
-    # req/04: "separate auth scope from management API — this is what the
-    # customer's own downstream systems call." Genuinely separate: no
-    # tenant/JWT credential accepted here at all, just the per-deployment
-    # secret handed back once at deploy time (see create_deployment). The
-    # lookup runs SECURITY DEFINER (deployment_for_predict() in the init migration) so this path
-    # never needs a tenant session context.
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM deployment_for_predict($1, $2)", deployment_id, hash_key(predict_key))
-    if row is None:
-        raise Problem(HTTPStatus.UNAUTHORIZED, ProblemCode.INVALID_PREDICT_KEY, "invalid deployment id or predict key")
-    if row["tenant_status"] != TenantStatus.ACTIVE:
-        raise Problem(HTTPStatus.SERVICE_UNAVAILABLE, KernelProblemCode.TENANT_SUSPENDED, "this tenant is not active")
-    require_active(row["status"])
-    if not await rate_limit.check(str(deployment_id), row["rate_limit_per_minute"]):
-        problem = Problem(
-            HTTPStatus.TOO_MANY_REQUESTS, ProblemCode.RATE_LIMITED,
-            f"rate limit exceeded ({row['rate_limit_per_minute']}/min for this deployment)",
-        )
-        problem.headers = {RETRY_AFTER_HEADER: str(RATE_LIMIT_WINDOW_SECONDS - int(time.time()) % RATE_LIMIT_WINDOW_SECONDS)}
-        raise problem
-    return row
-
-
-async def predict(deployment_id: uuid.UUID, predict_key: str, body: dict) -> dict:
-    return await serve_authenticated(await authenticate(deployment_id, predict_key), deployment_id, body)
-
-
-async def serve_authenticated(row, deployment_id: uuid.UUID, body: dict) -> dict:
-    """The per-deployment-key call once `authenticate` let it through: answered, logged in predict_calls, metered."""
-    # FR6: an optional `metadata` passthrough field, popped before
-    # forwarding to Serve (the model was never trained to expect it) and
-    # echoed back alongside the prediction.
-    metadata = body.pop(METADATA_FIELD, None)
-
-    tenant_id = str(row["tenant_id"])
-    try:
-        done = await answer(tenant_id, row["project_id"], deployment_id, body)
-    except ServeFailed as e:
-        await calls.record(tenant_id, deployment_id, e.run_id, status=e.status_code, latency_ms=e.elapsed_ms, cold_load=None, error_code=e.code, request_bytes=e.request_bytes)
-        raise
-    inference_metrics.latency.record(done.elapsed_ms, {"deployment_id": str(deployment_id), "cold_load": done.prediction.cold_load})
-    await calls.record(
-        tenant_id, deployment_id, done.run_id, status=HTTPStatus.OK, latency_ms=done.elapsed_ms, cold_load=done.prediction.cold_load,
-        error_code=None, request_bytes=done.request_bytes)
-    result = {PREDICTIONS_FIELD: done.prediction.predictions}
-
-    # FR2 (09-usage-billing-two-tier.md): meter inference — request id in
-    # source_ref (not just deployment_id) so the existing
-    # UNIQUE(resource_type, source_ref) idempotency key doesn't collapse
-    # distinct requests into one row.
-    async with TenantConn(tenant_id) as usage_conn:
-        await record_usage(
-            usage_conn,
-            tenant_id=tenant_id,
-            project_id=row["project_id"],
-            resource_type=UsageResource.INFERENCE,
-            quantity=1,
-            unit=UsageUnit.REQUESTS,
-            occurred_at=datetime.now(timezone.utc),
-            source_ref=f"{deployment_id}:{uuid.uuid4()}",
-        )
-
-    if metadata is not None:
-        result[METADATA_FIELD] = metadata
-    return result

@@ -14,11 +14,11 @@ TABLE = {
     Role.VIEWER: VIEWER,
     Role.EDITOR: VIEWER | {"project.write", "dataset.write", "job.create", "job.cancel", "model.write", "deployment.try"},
     Role.DATASET_EDITOR: VIEWER | {"dataset.write"},
-    Role.MODEL_EDITOR: VIEWER | {"job.create", "job.cancel", "model.write", "model.promote"},
+    Role.MODEL_EDITOR: VIEWER | {"job.create", "job.cancel", "model.write"},
     Role.DEPLOYER: VIEWER | {"deployment.try", "deployment.manage", "api_key.manage"},
     Role.PROJECT_ADMIN: VIEWER | {
         "project.write", "project.delete", "project.member.manage", "audit.read", "dataset.write", "job.create",
-        "job.cancel", "model.write", "model.promote", "deployment.try", "deployment.manage", "api_key.manage",
+        "job.cancel", "model.write", "deployment.try", "deployment.manage", "api_key.manage",
     },
 }
 TENANT_MEMBER = {Action.PROJECT_CREATE, Action.PROJECT_LIST}

@@ -29,6 +29,7 @@ MODEL_DIR = "model"  # artifact directory a registered version's source `runs:/<
 _SCHEME = "mlflow-artifacts:/"
 _HTTP_BAD_REQUEST = 400
 TAG_TENANT, TAG_PROJECT, TAG_DATASET_VERSION = "tenant_id", "project_id", "dataset_version_id"
+TAG_TRAINING_RUN = "training_run_id"  # on a model version: the training run it was made from
 
 
 class RunStatus(StrEnum):
@@ -49,12 +50,6 @@ class ModelStage(StrEnum):
 class StartedRun(BaseModel):
     run_id: str
     artifact_path: str  # the run's artifact root relative to the artifact API: `<exp>/<run>/artifacts`
-
-
-class ModelVersion(BaseModel):
-    name: str
-    version: str
-    current_stage: str
 
 
 def experiment_name(tenant_id: str, project_id: str) -> str:
@@ -209,8 +204,8 @@ async def open_model_file(tenant_id: str, project_id: str, mlflow_run_id: str, n
     return client, resp
 
 
-async def register_model_version(tenant_id: str, project_id: str, model_name: str, run_id: str) -> str:
-    """Model Registry stages map to customer-facing states (None -> Staging -> Production)."""
+async def register_model_version(tenant_id: str, project_id: str, model_name: str, run_id: str, training_run_id: str) -> str:
+    """One version of the project's model for this MLflow run, tagged with its training run. Idempotent per run."""
     await access.project(tenant_id, project_id)
     name = registered_model_name(tenant_id, project_id, model_name)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -222,7 +217,13 @@ async def register_model_version(tenant_id: str, project_id: str, model_name: st
         if existing is not None:
             return existing
         resp = await client.post(
-            _api("model-versions/create"), json={"name": name, "source": f"runs:/{run_id}/model", "run_id": run_id}
+            _api("model-versions/create"),
+            json={
+                "name": name,
+                "source": f"runs:/{run_id}/model",
+                "run_id": run_id,
+                "tags": [{"key": TAG_TRAINING_RUN, "value": training_run_id}],
+            },
         )
         resp.raise_for_status()
         return resp.json()["model_version"]["version"]
@@ -234,21 +235,3 @@ async def _version_of_run(client: httpx.AsyncClient, name: str, run_id: str) -> 
     resp.raise_for_status()
     versions = resp.json().get("model_versions", [])
     return versions[0]["version"] if versions else None
-
-
-async def transition_stage(tenant_id: str, project_id: str, model_name: str, version: str, stage: ModelStage) -> ModelVersion:
-    await access.project(tenant_id, project_id)
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(
-            _api("model-versions/transition-stage"),
-            json={
-                "name": registered_model_name(tenant_id, project_id, model_name),
-                "version": version,
-                "stage": stage,
-                # False: a promotion demotes the old Production version to Staging itself (model_registry.complete_promotion);
-                # True would archive it, and a rollback target must stay a candidate.
-                "archive_existing_versions": False,
-            },
-        )
-        resp.raise_for_status()
-        return ModelVersion.model_validate(resp.json()["model_version"])

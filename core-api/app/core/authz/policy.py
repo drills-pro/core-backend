@@ -82,7 +82,6 @@ class Action(StrEnum):
     JOB_CANCEL = "job.cancel"
     MODEL_READ = "model.read"
     MODEL_WRITE = "model.write"
-    MODEL_PROMOTE = "model.promote"
     DEPLOYMENT_READ = "deployment.read"
     DEPLOYMENT_TRY = "deployment.try"
     DEPLOYMENT_MANAGE = "deployment.manage"
@@ -101,7 +100,7 @@ ROLE_ACTIONS: dict[Role, frozenset[Action]] = {
     Role.VIEWER: _VIEWER,
     Role.EDITOR: _VIEWER | {A.PROJECT_WRITE, A.DATASET_WRITE, A.JOB_CREATE, A.JOB_CANCEL, A.MODEL_WRITE, A.DEPLOYMENT_TRY},
     Role.DATASET_EDITOR: _VIEWER | {A.DATASET_WRITE},
-    Role.MODEL_EDITOR: _VIEWER | {A.JOB_CREATE, A.JOB_CANCEL, A.MODEL_WRITE, A.MODEL_PROMOTE},
+    Role.MODEL_EDITOR: _VIEWER | {A.JOB_CREATE, A.JOB_CANCEL, A.MODEL_WRITE},
     Role.DEPLOYER: _VIEWER | {A.DEPLOYMENT_TRY, A.DEPLOYMENT_MANAGE, A.API_KEY_MANAGE},
     Role.PROJECT_ADMIN: PROJECT_ACTIONS,
 }

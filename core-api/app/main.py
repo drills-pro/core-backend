@@ -83,7 +83,6 @@ ROUTERS = (
     datasets.trash_router,
     deployments.router,
     auth.router,
-    training.models_router,
     model_registry.router,
     projects.members_router,
     api_keys.router,

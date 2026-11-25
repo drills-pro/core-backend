@@ -4,14 +4,13 @@ Domain transitions live in app/modules/user/training/service.py, which the backg
 import uuid
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import ValidationError
 
 from app.core.authz import Action, AuthzContext, public, require
 from app.core.problem import Problem
 from app.core.idempotency import IdempotencyKey
 from app.core.pagination import Page, PageParams
-from app.modules.user.model_registry import MODEL_NAME_PATTERN, ModelVersion
 from app.modules.user.training import create_service, events_service, preset_service, run_service
 from app.modules.user.training.constants import MAX_EVENT_BODY_BYTES, ProblemCode
 from app.modules.user.training.schemas import (
@@ -28,18 +27,6 @@ router = APIRouter(prefix="/v1/projects/{project_id}/training-runs", tags=["trai
 presets_router = APIRouter(prefix="/v1/projects/{project_id}/training-presets", tags=["training"])
 # The trainer's channel: public() because no user session is involved; the per-run token is checked by `run_tenant`.
 events_router = APIRouter(prefix="/internal/v1/training-runs", tags=["training-internal"], dependencies=[Depends(public)])
-# Registering a run's model is training's endpoint (it reads the run) under the registry's URL space.
-models_router = APIRouter(prefix="/v1/projects/{project_id}/models", tags=["models"])
-
-
-@models_router.post("/{run_id}/register", status_code=201, response_model=ModelVersion)
-async def register_model(
-    project_id: uuid.UUID,
-    run_id: uuid.UUID,
-    name: str = Query(pattern=MODEL_NAME_PATTERN),
-    ctx: AuthzContext = Depends(require(Action.MODEL_WRITE)),
-):
-    return await run_service.register_model(ctx, project_id, run_id, name)
 
 
 @presets_router.get("", response_model=list[PresetSummary])

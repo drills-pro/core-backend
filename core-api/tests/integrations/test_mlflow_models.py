@@ -138,11 +138,11 @@ def _registry(monkeypatch, existing):
 
 def test_registering_a_run_twice_reuses_its_mlflow_version(monkeypatch):
     created = _registry(monkeypatch, [{"version": "4"}])
-    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123")) == "4"
+    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123", "tr")) == "4"
     assert created == []
 
 
 def test_registering_a_new_run_creates_a_version(monkeypatch):
     created = _registry(monkeypatch, [])
-    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123")) == "9"
+    assert asyncio.run(mlflow.register_model_version(T, P, "clf", "abc123", "tr")) == "9"
     assert len(created) == 1

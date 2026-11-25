@@ -18,7 +18,7 @@ TENANT, PROJECT, MODEL, RUN, DEPLOYMENT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4
 BODY = {"input": {"text": "hello", "n": 1.0}, "metadata": {"trace": "t1"}}
 RESOLVED = {
     "id": DEPLOYMENT, "status": DeploymentStatus.ACTIVE, "training_run_id": RUN,
-    "rate_limit_per_minute": 60, "mlflow_version": "3",
+    "rate_limit_per_minute": 60, "model_id": MODEL, "mlflow_version": "3",
 }
 
 
@@ -97,14 +97,12 @@ def build(monkeypatch):
     monkeypatch.setattr(prediction_worker.job_lifecycle, "fetch", tenants)
     client = make_client(routes.router, headers=None)
 
-    def post(body=BODY, *, secret=None, model=MODEL, revision=None, project=PROJECT, key=None, extra=None, **kw):
+    def post(body=BODY, *, secret=None, model=DEPLOYMENT, project=PROJECT, key=None, extra=None, **kw):
         headers = {"Authorization": f"Bearer {secret or state.key}", "X-Project-Id": str(project), **(extra or {})}
         if key is not None:
             headers["Idempotency-Key"] = key
         if model is not None:
             headers["X-Model-Id"] = str(model)
-        if revision is not None:
-            headers["X-Model-Revision"] = revision
         return client.post("/v1/predict", json=body, headers=headers, **kw)
 
     def get(prediction_id, *, secret=None, project=PROJECT, path="", extra=None):

@@ -10,9 +10,9 @@ from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_c
 
 MODEL = uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/models"
-MODEL_ROW = {"mlflow_model_name": "n", "mlflow_version": "1", "stage": "None", "id": MODEL,
+MODEL_ROW = {"mlflow_model_name": "n", "mlflow_version": "1", "id": MODEL,
              "publish_metadata": True, "publish_artifact": False, "created_at": datetime.now(timezone.utc),
-             "model_id": uuid.uuid4(), "promotion_status": None, "promotion_error": None, "promotion_error_code": None}
+             "model_id": uuid.uuid4()}
 
 
 ADMIN = access(role=TenantRole.ADMIN)
@@ -23,11 +23,6 @@ HIDDEN = access(visibility=Visibility.PRIVATE)  # private and unbound
 @pytest.fixture
 def call(monkeypatch, dev_headers):
     client = make_client(routes.router)
-
-    async def transition(*_):
-        return None
-
-    monkeypatch.setattr(service.data_plane, "transition_stage", transition)
 
     def do(method, path, row, found=True, **kw):
         # found=False: RLS hides every child row, so the lookups come back empty.
@@ -40,7 +35,6 @@ def call(monkeypatch, dev_headers):
 
 ROUTES = [
     ("get", BASE, Action.MODEL_READ, {}),
-    ("post", f"{BASE}/{MODEL}/promote", Action.MODEL_PROMOTE, {"params": {"stage": "Staging"}}),
     ("patch", f"{BASE}/{MODEL}/publish", Action.PROJECT_WRITE, {"json": {"publish_metadata": True}}),
 ]
 
@@ -49,11 +43,6 @@ ROUTES = [
 def test_allowed_and_hidden(call, method, path, action, kw):
     assert call(method, path, ADMIN, **kw).status_code == 200  # admin holds every action
     assert call(method, path, HIDDEN, **kw).status_code == 404  # bound to nothing
-
-
-def test_an_unknown_stage_is_a_400_listing_the_stages(call):
-    res = call("post", f"{BASE}/{MODEL}/promote", ADMIN, params={"stage": "Retired"})
-    assert res.status_code == 400 and "Staging" in res.json()["detail"]
 
 
 @pytest.mark.parametrize(("method", "path", "action", "kw"), ROUTES[1:])
@@ -73,10 +62,9 @@ def test_model_of_another_project_is_404(call, method, path, action, kw):
     assert call(method, path, ADMIN, found=False, **kw).status_code == 404
 
 
-def test_model_editor_may_promote_but_not_publish(call):
+def test_model_editor_may_not_publish(call):
     editor = access(visibility=Visibility.PRIVATE, roles=[Role.MODEL_EDITOR])
-    assert call(*ROUTES[1][:2], editor, **ROUTES[1][3]).status_code == 200
-    assert call(*ROUTES[2][:2], editor, **ROUTES[2][3]).status_code == 403
+    assert call(*ROUTES[1][:2], editor, **ROUTES[1][3]).status_code == 403
 
 
 class FakeResponse:
@@ -116,11 +104,5 @@ def test_download_of_an_unknown_version_is_404(call):
     assert call("get", f"{BASE}/{MODEL}/download/model.json", ADMIN, found=False).status_code == 404
 
 
-
-@pytest.mark.parametrize(
-    ("state", "code", "label"), [({"promotion_status": "pending"}, 202, "internal only"), ({"stage": "Production"}, 200, "serving")])
-def test_promote_to_production_is_202_while_pending_and_200_once_it_is_production(monkeypatch, dev_headers, state, code, label):
-    conn = FakeConn(ADMIN, row={**MODEL_ROW, **state})
-    patch_tenant_conn(monkeypatch, conn, service)
-    res = make_client(routes.router).post(f"{BASE}/{MODEL}/promote", params={"stage": "Production"})
-    assert (res.status_code, res.json()["customer_label"]) == (code, label)
+def test_promote_is_gone(call):
+    assert call("post", f"{BASE}/{MODEL}/promote", ADMIN, params={"stage": "Production"}).status_code == 404

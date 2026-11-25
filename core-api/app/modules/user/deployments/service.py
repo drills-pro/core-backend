@@ -1,6 +1,5 @@
 """Deployment rules and queries: deploy a model version, read, stop, start, delete, and the console's try-it log (answering is
 predict.py and model_predict.py). Every status write is a move along an edge of DEPLOYMENTS (status.py) through job_lifecycle.advance."""
-import secrets
 import uuid
 from http import HTTPStatus
 
@@ -11,7 +10,7 @@ from app.core import task_types
 from app.core.authz import AuthzContext, CallSource
 from app.core.idempotency import Cap, check_cap, insert_capped, replay
 from app.core.metrics import usage as usage_metrics
-from app.core.problem import Problem, ProblemCode as KernelProblemCode, not_found
+from app.core.problem import Problem, not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import job_lifecycle, serve_client
 from app.modules.user.deployments import prediction_store as store, snippets
@@ -31,18 +30,11 @@ from app.modules.user.deployments.constants import (
     DEPLOYMENT_LOCK_PREFIX,
     AuditAction,
     EntityType,
-    MAIN_ROUTE_SUFFIX,
     PREDICTION_ID_PREFIX,
     NOT_DEPLOYABLE_DETAIL,
     ProblemCode,
     PLAN_TIER_RATE_LIMITS,
-    PREDICT_KEY_BYTES,
-    STOPPED_DETAIL,
     TOO_MANY_DEPLOYMENTS_DETAIL,
-    PROMOTE_KEY_PREFIX,
-    SETTING_DEPLOY_STRATEGY,
-    VERSION_OR_RUN_DETAIL,
-    DeployStrategy,
     PlanTier,
     Serving,
 )
@@ -53,9 +45,8 @@ from app.modules.user.deployments.schemas import (
     DeploymentListItem,
     TestCall,
 )
-from app.modules.user.deployments.predict import hash_key
-from app.modules.user.deployments.status import DEPLOYMENTS, LIVE_STATUSES, QUOTA_STATUSES, DeploymentStatus
-from app.modules.user.projects import get_settings, get_task_type
+from app.modules.user.deployments.status import DEPLOYMENTS, QUOTA_STATUSES, DeploymentStatus
+from app.modules.user.projects import get_task_type
 from app.modules.user.tenants import get_plan_tier
 from app.modules.user.training import get_run_model
 
@@ -67,22 +58,17 @@ def rate_limit_for(plan_tier: str | None) -> int:
 _ACTIVE_COUNT = "SELECT count(*) FROM deployments WHERE tenant_id = $1 AND id <> $2 AND status = ANY($3::text[])"
 _CAP = Cap(DEPLOYMENT_LOCK_PREFIX, _ACTIVE_COUNT, plan_limits.max_active_deployments, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL)
 _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key = $2"
-# A deployment serves one model version, which comes from one run (versions are 1:1 with runs today). Asked by the run (deprecated),
-# it serves the newest version registered from it, NULL when none is.
-_RUN_OF_VERSION = "SELECT training_run_id FROM model_versions WHERE id = $1 AND project_id = $2"
+# A deployment serves one model version, and a succeeded run has exactly one (training's settle registers it).
 _VERSION_OF_RUN = "SELECT id FROM model_versions WHERE training_run_id = $1 AND project_id = $2 ORDER BY created_at DESC, id LIMIT 1"
-_LIVE_OF_VERSION = "SELECT id, status FROM deployments WHERE model_version_id = $1 AND status = ANY($2::text[]) ORDER BY created_at DESC LIMIT 1"
-_LIVE_STATUSES = [str(s) for s in LIVE_STATUSES]
-_ACTIVE_OF_VERSION = "SELECT id FROM deployments WHERE model_version_id = $1 AND status = $2"
 _INSERT = (
-    "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, predict_key_hash, "
-    "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id) "
+    "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, "
+    "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id, main) "
     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
-    "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id, model_version_id"
+    "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id, model_version_id, main"
 )
 _QUOTA_STATUSES = [str(s) for s in QUOTA_STATUSES]
-_STATE_COLUMNS = "id, project_id, training_run_id, model_version_id, status, route_prefix, rate_limit_per_minute, created_at"
+_STATE_COLUMNS = "id, project_id, training_run_id, model_version_id, status, route_prefix, rate_limit_per_minute, created_at, main"
 
 
 def _replay(row, training_run_id: uuid.UUID) -> DeploymentCreated:
@@ -92,18 +78,15 @@ def _replay(row, training_run_id: uuid.UUID) -> DeploymentCreated:
 
 
 async def create_deployment(
-    ctx: AuthzContext, project_id: uuid.UUID, model_version_id: uuid.UUID | None, idempotency_key: str, acknowledge_risk: bool = False,
-    training_run_id: uuid.UUID | None = None,
+    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, idempotency_key: str, acknowledge_risk: bool = False,
+    set_main: bool = False,
 ) -> DeploymentCreated:
-    """Deploy a model version (`model_version_id`). `training_run_id` is the deprecated way to say the same, for one release: exactly one of the two."""
-    if (model_version_id is None) == (training_run_id is None):
-        raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, VERSION_OR_RUN_DETAIL)
+    """Deploy the model of a succeeded training run. `set_main` makes it the project's main deployment: the one a predict call that
+    names no model is answered by (the previous main stops being it). A run with no test dataset is 409 deploy_risk_unacknowledged
+    until acknowledge_risk=true."""
     async with TenantConn(ctx.tenant_id) as conn:
-        if model_version_id is not None:
-            training_run_id = await conn.fetchval(_RUN_OF_VERSION, model_version_id, project_id)
-        else:
-            model_version_id = await conn.fetchval(_VERSION_OF_RUN, training_run_id, project_id)
-        if training_run_id is None:
+        model_version_id = await conn.fetchval(_VERSION_OF_RUN, training_run_id, project_id)
+        if model_version_id is None:
             raise not_found()
         existing = await conn.fetchrow(_BY_KEY, project_id, idempotency_key)
         if existing is not None:
@@ -123,80 +106,62 @@ async def create_deployment(
         risky = risk is not None
         if risky and not acknowledge_risk:  # a warning with an acknowledgement, not a block (planning/06 Quality gates)
             raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOY_RISK, risk)
-
-        settings = await get_settings(conn, project_id)
-        deploy_strategy = settings.get(SETTING_DEPLOY_STRATEGY, DeployStrategy.LATEST)
-
-        # FR4/FR5 (06-project-settings-deployment.md): 'main' strategy has
-        # at most one live deployment row per project — a re-deploy moves it
-        # to the new run in place (same route, same predict key) instead of
-        # minting a new one, so "promote this version to main" never breaks a
-        # downstream integrator's URL. A deleted main row is never reused.
-        existing_main = None
-        if deploy_strategy == DeployStrategy.MAIN:
-            existing_main = await conn.fetchrow(
-                "SELECT id, status FROM deployments WHERE project_id = $1 AND route_prefix = $2 AND status <> $3",
-                project_id,
-                f"/predict/{project_id}/{MAIN_ROUTE_SUFFIX}",
-                DeploymentStatus.DELETED,  # a deleted row has no key: the next deploy mints a new one
-            )
-            if existing_main and existing_main["status"] == DeploymentStatus.STOPPED:
-                raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
         plan_tier = await get_plan_tier(conn, ctx.tenant_id)
-        await check_cap(conn, _CAP, ctx.tenant_id, existing_main["id"] if existing_main else uuid.uuid4(), _QUOTA_STATUSES)  # cheap early answer; the one that counts is under the lock below
+        await check_cap(conn, _CAP, ctx.tenant_id, uuid.uuid4(), _QUOTA_STATUSES)  # cheap early answer; the one that counts is under the lock below
 
+    deployment_id = uuid.uuid4()
     # The predictor apps load the model on its first request: nothing to start, so the deployment is active at once.
-    deployment_id = uuid.UUID(str(existing_main["id"])) if existing_main else uuid.uuid4()
-    route_prefix = serve_client.route_prefix_for(str(deployment_id), str(project_id), deploy_strategy)
     return await _write_deployment(
-        ctx, project_id, training_run_id, model_version_id, idempotency_key, deployment_id, existing_main, route_prefix, plan_tier, risky)
+        ctx, project_id, training_run_id, model_version_id, idempotency_key, deployment_id, plan_tier, risky, set_main)
 
 
 async def _write_deployment(
-    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, model_version_id: uuid.UUID | None, idempotency_key: str,
-    deployment_id: uuid.UUID, existing_main, route_prefix: str, plan_tier, risk_acknowledged: bool = False,
+    ctx: AuthzContext, project_id: uuid.UUID, training_run_id: uuid.UUID, model_version_id: uuid.UUID, idempotency_key: str,
+    deployment_id: uuid.UUID, plan_tier, risk_acknowledged: bool, set_main: bool,
 ) -> DeploymentCreated:
     """The write half of a deploy, under the tenant's deployments lock. One live deployment per version is the unique index's rule:
-    a violation is 409. A `main` re-deploy moves the one row to the new version (and takes the new key)."""
+    a violation is 409. Setting main first clears the project's previous main, so the one-main index holds."""
     try:
         async with TenantConn(ctx.tenant_id) as conn:
-            if existing_main is not None:
-                await check_cap(conn, _CAP, ctx.tenant_id, deployment_id, _QUOTA_STATUSES, lock=True)
-                row = await job_lifecycle.advance(
-                    conn, DEPLOYMENTS, dict(existing_main), DeploymentStatus.ACTIVE,
-                    training_run_id=training_run_id, ray_job_id=None, serving=Serving.SHARED, idempotency_key=idempotency_key,
-                    risk_acknowledged=risk_acknowledged,
-                    model_version_id=model_version_id,
-                )
-                if row is None:  # moved since the read (stopped): a deploy never resurrects it
-                    raise Problem(HTTPStatus.CONFLICT, ProblemCode.STOPPED, STOPPED_DETAIL)
-                await audit.record_for(conn, ctx, project_id, AuditAction.REDEPLOY, EntityType.DEPLOYMENT, deployment_id)
-                return DeploymentCreated.model_validate({**row, "plan_tier": plan_tier})
-
-            # Shown once — this is the credential a customer's downstream
-            # system uses to call /predict, separate from the tenant/JWT
-            # scope used everywhere else. Only the hash is stored.
-            predict_key = secrets.token_urlsafe(PREDICT_KEY_BYTES)
+            if set_main:
+                await conn.execute("UPDATE deployments SET main = false WHERE project_id = $1 AND main", project_id)
             row, created = await insert_capped(
                 conn, _CAP, ctx.tenant_id, (deployment_id, _QUOTA_STATUSES), _INSERT,
-                (deployment_id, ctx.tenant_id, project_id, training_run_id, None, route_prefix, hash_key(predict_key),
-                 rate_limit_for(plan_tier), Serving.SHARED, DeploymentStatus.ACTIVE, idempotency_key, risk_acknowledged, model_version_id),
+                (deployment_id, ctx.tenant_id, project_id, training_run_id, None, serve_client.route_prefix_for(str(deployment_id)),
+                 rate_limit_for(plan_tier), Serving.SHARED, DeploymentStatus.ACTIVE, idempotency_key, risk_acknowledged,
+                 model_version_id, set_main),
                 _BY_KEY, (project_id, idempotency_key),
             )
             if not created:  # lost a race with the same key: that one is the deployment
                 return _replay(row, training_run_id)
             await audit.record_for(conn, ctx, project_id, AuditAction.CREATE, EntityType.DEPLOYMENT, deployment_id)
             await job_lifecycle.emit(conn, DEPLOYMENTS, ctx.tenant_id, project_id, deployment_id, row["status"])
-    except asyncpg.UniqueViolationError:  # only a unique index on the version or the run is left (deployments_one_active_per_version, deployments_one_live_per_run): the idempotency key conflict is DO NOTHING above
+    except asyncpg.UniqueViolationError:  # a unique index on the version, the run or the main slot is left: the idempotency key conflict is DO NOTHING above
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.DEPLOYMENT_EXISTS, DEPLOYMENT_EXISTS_DETAIL) from None
     usage_metrics.deployments_created.add(1)
-    return DeploymentCreated.model_validate({**dict(row), "predict_key": predict_key, "plan_tier": plan_tier})
+    return DeploymentCreated.model_validate({**dict(row), "plan_tier": plan_tier})
+
+
+async def set_main(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uuid.UUID) -> DeploymentDetail:
+    """Make a live deployment the project's main one: the previous main is cleared first (two statements, for the one-main index)."""
+    async with TenantConn(ctx.tenant_id) as conn:
+        row = await conn.fetchrow(
+            f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1 AND project_id = $2 AND status <> $3 FOR UPDATE",  # noqa: S608
+            deployment_id, project_id, DeploymentStatus.DELETED,
+        )
+        if row is None:
+            raise not_found()
+        await conn.execute("UPDATE deployments SET main = false WHERE project_id = $1 AND main AND id <> $2", project_id, deployment_id)
+        await conn.execute("UPDATE deployments SET main = true WHERE id = $1", deployment_id)
+        await audit.record_for(conn, ctx, project_id, AuditAction.SET_MAIN, EntityType.DEPLOYMENT, deployment_id)
+        row = await conn.fetchrow(f"SELECT {_STATE_COLUMNS} FROM deployments WHERE id = $1", deployment_id)  # noqa: S608
+    return DeploymentDetail.model_validate(dict(row))
 
 
 async def list_deployments(ctx: AuthzContext, project_id: uuid.UUID) -> list[DeploymentListItem]:
     async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(
-            "SELECT id, status, route_prefix, created_at, model_version_id FROM deployments "
+            "SELECT id, status, route_prefix, created_at, model_version_id, main FROM deployments "
             "WHERE project_id = $1 AND status <> $2 ORDER BY created_at DESC",
             project_id,
             DeploymentStatus.DELETED,
@@ -222,8 +187,8 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
     """The input and output shape for POST /v1/predict on this deployment, from its task type's encoder and postprocess, and call snippets."""
     async with TenantConn(ctx.tenant_id) as conn:
         row = await conn.fetchrow(
-            "SELECT mv.model_id, mv.mlflow_version, r.report -> 'features' AS features, r.report -> 'categories' AS categories FROM deployments d "
-            "JOIN model_versions mv ON mv.id = d.model_version_id JOIN training_runs r ON r.id = d.training_run_id "
+            "SELECT r.report -> 'features' AS features, r.report -> 'categories' AS categories FROM deployments d "
+            "JOIN training_runs r ON r.id = d.training_run_id "
             "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3",
             deployment_id, project_id, DeploymentStatus.DELETED,
         )
@@ -241,9 +206,8 @@ async def get_schema(ctx: AuthzContext, project_id: uuid.UUID, deployment_id: uu
         body_input = {field: SNIPPET_INPUT_PLACEHOLDER} if field else {}
     item = OUTPUT_ITEM_BY_POSTPROCESS.get(info.postprocess, {})
     return DeploymentSchema(
-        task_type=task, model_id=row["model_id"], model_revision=row["mlflow_version"],
-        input=input_shape, output={"predictions": [item]},
-        snippets=snippets.build(base_url, str(project_id), str(row["model_id"]), row["mlflow_version"], {"input": body_input}),
+        task_type=task, deployment_id=deployment_id, input=input_shape, output={"predictions": [item]},
+        snippets=snippets.build(base_url, str(project_id), str(deployment_id), {"input": body_input}),
     )
 
 
@@ -267,29 +231,6 @@ async def list_test_calls(ctx: AuthzContext, project_id: uuid.UUID, deployment_i
             response=None if r["purged_at"] else await store.payload(r, "output"), error=r["error"] or None, latency_ms=r["latency_ms"], created_at=r["created_at"])
         for r in rows
     ]
-
-
-async def ensure_deployed(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID, acknowledge_risk: bool = False) -> uuid.UUID:
-    """A deployment that serves `version_id`, active: the live one it has (a stopped one is started), or a new one under the project's
-    deploy strategy. What a promotion deploys; raises the deploy's own Problem (quota, risk, no servable model) when it cannot."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        live = await conn.fetchrow(_LIVE_OF_VERSION, version_id, _LIVE_STATUSES)
-    if live is not None:
-        if live["status"] == DeploymentStatus.STOPPED:
-            await start_deployment(ctx, project_id, live["id"])
-        return live["id"]
-    created = await create_deployment(ctx, project_id, version_id, f"{PROMOTE_KEY_PREFIX}{version_id}:{uuid.uuid4().hex}", acknowledge_risk)
-    return created.id
-
-
-async def stop_version_deployments(ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID) -> int:
-    """Stop every active deployment of `version_id` (freeing its plan slot): what a promotion does to the version it replaced, so one
-    version is live. Stopped rows are kept, so a rollback starts one again. Returns how many it stopped."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        rows = await conn.fetch(_ACTIVE_OF_VERSION, version_id, DeploymentStatus.ACTIVE)
-    for row in rows:
-        await _move(ctx, project_id, row["id"], to=DeploymentStatus.STOPPED, action=AuditAction.STOP)
-    return len(rows)
 
 
 # ---- lifecycle: stop, start, delete ----

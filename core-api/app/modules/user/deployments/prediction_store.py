@@ -219,7 +219,7 @@ async def public(row) -> PredictionEnvelope:
 def envelope(row) -> PredictionEnvelope:
     extra = {"attempt": row["attempt"]} if row["mode"] == PredictionMode.BACKGROUND else {}
     return PredictionEnvelope(
-        id=f"{PREDICTION_ID_PREFIX}{row['id']}", status=row["status"], model=PredictModelRef(id=row["model_id"], revision=row["model_revision"]),
+        id=f"{PREDICTION_ID_PREFIX}{row['id']}", status=row["status"], model=PredictModelRef(id=row["deployment_id"]),
         output=row["output"], usage=PredictUsage(latency_ms=row["latency_ms"], **extra), metadata=row["metadata"],
         error=PredictionError.model_validate(row["error"]) if row["error"] else None, expired=row["purged_at"] is not None,
         created_at=row["created_at"])

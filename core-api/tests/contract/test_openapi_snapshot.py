@@ -84,11 +84,9 @@ def test_predict_operations_exist():
     assert "200" in ops["POST /v1/predict"]["responses"]
 
 
-def test_legacy_route_still_exists_and_is_deprecated_by_header_not_by_openapi_flag():
-    # ponytail: routes.py signals deprecation with Deprecation/Sunset headers (tested in test_predict_legacy.py); it does not
-    # set deprecated=True, so the document must not claim it. If the code starts marking it, flip this assertion.
-    legacy = operations(json.loads(SNAPSHOT.read_text()))[LEGACY]
-    assert not legacy.get("deprecated")
+def test_legacy_route_is_gone_from_the_document():
+    # The legacy POST /v1/predict/{deployment_id} (X-Predict-Key) was removed with the stage and key cut: nothing is kept for it.
+    assert LEGACY not in operations(json.loads(SNAPSHOT.read_text()))
 
 
 def test_every_error_status_of_the_predict_table_is_declared_or_explained():

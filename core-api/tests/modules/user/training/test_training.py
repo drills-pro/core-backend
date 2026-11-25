@@ -20,7 +20,7 @@ from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, 
 from app.integrations.job_spec import TrainData
 from app.modules.user.model_registry import RegisteredVersion
 from app.modules.user.training import create_service, effects, persist, routes, run_service, service, train_spec
-from app.modules.user.training.constants import DEFAULT_MODEL_NAME, TRANSITIONS, ProblemCode, TrainingStatus
+from app.modules.user.training.constants import TRANSITIONS, ProblemCode, TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 from tests.support.check_mirror import assert_mirrors
 from tests.support.presets import LIMITS, preset_row
@@ -437,7 +437,7 @@ class Fx:
             self.open_during.append(self.table.open)
             self.published.append(ids)
 
-        async def register_in_mlflow(tenant_id, project_id, name, mlflow_run_id):
+        async def register_in_mlflow(tenant_id, project_id, name, mlflow_run_id, training_run_id):
             self.open_during.append(self.table.open)
             return RegisteredVersion(mlflow_model_name=f"{name}-{mlflow_run_id}", mlflow_version="1")
 
@@ -493,7 +493,7 @@ def test_a_succeeded_job_with_a_good_report_logs_metrics_registers_the_model_and
     assert row["status"] == TrainingStatus.SUCCEEDED and row["completed_at"] is not None and row["claimed_until"] is None
     assert row["metrics"] == {"top1": 0.9} and row["report"]["history"] == [{"epoch": 1, "loss": 0.5}]  # the whole report is kept
     assert fx.mlflow == [("FINISHED", {"top1": 0.9})] and len(fx.published) == 1
-    assert fx.registered == [(row["id"], f"{DEFAULT_MODEL_NAME}-mlflow-1", "1")]
+    assert fx.registered == [(row["id"], f"{row['project_id']}-mlflow-1", "1")]
     assert fx.usage[0]["source_ref"] == f"train-{RUN}" and fx.usage[0]["unit"] == "gpu_seconds"
     assert fx.metrics == [TrainingStatus.SUCCEEDED] and fx.purged == [str(row["id"])]  # the staged files go once the run is final
     assert fx.open_during == [0, 0, 0, 0]  # report read, MLflow closed, model published and registered with no connection held

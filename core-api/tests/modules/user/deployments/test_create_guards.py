@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from app.core.enums import TaskType
 from app.core.settings import settings
 from app.modules.user.deployments import routes, service
-from app.modules.user.deployments.constants import SETTING_DEPLOY_STRATEGY, AuditAction, DeployStrategy, EntityType, ProblemCode
+from app.modules.user.deployments.constants import AuditAction, EntityType, ProblemCode
 from app.modules.user.deployments.status import LIVE_STATUSES, QUOTA_STATUSES, DeploymentStatus
 from app.modules.user.training import TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
@@ -21,7 +21,7 @@ MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_deployments_
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 RUN, OTHER_RUN, VERSION, KEY = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), "key-1"
 SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"], "test_dataset_id": uuid.uuid4()}
-CREATED = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 10, "training_run_id": RUN, "model_version_id": VERSION}
+CREATED = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 10, "training_run_id": RUN, "model_version_id": VERSION, "main": False}
 
 
 class RaisingConn(FakeConn):
@@ -42,20 +42,19 @@ def env(monkeypatch):
     e = SimpleNamespace()
     e.conn = RaisingConn(
         rows={"idempotency_key = $2": None, "FROM training_runs": SERVABLE, "INSERT INTO deployments": CREATED},
-        vals={"FROM model_versions WHERE training_run_id": VERSION, "count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
+        vals={"SELECT id FROM model_versions": VERSION, "count(*) FROM deployments": 0, "SELECT settings": {}, "SELECT plan_tier": "pro", "SELECT task_type": TaskType.IMAGE_CLASSIFICATION})
     patch_tenant_conn(monkeypatch, e.conn, service)
     return e
 
 
 def create(run=RUN, key=KEY):
-    """By the deprecated training_run_id (kept one release); the version-keyed path has its own tests below."""
-    return asyncio.run(service.create_deployment(CTX, PROJECT, None, key, training_run_id=run))
+    return asyncio.run(service.create_deployment(CTX, PROJECT, run, key))
 
 
 def test_the_same_key_and_run_replays_the_deployment_without_the_key_or_a_deploy(env):
     env.conn.rows["idempotency_key = $2"] = CREATED
     out = create()
-    assert out.id == CREATED["id"] and out.predict_key is None
+    assert out.id == CREATED["id"]
     assert not any(sql.startswith("INSERT") for sql, _ in env.conn.calls)
 
 
@@ -75,13 +74,13 @@ def test_a_create_that_loses_the_race_for_the_same_key_returns_the_winner(env):
 
     env.conn.fetchrow = by_key
     out = create()
-    assert out.id == CREATED["id"] and out.predict_key is None
+    assert out.id == CREATED["id"]
 
 
 def test_the_key_is_stored_with_the_new_deployment_and_the_insert_skips_a_taken_key(env):
     out = create()
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert args[-3] == KEY and args[-1] == VERSION and "ON CONFLICT (project_id, idempotency_key)" in sql and out.predict_key
+    assert args[9] == KEY and args[11] == VERSION and "ON CONFLICT (project_id, idempotency_key)" in sql and out.id
 
 
 def test_a_new_deployment_writes_a_create_audit_row(env):
@@ -97,19 +96,10 @@ def test_a_second_live_deployment_of_the_run_is_409_deployment_exists(env):
     assert (e.value.status_code, e.value.code) == (409, ProblemCode.DEPLOYMENT_EXISTS)
 
 
-def test_a_main_redeploy_onto_a_run_another_deployment_holds_is_409(env):
-    env.conn.vals["SELECT settings"] = {SETTING_DEPLOY_STRATEGY: DeployStrategy.MAIN}
-    env.conn.rows["FROM deployments WHERE project_id = $1 AND route_prefix"] = {"id": uuid.uuid4(), "status": "active"}
-    env.conn.fail = ("UPDATE deployments",)
-    with pytest.raises(HTTPException) as e:
-        create()
-    assert e.value.code == ProblemCode.DEPLOYMENT_EXISTS
-
-
 def test_quota_boundary_one_below_passes_and_at_the_limit_is_429_before_any_write(env):
     limit = settings.serving.max_active_deployments_per_tenant  # the YAML fallback applies: no plan_limits row in the fake
     env.conn.vals["count(*) FROM deployments"] = limit - 1
-    assert create().predict_key
+    assert create().id
     env.conn.calls.clear()
     env.conn.vals["count(*) FROM deployments"] = limit
     with pytest.raises(HTTPException) as e:
@@ -165,75 +155,12 @@ def _plan(limit):
     return row(deployments={"max_active_deployments": limit}, updated_at=datetime.now(UTC))
 
 
-# ---- deploy is keyed on a model version (planning/27 #2) ----
+def test_the_main_route_needs_deployment_manage_and_names_a_missing_deployment_404(monkeypatch, dev_headers):
+    from app.core.authz import Role
 
-def create_version(version=VERSION, key=KEY):
-    return asyncio.run(service.create_deployment(CTX, PROJECT, version, key))
-
-
-def test_a_deployment_is_made_from_a_model_version_and_serves_exactly_that_version(env):
-    env.conn.vals["SELECT training_run_id FROM model_versions"] = RUN
-    out = create_version()
-    sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert out.predict_key and args[3] == RUN and args[-1] == VERSION  # the run comes from the version, the version is what is stored
-    lookup = next(a for s, a in env.conn.calls if s.startswith("SELECT training_run_id FROM model_versions"))
-    assert lookup == (VERSION, PROJECT)  # a version of another project finds nothing
-
-
-def test_an_unknown_version_is_404_before_anything_is_checked(env):
-    env.conn.vals["SELECT training_run_id FROM model_versions"] = None
-    with pytest.raises(HTTPException) as e:
-        create_version()
-    assert e.value.status_code == 404 and not any(s.startswith("INSERT") for s, _ in env.conn.calls)
-
-
-@pytest.mark.parametrize("version, run", [(None, None), (VERSION, RUN)])
-def test_exactly_one_of_the_version_and_the_deprecated_run_is_sent(env, version, run):
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(service.create_deployment(CTX, PROJECT, version, KEY, training_run_id=run))
-    assert e.value.status_code == 422
-
-
-def test_the_same_key_and_version_replays_and_another_version_is_409(env):
-    env.conn.vals["SELECT training_run_id FROM model_versions"] = RUN
-    env.conn.rows["idempotency_key = $2"] = CREATED
-    assert create_version().id == CREATED["id"]
-    env.conn.vals["SELECT training_run_id FROM model_versions"] = OTHER_RUN  # the other version comes from another run
-    with pytest.raises(HTTPException) as e:
-        create_version(uuid.uuid4())
-    assert e.value.code == ProblemCode.IDEMPOTENCY_MISMATCH
-
-
-# ---- what a promotion deploys ----
-
-def ensure(env, **kw):
-    return asyncio.run(service.ensure_deployed(CTX, PROJECT, VERSION, **kw))
-
-
-def test_a_version_with_a_live_deployment_is_not_deployed_again(env):
-    live = uuid.uuid4()
-    env.conn.rows["FROM deployments WHERE model_version_id"] = {"id": live, "status": DeploymentStatus.ACTIVE}
-    assert ensure(env) == live and not any(s.startswith("INSERT") for s, _ in env.conn.calls)
-
-
-def test_a_stopped_deployment_of_the_version_is_started_not_duplicated(env, monkeypatch):
-    stopped, started = uuid.uuid4(), []
-    env.conn.rows["FROM deployments WHERE model_version_id"] = {"id": stopped, "status": DeploymentStatus.STOPPED}
-
-    async def start(ctx, project_id, deployment_id):
-        started.append(deployment_id)
-
-    monkeypatch.setattr(service, "start_deployment", start)
-    assert ensure(env) == stopped and started == [stopped]
-
-
-def test_a_version_with_none_gets_a_new_deployment_and_the_risk_answer_goes_with_it(env):
-    env.conn.vals["SELECT training_run_id FROM model_versions"] = RUN
-    env.conn.rows["FROM deployments WHERE model_version_id"] = None
-    env.conn.rows["FROM training_runs"] = {**SERVABLE, "test_dataset_id": None}  # no test data: a risk that must be acknowledged
-    with pytest.raises(HTTPException) as e:
-        ensure(env)
-    assert e.value.code == ProblemCode.DEPLOY_RISK
-    assert ensure(env, acknowledge_risk=True) == CREATED["id"]
-    key = next(a[-3] for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert key.startswith(f"promote:{VERSION}:")
+    client = make_client(routes.router, raise_server_exceptions=False)
+    patch_tenant_conn(monkeypatch, FakeConn(access(roles=[Role.DEPLOYER])), service)
+    assert client.post(f"/v1/projects/{PROJECT}/deployments/{uuid.uuid4()}/main").status_code == 404
+    viewer = access()
+    patch_tenant_conn(monkeypatch, FakeConn(viewer), service)
+    assert client.post(f"/v1/projects/{PROJECT}/deployments/{uuid.uuid4()}/main").status_code == 403

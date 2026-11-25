@@ -15,7 +15,7 @@ from app.modules.user.deployments import model_predict, prediction_store as stor
 from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import PredictionMode, PredictionStatus, ProblemCode
 from app.modules.user.deployments.schemas import PredictRequest
-from tests.support.predict_env import BODY, MODEL, PROJECT, TENANT, build
+from tests.support.predict_env import BODY, DEPLOYMENT, MODEL, PROJECT, TENANT, build
 
 KEY = "key-1"
 
@@ -32,7 +32,7 @@ def ctx(env):
 def seed_in_progress(env, key=KEY, body=BODY):
     """A first request that is still running: its row exists, in_progress, owned by a handler that has not finished."""
     request = PredictRequest.model_validate(body)
-    hashed = model_predict.request_hash(request, MODEL, None)
+    hashed = model_predict.request_hash(request, DEPLOYMENT)
     row, created = asyncio.run(store.begin(
         env.conn, ctx(env), uuid.uuid4(), MODEL, "3", request, mode=PredictionMode.SYNC, key=key, request_hash=hashed))
     assert created
@@ -61,16 +61,10 @@ def test_the_same_key_with_another_body_is_422_idempotency_key_reuse(env, other)
     assert (r.status_code, r.json()["code"]) == (422, "idempotency_key_reuse") and len(env.served) == 1 and len(env.usage) == 1
 
 
-def test_the_same_key_with_another_revision_is_422_idempotency_key_reuse(env):
-    env.post(key=KEY, revision="3")
-    r = env.post(key=KEY, revision="2")
-    assert (r.status_code, r.json()["code"]) == (422, "idempotency_key_reuse") and len(env.served) == 1
-
-
 def test_the_body_fingerprint_ignores_key_order_and_whitespace(env):
     a = PredictRequest.model_validate({"input": {"a": 1, "b": 2}, "metadata": {}})
     b = PredictRequest.model_validate({"metadata": {}, "input": {"b": 2, "a": 1}})
-    assert model_predict.request_hash(a, MODEL, "1") == model_predict.request_hash(b, MODEL, "1") != model_predict.request_hash(a, MODEL, "2")
+    assert model_predict.request_hash(a, DEPLOYMENT) == model_predict.request_hash(b, DEPLOYMENT) != model_predict.request_hash(a, MODEL)
 
 
 def test_two_projects_do_not_share_a_key(env):
@@ -110,7 +104,7 @@ def test_a_retry_waits_for_the_first_call_and_replays_its_result_with_one_serve_
 
     async def go():
         request = PredictRequest.model_validate(BODY)
-        args = (ctx(env), str(MODEL), None, request)
+        args = (ctx(env), str(DEPLOYMENT), request)
         return await asyncio.gather(
             model_predict.predict(*args, idempotency_key=KEY), model_predict.predict(*args, idempotency_key=KEY))
 
@@ -122,7 +116,7 @@ def test_a_retry_waits_for_the_first_call_and_replays_its_result_with_one_serve_
 def test_the_race_loser_reads_the_winners_row(env):
     """The insert that conflicts returns no row; the loser takes the winner's, so one prediction exists."""
     request = PredictRequest.model_validate(BODY)
-    hashed = model_predict.request_hash(request, MODEL, None)
+    hashed = model_predict.request_hash(request, DEPLOYMENT)
 
     async def go():
         args = (ctx(env), uuid.uuid4(), MODEL, "3", request)

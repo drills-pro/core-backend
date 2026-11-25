@@ -331,7 +331,7 @@ entries:
   old: F20
   code: ["GET /v1/catalog/models", core-api/app/modules/user/catalog/service.py, core-api/app/core/task_catalog.py, core-api/app/core/presets.py, core-api/migrations/20261111231253_task_presets_license.sql]
   tests:
-    - core-api/tests/modules/user/catalog/test_catalog.py::test_lists_each_base_model_once_with_its_tasks_and_presets
+    - core-api/tests/modules/user/catalog/test_catalog.py::test_lists_only_enabled_entries
     - core-api/tests/modules/admin/test_presets.py::test_put_writes_the_row_as_the_actor_and_audits_it
     - core-api/tests/modules/user/deployments/test_deployments.py::test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_split_flag
   note: An admin records the base model's SPDX licence on the preset (task_presets.base_model_license); it rides in the run spec's base_model, shows on the model card and is written to model.json. The trainers load weights with use_safetensors=True so a pickled checkpoint is refused.
@@ -429,14 +429,14 @@ entries:
 # ------------------------------------------------------------------ MODEL REGISTRY
 - id: REG-01
   area: registry
-  title: Register a succeeded run's model (MLflow version plus model_versions row)
+  title: Each succeeded run's model is one MLflow version of the project's model (named by project id), tagged with its training run
   source: planning/06 Model registry and promotion
   status: built
   old: F09
-  code: ["POST /v1/projects/{project_id}/models/{run_id}/register", core-api/app/modules/user/model_registry/service.py]
+  code: [core-api/app/modules/user/model_registry/service.py, core-api/app/integrations/data_plane/mlflow.py]
   tests:
-  - core-api/tests/modules/user/training/test_register_route.py::test_a_succeeded_run_registers_its_model
-  - core-api/tests/modules/user/model_registry/test_service.py::test_register_records_the_mlflow_version_and_shows_the_chosen_name
+  - core-api/tests/modules/user/training/test_persist.py::test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_gpu_runtime
+  - core-api/tests/integrations/test_mlflow_models.py::test_registering_a_new_run_creates_a_version
 - id: REG-02
   area: registry
   title: A succeeded run registers its model automatically at settle time
@@ -448,30 +448,25 @@ entries:
   - core-api/tests/modules/user/training/test_persist.py::test_success_moves_the_run_stores_metrics_and_report_registers_the_model_and_bills_the_gpu_runtime
 - id: REG-03
   area: registry
-  title: List model versions with customer stage labels
+  title: List a project's model versions
   source: planning/22 Models screen
   status: partial
   weight: 1
   old: F09
   code: ["GET /v1/projects/{project_id}/models", core-api/app/modules/user/model_registry/routes.py]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_list_shows_chosen_names_and_customer_labels
   - core-api/tests/modules/user/model_registry/test_model_registry.py::test_allowed_and_hidden
-  gap: Rows carry name, version, stage and date only; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call.
+  gap: Rows carry name, version and date; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call.
 - id: REG-04
   area: registry
-  title: Promote to Production deploys the version and flips the stage only when the deployment is active; the old Production goes to Staging, an older version is a rollback
-  source: planning/27 #1, #3, #3b; planning/06 Model registry and promotion
+  title: Deploy-only model lifecycle, with no stages or promotion; a deployed run is live until it is stopped or deleted
+  source: planning/27 (simplified to deploy and undeploy)
   status: built
   old: F09
-  code: ["POST /v1/projects/{project_id}/models/{model_version_id}/promote", core-api/app/modules/user/model_registry/service.py, core-api/app/modules/user/deployments/promotion_worker.py]
+  code: [core-api/app/modules/user/deployments/service.py]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_flipping_demotes_the_old_production_to_staging_so_a_model_has_one_production
-  - core-api/tests/modules/user/model_registry/test_service.py::test_promoting_a_version_older_than_the_production_one_is_a_rollback_and_audited_as_such
-  - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_promotion_keeps_the_stage_and_shows_the_error_on_the_version
-  - core-api/tests/modules/user/deployments/test_promotion_worker.py::test_a_failed_deploy_never_flips_and_shows_the_problems_own_words
-  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_an_unknown_stage_is_a_400_listing_the_stages
-  note: Async - 202 with promotion_status pending, then model.promoted or model.promotion_failed in the outbox.
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_serves_the_runs_version_and_is_not_main_unless_asked
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
 - id: REG-05
   area: registry
   title: Archived stage for retired versions
@@ -484,19 +479,18 @@ entries:
   - core-api/tests/core/test_task_types.py::test_the_stage_check_mirrors_the_enum
 - id: REG-06
   area: registry
-  title: Promotion updates MLflow and the index in one operation
+  title: Registering a run is idempotent per MLflow run, so a retry reuses its version
   source: planning/06 Model registry and promotion
   status: built
   weight: 1
   old: F09
-  code: [core-api/app/modules/user/model_registry/service.py]
+  code: [core-api/app/modules/user/model_registry/service.py, core-api/app/integrations/data_plane/mlflow.py]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_mlflow_transition_leaves_the_row_alone
-  - core-api/tests/modules/user/model_registry/test_service.py::test_a_failed_row_write_puts_mlflow_back_on_the_old_stage
-  note: Two steps, but a failed row write moves MLflow back to the old stage, so the two do not stay out of step.
+  - core-api/tests/integrations/test_mlflow_models.py::test_registering_a_run_twice_reuses_its_mlflow_version
+  note: Two steps (MLflow, then the row), so a failed row write can leave a version in MLflow; a retry finds it and writes the row.
 - id: REG-07
   area: registry
-  title: Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision
+  title: Stable model identity (models table); a predict call names a deployment with X-Model-Id
   source: planning/24 Q1; planning/05 Predict API
   status: built
   old: F09
@@ -523,20 +517,19 @@ entries:
   old: F09
   code: ["PATCH /v1/projects/{project_id}/models/{model_version_id}/publish", "GET /v1/public/projects/{project_id}/models", core-api/app/modules/user/public/service.py]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_publish_flags_are_independent_and_need_one
-  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_editor_may_promote_but_not_publish
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_editor_may_not_publish
   - core-api/tests/modules/user/public/test_public_routes.py::test_an_unpublished_model_has_no_name_or_version
   - core-api/tests/architecture/test_admin_shapes.py
 - id: REG-10
   area: registry
-  title: Stage ranks the default revision of a model (deploying needs no stage)
+  title: A predict call with no X-Model-Id is answered by the main deployment; a deployment id names one
   source: planning/06 Model registry and promotion
   status: built
   weight: 2
   old: F09
   code: [core-api/app/modules/user/deployments/model_predict.py]
   tests:
-  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_no_model_header_looks_up_the_projects_main_deployment_and_a_model_id_looks_up_that_one
   note: Decision 2026-11-12 (planning/06 amended); a stage gate on deploy would break train-then-deploy.
 - id: REG-11
   area: registry
@@ -561,14 +554,14 @@ entries:
   - core-api/tests/core/test_task_types.py::test_the_stage_check_mirrors_the_enum
 - id: REG-13
   area: registry
-  title: Audit rows for register, promote and publish
+  title: Audit rows for publish and download
   source: planning/19 E1
   status: built
   weight: 2
   old: F09
   code: [core-api/app/modules/user/model_registry/service.py]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_register_promote_and_publish_each_write_an_audit_row
+  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_download_streams_the_file_audits_and_closes
 - id: REG-14
   area: registry
   title: Download by signed URL and auto-generated model card
@@ -601,7 +594,6 @@ entries:
   old: F09
   code: [core-api/app/modules/user/model_registry/service.py, core-api/migrations/20261111184133_model_version_unique.sql]
   tests:
-  - core-api/tests/modules/user/model_registry/test_service.py::test_registering_twice_hits_the_unique_key_and_returns_the_one_row
   - core-api/tests/integrations/test_mlflow_models.py::test_registering_a_run_twice_reuses_its_mlflow_version
 # ------------------------------------------------------------------ DEPLOYMENT
 - id: DEP-01
@@ -613,7 +605,7 @@ entries:
   code: ["POST /v1/projects/{project_id}/deployments", core-api/app/modules/user/deployments/service.py]
   tests:
   - core-api/tests/modules/user/deployments/test_create_guards.py::test_the_same_key_and_run_replays_the_deployment_without_the_key_or_a_deploy
-  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_mints_a_deployment_and_a_predict_key_shown_once
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_serves_the_runs_version_and_is_not_main_unless_asked
   - core-api/tests/modules/user/deployments/test_deployment_service.py::test_deploy_requires_a_succeeded_servable_run
 - id: DEP-02
   area: deployment
@@ -631,7 +623,7 @@ entries:
   source: planning/06 Deployment model; planning/18 Acceptable use enforcement
   status: built
   old: F10
-  code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/stop"]
+  code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/stop", "POST /v1/projects/{project_id}/deployments/{deployment_id}/main"]
   tests:
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_moves_active_to_stopped_with_an_audit_row_and_keeps_the_key
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_stop_of_a_stopped_deployment_is_a_repeat_not_an_error_and_writes_no_audit
@@ -724,13 +716,13 @@ entries:
   note: POST /v1/predict takes a signed-in member (X-Project-Id names the project) and counts toward usage; POST .../deployments/{id}/test is removed and deployment_test_calls is no longer written (a later migration drops it).
 - id: DEP-20
   area: deployment
-  title: Deploy is keyed on a model version (model_version_id); one deployment serves exactly one version
+  title: Deploy is keyed on a succeeded training run, whose one model version is served; one live deployment per run
   source: planning/27 #2
   status: built
   code: ["POST /v1/projects/{project_id}/deployments", core-api/app/modules/user/deployments/service.py]
   tests:
-  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_deployment_is_made_from_a_model_version_and_serves_exactly_that_version
-  - core-api/tests/modules/user/deployments/test_create_guards.py::test_exactly_one_of_the_version_and_the_deprecated_run_is_sent
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_run_without_a_version_is_404_before_anything_is_checked
+  - core-api/tests/modules/user/deployments/test_create_guards.py::test_a_second_live_deployment_of_the_run_is_409_deployment_exists
   note: training_run_id is still accepted for one release (deprecated; deploys that run's newest version).
 - id: DEP-12
   area: deployment
@@ -745,16 +737,16 @@ entries:
   note: The 2026-11-05 audit said detection models could not be deployed; fixed since.
 - id: DEP-13
   area: deployment
-  title: Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting
+  title: The project's main deployment answers a predict call that names no model; one per project, set at deploy or with /main
   source: planning/06 Deployment model (Rollout, Rollback)
-  status: partial
+  status: built
   weight: 2
   old: F10
-  code: [core-api/app/modules/user/deployments/service.py]
+  code: [core-api/app/modules/user/deployments/service.py, core-api/app/modules/user/deployments/model_predict.py]
   tests:
-  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_a_main_strategy_redeploy_updates_the_one_deployment_in_place
-  - core-api/tests/modules/user/deployments/test_shared_deployments.py::test_a_main_redeploy_moves_the_row_to_the_new_run_as_shared
-  gap: There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback.
+  - core-api/tests/modules/user/deployments/test_deployment_service.py::test_set_main_moves_the_flag_to_a_live_deployment_and_audits_it
+  - core-api/tests/modules/user/deployments/test_model_predict.py::test_no_model_header_looks_up_the_projects_main_deployment_and_a_model_id_looks_up_that_one
+  gap: Rollback is a deploy of the older run followed by /main; the interim record_usage path is still the meter (no per-key live counter).
 - id: DEP-14
   area: deployment
   title: Deployment input/output schema endpoint and generated curl/JS/Python snippets
@@ -874,19 +866,17 @@ entries:
   weight: 2
   old: F10
   code: [core-api/app/modules/user/deployments/predict.py, core-api/app/modules/user/deployments/calls.py]
-  tests:
-  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_a_successful_shared_call_is_logged_with_its_run_latency_and_cold_load
+  tests: []
   gap: A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero.
 - id: SRV-07
   area: serving
   title: predict_calls log of every shared call with a retention purge
   source: planning/15 U2 (per-prediction analytics, open)
-  status: built
+  status: partial
   old: F10
   code: [core-api/app/modules/user/deployments/calls.py, core-api/migrations/20261104101545_predict_calls.sql]
-  tests:
-  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_a_failed_shared_call_is_logged_with_its_code_and_still_raises
-  - core-api/tests/modules/user/deployments/test_predict_calls.py::test_the_purge_asks_for_the_configured_retention
+  tests: []
+  gap: The test file for the log went with the legacy predict-key route; the log and its purge have no test now.
 - id: SRV-08
   area: serving
   title: Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning
@@ -972,7 +962,6 @@ entries:
   code: ["POST /v1/predict", core-api/app/modules/user/deployments/model_predict.py]
   tests:
   - core-api/tests/modules/user/deployments/test_model_predict.py::test_200_returns_the_envelope_and_forwards_input_unchanged
-  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
   note: Built after the 2026-11-05 audit, which listed it as missing.
 - id: PRD-02
   area: predict
@@ -1027,7 +1016,6 @@ entries:
   tests:
   - core-api/tests/core/authz/test_keys.py::test_a_key_of_a_tenant_that_is_not_active_is_503_tenant_suspended
   - core-api/tests/modules/user/deployments/test_model_predict.py::test_503_for_a_suspended_tenant_before_anything_is_read
-  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_predict_for_a_tenant_that_is_not_active_is_503_before_serve
 - id: PRD-07
   area: predict
   title: Rate limits - plan, per key (api_keys.rate_limit_per_minute) and per deployment, 429 with Retry-After
@@ -1136,18 +1124,6 @@ entries:
   - core-api/tests/modules/user/deployments/test_predict_usage.py::test_a_failed_serve_call_records_nothing_and_neither_does_its_replay
   - core-api/tests/db/test_predictions_db.py::test_a_repeat_usage_write_for_one_prediction_id_is_absorbed
   gap: Rule is built on the interim record_usage path; the OTLP/outbox pipeline of planning/15 does not exist, so there is no per-key dimension or live counter.
-- id: PRD-17
-  area: predict
-  title: Legacy POST /v1/predict/{deployment_id} with X-Predict-Key, marked Deprecation and Sunset, counted per deployment
-  source: planning/24 Migrating the old endpoint (phase 1)
-  status: partial
-  weight: 1
-  old: F11
-  code: ["POST /v1/predict/{deployment_id}", core-api/app/modules/user/deployments/routes.py]
-  tests:
-  - core-api/tests/modules/user/deployments/test_predict_legacy.py::test_a_call_is_answered_as_before_marked_deprecated_and_counted_by_deployment
-  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_legacy_endpoint_is_still_there
-  gap: Phase 1 (shadow) is done; phases 2 and 3 (stop minting predict_key, remove the route, deployment_for_predict and predict_key_hash) are not.
 - id: PRD-18
   area: predict
   title: Streaming mode (Accept text/event-stream) with delta, done and error frames
@@ -1228,9 +1204,8 @@ entries:
   status: partial
   weight: 1
   code: [core-api/app/modules/user/deployments/model_predict.py]
-  tests:
-  - core-api/tests/modules/user/deployments/test_model_predict.py::test_the_revision_header_reaches_the_lookup_and_none_means_the_default
-  gap: No promoted_at column, so "newest promotion wins" is "newest version"; the tie-break is not covered by a test against real data (the lookup is faked in this test).
+  tests: []
+  gap: The main deployment is set by a person, so there is no tie-break to test; the lookup is faked in this test.
 - id: PRD-26
   area: predict
   title: Predictions table is tenant-isolated and a key sees only its own

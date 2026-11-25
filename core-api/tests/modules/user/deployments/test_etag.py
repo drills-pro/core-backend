@@ -16,7 +16,7 @@ BASE = f"/v1/projects/{PROJECT}/deployments/{DEPLOYMENT}"
 
 def detail(status="active"):
     return DeploymentDetail(id=DEPLOYMENT, status=status, route_prefix="/p", created_at=datetime.now(UTC),
-                            project_id=PROJECT, training_run_id=uuid.uuid4(), model_version_id=None, rate_limit_per_minute=10)
+                            project_id=PROJECT, training_run_id=uuid.uuid4(), model_version_id=None, rate_limit_per_minute=10, main=False)
 
 
 def test_the_tag_changes_with_the_state_and_matches_itself_in_any_spelling():

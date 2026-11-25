@@ -1486,12 +1486,15 @@
         "type": "string"
       },
       "DeploymentCreated": {
-        "description": "predict_key is present only when a new deployment was minted (shown once); a 'main' re-deploy omits it.",
         "properties": {
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "main": {
+            "title": "Main",
+            "type": "boolean"
           },
           "plan_tier": {
             "anyOf": [
@@ -1503,17 +1506,6 @@
               }
             ],
             "title": "Plan Tier"
-          },
-          "predict_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Predict Key"
           },
           "rate_limit_per_minute": {
             "title": "Rate Limit Per Minute",
@@ -1533,7 +1525,8 @@
           "status",
           "route_prefix",
           "rate_limit_per_minute",
-          "plan_tier"
+          "plan_tier",
+          "main"
         ],
         "title": "DeploymentCreated",
         "type": "object"
@@ -1549,6 +1542,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "main": {
+            "title": "Main",
+            "type": "boolean"
           },
           "model_version_id": {
             "anyOf": [
@@ -1591,6 +1588,7 @@
           "route_prefix",
           "created_at",
           "model_version_id",
+          "main",
           "project_id",
           "training_run_id",
           "rate_limit_per_minute"
@@ -1609,6 +1607,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "main": {
+            "title": "Main",
+            "type": "boolean"
           },
           "model_version_id": {
             "anyOf": [
@@ -1636,7 +1638,8 @@
           "status",
           "route_prefix",
           "created_at",
-          "model_version_id"
+          "model_version_id",
+          "main"
         ],
         "title": "DeploymentListItem",
         "type": "object"
@@ -1644,19 +1647,15 @@
       "DeploymentSchema": {
         "description": "What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets.",
         "properties": {
+          "deployment_id": {
+            "format": "uuid",
+            "title": "Deployment Id",
+            "type": "string"
+          },
           "input": {
             "additionalProperties": true,
             "title": "Input",
             "type": "object"
-          },
-          "model_id": {
-            "format": "uuid",
-            "title": "Model Id",
-            "type": "string"
-          },
-          "model_revision": {
-            "title": "Model Revision",
-            "type": "string"
           },
           "output": {
             "additionalProperties": true,
@@ -1673,8 +1672,7 @@
         },
         "required": [
           "task_type",
-          "model_id",
-          "model_revision",
+          "deployment_id",
           "input",
           "output",
           "snippets"
@@ -2515,17 +2513,12 @@
           "mlflow_version": {
             "title": "Mlflow Version",
             "type": "string"
-          },
-          "stage": {
-            "title": "Stage",
-            "type": "string"
           }
         },
         "required": [
           "id",
           "mlflow_model_name",
-          "mlflow_version",
-          "stage"
+          "mlflow_version"
         ],
         "title": "LineageModel",
         "type": "object"
@@ -3021,17 +3014,6 @@
         "title": "ModelCard",
         "type": "object"
       },
-      "ModelStage": {
-        "description": "Model Registry stages.",
-        "enum": [
-          "None",
-          "Staging",
-          "Production",
-          "Archived"
-        ],
-        "title": "ModelStage",
-        "type": "string"
-      },
       "ModelStats": {
         "properties": {
           "deployed_count": {
@@ -3086,49 +3068,11 @@
         "title": "ModelStatus",
         "type": "string"
       },
-      "ModelVersion": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "mlflow_model_name": {
-            "title": "Mlflow Model Name",
-            "type": "string"
-          },
-          "mlflow_version": {
-            "title": "Mlflow Version",
-            "type": "string"
-          },
-          "stage": {
-            "$ref": "#/components/schemas/ModelStage"
-          }
-        },
-        "required": [
-          "id",
-          "mlflow_model_name",
-          "mlflow_version",
-          "stage",
-          "created_at"
-        ],
-        "title": "ModelVersion",
-        "type": "object"
-      },
       "ModelVersionItem": {
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
-            "type": "string"
-          },
-          "customer_label": {
-            "title": "Customer Label",
             "type": "string"
           },
           "id": {
@@ -3148,50 +3092,13 @@
             "format": "uuid",
             "title": "Model Id",
             "type": "string"
-          },
-          "promotion_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Promotion Error"
-          },
-          "promotion_error_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Promotion Error Code"
-          },
-          "promotion_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PromotionStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "stage": {
-            "$ref": "#/components/schemas/ModelStage"
           }
         },
         "required": [
           "id",
           "mlflow_model_name",
           "mlflow_version",
-          "stage",
           "created_at",
-          "customer_label",
           "model_id"
         ],
         "title": "ModelVersionItem",
@@ -3981,15 +3888,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
-          },
-          "revision": {
-            "title": "Revision",
-            "type": "string"
           }
         },
         "required": [
-          "id",
-          "revision"
+          "id"
         ],
         "title": "PredictModelRef",
         "type": "object"
@@ -4719,80 +4621,6 @@
         ],
         "title": "ProjectUpdated",
         "type": "object"
-      },
-      "PromotedVersion": {
-        "properties": {
-          "customer_label": {
-            "title": "Customer Label",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "mlflow_model_name": {
-            "title": "Mlflow Model Name",
-            "type": "string"
-          },
-          "mlflow_version": {
-            "title": "Mlflow Version",
-            "type": "string"
-          },
-          "promotion_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Promotion Error"
-          },
-          "promotion_error_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Promotion Error Code"
-          },
-          "promotion_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PromotionStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "stage": {
-            "$ref": "#/components/schemas/ModelStage"
-          }
-        },
-        "required": [
-          "id",
-          "mlflow_model_name",
-          "mlflow_version",
-          "stage",
-          "customer_label"
-        ],
-        "title": "PromotedVersion",
-        "type": "object"
-      },
-      "PromotionStatus": {
-        "description": "Mirrors the model_versions.promotion_status CHECK constraint; no status = no promotion in flight.",
-        "enum": [
-          "pending",
-          "failed"
-        ],
-        "title": "PromotionStatus",
-        "type": "string"
       },
       "PublicDataset": {
         "description": "A private dataset of a public project is listed with no name: \"exists\" is visible, contents are not.",
@@ -12011,15 +11839,6 @@
           {
             "in": "header",
             "name": "X-Model-Id",
-            "required": true,
-            "schema": {
-              "title": "X-Model-Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Model-Revision",
             "required": false,
             "schema": {
               "anyOf": [
@@ -12030,7 +11849,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Model-Revision"
+              "title": "X-Model-Id"
             }
           },
           {
@@ -12188,57 +12007,6 @@
           }
         },
         "summary": "Predict Model",
-        "tags": [
-          "deployments"
-        ]
-      }
-    },
-    "/v1/predict/{deployment_id}": {
-      "post": {
-        "description": "Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment.",
-        "operationId": "predict_v1_predict__deployment_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "deployment_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Deployment Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Predict-Key",
-            "required": true,
-            "schema": {
-              "title": "X-Predict-Key",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Predict",
         "tags": [
           "deployments"
         ]
@@ -15705,7 +15473,7 @@
         ]
       },
       "post": {
-        "description": "Deploy a model version: one deployment serves exactly one. A version whose run has no test dataset is 409 deploy_risk_unacknowledged\nuntil acknowledge_risk=true. Sending the same Idempotency-Key and version again returns that deployment (without the predict key,\nwhich is shown once); the same key with another version is 409. `training_run_id` is deprecated (it deploys that run's newest\nversion): send exactly one of the two. Promoting a version to Production deploys it too.",
+        "description": "Deploy a succeeded training run's model: one deployment serves exactly one run. `set_main` makes it the project's main deployment,\nthe one a predict call with no X-Model-Id is answered by. A run with no test dataset is 409 deploy_risk_unacknowledged until\nacknowledge_risk=true. The same Idempotency-Key and run returns that deployment again.",
         "operationId": "create_deployment_v1_projects__project_id__deployments_post",
         "parameters": [
           {
@@ -15720,36 +15488,22 @@
           },
           {
             "in": "query",
-            "name": "model_version_id",
-            "required": false,
+            "name": "training_run_id",
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Model Version Id"
+              "format": "uuid",
+              "title": "Training Run Id",
+              "type": "string"
             }
           },
           {
             "in": "query",
-            "name": "training_run_id",
+            "name": "set_main",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Training Run Id"
+              "default": false,
+              "title": "Set Main",
+              "type": "boolean"
             }
           },
           {
@@ -16055,6 +15809,108 @@
           }
         },
         "summary": "Get Deployment",
+        "tags": [
+          "deployments"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/deployments/{deployment_id}/main": {
+      "post": {
+        "description": "Make this deployment the project's main one; the previous main stops being it.",
+        "operationId": "set_main_deployment_v1_projects__project_id__deployments__deployment_id__main_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Main Deployment",
         "tags": [
           "deployments"
         ]
@@ -17131,127 +16987,6 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/models/{model_version_id}/promote": {
-      "post": {
-        "description": "None (internal) -> Staging (candidate) is immediate. Production answers 202 with the version pending: it is deployed, and the\nstage flips only when the deployment is active (the version serving until then stays Production). Poll the models list: the\nversion either becomes Production (the previous one Staging) or shows promotion_status `failed` with promotion_error, stages\nunchanged. Promoting an older version is a rollback. A run with no test data needs acknowledge_risk=true, as a deploy does.",
-        "operationId": "promote_model_v1_projects__project_id__models__model_version_id__promote_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "model_version_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Model Version Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "stage",
-            "required": true,
-            "schema": {
-              "title": "Stage",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "acknowledge_risk",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Acknowledge Risk",
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromotedVersion"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Promote Model",
-        "tags": [
-          "models"
-        ]
-      }
-    },
     "/v1/projects/{project_id}/models/{model_version_id}/publish": {
       "patch": {
         "operationId": "publish_model_v1_projects__project_id__models__model_version_id__publish_patch",
@@ -17357,117 +17092,6 @@
           }
         },
         "summary": "Publish Model",
-        "tags": [
-          "models"
-        ]
-      }
-    },
-    "/v1/projects/{project_id}/models/{run_id}/register": {
-      "post": {
-        "operationId": "register_model_v1_projects__project_id__models__run_id__register_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]{1,60}$",
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelVersion"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Register Model",
         "tags": [
           "models"
         ]

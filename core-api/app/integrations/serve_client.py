@@ -29,9 +29,9 @@ def serve_url() -> str:
     return f"{head.scheme}://{head.hostname}:{SERVE_HTTP_PORT}"
 
 
-def route_prefix_for(deployment_id: str, project_id: str, deploy_strategy: str) -> str:
+def route_prefix_for(deployment_id: str) -> str:
     """The route a deployment is listed under; a shared deployment keeps it as a label (nothing is served there)."""
-    return f"/predict/{project_id}/main" if deploy_strategy == "main" else f"/predict/{deployment_id}"
+    return f"/predict/{deployment_id}"
 
 
 # ---- shared predictor apps ----

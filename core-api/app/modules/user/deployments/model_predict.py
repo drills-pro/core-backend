@@ -18,7 +18,6 @@ from app.core.settings import settings
 from app.core.tenant_conn import TenantConn
 from app.integrations import serve_client
 from app.integrations import data_plane
-from app.integrations.data_plane import ModelStage
 from app.modules.user.deployments import calls, predict as predict_path, prediction_store as store, service
 from app.modules.user.deployments.constants import (
     ABANDONED_DETAIL,
@@ -63,14 +62,17 @@ from app.modules.user.usage import UsageResource, UsageUnit, record_usage
 
 logger = logging.getLogger(__name__)
 
-# The newest live deployment of the model (a given revision, or any; the key's model allowlist was checked by require_key): an active one first, then a Production version,
-# then the newest. ponytail: there is no promoted_at column, so "newest promotion wins" is "newest version".
+# The deployment a call is answered by: the one X-Model-Id names (a deployment id), or the project's main one when no id is sent.
+# Its model and version come with it, for the stored prediction. The key's model allowlist was checked by require_key.
 _RESOLVE = (
-    "SELECT d.id, d.status, d.training_run_id, d.rate_limit_per_minute, mv.mlflow_version "
-    "FROM models m JOIN model_versions mv ON mv.model_id = m.id "
-    "JOIN deployments d ON d.model_version_id = mv.id AND d.status <> $4 "
-    "WHERE m.id = $1 AND m.project_id = $2 AND ($3::text IS NULL OR mv.mlflow_version = $3) "
-    "ORDER BY (d.status = $5) DESC, (mv.stage = $6) DESC, mv.created_at DESC, d.created_at DESC LIMIT 1"
+    "SELECT d.id, d.status, d.training_run_id, d.rate_limit_per_minute, mv.model_id, mv.mlflow_version "
+    "FROM deployments d JOIN model_versions mv ON mv.id = d.model_version_id "
+    "WHERE d.id = $1 AND d.project_id = $2 AND d.status <> $3"
+)
+_RESOLVE_MAIN = (
+    "SELECT d.id, d.status, d.training_run_id, d.rate_limit_per_minute, mv.model_id, mv.mlflow_version "
+    "FROM deployments d JOIN model_versions mv ON mv.id = d.model_version_id "
+    "WHERE d.project_id = $1 AND d.main AND d.status <> $2"
 )
 
 
@@ -116,10 +118,10 @@ async def serve_call(tenant_id: str, project_id: uuid.UUID, d, input_, size: int
     return {"predictions": done.prediction.predictions}, done.elapsed_ms
 
 
-def request_hash(request: PredictRequest, model_id: uuid.UUID, revision: str | None) -> str:
-    """What makes two requests "the same" for an Idempotency-Key: input, metadata and the model headers, as canonical JSON."""
+def request_hash(request: PredictRequest, deployment_id: uuid.UUID) -> str:
+    """What makes two requests "the same" for an Idempotency-Key: input, metadata and the model the call named, as canonical JSON."""
     canonical = json.dumps(
-        {"input": request.input, "metadata": request.metadata, "model": str(model_id), "revision": revision}, sort_keys=True, separators=(",", ":"))
+        {"input": request.input, "metadata": request.metadata, "model": str(deployment_id)}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -206,22 +208,25 @@ async def _accept_background(ctx: KeyContext, d, model_uuid: uuid.UUID, request:
 
 
 async def predict(
-    ctx: KeyContext, model_id: str, revision: str | None, request: PredictRequest, *, idempotency_key: str | None = None, background: bool = False,
+    ctx: KeyContext, model_id: str | None, request: PredictRequest, *, idempotency_key: str | None = None, background: bool = False,
 ) -> PredictOutcome:
     if background and idempotency_key is None:
         raise Problem(HTTPStatus.UNPROCESSABLE_ENTITY, KernelProblemCode.VALIDATION_ERROR, IDEMPOTENCY_KEY_REQUIRED_DETAIL)
     try:
-        model_uuid = uuid.UUID(model_id)
+        deployment_uuid = None if model_id is None else uuid.UUID(model_id)
     except ValueError:
         raise not_found() from None
     async with TenantConn(ctx.tenant_id) as conn:
-        row = await conn.fetchrow(
-            _RESOLVE, model_uuid, ctx.project_id, revision, DeploymentStatus.DELETED, DeploymentStatus.ACTIVE, ModelStage.PRODUCTION)
+        if deployment_uuid is None:
+            row = await conn.fetchrow(_RESOLVE_MAIN, ctx.project_id, DeploymentStatus.DELETED)
+        else:
+            row = await conn.fetchrow(_RESOLVE, deployment_uuid, ctx.project_id, DeploymentStatus.DELETED)
         limits = await plan_limits.predict_limits(conn, ctx.tenant_id)
         plan_limit = service.rate_limit_for(await get_plan_tier(conn, uuid.UUID(ctx.tenant_id)))
-    if row is None:  # unknown model or revision, another project's, or one with no deployment: one body
+    if row is None:  # no such deployment, another project's, or no main one: one body
         raise not_found()
-    if row["status"] != DeploymentStatus.ACTIVE:  # deploying, stopped or failed: one code here (the legacy route has its own for stopped)
+    model_uuid = row["model_id"]
+    if row["status"] != DeploymentStatus.ACTIVE:  # deploying, stopped or failed: one code here
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_ACTIVE, f"the model's deployment is {row['status']}, not active")
     size = len(json.dumps(request.input))
     predict_path.check_size(size, limits)
@@ -232,7 +237,7 @@ async def predict(
     await _rate_limited(str(row["id"]), row["rate_limit_per_minute"], "this model")
 
     if idempotency_key is not None:
-        hashed = request_hash(request, model_uuid, revision)
+        hashed = request_hash(request, row["id"])
         if background:
             return await _accept_background(ctx, row, model_uuid, request, idempotency_key, hashed)
         return await _sync_stored(ctx, row, model_uuid, request, idempotency_key, hashed, size, limits.max_inflight_per_deployment)
@@ -246,5 +251,5 @@ async def predict(
             conn, tenant_id=ctx.tenant_id, project_id=ctx.project_id, resource_type=UsageResource.INFERENCE, quantity=1,
             unit=UsageUnit.REQUESTS, occurred_at=datetime.now(timezone.utc), source_ref=str(prediction_id))
     return PredictOutcome(envelope=PredictionEnvelope(
-        id=f"{PREDICTION_ID_PREFIX}{prediction_id}", model=PredictModelRef(id=model_uuid, revision=row["mlflow_version"]), output=output,
+        id=f"{PREDICTION_ID_PREFIX}{prediction_id}", model=PredictModelRef(id=row["id"]), output=output,
         usage=PredictUsage(latency_ms=elapsed_ms), metadata=request.metadata, created_at=datetime.now(timezone.utc)))

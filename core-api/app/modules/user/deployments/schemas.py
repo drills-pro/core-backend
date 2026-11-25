@@ -13,14 +13,12 @@ from app.modules.user.deployments.constants import METADATA_MAX_BYTES, METADATA_
 from app.modules.user.training import LineageRun
 
 class DeploymentCreated(BaseModel):
-    """predict_key is present only when a new deployment was minted (shown once); a 'main' re-deploy omits it."""
-
-    id: uuid.UUID
+    id: uuid.UUID  # the model id a predict call names as X-Model-Id
     status: str
     route_prefix: str
     rate_limit_per_minute: int
     plan_tier: str | None
-    predict_key: str | None = None
+    main: bool
 
 
 class DeploymentListItem(BaseModel):
@@ -29,6 +27,7 @@ class DeploymentListItem(BaseModel):
     route_prefix: str
     created_at: datetime
     model_version_id: uuid.UUID | None  # the one version this deployment serves; None for a row older than versions
+    main: bool  # the project's default: a predict call that names no model is answered by it
 
 
 class DeploymentDetail(DeploymentListItem):
@@ -66,7 +65,6 @@ class LineageModel(BaseModel):
     id: uuid.UUID
     mlflow_model_name: str
     mlflow_version: str
-    stage: str
 
 
 class TrainingRunLineage(BaseModel):
@@ -108,8 +106,7 @@ class PredictRequest(BaseModel):
 
 
 class PredictModelRef(BaseModel):
-    id: uuid.UUID
-    revision: str
+    id: uuid.UUID  # the deployment that answered: the X-Model-Id to call it again
 
 
 class PredictUsage(BaseModel):
@@ -148,8 +145,7 @@ class DeploymentSchema(BaseModel):
     """What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets."""
 
     task_type: str
-    model_id: uuid.UUID
-    model_revision: str
+    deployment_id: uuid.UUID  # sent as X-Model-Id
     input: dict[str, Any]
     output: dict[str, Any]
     snippets: DeploymentSnippets

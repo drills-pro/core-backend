@@ -2,19 +2,13 @@
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import asyncpg
 import pytest
-from starlette.exceptions import HTTPException
 
 from app.core.authz import TenantRole
-from app.integrations.data_plane.mlflow import ModelStage
 from app.modules.user.api_keys import routes as key_routes
 from app.modules.user.api_keys import service as key_service
-from app.modules.user.deployments import routes as deployment_routes
-from app.modules.user.deployments import service as deployment_service
-from app.modules.user.model_registry import service as registry
 from app.modules.user.tenant_members import routes as member_routes
 from app.modules.user.tenant_members import service as member_service
 from app.modules.user.tenant_members.constants import ProblemCode
@@ -30,21 +24,6 @@ def test_revoking_an_unknown_key_is_404_and_nothing_is_audited(monkeypatch, dev_
     r = make_client(key_routes.router).delete(f"/v1/projects/{PROJECT}/api-keys/{uuid.uuid4()}")
     assert r.status_code == 404
     assert not any("audit_log" in sql for sql, _ in conn.calls)
-
-
-def test_promoting_a_version_deleted_after_mlflow_moved_is_404(monkeypatch):
-    moved = []
-
-    async def transition_stage(*a):
-        moved.append(a)
-
-    monkeypatch.setattr(registry.data_plane, "transition_stage", transition_stage)
-    row = {"mlflow_model_name": "m", "mlflow_version": "1", "stage": "None", "promotion_status": None}
-    conn = FakeConn(rows={"FROM model_versions WHERE id": row, "UPDATE model_versions SET stage": None})
-    patch_tenant_conn(monkeypatch, conn, registry)
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(registry.promote(SimpleNamespace(tenant_id=TENANT), PROJECT, uuid.uuid4(), ModelStage.STAGING))
-    assert e.value.status_code == 404 and len(moved) == 1
 
 
 @pytest.mark.parametrize("returned,written", [({"id": 1}, True), (None, False)])
@@ -88,19 +67,3 @@ def test_a_second_ownership_offer_racing_the_first_is_409(monkeypatch, dev_heade
     assert (r.status_code, r.json()["code"]) == (409, ProblemCode.OFFER_PENDING)
 
 
-def test_deploy_route_passes_the_version_or_the_deprecated_run_and_the_key_and_answers_202(monkeypatch, dev_headers):
-    run, seen = uuid.uuid4(), {}
-
-    async def create_deployment(ctx, project_id, version, key, acknowledge_risk, training_run_id):
-        seen.update(version=version, run=training_run_id, key=key, ack=acknowledge_risk)
-        return {"id": uuid.uuid4(), "status": "deploying", "route_prefix": "/p", "rate_limit_per_minute": 60, "plan_tier": None, "predict_key": "drl_x"}
-
-    monkeypatch.setattr(deployment_service, "create_deployment", create_deployment)
-    patch_tenant_conn(monkeypatch, FakeConn(access(roles=["deployer"])), deployment_service)
-    client = make_client(deployment_routes.router)
-    r = client.post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}", headers={"Idempotency-Key": "k1"})
-    assert (r.status_code, r.json()["predict_key"], seen) == (202, "drl_x", {"version": None, "run": run, "key": "k1", "ack": False})
-    version = uuid.uuid4()
-    assert client.post(f"/v1/projects/{PROJECT}/deployments?model_version_id={version}", headers={"Idempotency-Key": "k2"}).status_code == 202
-    assert seen == {"version": version, "run": None, "key": "k2", "ack": False}
-    assert client.post(f"/v1/projects/{PROJECT}/deployments?training_run_id={run}").status_code == 422

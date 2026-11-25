@@ -65,7 +65,6 @@ from app.integrations.data_plane.mlflow import (
     registered_model_name,
     run_model_url,
     start_run,
-    transition_stage,
 )
 from app.integrations.data_plane.mlflow import artifact_url as mlflow_artifact_url
 from app.integrations.data_plane.mlflow import health as mlflow_health
@@ -82,7 +81,7 @@ __all__ = [
     "create_dataset_repo", "presign_staging_put", "presign_get", "presign_gets", "read_version_sample",
     "read_staged_sample", "read_report", "commit_staged", "purge_staging", "delete_dataset_repo", "submit_ingest",
     "prepare_train_data", "submit_train", "read_train_report", "purge_train_prefix", "read_model_meta", "start_run",
-    "finish_run", "publish_run_model", "run_model_url", "open_model_file", "register_model_version", "transition_stage",
+    "finish_run", "publish_run_model", "run_model_url", "open_model_file", "register_model_version",
     # prediction payloads: keyed by the prediction row's own tenant, project and id (prediction_payloads.py)
     "PredictionPayload", "store_prediction_payload", "load_prediction_payload", "delete_prediction_payloads",
     # platform operations: no tenant (job packages, health)
@@ -128,5 +127,4 @@ OPERATIONS = (
     run_model_url,
     open_model_file,
     register_model_version,
-    transition_stage,
 )

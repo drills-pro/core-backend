@@ -51,14 +51,9 @@ def test_private_unbound_and_foreign_project_are_404(call):
     assert call("get", BASE, access(visibility=None)).status_code == 404  # project not in this tenant
 
 
-def test_predict_is_public_not_session_authenticated(call):
-    # reaches the X-Predict-Key check (422 without it), never the tenant/authz gate
-    assert call("post", f"/v1/predict/{DEPLOYMENT}", access(), json={}).status_code == 422
-
-
 def test_get_is_read_only_and_hides_internals(call, monkeypatch):
     detail = {
-        "id": DEPLOYMENT, "project_id": PROJECT, "training_run_id": uuid.uuid4(), "status": "active",
+        "id": DEPLOYMENT, "project_id": PROJECT, "training_run_id": uuid.uuid4(), "status": "active", "main": False,
         "route_prefix": "/p", "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "model_version_id": uuid.uuid4(),
     }
     conn = FakeConn(access(), row=detail)
@@ -76,8 +71,8 @@ RUN_ROW = {
     "created_at": datetime.now(timezone.utc),
 }
 DATASET_VERSION_ROW = {"id": DATASET_VERSION, "dataset_id": DATASET, "number": 3, "created_at": datetime.now(timezone.utc)}
-MODEL_ROW = {"id": VERSION, "mlflow_model_name": "t.p.model", "mlflow_version": "2", "stage": "Staging"}
-DEPLOYMENT_ROW = {"id": DEPLOYMENT, "status": "active", "route_prefix": "/predict/x"}
+MODEL_ROW = {"id": VERSION, "mlflow_model_name": "t.p.model", "mlflow_version": "2"}
+DEPLOYMENT_ROW = {"main": False, "id": DEPLOYMENT, "status": "active", "route_prefix": "/predict/x"}
 
 
 def lineage(monkeypatch, dev_headers, rows, url=LINEAGE):
@@ -91,7 +86,7 @@ def test_lineage_joins_the_run_its_model_and_its_deployment(monkeypatch, dev_hea
     r, _ = lineage(monkeypatch, dev_headers, rows)
     body = r.json()
     assert r.status_code == 200
-    assert (body["training_run"]["id"], body["model_version"]["stage"], body["deployment"]["route_prefix"]) == (str(RUN), "Staging", "/predict/x")
+    assert (body["training_run"]["id"], "stage" in body["model_version"], body["deployment"]["route_prefix"]) == (str(RUN), False, "/predict/x")
     assert (body["dataset_version"]["id"], body["dataset_version"]["number"]) == (str(DATASET_VERSION), 3)
 
 
@@ -104,7 +99,7 @@ def test_the_model_card_carries_the_scores_the_dataset_version_and_the_test_spli
     assert r.status_code == 200 and (body["metrics"], body["task"], body["preset"]) == ({"top1": 0.9}, "image_classification", "small")
     assert body["near_duplicates"] == 7
     assert body["base_model"] == {"repo_id": "org/vit", "revision": "abc", "license": "apache-2.0"}
-    assert (body["has_test_split"], body["dataset_version"]["number"], body["model_version"]["stage"]) == (False, 3, "Staging")
+    assert (body["has_test_split"], body["dataset_version"]["number"], body["model_version"]["mlflow_version"]) == (False, 3, "2")
     r, _ = lineage(monkeypatch, dev_headers, {"FROM training_runs": {**run, "test_dataset_id": uuid.uuid4()}}, f"/v1/projects/{PROJECT}/training-runs/{RUN}/card")
     assert r.json()["has_test_split"] is True
 

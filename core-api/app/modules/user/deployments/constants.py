@@ -61,6 +61,7 @@ TERMINAL_STATUSES = frozenset({PredictionStatus.COMPLETED, PredictionStatus.FAIL
 class AuditAction(StrEnum):
     CREATE = "create"
     REDEPLOY = "redeploy"
+    SET_MAIN = "set_main"
     STOP = "stop"
     START = "start"
     DELETE = "delete"
@@ -70,30 +71,16 @@ class EntityType(StrEnum):
     DEPLOYMENT = "deployment"
 
 
-class DeployStrategy(StrEnum):
-    """Project setting `deploy_strategy`."""
-
-    LATEST = "latest"
-    MAIN = "main"
-
-
 # req/04 FR4: rate limit "configurable per tenant plan tier."
 PLAN_TIER_RATE_LIMITS = {PlanTier.FREE: 10, PlanTier.PRO: 120, PlanTier.ENTERPRISE: 1000, PlanTier.INTERNAL: 1000}
 
 DEFAULT_COMPUTE_TARGET = "cpu"
-SETTING_DEPLOY_STRATEGY = "deploy_strategy"
 SETTING_COMPUTE_TARGET = "compute_target"
-MAIN_ROUTE_SUFFIX = "main"
-PREDICT_KEY_BYTES = 32
-PREDICT_KEY_HEADER = "X-Predict-Key"
 METADATA_FIELD = "metadata"
 PREDICTIONS_FIELD = "predictions"
 TEST_CALLS_DEFAULT_LIMIT = 20
 TEST_CALLS_MIN_LIMIT = 1
 TEST_CALLS_MAX_LIMIT = 100
-PROMOTE_KEY_PREFIX = "promote:"  # the idempotency key of the deployment a promotion makes: promote:<version id>:<attempt>
-PROMOTION_FAILED_DETAIL = "the promotion could not finish; try again"
-VERSION_OR_RUN_DETAIL = "send model_version_id (training_run_id is deprecated, and not with it)"
 DEPLOYMENT_LOCK_PREFIX = "deployments:"  # advisory-lock key prefix: serialises the quota check and the write per tenant
 DEPLOYMENT_EXISTS_DETAIL = "this model version already has a deployment; use it (start it if it is stopped) or delete it first"
 TOO_MANY_DEPLOYMENTS_DETAIL = "too many active deployments for this plan, stop or delete one first"

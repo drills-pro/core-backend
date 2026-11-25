@@ -9,11 +9,9 @@ from app.core.pagination import Page, PageParams, SortDir, build_page, keyset_cl
 from app.core.tenant_conn import TenantConn
 from app.integrations import compute
 from app.core.problem import Problem, not_found
-from app.modules.user.model_registry import ModelVersion, register_run
 from app.modules.user.training import events_service, service
 from app.modules.user.training.constants import (
-    CANCEL_FAILED_DETAIL, CANCELLABLE, AuditAction, EntityType, NOT_REGISTRABLE_DETAIL, ProblemCode)
-from app.modules.user.training.readers import get_run_model
+    CANCEL_FAILED_DETAIL, CANCELLABLE, AuditAction, EntityType, ProblemCode)
 from app.modules.user.training.steps import steps_of
 from app.modules.user.training.schemas import (
     TrainingRun,
@@ -78,14 +76,3 @@ async def cancel_run(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID
     async with TenantConn(ctx.tenant_id) as conn:
         await audit.record_for(conn, ctx, project_id, AuditAction.CANCEL, EntityType.TRAINING_RUN, run_id)
     return TrainingRun.model_validate(cancelled)
-
-
-async def register_model(ctx: AuthzContext, project_id: uuid.UUID, run_id: uuid.UUID, name: str) -> ModelVersion:
-    """Register a succeeded run's model in the registry (the registry never reads training itself)."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        run = await get_run_model(conn, project_id, run_id)
-    if run is None:
-        raise not_found()
-    if not run.has_model:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.NOT_REGISTRABLE, NOT_REGISTRABLE_DETAIL)
-    return await register_run(ctx, project_id, run_id, name, run.mlflow_run_id)

@@ -7,13 +7,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.core.authz import Action, Role, TenantStatus
-from app.core.problem import ProblemCode as KernelProblemCode
+from app.core.authz import Action, Role
 from app.core.settings import settings
 from app.modules.user.deployments import predict, routes, service
 from app.modules.user.deployments.constants import AuditAction, EntityType, ProblemCode, Serving
 from app.modules.user.deployments.status import DeploymentStatus as S
-from tests.support import PROJECT, FakeConn, TenantCtx, access, make_client, patch_tenant_conn
+from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="u1")
 DEPLOYMENT, RUN = uuid.uuid4(), uuid.uuid4()
@@ -24,7 +23,7 @@ UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into Fak
 def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
     return {
         "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "model_version_id": None, "status": status, "route_prefix": route_prefix,
-        "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving,
+        "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving, "main": False,
     }
 
 
@@ -131,36 +130,6 @@ def test_a_stopped_deployment_answers_409_with_its_own_code():
     assert (failed.value.status_code, failed.value.code) == (409, ProblemCode.NOT_ACTIVE)
 
 
-def test_predict_on_a_stopped_deployment_is_409_and_its_key_is_still_looked_up(monkeypatch):
-    conn = FakeConn(row={"route_prefix": "/p", "status": S.STOPPED, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT, "tenant_status": TenantStatus.ACTIVE})
-
-    async def pool():
-        return SimpleNamespace(acquire=lambda: TenantCtx(conn))
-
-    monkeypatch.setattr(predict, "get_pool", pool)
-    with pytest.raises(HTTPException) as e:
-        run(predict.predict(DEPLOYMENT, "key", {}))
-    assert (e.value.status_code, e.value.code) == (409, ProblemCode.STOPPED)
-    assert conn.calls[0][1][1] == predict.hash_key("key")  # the stored hash is untouched, so the same key matches
-
-
-@pytest.mark.parametrize("tenant_status", [TenantStatus.SUSPENDED, TenantStatus.PENDING_DELETE])
-def test_predict_for_a_tenant_that_is_not_active_is_503_before_serve(monkeypatch, tenant_status):
-    conn = FakeConn(row={"route_prefix": "/p", "status": S.ACTIVE, "rate_limit_per_minute": 10, "tenant_id": uuid.uuid4(), "project_id": PROJECT, "tenant_status": tenant_status})
-
-    async def pool():
-        return SimpleNamespace(acquire=lambda: TenantCtx(conn))
-
-    async def serve_must_not_run(*_):
-        raise AssertionError("Serve was called")
-
-    monkeypatch.setattr(predict, "get_pool", pool)
-    monkeypatch.setattr(predict, "call", serve_must_not_run)
-    with pytest.raises(HTTPException) as e:
-        run(predict.predict(DEPLOYMENT, "key", {}))
-    assert (e.value.status_code, e.value.code) == (503, KernelProblemCode.TENANT_SUSPENDED)
-
-
 def test_list_get_and_test_calls_leave_deleted_rows_out(env):
     run(service.list_deployments(CTX, PROJECT))
     env.conn.row, env.conn.val = None, None
@@ -209,23 +178,3 @@ def test_stop_and_delete_do_not_check_the_quota(env):
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
 
 
-def test_stopping_a_versions_deployments_moves_each_active_one_with_an_audit_row(env):
-    version = uuid.uuid4()
-    env.conn.rowset = [{"id": DEPLOYMENT}]
-    env.conn.rows = {UPDATE: row(S.STOPPED), SELECT: row(S.ACTIVE)}
-    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 1
-    assert moves(env) == [(DEPLOYMENT, S.ACTIVE, S.STOPPED)]
-    assert audited(env) == [("stop", "deployment", str(DEPLOYMENT))]
-    env.conn.rowset = []
-    assert run(service.stop_version_deployments(CTX, PROJECT, version)) == 0  # a `main` deployment was moved to the new version: nothing left
-
-
-def test_a_rollback_to_a_stopped_version_at_the_plan_limit_is_429_and_starts_nothing(env):
-    from app.modules.user.deployments.constants import TOO_MANY_DEPLOYMENTS_DETAIL
-    from app.core.settings import settings
-
-    env.conn.vals["count(*) FROM deployments"] = settings.serving.max_active_deployments_per_tenant  # the replaced version still holds its slot
-    env.conn.rows = {"FROM deployments WHERE model_version_id": {"id": DEPLOYMENT, "status": S.STOPPED}, UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
-    with pytest.raises(HTTPException) as e:
-        run(service.ensure_deployed(CTX, PROJECT, uuid.uuid4()))
-    assert (e.value.status_code, e.value.code, e.value.detail) == (429, ProblemCode.TOO_MANY_DEPLOYMENTS, TOO_MANY_DEPLOYMENTS_DETAIL) and moves(env) == []

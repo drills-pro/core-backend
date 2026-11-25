@@ -11,7 +11,7 @@ from app.modules.user.deployments import model_predict, routes
 from app.modules.user.deployments.predict import ServeFailed
 from app.modules.user.deployments.constants import METADATA_MAX_BYTES, PREDICTION_ID_PREFIX
 from app.modules.user.deployments.status import DeploymentStatus
-from tests.support.predict_env import BODY, MODEL, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
+from tests.support.predict_env import BODY, PROJECT, RESOLVED, TENANT, DEPLOYMENT, RUN, build
 
 @pytest.fixture
 def env(monkeypatch):
@@ -23,17 +23,18 @@ def test_200_returns_the_envelope_and_forwards_input_unchanged(env):
     body = r.json()
     assert r.status_code == 200
     assert body["id"].startswith(PREDICTION_ID_PREFIX) and uuid.UUID(body["id"].removeprefix(PREDICTION_ID_PREFIX))
-    assert body["model"] == {"id": str(MODEL), "revision": "3"} and body["output"] == {"predictions": [{"label": "cat"}]}
+    assert body["model"] == {"id": str(DEPLOYMENT)} and body["output"] == {"predictions": [{"label": "cat"}]}
     assert body["usage"] == {"latency_ms": 12.5} and body["metadata"] == {"trace": "t1"} and body["error"] is None and body["created_at"]
     (args,) = env.served
     assert args[:4] == (str(TENANT), PROJECT, DEPLOYMENT, RUN) and args[4] == BODY["input"] and args[5] == 3  # metadata is not forwarded
 
 
-def test_the_revision_header_reaches_the_lookup_and_none_means_the_default(env):
-    env.post(revision="2")
-    env.post()
-    lookups = [args for sql, args in env.conn.calls if "FROM models m" in sql]
-    assert [a[2] for a in lookups] == ["2", None] and all(a[:2] == (MODEL, PROJECT) for a in lookups)
+def test_no_model_header_looks_up_the_projects_main_deployment_and_a_model_id_looks_up_that_one(env):
+    assert env.post(model=None).status_code == 200
+    assert env.post(model=DEPLOYMENT).status_code == 200
+    lookups = [(sql, args) for sql, args in env.conn.calls if sql.startswith("SELECT d.id")]
+    assert "d.main" in lookups[0][0] and lookups[0][1][0] == PROJECT
+    assert "d.id = $1" in lookups[1][0] and lookups[1][1][0] == DEPLOYMENT
 
 
 def test_usage_is_recorded_once_per_success_under_the_prediction_id(env):
@@ -48,8 +49,7 @@ def test_422_for_an_unknown_key_a_missing_input_or_big_metadata(env, body):
     assert (r.status_code, r.json()["code"]) == (422, "validation_error") and not env.served and not env.usage
 
 
-def test_422_for_a_missing_model_header_and_for_a_body_that_is_not_json_object(env):
-    assert env.post(model=None).status_code == 422
+def test_422_for_a_body_that_is_not_json_object(env):
     assert env.post([1]).status_code == 422
 
 
@@ -65,7 +65,7 @@ def test_401_for_an_unknown_key_and_for_another_project(env):
 
 def test_403_for_a_model_outside_the_key_allowlist_and_200_inside_it(env):
     assert env.post(secret=env.add_key(models=[uuid.uuid4()])).status_code == 403
-    assert env.post(secret=env.add_key(models=[MODEL])).status_code == 200
+    assert env.post(secret=env.add_key(models=[DEPLOYMENT])).status_code == 200
 
 
 @pytest.mark.parametrize("model", [uuid.uuid4(), "not-a-uuid"])
@@ -113,8 +113,8 @@ def test_serve_failures_map_and_cost_nothing(env, code, status, problem):
     assert r.headers.get("Retry-After") == (str(COLD_START_RETRY_AFTER_SECONDS) if status == 504 else None)
 
 
-def test_the_legacy_endpoint_is_still_there():
-    assert {"/v1/predict", "/v1/predict/{deployment_id}"} <= {r.path for r in routes.router.routes}
+def test_the_legacy_endpoint_is_gone_and_predict_has_no_revision_header():
+    assert "/v1/predict/{deployment_id}" not in {r.path for r in routes.router.routes}
 
 
 @pytest.mark.parametrize("code", list(ServeErrorCode))

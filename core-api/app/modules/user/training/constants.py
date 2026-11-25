@@ -40,7 +40,6 @@ class ProblemCode(StrEnum):
 
 CANCEL_FAILED_DETAIL = "the run could not be stopped right now; it is unchanged, try again shortly"
 START_FAILED_DETAIL = "could not start the training run, try again shortly"
-DEFAULT_MODEL_NAME = "model"  # the registered model every succeeded run adds a version to (matches model_registry's MODEL_NAME)
 SEED_MAX = 2**32 - 1
 TOO_MANY_RUNS_DETAIL = "too many training runs in progress, wait for one to finish"
 TRAINING_LOCK_PREFIX = "training:"  # advisory-lock key prefix: serialises the quota check and insert per tenant

@@ -30,9 +30,9 @@ def test_an_image_detector_documents_its_input_boxes_and_snippets(monkeypatch, d
     r = call(monkeypatch, dev_headers, "image_encoder", "detect")
     body = r.json()
     assert r.status_code == 200 and body["input"] == {"image_base64": "string"}
-    assert "box" in body["output"]["predictions"][0] and body["model_id"] == str(MODEL) and body["model_revision"] == "3"
+    assert "box" in body["output"]["predictions"][0] and body["deployment_id"] == str(DEPLOYMENT)
     for text in body["snippets"].values():
-        assert SNIPPET_KEY_PLACEHOLDER in text and str(MODEL) in text and "/v1/predict" in text
+        assert SNIPPET_KEY_PLACEHOLDER in text and str(DEPLOYMENT) in text and "/v1/predict" in text
 
 
 def test_a_text_model_takes_text(monkeypatch, dev_headers):
