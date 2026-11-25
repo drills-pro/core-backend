@@ -32,7 +32,6 @@ class AdminModel(AdminModelVersion):
 class ModelStats(BaseModel):
     model_count: int
     deployed_count: int
-    deploying_count: int
     stopped_count: int
     not_deployed_count: int
     project_count: int

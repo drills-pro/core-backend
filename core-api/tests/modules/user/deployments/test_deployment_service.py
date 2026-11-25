@@ -126,7 +126,7 @@ def test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_r
     with pytest.raises(HTTPException) as e:
         asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     assert e.value.status_code == 409 and e.value.code == ProblemCode.DEPLOY_RISK and not deploy_env.deployed
-    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
+    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, VERSION, KEY, acknowledge_risk=True))
     assert deploy_env.deployed and inserted(deploy_env.conn)[9] is True  # risk_acknowledged
 
@@ -136,7 +136,7 @@ def stats(splits, row_count):
 
 
 def test_the_gate_reads_the_test_split_from_the_runs_dataset_version_not_only_a_test_dataset(deploy_env):
-    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
+    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     no_dataset = {**SERVABLE, "test_dataset_id": None}
     for version_stats, risky in (
         (stats({Split.TRAIN: 8, Split.VALIDATION: 2}, 10), True),  # every row split, none of them test
@@ -161,7 +161,7 @@ def test_a_score_under_the_task_floor_needs_acknowledge_risk(deploy_env):
         asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     assert e.value.status_code == 409 and e.value.code == ProblemCode.DEPLOY_RISK and metric in e.value.detail and not deploy_env.deployed
     deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "metrics": {metric: floor}}  # at the floor is fine
-    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
+    deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     assert deploy_env.deployed and inserted(deploy_env.conn)[9] is False
 
@@ -170,7 +170,7 @@ def test_a_detection_run_deploys_with_the_class_names_its_report_lists(deploy_en
     deploy_env.conn.vals["SELECT task_type"] = TaskType.OBJECT_DETECTION
     deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "class_names": ["person", "car"]}
     deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False,
-        "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
+        "id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": PLAN_TIER_RATE_LIMITS[PlanTier.PRO],
     }
     assert asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY)).id
     assert inserted(deploy_env.conn)[3] == RUN  # the predictor apps read the class names from the run on the first request

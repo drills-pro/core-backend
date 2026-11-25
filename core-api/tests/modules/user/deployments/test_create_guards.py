@@ -18,6 +18,8 @@ from app.modules.user.training import TrainingStatus
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_deployments_quota_idempotency.sql")).read_text().split("-- migrate:down")[0]
+# The live index is redefined by the migration that dropped 'deploying' and 'failed'; that file holds its current predicate.
+LIVE_INDEX_MIGRATION = next((Path(__file__).parents[4] / "migrations").glob("*_drop_deploying_and_failed.sql")).read_text().split("-- migrate:down")[0]
 CTX = SimpleNamespace(tenant_id=str(uuid.uuid4()), actor="user-1")
 RUN, OTHER_RUN, VERSION, KEY = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), "key-1"
 SERVABLE = {"id": RUN, "status": TrainingStatus.SUCCEEDED, "mlflow_run_id": "mlflow-1", "class_names": ["cat"], "test_dataset_id": uuid.uuid4()}
@@ -116,10 +118,10 @@ def test_the_plan_row_sets_the_limit(env):
     assert e.value.code == ProblemCode.TOO_MANY_DEPLOYMENTS
 
 
-def test_the_count_is_of_active_and_deploying_only_so_stopped_and_deleted_free_the_slot(env):
+def test_the_count_is_of_active_only_so_stopped_and_deleted_free_the_slot(env):
     create()
     (_, args), = [c for c in env.conn.calls if "count(*) FROM deployments" in c[0]][:1]
-    assert set(args[2]) == {DeploymentStatus.ACTIVE, DeploymentStatus.DEPLOYING} and not {"stopped", "deleted", "failed"} & set(args[2])
+    assert set(args[2]) == {DeploymentStatus.ACTIVE} and not {"stopped", "deleted"} & set(args[2])
 
 
 def test_the_write_checks_the_quota_under_the_tenants_advisory_lock(env):
@@ -132,7 +134,7 @@ def test_the_write_checks_the_quota_under_the_tenants_advisory_lock(env):
 
 
 def test_the_index_predicate_and_the_quota_statuses_mirror_the_code():
-    index = re.search(r"deployments_one_live_per_run ON deployments\(training_run_id\)\s+WHERE status IN \(([^)]*)\)", MIGRATION).group(1)
+    index = re.search(r"deployments_one_live_per_run ON deployments\(training_run_id\)\s+WHERE status IN \(([^)]*)\)", LIVE_INDEX_MIGRATION).group(1)
     assert set(re.findall(r"'(\w+)'", index)) == {s.value for s in LIVE_STATUSES}
     assert set(QUOTA_STATUSES) <= set(LIVE_STATUSES)  # a slot is only ever taken by a live deployment
     assert set(re.findall(r"'(\w+)'", MIGRATION.split("UPDATE deployments d")[1].split("CREATE UNIQUE")[0])) >= {DeploymentStatus.DELETED}

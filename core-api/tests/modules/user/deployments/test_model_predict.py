@@ -76,7 +76,7 @@ def test_404_for_an_unknown_model_and_none_of_it_is_served(env, model):
     assert (r.status_code, r.json()["code"]) == (404, "not_found") and not env.served and not env.usage
 
 
-@pytest.mark.parametrize("status", [DeploymentStatus.DEPLOYING, DeploymentStatus.STOPPED, DeploymentStatus.FAILED])
+@pytest.mark.parametrize("status", [DeploymentStatus.STOPPED, DeploymentStatus.DELETED])
 def test_409_when_the_deployment_is_not_active(env, status):
     env.conn.row = {**RESOLVED, "status": status}
     r = env.post()

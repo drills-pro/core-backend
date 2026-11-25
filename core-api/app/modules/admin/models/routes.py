@@ -43,7 +43,7 @@ async def list_models(
     tenant_id: uuid.UUID | None = Query(default=None, description="one organisation only"),
     task_type: TaskType | None = Query(default=None),
     visibility: str | None = Query(default=None, description="private | internal"),
-    status: str | None = Query(default=None, description="deployed | deploying | stopped | not_deployed"),
+    status: str | None = Query(default=None, description="deployed | stopped | not_deployed"),
     page: PageParams = Depends(),
 ):
     """Every registered model, newest first, one row per model.

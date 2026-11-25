@@ -180,7 +180,7 @@ def test_too_many_in_flight_is_retried_and_no_servable_model_fails(env):
     assert (failed["status"], failed["error"]["code"]) == (PredictionStatus.FAILED, "no_servable_model")
 
 
-@pytest.mark.parametrize("status", [DeploymentStatus.STOPPED, DeploymentStatus.FAILED, DeploymentStatus.DELETED, None])
+@pytest.mark.parametrize("status", [DeploymentStatus.STOPPED, DeploymentStatus.DELETED, None])
 def test_a_prediction_whose_deployment_is_no_longer_active_fails_without_a_serve_call(env, status):
     (row,) = queue(env)
     env.conn.row = None if status is None else {**RESOLVED, "status": status}

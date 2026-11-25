@@ -4,11 +4,11 @@ from app.integrations import job_lifecycle
 
 
 # Mirrored by the partial unique index deployments_one_live_per_run: the statuses that hold a training run.
-LIVE_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE, DeploymentStatus.STOPPED)
+LIVE_STATUSES = (DeploymentStatus.ACTIVE, DeploymentStatus.STOPPED)
 # What counts against the plan's max_active_deployments; stopped and deleted free the slot.
-QUOTA_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE)
+QUOTA_STATUSES = (DeploymentStatus.ACTIVE,)
 # Mirrored by the partial unique index deployments_one_active_per_version: the statuses that hold a model version.
-VERSION_LIVE_STATUSES = (DeploymentStatus.DEPLOYING, DeploymentStatus.ACTIVE)
+VERSION_LIVE_STATUSES = (DeploymentStatus.ACTIVE,)
 
 _S = DeploymentStatus
 
@@ -21,10 +21,8 @@ DEPLOYMENTS = job_lifecycle.JobTable(
     table="deployments",
     inflight=(),
     transitions={
-        _S.DEPLOYING: frozenset({_S.ACTIVE, _S.DELETED}),
         _S.ACTIVE: frozenset({_S.ACTIVE, _S.STOPPED, _S.DELETED}),
         _S.STOPPED: frozenset({_S.ACTIVE, _S.DELETED}),
-        _S.FAILED: frozenset({_S.ACTIVE, _S.DELETED}),
     },
     columns=frozenset({
         "training_run_id", "ray_job_id", "serving", "idempotency_key", "risk_acknowledged", "model_version_id", "predict_key_hash",

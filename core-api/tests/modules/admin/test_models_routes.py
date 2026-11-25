@@ -80,7 +80,7 @@ def test_an_id_that_names_no_version_is_an_empty_list(call):
 
 
 def test_the_summary_is_the_platform_wide_counts(call):
-    stats = dict(model_count=5, deployed_count=2, deploying_count=1, stopped_count=1, not_deployed_count=1, project_count=3, version_count=9)
+    stats = dict(model_count=5, deployed_count=2, stopped_count=1, not_deployed_count=1, project_count=3, version_count=9)
     res = call(model_service, model_routes.router, FakeConn(row=stats), "/v1/admin/models/summary")
     assert res.json() == stats
 

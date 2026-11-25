@@ -37,7 +37,7 @@ def test_a_version_with_a_live_deployment_cannot_get_another_on_any_run(two_tena
     t.run(go())
 
 
-@pytest.mark.parametrize("released", [DeploymentStatus.FAILED, DeploymentStatus.DELETED, DeploymentStatus.STOPPED])
+@pytest.mark.parametrize("released", [DeploymentStatus.DELETED, DeploymentStatus.STOPPED])
 def test_a_deployment_that_is_not_deploying_or_active_leaves_the_version_free(two_tenants, released):
     t = two_tenants
 
