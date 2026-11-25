@@ -21,10 +21,11 @@ def model(**kw):
 
 
 def test_a_model_exists_for_a_succeeded_run_with_an_mlflow_run_and_serves_when_it_has_class_names():
-    assert model().has_model and model().servable
-    assert not model(status=S.RUNNING).has_model and not model(status=S.FAILED).servable
+    assert model().has_model and model().servable_by("classify")
+    assert not model(status=S.RUNNING).has_model and not model(status=S.FAILED).servable_by("classify")
     assert not model(mlflow_run_id=None).has_model
-    assert model(class_names=[]).has_model and not model(class_names=[]).servable
+    assert model(class_names=[]).has_model and not model(class_names=[]).servable_by("classify")
+    assert model(class_names=[]).servable_by("regress")  # a regression has no classes
 
 
 def test_the_reports_classes_are_the_class_names_with_the_confusion_labels_as_the_older_fallback():

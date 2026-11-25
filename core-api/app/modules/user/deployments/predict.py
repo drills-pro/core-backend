@@ -101,7 +101,7 @@ async def _target(tenant_id: str, project_id: uuid.UUID, deployment_id: uuid.UUI
         task = await get_task_type(conn, project_id)
         info = None if task is None else await task_types.get(conn, task)
         settings_ = await get_settings(conn, project_id)
-    if run is None or not run.servable or info is None or not info.servable:
+    if run is None or info is None or not info.servable or not run.servable_by(info.postprocess):
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.NO_SERVABLE_MODEL, _NO_MODEL)
     model = await serve_client.served_model(info, run.mlflow_run_id, run.class_names, tenant_id, str(project_id))
     target = Target(serve_client.ComputeTarget(settings_.get(SETTING_COMPUTE_TARGET, DEFAULT_COMPUTE_TARGET)), run_id, model)
