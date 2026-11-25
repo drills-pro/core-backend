@@ -8,6 +8,7 @@ name: Tests
 # No push trigger: that call already runs the suite on each push to main, so a push would run it twice.
 on:
   pull_request:
+  merge_group: # the merge queue runs the same checks on each queued group, so the required checks report there too
   workflow_call:
 
 permissions:
