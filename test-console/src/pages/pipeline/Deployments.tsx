@@ -175,15 +175,15 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
     queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/deployments', { params: { path } })),
   });
   const keys = useQuery({
-    queryKey: ['api-keys', projectId],
-    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/api-keys', { params: { path } })),
+    queryKey: ['api-keys'],
+    queryFn: () => unwrap(client.GET('/v1/api-keys')),
   });
   const [name, setName] = useState('');
   const [secret, setSecret] = useState<string>();
   const [modelId, setModelId] = useState('');
-  const onSettled = () => qc.invalidateQueries({ queryKey: ['api-keys', projectId] });
+  const onSettled = () => qc.invalidateQueries({ queryKey: ['api-keys'] });
   const create = useMutation({
-    mutationFn: () => unwrap(client.POST('/v1/projects/{project_id}/api-keys', { params: { path }, body: { name, scopes: [PREDICT_SCOPE], model_ids: [] } })),
+    mutationFn: () => unwrap(client.POST('/v1/api-keys', { body: { name, scopes: [PREDICT_SCOPE], project_ids: [projectId] } })),
     onSuccess: (k) => {
       setSecret(k.secret);
       setName('');
@@ -191,7 +191,7 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
     onSettled,
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => unwrap(client.DELETE('/v1/projects/{project_id}/api-keys/{key_id}', { params: { path: { ...path, key_id: id } } })),
+    mutationFn: (id: string) => unwrap(client.DELETE('/v1/api-keys/{key_id}', { params: { path: { key_id: id } } })),
     onSettled,
   });
 

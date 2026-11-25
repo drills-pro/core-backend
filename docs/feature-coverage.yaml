@@ -976,15 +976,16 @@ entries:
   - core-api/tests/modules/user/deployments/test_model_predict.py::test_serve_failures_map_and_cost_nothing
 - id: PRD-03
   area: predict
-  title: Project API keys - create (secret shown once, sha256 at rest), list, revoke, audited
+  title: Workspace API keys - create with a name and the projects it works in (secret shown once, sha256 at rest), list, revoke, audited
   source: planning/24 API keys; planning/04 Machine access
   status: built
   old: F11
-  code: ["POST /v1/projects/{project_id}/api-keys", "GET /v1/projects/{project_id}/api-keys", "DELETE /v1/projects/{project_id}/api-keys/{key_id}", core-api/app/modules/user/api_keys/service.py]
+  code: ["POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/{key_id}", core-api/app/modules/user/api_keys/service.py]
   tests:
   - core-api/tests/modules/user/api_keys/test_api_keys.py::test_secret_is_returned_once_and_only_its_hash_is_stored
-  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_list_never_shows_secret_or_hash
-  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_viewer_gets_403_naming_the_action_and_deployer_is_allowed
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_list_shows_the_granted_projects_never_the_secret_or_hash
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_only_admins_and_owners_manage_workspace_keys
+  - core-api/tests/core/authz/test_keys.py::test_a_key_works_in_each_granted_project_and_no_other
 - id: PRD-04
   area: predict
   title: Key scopes (enum plus CHECK) and optional per-model allowlist
@@ -995,7 +996,7 @@ entries:
   tests:
   - core-api/tests/core/authz/test_keys.py::test_the_key_dependency_accepts_any_model_header_the_route_checks_the_allowlist
   - core-api/tests/core/authz/test_keys.py::test_missing_scope_is_403_naming_the_scope
-  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_unknown_scope_is_422
+  - core-api/tests/modules/user/api_keys/test_api_keys.py::test_unknown_scope_or_no_project_is_422
 - id: PRD-05
   area: predict
   title: require_key - one identical 401 for every failure cause, X-Project-Id must match the key

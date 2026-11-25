@@ -9,7 +9,7 @@ from app.core.authz import Scope
 class NewApiKey(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scopes: list[Scope] = Field(min_length=1)
-    model_ids: list[uuid.UUID] = []  # empty = every model in the project
+    project_ids: list[uuid.UUID] = Field(min_length=1)  # the projects the key works in; every model of each one is available
     expires_at: datetime | None = None
     rate_limit_per_minute: int | None = Field(default=None, gt=0)  # POST /v1/predict calls a minute; the lower of this and the plan's applies
 
@@ -21,6 +21,7 @@ class ApiKey(BaseModel):
     name: str
     prefix: str
     scopes: list[str]
+    project_ids: list[uuid.UUID]
     model_ids: list[uuid.UUID]
     expires_at: datetime | None
     created_at: datetime

@@ -25,11 +25,11 @@ class FakePool:
         self.rows = {}
         self.touched = []
 
-    def add(self, scopes=("predict",), models=(), revoked=False, expired=False, tenant_status=TenantStatus.ACTIVE):
+    def add(self, scopes=("predict",), models=(), revoked=False, expired=False, tenant_status=TenantStatus.ACTIVE, projects=(PROJECT,)):
         key = generate_key()
         if not (revoked or expired):
             self.rows[key.key_hash] = dict(
-                key_id=uuid.uuid4(), tenant_id=TENANT, project_id=PROJECT, scopes=list(scopes), model_ids=list(models),
+                key_id=uuid.uuid4(), tenant_id=TENANT, project_ids=list(projects), scopes=list(scopes), model_ids=list(models),
                 tenant_status=tenant_status, rate_limit_per_minute=None,
             )
         return key.secret
@@ -87,6 +87,13 @@ def call(client, secret, project=str(PROJECT), model=None):
 def test_valid_key_resolves_tenant_and_project_from_the_key(client, pool):
     r = call(client, pool.add())
     assert (r.status_code, r.json()) == (200, {"project_id": str(PROJECT), "tenant_id": str(TENANT), "scopes": ["predict"]})
+
+
+def test_a_key_works_in_each_granted_project_and_no_other(client, pool):
+    other = uuid.uuid4()
+    secret = pool.add(projects=[PROJECT, other])
+    assert call(client, secret, str(other)).json()["project_id"] == str(other)
+    assert call(client, secret, str(uuid.uuid4())).status_code == 401
 
 
 def test_only_an_accepted_request_marks_the_key_used(client, pool):

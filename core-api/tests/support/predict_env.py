@@ -56,7 +56,7 @@ def build(monkeypatch):
     def add_key(models=(), tenant_status=TenantStatus.ACTIVE, project=PROJECT, rate_limit=None):
         key = generate_key()
         pool.rows[key.key_hash] = dict(
-            key_id=uuid.uuid4(), tenant_id=TENANT, project_id=project, scopes=["predict"], model_ids=list(models), tenant_status=tenant_status,
+            key_id=uuid.uuid4(), tenant_id=TENANT, project_ids=[project], scopes=["predict"], model_ids=list(models), tenant_status=tenant_status,
             rate_limit_per_minute=rate_limit)
         return key.secret
 

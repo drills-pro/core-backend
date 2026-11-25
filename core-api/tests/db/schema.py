@@ -63,18 +63,21 @@ SEEDS = (
      f"VALUES ($1, 'u2@example.com', '{InviteRole.MEMBER}', gen_random_uuid()::text, 'u1', now() + interval '1 day')"),
     ("ownership_offers",
      "INSERT INTO ownership_offers (tenant_id, from_sub, to_sub, expires_at) VALUES ($1, 'u1', 'u2', now() + interval '1 day')"),
+    # One key per project, its id the project's id; the key is granted that project.
     ("api_keys",
-     "INSERT INTO api_keys (tenant_id, project_id, name, prefix, key_hash, created_by) "
-     "SELECT tenant_id, id, 'key', 'pre', tenant_id::text, 'u1' FROM projects WHERE tenant_id = $1"),
+     "INSERT INTO api_keys (id, tenant_id, name, prefix, key_hash, created_by) "
+     "SELECT id, tenant_id, 'key', 'pre', tenant_id::text, 'u1' FROM projects WHERE tenant_id = $1"),
+    ("api_key_projects",
+     "INSERT INTO api_key_projects (key_id, tenant_id, project_id) SELECT id, tenant_id, id FROM projects WHERE tenant_id = $1"),
     ("api_key_scopes",
      f"INSERT INTO api_key_scopes (key_id, tenant_id, scope) SELECT id, tenant_id, '{Scope.PREDICT}' FROM api_keys WHERE tenant_id = $1"),
     ("api_key_models",
      "INSERT INTO api_key_models (key_id, tenant_id, model_id) "
-     "SELECT k.id, k.tenant_id, m.id FROM api_keys k JOIN models m ON m.project_id = k.project_id WHERE k.tenant_id = $1"),
+     "SELECT kp.key_id, kp.tenant_id, m.id FROM api_key_projects kp JOIN models m ON m.project_id = kp.project_id WHERE kp.tenant_id = $1"),
     ("predictions",
      f"INSERT INTO predictions (tenant_id, project_id, api_key_id, deployment_id, model_id, model_revision, mode, status, max_attempts) "
-     f"SELECT d.tenant_id, d.project_id, k.id, d.id, m.id, '1', '{PredictionMode.BACKGROUND}', '{PredictionStatus.QUEUED}', 3 "
-     f"FROM deployments d JOIN api_keys k ON k.project_id = d.project_id JOIN models m ON m.project_id = d.project_id WHERE d.tenant_id = $1"),
+     f"SELECT d.tenant_id, d.project_id, kp.key_id, d.id, m.id, '1', '{PredictionMode.BACKGROUND}', '{PredictionStatus.QUEUED}', 3 "
+     f"FROM deployments d JOIN api_key_projects kp ON kp.project_id = d.project_id JOIN models m ON m.project_id = d.project_id WHERE d.tenant_id = $1"),
     ("prediction_events",
      f"INSERT INTO prediction_events (prediction_id, seq, tenant_id, status) "
      f"SELECT id, 1, tenant_id, '{PredictionStatus.QUEUED}' FROM predictions WHERE tenant_id = $1"),

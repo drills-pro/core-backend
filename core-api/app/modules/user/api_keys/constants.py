@@ -11,7 +11,7 @@ class EntityType(StrEnum):
 
 
 class ProblemCode(StrEnum):
-    UNKNOWN_MODEL = "unknown_model"
+    UNKNOWN_PROJECT = "unknown_project"
 
 
-UNKNOWN_MODEL_DETAIL = "model_ids must all be models of this project"
+UNKNOWN_PROJECT_DETAIL = "project_ids must all be active projects of this workspace"

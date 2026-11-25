@@ -63,7 +63,8 @@ def test_the_key_is_unique_per_project_and_the_loser_of_the_race_gets_the_winner
         r = await refs(t, t.a)
         project = await t.conn.fetchval("INSERT INTO projects (tenant_id, name) VALUES ($1, 'second') RETURNING id", t.a)
         key = await t.conn.fetchval(
-            "INSERT INTO api_keys (tenant_id, project_id, name, prefix, key_hash, created_by) VALUES ($1, $2, 'k', 'p', gen_random_uuid()::text, 'u1') RETURNING id",
+            "WITH k AS (INSERT INTO api_keys (tenant_id, name, prefix, key_hash, created_by) VALUES ($1, 'k', 'p', gen_random_uuid()::text, 'u1') RETURNING id), "
+            "g AS (INSERT INTO api_key_projects (key_id, tenant_id, project_id) SELECT id, $1, $2 FROM k) SELECT id FROM k",
             t.a, project)
         other = (KeyContext(key, str(t.a), project, frozenset(), frozenset()), r[1], r[2])
         async with t.as_tenant(t.a) as conn:

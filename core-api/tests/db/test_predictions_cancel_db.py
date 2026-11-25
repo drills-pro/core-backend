@@ -19,7 +19,8 @@ def test_a_key_sees_only_its_own_predictions_in_its_own_project(two_tenants):
     async def go():
         ctx, deployment, model = await refs(t, t.a)
         other_key = await t.conn.fetchval(
-            "INSERT INTO api_keys (tenant_id, project_id, name, prefix, key_hash, created_by) VALUES ($1, $2, 'k2', 'p', gen_random_uuid()::text, 'u1') RETURNING id",
+            "WITH k AS (INSERT INTO api_keys (tenant_id, name, prefix, key_hash, created_by) VALUES ($1, 'k2', 'p', gen_random_uuid()::text, 'u1') RETURNING id), "
+            "g AS (INSERT INTO api_key_projects (key_id, tenant_id, project_id) SELECT id, $1, $2 FROM k) SELECT id FROM k",
             t.a, ctx.project_id)
         async with t.as_tenant(t.a) as conn:
             row, _ = await begin(conn, (ctx, deployment, model), PredictionMode.BACKGROUND, "k")

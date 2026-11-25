@@ -19,9 +19,9 @@ NOW = datetime.now(timezone.utc)
 
 
 def test_revoking_an_unknown_key_is_404_and_nothing_is_audited(monkeypatch, dev_headers):
-    conn = FakeConn(access(roles=["deployer"]), val=None)
+    conn = FakeConn(access(role="admin"), val=None)
     patch_tenant_conn(monkeypatch, conn, key_service)
-    r = make_client(key_routes.router).delete(f"/v1/projects/{PROJECT}/api-keys/{uuid.uuid4()}")
+    r = make_client(key_routes.router).delete(f"/v1/api-keys/{uuid.uuid4()}")
     assert r.status_code == 404
     assert not any("audit_log" in sql for sql, _ in conn.calls)
 

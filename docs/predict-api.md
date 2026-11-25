@@ -8,8 +8,8 @@ for the model id.
 
 ## Authentication
 
-Create a key in the project with the `predict` scope (`POST /v1/projects/{project_id}/api-keys`). A key can be limited to
-a list of models and can carry its own `rate_limit_per_minute`. The secret is shown once.
+Create a key in the workspace with the `predict` scope (`POST /v1/api-keys`, body `project_ids`: the projects the key works in;
+every model of each one is available). A key can carry an `expires_at` and its own `rate_limit_per_minute`. The secret is shown once.
 
 Every request sends:
 

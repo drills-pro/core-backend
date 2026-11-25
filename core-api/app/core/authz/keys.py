@@ -1,8 +1,8 @@
 """Key-authenticated routes (planning/04, 05): `require_key(Scope.PREDICT)`, a dependency family
 separate from `require(Action)`. The key, not a person, is the principal, and it fixes the tenant and
-project: the X-Project-Id header may only confirm the key's project, never choose one.
+project: X-Project-Id picks one of the key's granted projects, and a project the key was not granted is refused.
 
-    missing, unknown, revoked or expired key, or X-Project-Id missing/different  -> 401 invalid_api_key (one body)
+    missing, unknown, revoked or expired key, or X-Project-Id missing/not granted -> 401 invalid_api_key (one body)
     key without the scope                                                         -> 403 forbidden, naming the scope
     (the model allowlist is checked by the route, once it knows the model a call names)
     tenant not active (suspended or pending deletion)                             -> 503 tenant_suspended
@@ -78,10 +78,16 @@ def require_key(scope: Scope):
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM api_key_lookup($1)", hash_key(secret))
-        if row is None or x_project_id != str(row["project_id"]):
+        if row is None:
+            raise invalid_api_key()
+        try:
+            project_id = uuid.UUID(x_project_id or "")
+        except ValueError:
+            raise invalid_api_key() from None
+        if project_id not in row["project_ids"]:  # a key works only in the projects granted to it
             raise invalid_api_key()
         ctx = KeyContext(
-            row["key_id"], str(row["tenant_id"]), row["project_id"],
+            row["key_id"], str(row["tenant_id"]), project_id,
             frozenset(Scope(s) for s in row["scopes"]), frozenset(row["model_ids"]), row["rate_limit_per_minute"],
         )
         if row["tenant_status"] != TenantStatus.ACTIVE:
