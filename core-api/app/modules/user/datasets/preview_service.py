@@ -1,4 +1,4 @@
-"""Preview and files, served from the parquet index plus presigned GETs; lakeFS is never listed."""
+"""Preview, served from the parquet index plus presigned GETs; lakeFS is never listed."""
 import uuid
 from http import HTTPStatus
 
@@ -12,7 +12,7 @@ from app.integrations import data_plane
 from app.integrations.data_plane import DATA_KIND_LAYOUTS, OBJECTS_PREFIX
 from app.modules.user.datasets.constants import ImportStatus, ProblemCode
 from app.modules.user.datasets.readers import dataset_task
-from app.modules.user.datasets.schemas import DatasetPreview, FileLink, PreviewRow
+from app.modules.user.datasets.schemas import DatasetPreview, PreviewRow
 
 _VERSION_EXISTS = "SELECT 1 FROM dataset_versions WHERE id = $1 AND dataset_id = $2"
 _IMPORT_STATUS = "SELECT status FROM dataset_imports WHERE id = $1 AND dataset_id = $2"
@@ -64,13 +64,3 @@ async def import_preview(
         raise Problem(HTTPStatus.CONFLICT, ProblemCode.INVALID_STATE, _NOT_IN_REVIEW)
     rows = await data_plane.read_staged_sample(ctx.tenant_id, str(dataset_id), str(import_id), _key(task), limit)
     return DatasetPreview(rows=[PreviewRow(data=r) for r in rows])
-
-
-async def file_link(
-    ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID, version_id: uuid.UUID, path: str
-) -> FileLink:
-    """Presigned GET for one image of a version; `path` is the index's `path` column."""
-    async with TenantConn(ctx.tenant_id) as conn:
-        await _version_task(conn, project_id, dataset_id, version_id)
-    url = await data_plane.presign_get(ctx.tenant_id, str(dataset_id), str(version_id), OBJECTS_PREFIX + path)
-    return FileLink(url=url)

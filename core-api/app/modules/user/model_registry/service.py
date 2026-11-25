@@ -6,21 +6,18 @@ Registering is two steps with no pooled connection held across the first: `regis
 once it is the compare-and-set winner. Nothing else creates a version.
 """
 import uuid
-from http import HTTPStatus
 
 from app.core import audit
 from app.core.authz import AuthzContext
-from app.core.problem import Problem, not_found
+from app.core.problem import not_found
 from app.core.tenant_conn import TenantConn
 from app.integrations import data_plane
 from app.modules.user.model_registry.constants import (
-    NOTHING_TO_UPDATE_DETAIL,
     AuditAction,
     DownloadFile,
     EntityType,
-    ProblemCode,
 )
-from app.modules.user.model_registry.schemas import ModelVersion, ModelVersionItem, PublishState, RegisteredVersion, VersionRef
+from app.modules.user.model_registry.schemas import ModelVersion, ModelVersionItem, RegisteredVersion, VersionRef
 
 _ENSURE_MODEL = "INSERT INTO models (tenant_id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO NOTHING"
 _INSERT = (
@@ -33,11 +30,6 @@ _INSERT = (
 _LIST = (
     "SELECT id, model_id, mlflow_model_name, mlflow_version, created_at FROM model_versions "
     "WHERE project_id = $1 ORDER BY created_at DESC"
-)
-_SET_PUBLISH = (
-    "UPDATE model_versions SET publish_metadata = COALESCE($2, publish_metadata), "
-    "publish_artifact = COALESCE($3, publish_artifact) WHERE id = $1 AND project_id = $4 "
-    "RETURNING id, publish_metadata, publish_artifact"
 )
 _RUN_OF = (
     "SELECT tr.mlflow_run_id FROM model_versions mv JOIN training_runs tr ON tr.id = mv.training_run_id "
@@ -76,22 +68,6 @@ async def list_versions(ctx: AuthzContext, project_id: uuid.UUID) -> list[ModelV
     async with TenantConn(ctx.tenant_id) as conn:
         rows = await conn.fetch(_LIST, project_id)
     return [_shown(ModelVersionItem.model_validate(dict(r)), ctx.tenant_id, project_id) for r in rows]
-
-
-async def set_publish(
-    ctx: AuthzContext, project_id: uuid.UUID, version_id: uuid.UUID, metadata: bool | None, artifact: bool | None
-) -> PublishState:
-    # FR7 (08-collaboration-visibility.md): metrics/config vs. the weights artifact are separate disclosures.
-    # Since project sharing (planning/27 #4) these only exclude one version: the project's level decides the rest.
-    if metadata is None and artifact is None:
-        raise Problem(HTTPStatus.BAD_REQUEST, ProblemCode.NOTHING_TO_UPDATE, NOTHING_TO_UPDATE_DETAIL)
-    async with TenantConn(ctx.tenant_id) as conn:
-        row = await conn.fetchrow(_SET_PUBLISH, version_id, metadata, artifact, project_id)
-        if row is not None:
-            await audit.record_for(conn, ctx, project_id, AuditAction.SET_PUBLISH, EntityType.MODEL_VERSION, version_id)
-    if row is None:
-        raise not_found()
-    return PublishState.model_validate(dict(row))
 
 
 async def get_run_version(conn, training_run_id: uuid.UUID) -> VersionRef | None:

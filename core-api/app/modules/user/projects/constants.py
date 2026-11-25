@@ -9,14 +9,6 @@ class ProjectStatus(StrEnum):
     PENDING_DELETE = "pending_delete"
 
 
-class Sharing(StrEnum):
-    """Mirrors the projects.sharing CHECK constraint: what the project shows in the public gallery."""
-
-    PRIVATE = "private"
-    GALLERY = "gallery"  # name, task type and the versions' metadata
-    GALLERY_DOWNLOADS = "gallery_downloads"  # plus model artifacts and published dataset versions
-
-
 PROJECT_RETENTION_DAYS = 30  # a deleted project stays restorable this long (planning/03 grace period)
 
 
@@ -26,7 +18,6 @@ class AuditAction(StrEnum):
     DELETE = "delete"
     RESTORE = "restore"
     SET_MEMBER_ROLES = "set_member_roles"
-    SET_SHARING = "set_sharing"
     REMOVE_MEMBER = "remove_member"
 
 

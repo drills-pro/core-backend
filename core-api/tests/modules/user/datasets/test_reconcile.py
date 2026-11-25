@@ -20,7 +20,6 @@ from app.integrations.data_plane.report import ImportReport, IssueCode, Outcome,
 from app.modules.user.datasets import lifecycle
 from app.modules.user.datasets import reconcile as rec
 from app.modules.user.datasets.constants import (
-    DATASET_RETENTION_DAYS,
     IMPORT_REVIEW_TTL,
     SYSTEM_ACTOR,
     AuditAction,
@@ -41,16 +40,11 @@ BAD = ImportReport.model_validate({"outcome": "failed", "issues": [{"code": "cor
 class FakeDb:
     def __init__(self):
         self.table = FakeJobTable(IMPORTS, tenant_id=uuid.UUID(TENANT))  # claim, advance and release run against it
-        self.imports, self.datasets, self.audits, self.purged_rows = self.table.rows, {}, [], []
+        self.imports, self.audits = self.table.rows, []
 
     def seed(self, status, **kw):
         defaults = {"project_id": PROJECT, "dataset_id": uuid.uuid4(), "report": None, "expires_at": None, "created_at": T0}
         return self.table.seed(status, **{**defaults, **kw})
-
-    def dataset(self, deleted_at):
-        ds = uuid.uuid4()
-        self.datasets[ds] = deleted_at
-        return ds
 
     def __call__(self, tenant_id):
         return _Conn(self)
@@ -66,8 +60,6 @@ class FakeDb:
             return await self.table.fetch_cross(sql, *a)
         if sql == rec._EXPIRED_TENANTS:
             return [(i["tenant_id"],) for i in self.imports.values() if self._due(i, a[0])][:1]
-        if sql == rec._PURGEABLE:
-            return [(uuid.UUID(TENANT), d) for d, at in self.datasets.items() if at and at < a[0]]
         raise AssertionError(sql)
 
     @staticmethod
@@ -88,20 +80,9 @@ class _Conn(FakeJobConn):
 
     async def fetch(self, sql, *a):
         db = self.db
-        if sql == rec._DATASET_IMPORTS:
-            return [{"id": i["id"]} for i in db.imports.values() if i["dataset_id"] == a[0]]
         if sql == rec._EXPIRED:
             return [dict(i) for i in db.imports.values() if i["status"] in a[1] and db._due(i, a[2])]
         return await super().fetch(sql, *a)
-
-    async def fetchval(self, sql, *a):
-        db = self.db
-        if sql == rec._LOCK_PURGEABLE:
-            at = db.datasets.get(a[0])
-            return 1 if at and at < a[1] else None
-        assert sql == rec._PURGE_ROWS
-        del db.datasets[a[0]]
-        db.purged_rows.append(a[0])
 
     async def execute(self, sql, *a):
         if sql == job_lifecycle.release_sql(IMPORTS):
@@ -353,63 +334,9 @@ def test_running_imports_never_expire(env):
     assert row["status"] == S.RUNNING
 
 
-def test_purge_removes_only_datasets_past_retention(env):
-    old = env.db.dataset(T0)
-    recent = env.db.dataset(T0 + timedelta(days=2))
-    restored = env.db.dataset(None)
-    env.gw.repos |= {str(old), str(recent), str(restored)}
-    run(rec.purge_deleted_datasets(T0 + timedelta(days=DATASET_RETENTION_DAYS, seconds=1)))
-    assert env.db.purged_rows == [old] and set(env.db.datasets) == {recent, restored}
-    assert env.gw.deleted_repos == [str(old)] and env.gw.repos == {str(recent), str(restored)}
-
-
-def test_purge_cleans_staging_of_open_imports(env):
-    ds = env.db.dataset(T0)
-    open_import = env.db.seed(S.AWAITING_UPLOAD, dataset_id=ds)
-    run(rec.purge_deleted_datasets(T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)))
-    assert env.gw.purged_staging == [str(open_import["id"])]
-
-
-def test_purge_skips_a_dataset_restored_after_the_listing(env, monkeypatch):
-    ds = env.db.dataset(T0)
-
-    async def list_then_restore(sql, *a):
-        rows = await env.db.fetch_cross(sql, *a)
-        env.db.datasets[ds] = None  # restore lands between the listing and the lock
-        return rows
-
-    monkeypatch.setattr(job_lifecycle, "fetch", list_then_restore)
-    run(rec.purge_deleted_datasets(T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)))
-    assert env.gw.deleted_repos == [] and ds in env.db.datasets
-
-
-def test_purge_is_idempotent_when_the_repo_is_already_gone(env):
-    ds = env.db.dataset(T0)  # no repo in the gateway: it was deleted by an earlier, interrupted sweep
-    later = T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)
-    run(rec.purge_deleted_datasets(later))
-    run(rec.purge_deleted_datasets(later))
-    assert ds not in env.db.datasets and env.db.purged_rows == [ds]
-
-
-def test_purge_retries_after_a_gateway_failure(env, monkeypatch):
-    ds = env.db.dataset(T0)
-    later = T0 + timedelta(days=DATASET_RETENTION_DAYS + 1)
-    original = env.gw.delete_dataset_repo
-
-    async def broken(*a):
-        raise RuntimeError("lakeFS down")
-
-    monkeypatch.setattr(env.gw, "delete_dataset_repo", broken)
-    run(rec.purge_deleted_datasets(later))
-    assert ds in env.db.datasets  # rows kept, so the repo is never orphaned
-    monkeypatch.setattr(env.gw, "delete_dataset_repo", original)
-    run(rec.purge_deleted_datasets(later))
-    assert ds not in env.db.datasets
-
-
 def test_migration_defines_every_function_the_sweeps_call():
     sql = next(Path(__file__).parents[4].glob("migrations/*_dataset_sweeps.sql")).read_text()
-    for call in (rec._EXPIRED_TENANTS, rec._PURGEABLE, rec._PURGE_ROWS):
+    for call in (rec._EXPIRED_TENANTS,):
         name = re.search(r"(\w+)\(", call.split("FROM ")[-1] if "FROM" in call else call.removeprefix("SELECT ")).group(1)
         assert f"CREATE FUNCTION {name}(" in sql
     assert "inflight_import_tenant_ids" in job_lifecycle.tenants_sql(IMPORTS)
@@ -417,4 +344,4 @@ def test_migration_defines_every_function_the_sweeps_call():
 
 def test_sweeps_are_registered_as_pollers():
     registered = {fn for _, fn, _ in background.POLLERS}
-    assert {rec.reconcile_inflight_imports, rec.expire_stale_imports, rec.purge_deleted_datasets} <= registered
+    assert {rec.reconcile_inflight_imports, rec.expire_stale_imports} <= registered

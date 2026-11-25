@@ -8,7 +8,7 @@ from app.modules.user.projects.schemas import CreatedProject
 
 _INSERT = (
     "INSERT INTO projects (tenant_id, name, team_id, task_type) VALUES ($1, $2, $3, $4) "
-    "RETURNING id, name, status, team_id, task_type, visibility, default_access, gallery_published, created_at"
+    "RETURNING id, name, status, team_id, task_type, visibility, default_access, created_at"
 )
 
 

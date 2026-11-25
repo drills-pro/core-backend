@@ -165,7 +165,7 @@ none
 | REG-06 | built | Promotion updates MLflow and the index in one operation | planning/06 Model registry and promotion | 2 |
 | REG-07 | built | Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision | planning/24 Q1; planning/05 Predict API | 2 |
 | REG-08 | built | Tenant and project namespaced MLflow names, RLS-isolated model_versions index | planning/03 Who owns which data; planning/16 Adapter contract | 2 |
-| REG-09 | built | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 4 |
+| REG-09 | deferred | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 4 |
 | REG-10 | built | Stage ranks the default revision of a model (deploying needs no stage) | planning/06 Model registry and promotion | 1 |
 | REG-11 | partial | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | planning/06 Job runtime contract (Model manifest) | 1 |
 | REG-12 | built | Stage enum mirrored by a CHECK with a drift test | core-backend CLAUDE.md rules | 1 |
@@ -287,7 +287,7 @@ none
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
 | DAT-01 | built | Create, list (cursor) and read datasets | planning/05 Resource model; docs/datasets-plan.md | 3 |
-| DAT-02 | built | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 4 |
+| DAT-02 | deferred | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 4 |
 | DAT-03 | built | Create an import - presigned PUT to a fixed staging key, upload never passes through the API | planning/06 Datasets | 2 |
 | DAT-04 | built | Import lifecycle - 10 states, compare-and-set transitions, Idempotency-Key, per-tenant active cap | planning/05 Resource model; planning/03 State machines; docs/datasets-architecture.md | 4 |
 | DAT-05 | built | List and read imports | docs/datasets-architecture.md | 1 |
@@ -298,7 +298,7 @@ none
 | DAT-10 | built | Merge an import onto a base version (strict merge, 409 stale_base, duplicates skipped, no overwrite mode) | docs/datasets-plan.md decision 5 (not in planning) | 3 |
 | DAT-11 | built | Immutable dataset versions, listed | planning/03 Entities; planning/06 Datasets | 1 |
 | DAT-12 | built | Version preview with per-image presigned reads | planning/22 section 8 | 3 |
-| DAT-13 | built | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 4 |
+| DAT-13 | deferred | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 4 |
 | DAT-14 | built | Ingest image classification from a zip | planning/06 Task types | 2 |
 | DAT-15 | built | Ingest object detection from a COCO zip | planning/06 Task types | 2 |
 | DAT-16 | built | Ingest tabular and text datasets from CSV (target column, split tag, schema inference) | planning/06 Task types; planning/12 thin demo | 2 |
@@ -310,7 +310,7 @@ none
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
 | DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
 | DAT-24 | built | Import usage metering (count and bytes) | planning/15 Usage pipeline | 1 |
-| DAT-25 | built | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 1 |
+| DAT-25 | deferred | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 1 |
 | DAT-26 | deferred | Tombstoning dataset versions for erasure inside immutable history | planning/03 Tables specified elsewhere; planning/18 | 0 |
 | DAT-27 | deferred | Labeling (Label Studio behind core-api) | planning/16 Label Studio; planning/22 | 0 |
 | DAT-28 | deferred | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | planning/17 Catalog | 0 |

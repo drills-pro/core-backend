@@ -188,8 +188,6 @@ class _Conn:
         raise AssertionError(f"unexpected fetchval: {sql}")
 
     async def fetch(self, sql, *a):
-        if sql == svc._RUNNING_OF_DATASET:
-            return [dict(r) for r in self.db.imports.values() if r["dataset_id"] == a[0] and r["status"] in a[1]]
         return sorted(self.db.imports.values(), key=lambda r: r["created_at"], reverse=True)
 
     async def execute(self, sql, *a):
@@ -457,20 +455,6 @@ def test_discard_purges_staging_and_audits(env):
     assert env.gw.calls == ["purge_staging"]
     assert env.db.audits == [(AuditAction.IMPORT_DISCARDED, EntityType.DATASET_IMPORT, str(row["id"]))]
     problem(svc.discard_import(CTX, PROJECT, DS, row["id"]), 409, ProblemCode.INVALID_STATE)
-
-
-def test_cancelling_the_running_imports_of_a_deleted_dataset_stops_their_jobs(env):
-    queued, running = env.db.seed(S.QUEUED, ray_job_id=None), env.db.seed(S.RUNNING, ray_job_id="j1")
-    review, other_ds = env.db.seed(S.AWAITING_REVIEW), env.db.seed(S.RUNNING, dataset_id=uuid.uuid4())
-
-    async def go():
-        async with svc.TenantConn(TENANT) as conn:
-            cancelled = await svc.cancel_running_imports(conn, DS)
-        await svc.finish_cancelled(cancelled)
-
-    run(go())
-    assert [env.db.imports[r["id"]]["status"] for r in (queued, running, review, other_ds)] == [S.CANCELLED, S.CANCELLED, S.AWAITING_REVIEW, S.RUNNING]
-    assert env.gw.stopped == ["j1"] and env.gw.calls == ["purge_staging", "purge_staging"]
 
 
 def test_discard_keeps_staging_when_the_row_change_fails(env):

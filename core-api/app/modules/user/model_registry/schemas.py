@@ -21,14 +21,6 @@ class ModelVersionItem(ModelVersion):
     model_id: uuid.UUID  # the project's registered model the version belongs to
 
 
-class PublishState(BaseModel):
-    """Per-version "exclude" switches: true (the default) lets the project's Sharing level decide, false keeps this one out."""
-
-    id: uuid.UUID
-    publish_metadata: bool
-    publish_artifact: bool
-
-
 class RegisteredVersion(BaseModel):
     """A version MLflow has created, not yet recorded in model_versions."""
 

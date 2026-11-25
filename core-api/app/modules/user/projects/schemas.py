@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, computed_field
 from app.core.authz import DefaultAccess, Role, Visibility
 from app.core.enums import TaskType
 from app.integrations.serve_client import ComputeTarget
-from app.modules.user.projects.constants import PROJECT_RETENTION_DAYS, DeployStrategy, ProjectStatus, Sharing
+from app.modules.user.projects.constants import PROJECT_RETENTION_DAYS, DeployStrategy, ProjectStatus
 
 
 class ProjectSummary(BaseModel):
@@ -30,7 +30,6 @@ class ProjectListItem(ProjectSummary):
 class CreatedProject(ProjectSummary):
     visibility: Visibility
     default_access: DefaultAccess
-    gallery_published: bool
 
 
 class ProjectUpdated(ProjectSummary):
@@ -41,7 +40,6 @@ class ProjectDetail(ProjectUpdated):
     settings: dict[str, Any]
     visibility: Visibility
     default_access: DefaultAccess
-    sharing: Sharing
 
 
 class ProjectSettingsPatch(BaseModel):
@@ -61,17 +59,6 @@ class VisibilityResult(BaseModel):
     id: uuid.UUID
     visibility: Visibility
     default_access: DefaultAccess
-    sharing: Sharing  # a private project is also out of the gallery
-
-
-class SharingChange(BaseModel):
-    sharing: Sharing
-
-
-class SharingResult(BaseModel):
-    id: uuid.UUID
-    sharing: Sharing
-    visibility: Visibility  # a gallery level makes the project internal
 
 
 class DeleteResult(BaseModel):

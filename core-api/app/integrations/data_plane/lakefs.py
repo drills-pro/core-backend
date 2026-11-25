@@ -347,16 +347,3 @@ async def purge_staging(tenant_id: str, dataset_id: str, import_id: str) -> None
     await access.dataset_import(tenant_id, dataset_id, import_id)
     prefix = layout.staging_prefix(tenant_id, dataset_id, import_id)
     await asyncio.to_thread(_delete_prefix, settings.data_plane.staging_bucket, prefix, _s3(secret_files.STAGING))
-
-
-async def delete_dataset_repo(tenant_id: str, dataset_id: str) -> None:
-    """Delete the repository and its storage namespace; already gone is fine, so the sweep can retry."""
-    await access.dataset(tenant_id, dataset_id)
-    async with _lakefs_api() as client:
-        resp = await client.delete(f"/repositories/{layout.repo_name(dataset_id)}")
-    if resp.status_code != _HTTP_NOT_FOUND:
-        resp.raise_for_status()
-    await asyncio.to_thread(
-        _delete_prefix, settings.data_plane.lakefs_blockstore_bucket, _namespace(tenant_id, dataset_id), _s3(secret_files.STAGING)  # the staging credentials must cover the blockstore bucket (docs/runtime-contract.md)
-    )
-

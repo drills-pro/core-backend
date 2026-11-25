@@ -73,7 +73,6 @@ _SET_JOB = "UPDATE dataset_imports SET ray_job_id = $2 WHERE id = $1 AND status 
 _OTHER_COMMITTING = "SELECT * FROM dataset_imports WHERE dataset_id = $1 AND id <> $2 AND status = $3 LIMIT 1"
 _RESUME_COMMIT = "UPDATE dataset_imports SET expires_at = $2 WHERE id = $1 AND status = $3 AND expires_at <= $4 RETURNING *"
 _RELEASE_COMMIT = "UPDATE dataset_imports SET expires_at = $2 WHERE id = $1 AND status = $3"
-_RUNNING_OF_DATASET = "SELECT * FROM dataset_imports WHERE dataset_id = $1 AND status = ANY($2)"
 _NEW_VERSION = (
     "INSERT INTO dataset_versions (tenant_id, dataset_id, number, lakefs_commit, import_id, stats) "
     "SELECT $1, $2, COALESCE(max(number), 0) + 1, $3, $4, $5 FROM dataset_versions WHERE dataset_id = $2 "
@@ -81,7 +80,7 @@ _NEW_VERSION = (
 )
 _VERSION_OF_IMPORT = "SELECT id, number, import_id, stats, created_at FROM dataset_versions WHERE import_id = $1"
 _LIST = "SELECT * FROM dataset_imports WHERE dataset_id = $1 {cond} ORDER BY {order} LIMIT {limit}"
-_DATASET_EXISTS = "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL"
+_DATASET_EXISTS = "SELECT 1 FROM datasets WHERE project_id = $1 AND id = $2"
 
 
 async def _max_active_imports(conn, tenant_id: str) -> int:
@@ -245,18 +244,6 @@ async def cancel_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uu
         moved = await cas(conn, row, ImportStatus.CANCELLED)
     await wind_down(row)
     return await _to_model(ctx, moved)
-
-
-async def cancel_running_imports(conn, dataset_id: uuid.UUID) -> list[dict]:
-    """Cancel the queued and running imports of a dataset that is being deleted; the caller then calls
-    finish_cancelled once the transaction has committed."""
-    rows = await conn.fetch(_RUNNING_OF_DATASET, dataset_id, [str(ImportStatus.QUEUED), str(ImportStatus.RUNNING)])
-    return [await cas(conn, dict(r), ImportStatus.CANCELLED) for r in rows]
-
-
-async def finish_cancelled(cancelled: list[dict]) -> None:
-    for row in cancelled:
-        await wind_down(row)
 
 
 async def discard_import(ctx: AuthzContext, project_id: uuid.UUID, dataset_id: uuid.UUID, import_id: uuid.UUID) -> DatasetImport:
