@@ -2945,8 +2945,7 @@ export interface components {
             rate_limit_per_minute: number;
             /** Plan Tier */
             plan_tier: string | null;
-            /** Predict Key */
-            predict_key?: string | null;
+            main: boolean;
         };
         /** DeploymentDetail */
         DeploymentDetail: {
@@ -2978,6 +2977,7 @@ export interface components {
             training_run_id: string;
             /** Rate Limit Per Minute */
             rate_limit_per_minute: number;
+            main: boolean;
         };
         /** DeploymentListItem */
         DeploymentListItem: {
@@ -2997,6 +2997,7 @@ export interface components {
             created_at: string;
             /** Model Version Id */
             model_version_id: string | null;
+            main: boolean;
         };
         /**
          * DeploymentSchema

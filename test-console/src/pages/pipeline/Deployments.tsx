@@ -70,21 +70,21 @@ export function Deployments({ projectId }: { projectId: string }) {
           </Button>
         </HStack>
         <ErrorAlert error={deploy.error ?? deployments.error ?? start.error} />
-        {deploy.data?.predict_key && (
+        {deploy.data && (
           <Alert.Root status="info">
             <Alert.Indicator />
             <Alert.Content>
-              <Alert.Title>Predict key (shown once)</Alert.Title>
+              <Alert.Title>Deployed</Alert.Title>
               <Alert.Description>
                 <HStack>
-                  <Code>{deploy.data.predict_key}</Code>
-                  <CopyButton text={deploy.data.predict_key} />
+                  <Code>{deploy.data.id}</Code>
+                  <CopyButton text={deploy.data.id} />
                 </HStack>
                 <Code display="block" whiteSpace="pre-wrap" mt="2" p="2" fontSize="xs">
-                  {`curl -X POST ${cfg.apiUrl}/v1/predict/${deploy.data.id} \\
-  -H 'X-Predict-Key: ${deploy.data.predict_key}' \\
+                  {`curl -X POST ${cfg.apiUrl}/v1/predict \\
+  -H 'X-Model-Id: ${deploy.data.id}' \\
   -H 'Content-Type: application/json' \\
-  -d '{"inputs": []}'`}
+  -d '{"input": {}}'`}
                 </Code>
               </Alert.Description>
             </Alert.Content>
@@ -171,8 +171,8 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const path = { project_id: projectId };
   const models = useQuery({
-    queryKey: ['models', projectId],
-    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/models', { params: { path } })),
+    queryKey: ['deployments', projectId],
+    queryFn: () => unwrap(client.GET('/v1/projects/{project_id}/deployments', { params: { path } })),
   });
   const keys = useQuery({
     queryKey: ['api-keys', projectId],
@@ -200,8 +200,8 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
   return (
     <Stack gap="4">
       <ErrorAlert error={models.error ?? keys.error ?? create.error} />
-      <Section title="Models" description="The ids POST /v1/predict needs. Pick one to fill the example call below.">
-        {models.data?.length === 0 && <Empty title="No models yet">A succeeded training run registers one.</Empty>}
+      <Section title="Models" description="A deployment is a model. Its id is the X-Model-Id POST /v1/predict needs. Pick one to fill the example call below.">
+        {models.data?.length === 0 && <Empty title="No deployments yet">Deploy a succeeded run to get a model id.</Empty>}
         <CardGrid>
           {models.data?.map((m) => (
             <Card.Root
@@ -215,8 +215,8 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
             >
               <Card.Header>
                 <HStack justify="space-between">
-                  <Card.Title>{m.mlflow_model_name}</Card.Title>
-                  <Badge variant="surface">{m.stage}</Badge>
+                  <Card.Title>{m.main ? 'Main model' : m.route_prefix}</Card.Title>
+                  <Badge variant="surface">{m.status}</Badge>
                 </HStack>
               </Card.Header>
               <Card.Body>
@@ -225,15 +225,8 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
                     [
                       'X-Model-Id',
                       <HStack key="i">
-                        <Code fontSize="xs">{m.model_id}</Code>
-                        <CopyButton text={m.model_id} />
-                      </HStack>,
-                    ],
-                    [
-                      'Revision',
-                      <HStack key="r">
-                        <Code fontSize="xs">{m.mlflow_version}</Code>
-                        <CopyButton text={m.mlflow_version} />
+                        <Code fontSize="xs">{m.id}</Code>
+                        <CopyButton text={m.id} />
                       </HStack>,
                     ],
                   ]}
@@ -298,12 +291,12 @@ export function ModelsAndKeys({ projectId }: { projectId: string }) {
         </CardGrid>
       </Section>
 
-      <Section title={`Call POST /v1/predict${model ? ` for ${model.mlflow_model_name}` : ''}`} description={model ? undefined : 'Pick a model above to fill in its ids.'}>
+      <Section title={`Call POST /v1/predict${model ? ' for this model' : ''}`} description={model ? undefined : 'Pick a model above to fill in its id.'}>
         <Code display="block" whiteSpace="pre-wrap" p="2" fontSize="xs">
           {`curl -X POST ${cfg.apiUrl}/v1/predict \\
   -H 'Authorization: Bearer ${secret ?? '<key>'}' \\
   -H 'X-Project-Id: ${projectId}' \\
-  -H 'X-Model-Id: ${model?.model_id ?? '<model_id>'}' \\${model ? `\n  -H 'X-Model-Revision: ${model.mlflow_version}' \\` : ''}
+  -H 'X-Model-Id: ${model?.id ?? '<model_id>'}' \\
   -H 'Content-Type: application/json' \\
   -d '{"input": {}, "metadata": {}}'`}
         </Code>
