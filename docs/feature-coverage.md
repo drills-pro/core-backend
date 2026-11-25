@@ -15,15 +15,15 @@ Status: built = works and is wired; partial = works with a stated gap; missing =
 | Area | built | partial | missing | deferred | total |
 |---|---|---|---|---|---|
 | training | 24 | 8 | 0 | 5 | 37 |
-| registry | 13 | 3 | 0 | 0 | 16 |
-| deployment | 15 | 2 | 1 | 2 | 20 |
-| serving | 11 | 2 | 0 | 2 | 15 |
-| predict | 16 | 7 | 0 | 3 | 26 |
+| registry | 12 | 3 | 0 | 1 | 16 |
+| deployment | 16 | 1 | 1 | 2 | 20 |
+| serving | 10 | 3 | 0 | 2 | 15 |
+| predict | 16 | 6 | 0 | 3 | 25 |
 | jobs | 13 | 8 | 3 | 3 | 27 |
-| datasets | 25 | 3 | 0 | 3 | 31 |
-| **all** | 117 | 33 | 4 | 18 | 172 |
+| datasets | 22 | 3 | 0 | 6 | 31 |
+| **all** | 113 | 32 | 4 | 22 | 171 |
 
-Built share of the features that are due (partial counts half, deferred excluded): 87% of 154.
+Built share of the features that are due (partial counts half, deferred excluded): 87% of 149.
 
 ## Gaps, most important first
 
@@ -36,7 +36,6 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 3 | deferred | TRN-20 | training | Free-tier GPU-minute admission, 402 quota_exhausted, spend cap, minutes estimate | Only concurrency is limited; nothing bounds GPU minutes, and no run is refused for exhausted allowance. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | missing | DEP-16 | deployment | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | Retired on purpose (migration drop_legacy_deployments_active); every deployment, a leftover serving = legacy row included, is answered by the shared predictor apps. |
 | 2 | missing | JOB-15 | jobs | Attempt fencing - attempt in token, prefixes and events; stale attempts rejected | Not built for jobs (prediction attempts are fenced, see PRD-13); a zombie training run could still write its report. |
-| 2 | partial | DEP-13 | deployment | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | There is no update-to-version route; a redeploy is another create under the project setting deploy_strategy=main, and there is no audited rollback. |
 | 2 | partial | JOB-03 | jobs | Envelope fields attempt and reporting (events_url, token_env) | reporting is built for train; attempt is not in the envelope. |
 | 2 | partial | JOB-12 | jobs | Run-time integrity check of the package a job loads | The hash is checked when a package is registered; the job itself does not re-verify what it unpacks, and one staging key can still overwrite a package object (unverified here). |
 | 2 | partial | JOB-14 | jobs | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | Detection is by Ray state and a fixed deadline (LOST_JOB_GRACE_SECONDS); there are no heartbeats to go silent, so a hung job is found only at the deadline. |
@@ -47,14 +46,19 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 2 | partial | PRD-23 | predict | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | last_used_at is written (at most once a minute) and listed; a new key can overlap the old one until it is revoked, but there is no first-use audit row or publishable-key nudge. |
 | 2 | partial | REG-14 | registry | Download by signed URL and auto-generated model card | A signed-in project member downloads model.onnx or model.json through an audited stream (the session token is the credential, so no signed link is issued); an unauthenticated link for publish_artifact and the generated model card are not built. |
 | 2 | partial | SRV-06 | serving | Cold-start handling (503 with Retry-After, or a bounded wait) | A first call waits for the model load inside the sync timeout and the load is logged (cold_load); an unreachable Serve is 503 without Retry-After, and there is no scale-to-zero. |
+| 2 | partial | SRV-07 | serving | predict_calls log of every shared call with a retention purge | The test file for the log went with the legacy predict-key route; the log and its purge have no test now. |
 | 2 | partial | SRV-08 | serving | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | Guards inside the replica are built; per-tenant serving caps and the PriorityClass pool reservation live in the k8s repo and were not checked here. |
 | 2 | partial | TRN-13 | training | Run state machine with compare-and-set transitions | Five states (submitted, running, succeeded, failed, cancelled); no queued, cancelling, retry or lost, and cancel is not a desired state the worker converges to. |
 | 2 | partial | TRN-14 | training | Trainer events API (idempotent by seq, only a running run takes events) | Route is per training run with a random per-run token (sha256 at rest), not POST /internal/v1/jobs/{id}/events with a signed per-job JWT carrying attempt; no attempt fencing (see JOB-17). |
 | 2 | partial | TRN-15 | training | Live progress (latest epoch and history) on the run | One event per epoch only; no heartbeats every 60 s and no metric batches every 10 s, so a long epoch looks silent. |
 | 2 | partial | TRN-21 | training | GPU-seconds metering of runs (usage event per finished run, once) | Written to usage_events through record_usage; no outbox, no OLAP pipeline, no per-minute reconciliation (planning/15). |
 | 2 | partial | TRN-33 | training | Training data to the trainer by presigned reads plus a staged manifest | URLs are signed once for up to 7 days (MAX_PRESIGN_SECONDS); no manifest endpoint, no refresh of expiring URLs, no per-job prefix-scoped credential (see JOB-24). |
+| 2 | deferred | DAT-02 | datasets | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | Cut for now - a project's delete covers its one dataset. Restoring soft delete needs the deleted_at column back; 20261125200454_one_dataset_per_project.sql dropped it. |
+| 2 | deferred | DAT-13 | datasets | Publish a dataset version to the public gallery (stats only) and unpublish | Cut for now - publish, its public dataset listing and the published pointer were dropped in 20261125200454_one_dataset_per_project.sql. |
+| 2 | deferred | DAT-25 | datasets | datasets.data_categories declaration (personal data, faces and biometrics) | Cut for now (stored only, no reader); the column was dropped in 20261125200454_one_dataset_per_project.sql, whose down step restores it. |
 | 2 | deferred | DEP-18 | deployment | Replica scale min/max per deployment limited by plan; scale-to-zero on the free tier | Autoscaling is per shared app from config knobs (see SRV-09); a deployment has no replica settings and nothing is scaled by plan. Deferred with the entitlements model (planning/20 sprints 5 to 7); nothing to enforce until plans exist. |
 | 2 | deferred | JOB-04 | jobs | One jobs table with kind, spec, state and attempt | Deliberately per-context tables on one shared lifecycle engine (ADR-007 amended 2026-11-12). A jobs table and /operations resource wait until the per-table shape costs more than it saves. |
+| 2 | deferred | REG-09 | registry | Publish metadata and artifact flags to the public gallery | Cut for now - publishing is removed; the per-model flags were dropped in 20261125204625_drop_publishing.sql. |
 | 2 | deferred | TRN-28 | training | Base model served from the platform mirror, never the Hub at run time; licence recorded | The platform mirror is deferred by decision 2026-11-12 until a bucket and mirroring job exist in the k8s repo; the trainer still reads the Hub at a pinned revision. |
 | 1 | missing | JOB-17 | jobs | Reconciler wake-up through LISTEN/NOTIFY | Pollers tick every 10 s (60 s for sweeps, 1 s for predictions). |
 | 1 | missing | JOB-21 | jobs | credential_issuances ledger of minted credentials | Nothing mints credentials per job, so nothing is recorded. |
@@ -65,10 +69,9 @@ Weight 3 blocks the product path or tenant isolation, 2 is a real gap, 1 is poli
 | 1 | partial | JOB-10 | jobs | Job catalog - a JobType names its entrypoint module | Entry has no per-type default resources or image flavour (slim, vision, nlp, gpu); the train driver is a constant outside the enum. |
 | 1 | partial | JOB-26 | jobs | Journey scripts (import, train and deploy, predict) run against the local stack | Scripts exist and were run by hand on the local stack; no CI job runs them and Schemathesis contract tests are not set up. |
 | 1 | partial | PRD-07 | predict | Rate limits - plan, per key (api_keys.rate_limit_per_minute) and per deployment, 429 with Retry-After | Fixed one-minute windows in Postgres (one upsert per check, the documented ceiling); no RateLimit-Limit / -Remaining / -Reset headers. |
-| 1 | partial | PRD-17 | predict | Legacy POST /v1/predict/{deployment_id} with X-Predict-Key, marked Deprecation and Sunset, counted per deployment | Phase 1 (shadow) is done; phases 2 and 3 (stop minting predict_key, remove the route, deployment_for_predict and predict_key_hash) are not. |
 | 1 | partial | PRD-24 | predict | Authenticate, rate-limit and size-check before reading the body; stream with limits on the byte stream | The key is checked first and the declared length is refused before reading, but the body is then read whole (capped by serving.max_body_bytes) and parsed; nothing streams through. |
-| 1 | partial | PRD-25 | predict | Active revision rule - an active deployment first, then the Production version, then the newest | No promoted_at column, so "newest promotion wins" is "newest version"; the tie-break is not covered by a test against real data (the lookup is faked in this test). |
-| 1 | partial | REG-03 | registry | List model versions with customer stage labels | Rows carry name, version, stage and date only; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call. |
+| 1 | partial | PRD-25 | predict | Active revision rule - an active deployment first, then the Production version, then the newest | The main deployment is set by a person, so there is no tie-break to test; the lookup is faked in this test. |
+| 1 | partial | REG-03 | registry | List a project's model versions | Rows carry name, version and date; metrics and the run link are reached through the lineage endpoint, so versions cannot be compared in one call. |
 | 1 | partial | REG-11 | registry | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | Input/output signature, class labels and preprocessing are written; trainer version, dataset commit and metrics summary are not verified present in model.json (not found in result.py). |
 | 1 | partial | TRN-03 | training | Customer steps of a run (no raw job log, no report message) | Steps and a failure code only; the raw log is no longer served to customers (ops read Ray). No per-epoch metrics in the steps. |
 | 1 | partial | TRN-06 | training | Presets are data, copied into the spec; project preset list for the training form | No GPU-minute estimate and no cost preview on the list (planning/22). |
@@ -157,22 +160,22 @@ none
 
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
-| REG-01 | built | Register a succeeded run's model (MLflow version plus model_versions row) | planning/06 Model registry and promotion | 2 |
+| REG-01 | built | Each succeeded run's model is one MLflow version of the project's model (named by project id), tagged with its training run | planning/06 Model registry and promotion | 2 |
 | REG-02 | built | A succeeded run registers its model automatically at settle time | planning/06 Lifecycle | 1 |
-| REG-03 | partial | List model versions with customer stage labels | planning/22 Models screen | 2 |
-| REG-04 | built | Promote to Production deploys the version and flips the stage only when the deployment is active; the old Production goes to Staging, an older version is a rollback | planning/27 | 5 |
+| REG-03 | partial | List a project's model versions | planning/22 Models screen | 1 |
+| REG-04 | built | Deploy-only model lifecycle, with no stages or promotion; a deployed run is live until it is stopped or deleted | planning/27 (simplified to deploy and undeploy) | 2 |
 | REG-05 | built | Archived stage for retired versions | planning/06 Model registry and promotion (candidate, production, archived) | 1 |
-| REG-06 | built | Promotion updates MLflow and the index in one operation | planning/06 Model registry and promotion | 2 |
-| REG-07 | built | Stable model identity (models table) and revision, used by X-Model-Id / X-Model-Revision | planning/24 Q1; planning/05 Predict API | 2 |
+| REG-06 | built | Registering a run is idempotent per MLflow run, so a retry reuses its version | planning/06 Model registry and promotion | 1 |
+| REG-07 | built | Stable model identity (models table); a predict call names a deployment with X-Model-Id | planning/24 Q1; planning/05 Predict API | 2 |
 | REG-08 | built | Tenant and project namespaced MLflow names, RLS-isolated model_versions index | planning/03 Who owns which data; planning/16 Adapter contract | 2 |
-| REG-09 | deferred | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 4 |
-| REG-10 | built | Stage ranks the default revision of a model (deploying needs no stage) | planning/06 Model registry and promotion | 1 |
+| REG-09 | deferred | Publish metadata and artifact flags to the public gallery | planning/05 (publish flag); planning/04 gallery | 0 |
+| REG-10 | built | A predict call with no X-Model-Id is answered by the main deployment; a deployment id names one | planning/06 Model registry and promotion | 1 |
 | REG-11 | partial | model.json manifest (format, signature, labels, preprocessing, trainer version, dataset commit, metrics) | planning/06 Job runtime contract (Model manifest) | 1 |
 | REG-12 | built | Stage enum mirrored by a CHECK with a drift test | core-backend CLAUDE.md rules | 1 |
-| REG-13 | built | Audit rows for register, promote and publish | planning/19 E1 | 1 |
+| REG-13 | built | Audit rows for publish and download | planning/19 E1 | 1 |
 | REG-14 | partial | Download by signed URL and auto-generated model card | planning/18 Export; planning/06 Quality gates | 1 |
 | REG-15 | built | Operator view of every model and its versions | planning/19 back office | 4 |
-| REG-16 | built | Registering a run twice is idempotent (one version row per run) | planning/03 Idempotency and events | 2 |
+| REG-16 | built | Registering a run twice is idempotent (one version row per run) | planning/03 Idempotency and events | 1 |
 
 ### deployment
 
@@ -189,9 +192,9 @@ none
 | DEP-09 | built | ETag and If-Match on deployments and settings | planning/05 Conventions (Concurrency) | 1 |
 | DEP-10 | built | Audit rows for deployment actions | planning/19 E1; planning/18 | 2 |
 | DEP-11 | built | Try it from the console is a real stored prediction (source=console); the try-it log lists them | planning/27 | 3 |
-| DEP-20 | built | Deploy is keyed on a model version (model_version_id); one deployment serves exactly one version | planning/27 | 2 |
+| DEP-20 | built | Deploy is keyed on a succeeded training run, whose one model version is served; one live deployment per run | planning/27 | 2 |
 | DEP-12 | built | Deploy models of every servable task (classification, detection, text) | planning/06 Task types and runtimes | 2 |
-| DEP-13 | partial | Redeploy a newer model onto the same endpoint (deploy_strategy main) and roll back by promoting | planning/06 Deployment model (Rollout, Rollback) | 2 |
+| DEP-13 | built | The project's main deployment answers a predict call that names no model; one per project, set at deploy or with /main | planning/06 Deployment model (Rollout, Rollback) | 2 |
 | DEP-14 | built | Deployment input/output schema endpoint and generated curl/JS/Python snippets | planning/05 Predict API (Schema, Snippets) | 2 |
 | DEP-15 | built | Active at once (the shared predictor apps load the model on the first request) | planning/03 Deployment state machine | 1 |
 | DEP-16 | missing | Legacy per-deployment Serve app started by a Ray job (deprecated serving mode) | planning/12 Migration mechanics | 0 |
@@ -208,8 +211,8 @@ none
 | SRV-03 | built | Task adapters (classification softmax, detection boxes, text tokenize) from the manifest | planning/17 Serving runtimes | 2 |
 | SRV-04 | built | Task types as data - trainer, serving functions, enabled flag, admin-editable | planning/06 Task types and runtimes | 3 |
 | SRV-05 | built | Per-deployment in-flight cap and plan body cap | planning/07 Limits on the byte stream | 2 |
-| SRV-06 | partial | Cold-start handling (503 with Retry-After, or a bounded wait) | planning/07 Serving design | 1 |
-| SRV-07 | built | predict_calls log of every shared call with a retention purge | planning/15 U2 (per-prediction analytics, open) | 2 |
+| SRV-06 | partial | Cold-start handling (503 with Retry-After, or a bounded wait) | planning/07 Serving design | 0 |
+| SRV-07 | partial | predict_calls log of every shared call with a retention purge | planning/15 U2 (per-prediction analytics, open) | 0 |
 | SRV-08 | partial | Serving isolation - ONNX only, model URL allowlist, no redirects, pixel limit, pool pinning | planning/10 T8; planning/07 Single-node reality | 3 |
 | SRV-09 | built | Autoscaling bounds and warm-model downscale delay from config | docs/ray-parallelism.md Serving scale | 1 |
 | SRV-10 | built | Model URLs looked up once per run and cached; model fetched through the MLflow artifact API | docs/runtime-contract.md Models, experiments and MLflow | 2 |
@@ -223,12 +226,12 @@ none
 
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
-| PRD-01 | built | POST /v1/predict sync - model by headers, {input, metadata} body, envelope, input forwarded unchanged | planning/05 Predict API; planning/24 Request flow | 2 |
+| PRD-01 | built | POST /v1/predict sync - model by headers, {input, metadata} body, envelope, input forwarded unchanged | planning/05 Predict API; planning/24 Request flow | 1 |
 | PRD-02 | built | Error mapping (401, 403, 404, 409, 413, 422, 429, 502, 503, 504) as problem+json | planning/24 Request flow step 6 | 3 |
-| PRD-03 | built | Project API keys - create (secret shown once, sha256 at rest), list, revoke, audited | planning/24 API keys; planning/04 Machine access | 3 |
+| PRD-03 | built | Workspace API keys - create with a name and the projects it works in (secret shown once, sha256 at rest), list, revoke, audited | planning/24 API keys; planning/04 Machine access | 4 |
 | PRD-04 | built | Key scopes (enum plus CHECK) and optional per-model allowlist | planning/24 API keys | 3 |
 | PRD-05 | built | require_key - one identical 401 for every failure cause, X-Project-Id must match the key | planning/24 require_key; planning/04 Authorization | 2 |
-| PRD-06 | built | Suspended tenant answers 503 tenant_suspended before Serve is called; archived projects answer like an unknown key | planning/24 require_key; planning/14 Billing states | 3 |
+| PRD-06 | built | Suspended tenant answers 503 tenant_suspended before Serve is called; archived projects answer like an unknown key | planning/24 require_key; planning/14 Billing states | 2 |
 | PRD-07 | partial | Rate limits - plan, per key (api_keys.rate_limit_per_minute) and per deployment, 429 with Retry-After | planning/24 Rate limits; planning/05 Conventions | 3 |
 | PRD-08 | built | Idempotency-Key on sync calls - stored result replayed, 422 on a different body, race-safe | planning/24 Idempotency-Key | 3 |
 | PRD-09 | built | Background mode - Prefer respond-async returns 202 with Location and a queued envelope | planning/24 Modes | 2 |
@@ -239,7 +242,6 @@ none
 | PRD-14 | built | Payloads over predict.inline_max_bytes stored in the staging bucket under predictions/<id>/<attempt>/ | planning/24 predictions table | 3 |
 | PRD-15 | built | Retention purge of stored predictions (payloads, objects, events), keeping id and status | planning/24 Retention | 2 |
 | PRD-16 | partial | Usage - one event per 2xx prediction id, none for failures, replays or retries | planning/24 Usage and billing; planning/14 | 3 |
-| PRD-17 | partial | Legacy POST /v1/predict/{deployment_id} with X-Predict-Key, marked Deprecation and Sunset, counted per deployment | planning/24 Migrating the old endpoint (phase 1) | 2 |
 | PRD-18 | deferred | Streaming mode (Accept text/event-stream) with delta, done and error frames | planning/24 Modes; planning/05 Streaming | 1 |
 | PRD-19 | deferred | Publishable keys (origin allowlist, CORS preflight, lower limit) | planning/24 Publishable keys; planning/05 Auth | 0 |
 | PRD-20 | deferred | Batch endpoint POST /v1/predict/{id}:batch | planning/05 Predict API (Batch) | 0 |
@@ -247,7 +249,7 @@ none
 | PRD-22 | built | Metadata (at most 4 KB) echoed in the envelope, never forwarded to Serve | planning/05 Predict API; planning/24 Parse | 2 |
 | PRD-23 | partial | Key rotation or recovery, last-used time, first-use audit, publishable-key nudges | planning/04 Machine access; planning/22 Keys; planning/10 T13 | 1 |
 | PRD-24 | partial | Authenticate, rate-limit and size-check before reading the body; stream with limits on the byte stream | planning/07 Predict gateway rules; planning/24 Parse | 1 |
-| PRD-25 | partial | Active revision rule - an active deployment first, then the Production version, then the newest | planning/24 One active deployment per model version | 1 |
+| PRD-25 | partial | Active revision rule - an active deployment first, then the Production version, then the newest | planning/24 One active deployment per model version | 0 |
 | PRD-26 | built | Predictions table is tenant-isolated and a key sees only its own | planning/24 predictions table; planning/24 Security notes | 2 |
 
 ### jobs
@@ -264,7 +266,7 @@ none
 | JOB-08 | built | Compute seam with two backends - Ray dashboard job API and KubeRay RayJob CR | planning/07 As built; planning/13 ADR-010 | 2 |
 | JOB-09 | deferred | RayJob per run on ephemeral clusters with Kueue queues and priority classes | planning/07 Target topology; planning/13 ADR-010 | 0 |
 | JOB-10 | partial | Job catalog - a JobType names its entrypoint module | planning/06 Job catalog | 1 |
-| JOB-11 | built | Job packages - content-hash zips, candidate to stable to retired, smoke gate, CI publish | planning/06 Where code lives (zip only); docs/runtime-contract.md | 4 |
+| JOB-11 | built | Job packages - content-hash zips, CI target call, smoke gate, the target moves when smoke passes | planning/06 Where code lives (zip only); docs/runtime-contract.md | 6 |
 | JOB-12 | partial | Run-time integrity check of the package a job loads | planning/10 T15 | 1 |
 | JOB-13 | built | Results from report.json written by a shared runner that cannot skip it | planning/06 Job runtime contract (Entry, Results) | 3 |
 | JOB-14 | partial | Lost-job detection - suspect on silence, confirm with the compute API, then fail and free the slot | planning/06 Job runtime contract (Heartbeats); planning/09 Failure modes | 2 |
@@ -287,7 +289,7 @@ none
 | Id | Status | Feature | Design source | Tests |
 |---|---|---|---|---|
 | DAT-01 | built | Create, list (cursor) and read datasets | planning/05 Resource model; docs/datasets-plan.md | 3 |
-| DAT-02 | deferred | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 4 |
+| DAT-02 | deferred | Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows | planning/03 Retention; docs/datasets-plan.md | 0 |
 | DAT-03 | built | Create an import - presigned PUT to a fixed staging key, upload never passes through the API | planning/06 Datasets | 2 |
 | DAT-04 | built | Import lifecycle - 10 states, compare-and-set transitions, Idempotency-Key, per-tenant active cap | planning/05 Resource model; planning/03 State machines; docs/datasets-architecture.md | 4 |
 | DAT-05 | built | List and read imports | docs/datasets-architecture.md | 1 |
@@ -297,8 +299,8 @@ none
 | DAT-09 | built | Commit - staged output verified, copied inside the object store, one idempotent lakeFS commit | planning/06 Datasets; planning/16 | 3 |
 | DAT-10 | built | Merge an import onto a base version (strict merge, 409 stale_base, duplicates skipped, no overwrite mode) | docs/datasets-plan.md decision 5 (not in planning) | 3 |
 | DAT-11 | built | Immutable dataset versions, listed | planning/03 Entities; planning/06 Datasets | 1 |
-| DAT-12 | built | Version preview with per-image presigned reads | planning/22 section 8 | 3 |
-| DAT-13 | deferred | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 4 |
+| DAT-12 | built | Version preview with per-image presigned reads | planning/22 section 8 | 2 |
+| DAT-13 | deferred | Publish a dataset version to the public gallery (stats only) and unpublish | planning/05 (publish flag); planning/04 | 0 |
 | DAT-14 | built | Ingest image classification from a zip | planning/06 Task types | 2 |
 | DAT-15 | built | Ingest object detection from a COCO zip | planning/06 Task types | 2 |
 | DAT-16 | built | Ingest tabular and text datasets from CSV (target column, split tag, schema inference) | planning/06 Task types; planning/12 thin demo | 2 |
@@ -308,9 +310,9 @@ none
 | DAT-20 | partial | Dataset statistics and health report from ingest (class balance, counts, corrupt files, duplicates) | planning/06 Quality gates; planning/16 Dataset statistics | 2 |
 | DAT-21 | built | Perceptual-hash warning for near-duplicates across splits | planning/06 Quality gates | 2 |
 | DAT-22 | built | Per-plan dataset limits (upload size, extracted size, files, image size, rows, HF repo size, concurrent imports) | planning/14 Plans | 3 |
-| DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 3 |
+| DAT-23 | built | Audit rows for dataset actions | planning/19 E1 | 2 |
 | DAT-24 | built | Import usage metering (count and bytes) | planning/15 Usage pipeline | 1 |
-| DAT-25 | deferred | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 1 |
+| DAT-25 | deferred | datasets.data_categories declaration (personal data, faces and biometrics) | planning/18 Backend responsibilities | 0 |
 | DAT-26 | deferred | Tombstoning dataset versions for erasure inside immutable history | planning/03 Tables specified elsewhere; planning/18 | 0 |
 | DAT-27 | deferred | Labeling (Label Studio behind core-api) | planning/16 Label Studio; planning/22 | 0 |
 | DAT-28 | deferred | Catalog admission for Hugging Face datasets (licence allowlist, mirror, admin flow) | planning/17 Catalog | 0 |

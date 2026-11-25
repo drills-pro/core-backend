@@ -1,9 +1,10 @@
 name: Publish the Ray job packages
 
 # Builds ray_jobs, ray_training (ray-training/ray_core, the contract task bundles run on) and ray_serving (the code the Ray cluster hot-loads, see core-api job_package.py), copies each zip to
-# the staging bucket as jobs/<ray-jobs|ray-training|ray-serving>-<sha256>.zip, then tells core-api the key so it registers a candidate
-# (it reads the object back and checks its hash and contents). Nothing runs a candidate until an admin promotes it to stable
-# (PUT /v1/admin/job-packages/{name}/{sha256}/status), so a push here changes no running or new job by itself.
+# the staging bucket as jobs/<ray-jobs|ray-training|ray-serving>-<sha256>.zip, then makes the call that targets it: core-api reads the object back, checks its
+# hash and contents, smokes it, and makes it the package's target once the smoke passed (POST /v1/admin/job-packages/{name}/target). No admin step is involved.
+#
+# A rollback is a manual run (workflow_dispatch, action rollback): the same call for an earlier version that is already registered and passed its smoke.
 #
 # Needs, in the repo's settings:
 #   vars.STAGING_BUCKET        the staging bucket (data_plane.staging_bucket in core-api prod.yaml)
@@ -25,13 +26,24 @@ on:
       - ".github/workflows/job-packages.yml"
   workflow_dispatch:
     inputs:
-      promote_core:
-        description: "After registering, wait for the ray_training (core) smoke and promote it to stable"
-        type: boolean
-        default: false
+      action:
+        description: "publish: build this commit's packages and target them. rollback: target an earlier version of one package"
+        type: choice
+        options: [publish, rollback]
+        default: publish
+      package:
+        description: "rollback: the package"
+        type: choice
+        options: [ray_jobs, ray_training, ray_serving]
+        default: ray_jobs
+      sha256:
+        description: "rollback: the version to target. It must be registered already, with its smoke passed"
+        type: string
+        default: ""
 
 jobs:
   publish:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'publish'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,7 +85,7 @@ jobs:
             | jq -er .access_token)
           echo "::add-mask::${token}"
           echo "token=${token}" >> "$GITHUB_OUTPUT"
-      - name: Register the candidates
+      - name: Target the new versions
         env:
           API: ${{ vars.CORE_API_URL }}
           TOKEN: ${{ steps.token.outputs.token }}
@@ -81,35 +93,48 @@ jobs:
           RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
           RAY_SERVING: ${{ steps.build.outputs.ray_serving }}
         run: |
-          register() {  # name key: core-api reads the object back and checks it against the sha256 in the key
-            curl -fsS -X POST "${API}/v1/admin/job-packages/$1/register" \
+          target() {  # name key: core-api reads the object back and checks it against the sha256 in the key
+            curl -fsS -X POST "${API}/v1/admin/job-packages/$1/target" \
               -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
-              -d "{\"s3_key\": \"$2\"}" | jq -c '{name, sha256, status}'
+              -d "{\"s3_key\": \"$2\"}" | jq -c '{name, sha256, status, smoke_status}'
           }
-          register ray_jobs "jobs/ray-jobs-${RAY_JOBS}.zip"
-          register ray_training "jobs/ray-training-${RAY_TRAINING}.zip"
-          register ray_serving "jobs/ray-serving-${RAY_SERVING}.zip"
-      - name: Promote the core once its smoke passed (manual runs only)
-        if: github.event_name == 'workflow_dispatch' && inputs.promote_core
+          target ray_jobs "jobs/ray-jobs-${RAY_JOBS}.zip"
+          target ray_training "jobs/ray-training-${RAY_TRAINING}.zip"
+          target ray_serving "jobs/ray-serving-${RAY_SERVING}.zip"
+
+  rollback:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'rollback'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the version
+        env:
+          SHA256: ${{ inputs.sha256 }}
+        run: |
+          [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::sha256 must be 64 lowercase hex characters"; exit 1; }
+      - name: Get a platform_admin token
+        id: token
+        env:
+          ISSUER: ${{ vars.ZITADEL_ISSUER }}
+          PROJECT_ID: ${{ vars.ZITADEL_PROJECT_ID }}
+          CLIENT_ID: ${{ secrets.ZITADEL_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ZITADEL_CLIENT_SECRET }}
+        run: |
+          token=$(curl -fsS -u "${CLIENT_ID}:${CLIENT_SECRET}" "${ISSUER}/oauth/v2/token" \
+            -d grant_type=client_credentials \
+            --data-urlencode "scope=openid urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud urn:zitadel:iam:org:projects:roles" \
+            | jq -er .access_token)
+          echo "::add-mask::${token}"
+          echo "token=${token}" >> "$GITHUB_OUTPUT"
+      - name: Target the earlier version
         env:
           API: ${{ vars.CORE_API_URL }}
           TOKEN: ${{ steps.token.outputs.token }}
-          RAY_TRAINING: ${{ steps.build.outputs.ray_training }}
-          SMOKE_WAIT_SECONDS: "1800"
-          SMOKE_POLL_SECONDS: "15"
+          PACKAGE: ${{ inputs.package }}
+          SHA256: ${{ inputs.sha256 }}
         run: |
-          call() {  # method path [json body]
-            curl -fsS -X "$1" "${API}$2" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" ${3:+-d "$3"}
-          }
-          deadline=$(( $(date +%s) + SMOKE_WAIT_SECONDS ))
-          while :; do  # the list refreshes each package's smoke state
-            row=$(call GET /v1/admin/job-packages/ray_training | jq -c --arg sha "$RAY_TRAINING" '.[] | select(.sha256 == $sha)')
-            smoke=$(echo "$row" | jq -r .smoke_status)
-            case "$smoke" in
-              passed) break ;;
-              failed) echo "::error::ray_training ${RAY_TRAINING}: smoke failed"; exit 1 ;;
-            esac
-            if [ "$(date +%s)" -ge "$deadline" ]; then echo "::error::ray_training ${RAY_TRAINING}: smoke still ${smoke} after ${SMOKE_WAIT_SECONDS}s"; exit 1; fi
-            sleep "$SMOKE_POLL_SECONDS"
-          done
-          call PUT "/v1/admin/job-packages/ray_training/${RAY_TRAINING}/status" '{"status": "stable"}' | jq -c '{name, sha256, status, smoke_status}'
+          dir=${PACKAGE//_/-}  # the staged zip is named after the directory: ray_jobs -> jobs/ray-jobs-<sha256>.zip
+          row=$(curl -fsS -X POST "${API}/v1/admin/job-packages/${PACKAGE}/target" \
+            -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+            -d "{\"s3_key\": \"jobs/${dir}-${SHA256}.zip\"}")
+          echo "$row" | jq -c '{name, sha256, status, smoke_status}'
+          [ "$(echo "$row" | jq -r .status)" = stable ] || { echo "::error::${PACKAGE} ${SHA256} is not the target: its smoke has not passed, or it is smoked again"; exit 1; }

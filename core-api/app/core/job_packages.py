@@ -57,8 +57,9 @@ _INSERT = (
 )
 _SET_STATUS = "UPDATE job_packages SET status = $3, updated_by = $4, updated_at = now() WHERE name = $1 AND sha256 = $2 RETURNING *"
 
-_RESET_FAILED_SMOKE = (
-    "UPDATE job_packages SET smoke_status = $5, smoke_job_id = NULL WHERE name = $1 AND sha256 = $2 AND status = $3 AND smoke_status = $4 RETURNING *"
+_RESET_SMOKE = (
+    "UPDATE job_packages SET smoke_status = $5, smoke_job_id = NULL, updated_at = now() "
+    "WHERE name = $1 AND sha256 = $2 AND status = $3 AND smoke_status = $4 RETURNING *"
 )
 _AUDIT = "INSERT INTO job_package_audit (name, sha256, action, actor) VALUES ($1, $2, $3, $4)"
 
@@ -100,8 +101,13 @@ async def list_kind(conn, kind: PackageKind, status: PackageStatus | None = None
     return [JobPackage.model_validate(dict(r)) for r in rows]
 
 
+async def list_status(conn, status: PackageStatus) -> list[JobPackage]:
+    """Every package in `status`, oldest change first."""
+    return [JobPackage.model_validate(dict(r)) for r in await conn.fetch(f"{_SELECT} WHERE status = $1 ORDER BY updated_at", status)]
+
+
 async def set_status(conn, name: JobPackageName, sha256: str, status: PackageStatus, actor: str) -> JobPackage | None:
-    """The bare status write, unaudited and with no one-stable rule: `promote` and `retire` are the lifecycle's moves."""
+    """The bare status write, unaudited and with no one-stable rule: `promote` is the only move that changes a target."""
     row = await conn.fetchrow(_SET_STATUS, name, sha256, status, actor)
     return None if row is None else JobPackage.model_validate(dict(row))
 
@@ -121,15 +127,6 @@ async def promote(conn, name: str, sha256: str, actor: str) -> JobPackage | None
         return promoted
 
 
-async def retire(conn, name: str, sha256: str, actor: str, status: PackageStatus = PackageStatus.RETIRED) -> JobPackage | None:
-    """Take a package out of use (`status` retired, or back to candidate), audited. None when there is no such package."""
-    async with conn.transaction():
-        retired = await set_status(conn, name, sha256, status, actor)
-        if retired is not None:
-            await _record(conn, name, sha256, PackageAuditAction.RETIRE, actor)
-        return retired
-
-
 async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> None:
     await conn.execute("UPDATE job_packages SET smoke_job_id = $3 WHERE name = $1 AND sha256 = $2 AND smoke_job_id IS NULL", name, sha256, job_id)
 
@@ -139,10 +136,11 @@ async def set_smoke(conn, name: JobPackageName, sha256: str, smoke: SmokeStatus)
     return JobPackage.model_validate(dict(row))
 
 
-async def reset_failed_smoke(conn, name: JobPackageName, sha256: str) -> JobPackage | None:
-    """Compare-and-set: a candidate whose smoke failed goes back to pending with no job. None when it is not in that state
-    (unknown, promoted or retired, or another retry got there first), so concurrent retries start one job."""
-    row = await conn.fetchrow(_RESET_FAILED_SMOKE, name, sha256, PackageStatus.CANDIDATE, SmokeStatus.FAILED, SmokeStatus.PENDING)
+async def reset_smoke(conn, name: JobPackageName, sha256: str, was: SmokeStatus) -> JobPackage | None:
+    """Compare-and-set: a candidate whose smoke is `was` (failed to retry, or passed to re-check) goes back to pending with no
+    job, and counts as pushed now. None when it is not in that state (unknown, promoted or retired, or another request got
+    there first), so concurrent resets start one job."""
+    row = await conn.fetchrow(_RESET_SMOKE, name, sha256, PackageStatus.CANDIDATE, was, SmokeStatus.PENDING)
     return None if row is None else JobPackage.model_validate(dict(row))
 
 

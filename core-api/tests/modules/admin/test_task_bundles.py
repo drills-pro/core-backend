@@ -1,4 +1,5 @@
-"""/v1/admin/task-bundles and the auto-promote poller, through the real router, database and data plane faked."""
+"""/v1/admin/task-bundles: the reads, the switches, and what a bundle writes when it becomes its task's target, through the real
+router and a faked database. A bundle is registered and moved through the job-packages target call (test_job_packages.py)."""
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -10,13 +11,11 @@ from fastapi.testclient import TestClient
 from app.core import problem
 from app.core.enums import PackageAuditAction, PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import JobPackage
-from app.integrations import data_plane
 from app.integrations.data_plane import job_package
 from app.modules.admin.task_bundles import routes, service
-from app.modules.admin.task_bundles.constants import AUTO_PROMOTER, ProblemCode
 from tests.support import FakeConn, TenantCtx
-from tests.support.packages import package_row
 from tests.support.bundles import SLUG, manifest
+from tests.support.packages import package_row
 from tests.support.presets import preset_row
 from tests.support.task_types import task_row
 
@@ -65,9 +64,8 @@ def call(monkeypatch):
             return package
 
         monkeypatch.setattr(service, "get_pool", get_pool)
-        monkeypatch.setattr(service.data_plane, "start_package_smoke", unchanged)
         monkeypatch.setattr(service.data_plane, "refresh_package_smoke", unchanged)
-        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)  # the gates of a promotion and a retry settle the smoke through it
+        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)
         app = FastAPI()
         problem.install(app)
         app.dependency_overrides[routes.get_platform_admin] = lambda: "ops"
@@ -77,28 +75,20 @@ def call(monkeypatch):
     return run
 
 
-def test_register_hands_the_key_to_the_data_plane_and_starts_the_smoke(call, monkeypatch):
-    seen = []
-
-    async def register(s3_key, actor):
-        seen.append((s3_key, actor))
-        return JobPackage.model_validate(bundle_row())
-
-    monkeypatch.setattr(service.data_plane, "register_staged_bundle", register)
-    res = call("POST", f"{URL}/register", json={"s3_key": f"jobs/{SLUG}-{SHA}.zip"})
-    body = res.json()
-    assert res.status_code == 200 and seen == [(f"jobs/{SLUG}-{SHA}.zip", "ops")]
-    assert (body["kind"], body["name"], body["manifest"]["slug"], body["status"]) == ("task", NAME, SLUG, "candidate")
-    assert call("POST", f"{URL}/register", json={"s3_key": "k", "extra": 1}).status_code == 422
+def test_the_bundle_lifecycle_moved_to_the_job_packages_target_call(call):
+    assert call("POST", f"{URL}/register", json={"s3_key": "k"}).status_code == 405  # the path exists for GET /{slug}
+    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(_passed()), json={"status": "stable"}).status_code == 404
 
 
-def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_one_go(call):
+def test_promotion_writes_the_task_row_and_presets_with_the_package_move_in_one_go(monkeypatch):
     conn = Conn(_passed(status=PackageStatus.STABLE))
-    res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 200 and res.json()["status"] == "stable"
-    assert conn.sql()[1:] == [
-        "SELECT * FROM job_packages", "UPDATE job_packages", "UPDATE job_packages", "INSERT INTO job_package_audit", "INSERT INTO task_types", "DELETE FROM task_presets",
-        *["INSERT INTO task_presets"] * 3]
+
+    async def get_pool():
+        return SimpleNamespace(acquire=lambda: TenantCtx(conn))
+
+    monkeypatch.setattr(service, "get_pool", get_pool)
+    promoted = asyncio.run(service.promote(JobPackage.model_validate(_passed()), "ops"))
+    assert promoted is not None
     by_sql = {sql.split(" (")[0]: args for sql, args in conn.calls}
     assert by_sql["INSERT INTO task_types"] == (SLUG, "images", "imgcls.train:train", True, "image_encoder", "classify", SHA, "ops")
     assert by_sql["DELETE FROM task_presets WHERE task = $1 AND NOT"] == (SLUG, ["small", "medium", "large"])
@@ -107,24 +97,9 @@ def test_promotion_flips_the_stable_bundle_and_rewrites_the_task_and_presets_in_
     assert by_sql["INSERT INTO job_package_audit"] == (NAME, SHA, PackageAuditAction.PROMOTE, "ops")
 
 
-def test_a_bundle_whose_smoke_has_not_passed_is_not_promoted(call):
-    conn = Conn(bundle_row())
-    res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_PASSED and len(conn.calls) == 1
-
-
-def test_retiring_a_candidate_is_audited_and_the_stable_one_is_refused(call):
-    conn = Conn(bundle_row())
-    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", conn, json={"status": "retired"}).status_code == 200
-    assert conn.calls[-1][1] == (NAME, SHA, PackageAuditAction.RETIRE, "ops")
-    res = call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(_passed(status=PackageStatus.STABLE)), json={"status": "retired"})
-    assert res.status_code == 409 and res.json()["code"] == ProblemCode.BUNDLE_IS_STABLE
-
-
-def test_an_unknown_bundle_is_404_and_candidate_is_not_a_target(call):
-    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(None), json={"status": "stable"}).status_code == 404
-    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(bundle_row()), json={"status": "candidate"}).status_code == 422
-    assert call("PUT", f"{URL}/not-a-task/{SHA}/status", Conn(bundle_row()), json={"status": "stable"}).status_code == 422
+def test_an_unknown_bundle_is_404_and_a_bad_slug_is_422(call):
+    assert call("GET", f"{URL}/{SLUG}/{SHA}", Conn(None)).status_code == 404
+    assert call("GET", f"{URL}/not-a-task/{SHA}", Conn()).status_code == 422
 
 
 def test_settings_default_to_auto_promote_and_can_be_switched_off(call):
@@ -142,7 +117,6 @@ def test_bundles_are_listed_and_read_with_their_slug_and_smoke_status(call):
     one = call("GET", f"{URL}/{SLUG}/{SHA}", Conn(_passed()))
     assert one.status_code == 200 and (one.json()["slug"], one.json()["smoke_status"], one.json()["manifest"]["trainer"]) == (
         SLUG, "passed", "imgcls.train:train")
-    assert call("GET", f"{URL}/{SLUG}/{SHA}", Conn(None)).status_code == 404
 
 
 def test_the_catalog_shows_each_task_with_its_presets_and_backing_bundle(call):
@@ -171,35 +145,4 @@ def test_only_a_failed_candidate_bundle_is_smoked_again(call, monkeypatch):
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(bundle_row(smoke_status=SmokeStatus.FAILED)))
     assert res.status_code == 200 and res.json()["smoke_job_id"] == "smoke-2"
     res = call("POST", f"{URL}/{SLUG}/{SHA}/smoke", Conn(_passed()))
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE
-
-
-@pytest.fixture
-def poller(monkeypatch):
-    def run(conn, enabled=True):
-        async def get_pool():
-            return SimpleNamespace(acquire=lambda: TenantCtx(conn))
-
-        async def unchanged(package):
-            return package
-
-        monkeypatch.setattr(service, "get_pool", get_pool)
-        monkeypatch.setattr(service.data_plane, "refresh_package_smoke", unchanged)
-        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)
-        monkeypatch.setattr(service.settings.training, "bundle_auto_promote", enabled)
-        asyncio.run(service.auto_promote())
-        return [args for sql, args in conn.calls if sql.startswith("INSERT INTO job_package_audit")]
-
-    return run
-
-
-def test_the_poller_promotes_candidates_whose_smoke_passed(poller):
-    conn = Conn(_passed(), rowset=[_passed(), bundle_row(sha="d" * 64)])
-    assert poller(conn) == [(NAME, SHA, PackageAuditAction.PROMOTE, AUTO_PROMOTER)]
-
-
-def test_the_poller_leaves_a_slug_that_opted_out_and_does_nothing_when_switched_off(poller):
-    opted_out = {"slug": SLUG, "auto_promote": False, "updated_by": "ops", "updated_at": datetime.now(UTC)}
-    assert poller(Conn(_passed(), rowset=[_passed()], rows={"task_bundle_settings": opted_out})) == []
-    conn = Conn(_passed(), rowset=[_passed()])
-    assert poller(conn, enabled=False) == [] and conn.calls == []
+    assert res.status_code == 409 and res.json()["code"] == job_package.SmokeProblem.NOT_RETRYABLE

@@ -400,15 +400,15 @@ def test_a_retry_ray_refuses_leaves_the_package_failed(s3, db, ray):
     assert db.rows[(package.name, SHA)]["smoke_status"] == SmokeStatus.FAILED
 
 
-# ---- the gates the admin's moves share ----
+# ---- a passed smoke that must be checked again, when the bundle targets its core was smoked with have moved ----
 
-def test_a_promotion_needs_a_smoke_that_passed(s3, db):
-    pending = _candidate(db)
-    with pytest.raises(Problem) as err:
-        run(job_package.require_smoke_passed(pending, "not yet"))
-    assert (err.value.status_code, err.value.code, err.value.detail) == (409, job_package.SmokeProblem.NOT_PASSED, "not yet")
-    _result(s3, pending, ok=True)
-    run(job_package.require_smoke_passed(pending, "not yet"))
+def test_a_passed_smoke_is_run_again_from_pending_under_a_new_attempt(s3, db, ray):
+    passed = _candidate(db, smoke=SmokeStatus.PASSED)
+    restarted = run(job_package.restart_smoke(passed))
+    sent = ray.sent
+    attempt = sent["job_id"].removeprefix(f"smoke-ray-jobs-{SHA[:12]}-")
+    assert re.fullmatch(r"\d{14}", attempt) and restarted.smoke_status == SmokeStatus.PENDING and restarted.smoke_job_id == sent["job_id"]
+    assert db.rows[(passed.name, SHA)]["smoke_job_id"] == sent["job_id"]
 
 
 @pytest.mark.parametrize("status, smoke", [

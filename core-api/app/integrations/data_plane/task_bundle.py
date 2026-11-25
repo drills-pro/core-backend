@@ -48,12 +48,15 @@ def check_bundle(data: bytes, sha256: str) -> BundleManifest:
     return manifest
 
 
-async def register_staged(s3_key: str, actor: str) -> JobPackage:
-    """Register the bundle CI put in staging as a candidate of task_<slug>; the key's slug must be the manifest's."""
+async def register_staged(name: str, s3_key: str, actor: str) -> JobPackage:
+    """Register the bundle CI put in staging as a candidate of `name` (task_<slug>): the key's slug must be that one, and
+    the manifest's, so a target call cannot register a bundle under another task's name."""
     match = BUNDLE_KEY.fullmatch(s3_key)
     if match is None:
         raise invalid(f"expected a key like {layout.JOB_PACKAGE_ROOT}/<slug>-<sha256>.zip")
     slug, sha256 = match["slug"], match["sha256"]
+    if task_package_name(slug) != name:
+        raise invalid(f"the key names {slug}, the package {name}")
     manifest = check_bundle(await asyncio.to_thread(package_store.read_staged, s3_key), sha256)
     if manifest.slug != slug:
         raise invalid(f"the key names {slug}, the manifest {manifest.slug}", INVALID_MANIFEST)

@@ -1,31 +1,19 @@
-"""Task bundles (planning/25): register a staged bundle, smoke it on the stable core, promote it.
-
-Promotion is one transaction: the slug's previous stable bundle is retired, this one becomes stable, and the task_types row
-and the task's presets are rewritten from its manifest, with an audit row. Rollback is the same call on an older sha.
+"""Task bundles (planning/25): what a task's bundle writes when it becomes the target (the task_types row and the task's
+presets, in the same transaction as the package move), the per-slug opt-out, and the reads. The lifecycle itself (register,
+smoke, target) is core/job_packages and admin/job_packages.
 """
-import logging
-from http import HTTPStatus
-
 from app.core import job_packages, presets, task_types
 from app.core.bundle_manifest import BundleManifest
 from app.core.db import get_pool
-from app.core.enums import PackageKind, PackageStatus, SmokeStatus, TaskType
+from app.core.enums import PackageKind, PackageStatus, TaskType
 from app.core.job_packages import JobPackage, task_package_name
-from app.core.problem import Problem, not_found
+from app.core.problem import not_found
 from app.core.settings import settings
 from app.integrations import data_plane
-from app.modules.admin.task_bundles.constants import (
-    AUTO_PROMOTER,
-    DEFAULT_AUTO_PROMOTE,
-    SMOKE_NOT_PASSED_DETAIL,
-    SMOKE_NOT_RETRYABLE_DETAIL,
-    ProblemCode,
-)
+from app.modules.admin.task_bundles.constants import DEFAULT_AUTO_PROMOTE, SMOKE_NOT_RETRYABLE_DETAIL
 from app.core.presets import TaskPreset
 from app.core.task_types import TaskInfo
 from app.modules.admin.task_bundles.schemas import BundleSettings, CatalogTask, TaskBundle
-
-logger = logging.getLogger(__name__)
 
 _SETTINGS = "SELECT * FROM task_bundle_settings WHERE slug = $1"
 _PUT_SETTINGS = (
@@ -34,14 +22,15 @@ _PUT_SETTINGS = (
 )
 
 
-async def register(s3_key: str, actor: str) -> JobPackage:
-    """Validate the staged zip, record it as a candidate (audited) and start its smoke; a known bundle comes back as it is."""
-    return await data_plane.start_package_smoke(await data_plane.register_staged_bundle(s3_key, actor))
+async def register(name: str, s3_key: str, actor: str) -> JobPackage:
+    """Validate the staged zip, record it as a candidate of `name` (audited) and start its smoke; a known bundle comes back as it is."""
+    return await data_plane.start_package_smoke(await data_plane.register_staged_bundle(name, s3_key, actor))
 
 
-async def _promote(conn, bundle: JobPackage, actor: str) -> JobPackage:
+async def promote(bundle: JobPackage, actor: str) -> JobPackage:
+    """Make a bundle the task's stable one: the package move, the task's row and its presets, in one transaction."""
     manifest = BundleManifest.model_validate(bundle.manifest)
-    async with conn.transaction():
+    async with (await get_pool()).acquire() as conn, conn.transaction():
         promoted = await job_packages.promote(conn, bundle.name, bundle.sha256, actor)
         serving = manifest.serving and (manifest.serving.encoder, manifest.serving.postprocess)
         await task_types.apply_bundle(conn, manifest.slug, manifest.data_kind, manifest.trainer, manifest.servable, serving, bundle.sha256, actor)
@@ -56,20 +45,6 @@ async def _bundle(conn, slug: TaskType, sha256: str) -> JobPackage:
     if bundle is None or bundle.kind != PackageKind.TASK:
         raise not_found()
     return bundle
-
-
-async def set_status(slug: TaskType, sha256: str, status: PackageStatus, actor: str) -> JobPackage:
-    """Promote (only once the smoke passed) or retire (never the stable one: promote another sha instead)."""
-    async with (await get_pool()).acquire() as conn:
-        bundle = await _bundle(conn, slug, sha256)
-    if status == PackageStatus.STABLE:
-        await data_plane.require_package_smoke_passed(bundle, SMOKE_NOT_PASSED_DETAIL)
-        async with (await get_pool()).acquire() as conn:
-            return await _promote(conn, bundle, actor)
-    if bundle.status == PackageStatus.STABLE:
-        raise Problem(HTTPStatus.CONFLICT, ProblemCode.BUNDLE_IS_STABLE, "the stable bundle of a task is replaced by promoting another sha")
-    async with (await get_pool()).acquire() as conn:
-        return await job_packages.retire(conn, bundle.name, sha256, actor, status)
 
 
 async def list_bundles(slug: TaskType | None = None) -> list[TaskBundle]:
@@ -135,18 +110,9 @@ async def put_settings(slug: TaskType, auto_promote: bool, actor: str) -> Bundle
         return BundleSettings.model_validate(dict(await conn.fetchrow(_PUT_SETTINGS, slug, auto_promote, actor)))
 
 
-async def auto_promote() -> None:
-    """Poller: settle the smoke of each candidate bundle and promote the ones that passed, unless their slug opted out.
-    Oldest first, so of two passing candidates of a slug the newer ends up stable."""
+async def auto_promote_allowed(slug: TaskType) -> bool:
+    """The poller may move this slug's target: the bundle switch is on and the slug did not opt out."""
     if not settings.training.bundle_auto_promote:
-        return
+        return False
     async with (await get_pool()).acquire() as conn:
-        candidates = await job_packages.list_kind(conn, PackageKind.TASK, PackageStatus.CANDIDATE)
-    for candidate in candidates:
-        if (await data_plane.refresh_package_smoke(candidate)).smoke_status != SmokeStatus.PASSED:
-            continue
-        async with (await get_pool()).acquire() as conn:
-            if not (await _settings(conn, TaskType(candidate.manifest["slug"]))).auto_promote:
-                continue
-            await _promote(conn, candidate, AUTO_PROMOTER)
-        logger.info("task bundle %s %s promoted after its smoke passed", candidate.name, candidate.sha256)
+        return (await _settings(conn, slug)).auto_promote

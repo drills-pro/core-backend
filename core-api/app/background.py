@@ -12,7 +12,7 @@ import zlib
 from app.core import job_packages, rate_limit
 from app.core.db import get_pool
 from app.integrations.serve_client import ensure_serving
-from app.modules.admin.task_bundles import auto_promote_bundles
+from app.modules.admin.job_packages import promote_targets
 from app.modules.user.datasets import expire_stale_imports, reconcile_inflight_imports
 from app.modules.user.deployments import (
     process_predictions,
@@ -29,7 +29,7 @@ SWEEP_INTERVAL_SECONDS = 60
 PURGE_INTERVAL_SECONDS = 3600
 SERVING_ENSURE_INTERVAL_SECONDS = 60
 WEBHOOK_INTERVAL_SECONDS = 5
-BUNDLE_PROMOTE_INTERVAL_SECONDS = 30  # a smoke takes minutes; promotion follows within this
+PACKAGE_TARGET_INTERVAL_SECONDS = 30  # a smoke takes minutes; a target moves within this of its smoke passing
 PREDICTION_WORKER_INTERVAL_SECONDS = 1  # background predictions wait at most this long to be picked up (planning/24 Q7)
 
 
@@ -45,7 +45,7 @@ POLLERS = (
     ("prediction-purge", purge_stored_predictions, PURGE_INTERVAL_SECONDS),
     ("job-packages-audit-purge", job_packages.purge_audit, PURGE_INTERVAL_SECONDS),
     ("webhook-dispatch", dispatch_webhooks, WEBHOOK_INTERVAL_SECONDS),
-    ("bundle-auto-promote", auto_promote_bundles, BUNDLE_PROMOTE_INTERVAL_SECONDS),
+    ("package-targets", promote_targets, PACKAGE_TARGET_INTERVAL_SECONDS),
 )
 
 

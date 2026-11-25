@@ -1,6 +1,6 @@
 """The lifecycle of the job packages (`ray-jobs/ray_jobs`, `ray-training/ray_core` as ray_training, `ray-serving/ray_serving`):
-a zip in the staging bucket named by its content hash, registered in `job_packages` as a candidate, smoked on Ray, promoted
-to stable by an admin and retired when superseded. The zips are built and checked in package_zip.py, the bucket is
+a zip in the staging bucket named by its content hash, registered in `job_packages` as a candidate, smoked on Ray, and made
+the package's target (stable) once that smoke passed; the one it replaces is retired. The zips are built and checked in package_zip.py, the bucket is
 package_store.py, the rows and their audit trail core/job_packages.py; this module is the rules that join them.
 
 `register_staged` registers the zip CI put in staging and `publish` builds one from the source tree the image ships with.
@@ -35,7 +35,6 @@ NO_STABLE_PACKAGE = "no_stable_package"
 
 
 class SmokeProblem(StrEnum):
-    NOT_PASSED = "smoke_not_passed"  # a package or bundle is promoted only once its smoke passed
     NOT_RETRYABLE = "smoke_not_retryable"  # only a candidate whose smoke failed is smoked again
 
 
@@ -105,11 +104,11 @@ async def start_smoke(package: JobPackage, attempt: str = "") -> JobPackage:
         return await job_packages.get(conn, name, package.sha256)
 
 
-async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage | None:
-    """Start a new smoke job for a candidate whose smoke failed; None when it is no longer in that state. When Ray
-    refuses the job the package goes back to failed, so the retry can be repeated."""
+async def _rerun_smoke(name: JobPackageName, sha256: str, was: SmokeStatus) -> JobPackage | None:
+    """Start a new smoke job for a candidate whose smoke is `was`; None when it is no longer in that state. When Ray refuses
+    the job the package goes back to failed, so the run can be repeated."""
     async with (await get_pool()).acquire() as conn:
-        reset = await job_packages.reset_failed_smoke(conn, name, sha256)
+        reset = await job_packages.reset_smoke(conn, name, sha256, was)
     if reset is None:
         return None
     try:
@@ -118,6 +117,18 @@ async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage | None:
         async with (await get_pool()).acquire() as conn:
             await job_packages.set_smoke(conn, name, sha256, SmokeStatus.FAILED)
         raise
+
+
+async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage | None:
+    """Smoke a candidate whose smoke failed again; None when it is no longer in that state."""
+    return await _rerun_smoke(name, sha256, SmokeStatus.FAILED)
+
+
+async def restart_smoke(package: JobPackage) -> JobPackage:
+    """Smoke a candidate whose smoke passed again, from now: a core is smoked against the bundle targets that are stable when
+    its smoke starts, so one whose bundle targets moved during its smoke must be smoked again before it can move."""
+    restarted = await _rerun_smoke(package.name, package.sha256, SmokeStatus.PASSED)
+    return package if restarted is None else restarted
 
 
 async def refresh_smoke(package: JobPackage) -> JobPackage:
@@ -138,12 +149,6 @@ async def refresh_smoke(package: JobPackage) -> JobPackage:
         return await job_packages.set_smoke(conn, package.name, package.sha256, outcome)
 
 
-async def require_smoke_passed(package: JobPackage, detail: str) -> None:
-    """The gate of a promotion: a 409 `detail` unless the package's smoke has passed (settled from Ray first)."""
-    if (await refresh_smoke(package)).smoke_status != SmokeStatus.PASSED:
-        raise Problem(HTTPStatus.CONFLICT, SmokeProblem.NOT_PASSED, detail)
-
-
 async def retry_failed_smoke(package: JobPackage, detail: str) -> JobPackage:
     """Smoke a candidate whose smoke failed again (after the core or the image was fixed); anything else, or a retry another
     request won, is a 409 `detail`."""
@@ -158,7 +163,7 @@ async def retry_failed_smoke(package: JobPackage, detail: str) -> JobPackage:
 
 async def resolve_stable(name: JobPackageName) -> JobPackage:
     """The package a new job runs: the newest stable one. Outside prod the bundled source is published and promoted first,
-    through the same audited promotion an admin's is, so the previous stable is retired."""
+    through the same audited promotion a target move uses, so the previous stable is retired."""
     if settings.env != PROD_ENV:
         package = await publish(name, SELF_PUBLISHER)
         if package.status == PackageStatus.CANDIDATE:

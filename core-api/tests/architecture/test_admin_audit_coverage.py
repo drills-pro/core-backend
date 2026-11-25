@@ -13,15 +13,12 @@ AUDIT_CALL = "admin_audit.record"
 # Routes whose trail is somewhere else, or not written yet: "METHOD path" -> why.
 ELSEWHERE_OR_OPEN = {
     "POST /v1/admin/tenants/{tenant_id}/projects": "audit_log row written by the user-side projects.create_project",
-    "POST /v1/admin/task-bundles/register": "job_package_audit",
-    "PUT /v1/admin/task-bundles/{slug}/{sha256}/status": "job_package_audit",
     "OPEN PUT /v1/admin/task-bundles/catalog/{slug}/enabled": "switches a task type; no row yet",
     "OPEN PUT /v1/admin/task-bundles/catalog/{slug}/presets/{name}/enabled": "switches a preset; no row yet",
     "OPEN PUT /v1/admin/task-bundles/{slug}/settings": "auto-promote switch; no row yet",
     "OPEN POST /v1/admin/task-bundles/{slug}/{sha256}/smoke": "starts a smoke run; no row yet",
     "POST /v1/admin/job-packages/{name}/publish": "job_package_audit",
-    "POST /v1/admin/job-packages/{name}/register": "job_package_audit",
-    "PUT /v1/admin/job-packages/{name}/{sha256}/status": "job_package_audit",
+    "POST /v1/admin/job-packages/{name}/target": "job_package_audit",
     "OPEN POST /v1/admin/job-packages/{name}/{sha256}/smoke": "runtime packages; no row yet",
 }
 

@@ -1,5 +1,6 @@
 """Platform-wide job packages. Rows are shared by every tenant, so these go through get_platform_admin and an
-unscoped connection; the packages run by training and ingest are chosen in app/integrations/data_plane/job_package.py."""
+unscoped connection; the packages run by training and ingest are chosen in app/integrations/data_plane/job_package.py.
+A version reaches its package's target through the target call, never through a status write: CI makes that call."""
 import logging
 
 from fastapi import APIRouter, Depends, Path
@@ -9,7 +10,8 @@ from app.core.enums import JobPackageName
 from app.core.job_packages import JobPackage
 from app.core.patterns import SHA256_PATTERN
 from app.modules.admin.job_packages import service
-from app.modules.admin.job_packages.schemas import RegisterBody, StatusBody
+from app.modules.admin.job_packages.constants import TARGET_NAME_PATTERN
+from app.modules.admin.job_packages.schemas import TargetBody
 
 logger = logging.getLogger(__name__)
 
@@ -29,21 +31,13 @@ async def publish_package(name: JobPackageName, actor: str = Depends(get_platfor
     return package
 
 
-@router.post("/{name}/register", response_model=JobPackage)
-async def register_package(name: JobPackageName, body: RegisterBody, actor: str = Depends(get_platform_admin)):
-    """Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads
-    the object back and checks its hash and contents."""
-    package = await service.register(name, body.s3_key, actor)
-    logger.info("job package %s %s registered by %s", name, package.sha256, actor)
-    return package
-
-
-@router.put("/{name}/{sha256}/status", response_model=JobPackage)
-async def set_package_status(name: JobPackageName, body: StatusBody, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
-    """Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
-    A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25."""
-    package = await service.set_status(name, sha256, body.status, actor)
-    logger.info("job package %s %s set to %s by %s", name, sha256, body.status, actor)
+@router.post("/{name}/target", response_model=JobPackage)
+async def target_package(body: TargetBody, name: str = Path(pattern=TARGET_NAME_PATTERN), actor: str = Depends(get_platform_admin)):
+    """CI's call for a version: the staged zip is checked, registered, smoked, and becomes the target of its package once the smoke
+    passed (the poller moves it). A version that already passed moves at once, which is how a rollback is made. Nobody has to act
+    in between: a failed smoke is run again by the next call."""
+    package = await service.target(name, body.s3_key, actor)
+    logger.info("job package %s %s targeted by %s: status %s, smoke %s", name, package.sha256, actor, package.status, package.smoke_status)
     return package
 
 

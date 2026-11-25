@@ -84,7 +84,7 @@ def staged(monkeypatch):
 def test_a_staged_bundle_is_registered_as_task_slug_and_audited(staged):
     stage, tables = staged
     key = stage(bundle_zip())
-    package = asyncio.run(task_bundle.register_staged(key, "ci"))
+    package = asyncio.run(task_bundle.register_staged(f"task_{SLUG}", key, "ci"))
     row = tables.rows[(f"task_{SLUG}", package.sha256)]
     assert (row["s3_key"], row["manifest"]["schema"], row["published_by"], row["requirements"]) == (key, 1, "ci", [])
     assert package.kind == PackageKind.TASK and tables.audit == [(f"task_{SLUG}", package.sha256, PackageAuditAction.REGISTER, "ci")]
@@ -92,7 +92,7 @@ def test_a_staged_bundle_is_registered_as_task_slug_and_audited(staged):
 
 def test_the_manifest_requirements_are_stored_with_the_bundle(staged):
     stage, tables = staged
-    asyncio.run(task_bundle.register_staged(stage(bundle_zip(manifest(requirements=["xgboost==3.2.0"]))), "ci"))
+    asyncio.run(task_bundle.register_staged(f"task_{SLUG}", stage(bundle_zip(manifest(requirements=["xgboost==3.2.0"]))), "ci"))
     (row,) = tables.rows.values()
     assert row["requirements"] == ["xgboost==3.2.0"]
 
@@ -100,7 +100,7 @@ def test_the_manifest_requirements_are_stored_with_the_bundle(staged):
 @pytest.mark.parametrize("key", ["jobs/image-classification.zip", "other/image-classification-" + "a" * 64 + ".zip"])
 def test_a_key_that_is_not_a_bundle_key_is_refused(staged, key):
     with pytest.raises(Problem, match="expected a key"):
-        asyncio.run(task_bundle.register_staged(key, "ci"))
+        asyncio.run(task_bundle.register_staged(f"task_{SLUG}", key, "ci"))
 
 
 def test_the_key_slug_must_be_the_manifest_slug(staged):
@@ -108,7 +108,15 @@ def test_the_key_slug_must_be_the_manifest_slug(staged):
     data = bundle_zip()
     key = stage(data, f"jobs/object-detection-{_sha(data)}.zip")
     with pytest.raises(Problem, match="manifest"):
-        asyncio.run(task_bundle.register_staged(key, "ci"))
+        asyncio.run(task_bundle.register_staged("task_object-detection", key, "ci"))
+    assert tables.rows == {}
+
+
+def test_the_target_name_must_be_the_key_slug(staged):
+    stage, tables = staged
+    key = stage(bundle_zip())  # a bundle of SLUG, pushed under another task's name
+    with pytest.raises(Problem, match="the package task_object-detection"):
+        asyncio.run(task_bundle.register_staged("task_object-detection", key, "ci"))
     assert tables.rows == {}
 
 

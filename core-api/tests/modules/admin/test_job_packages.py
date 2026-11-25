@@ -29,7 +29,7 @@ def call(monkeypatch):
         monkeypatch.setattr(service, "get_pool", get_pool)
         monkeypatch.setattr(service.data_plane, "start_package_smoke", unchanged)
         monkeypatch.setattr(service.data_plane, "refresh_package_smoke", unchanged)
-        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)  # the gates of a promotion and a retry settle the smoke through it
+        monkeypatch.setattr(job_package, "refresh_smoke", unchanged)  # the gates of a retry settle the smoke through it
         app = FastAPI()
         problem.install(app)
         app.dependency_overrides[routes.get_platform_admin] = lambda: "ops"
@@ -48,21 +48,16 @@ def test_publish_registers_the_bundled_source_as_the_actor(call, monkeypatch):
     assert res.status_code == 200 and (res.json()["status"], res.json()["published_by"]) == ("candidate", "ops")
 
 
-def test_promote_sets_the_status_as_the_actor(call):
-    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops", PackageStatus.STABLE) | {"smoke_status": SmokeStatus.PASSED})
-    res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
-    (_, args), = [c for c in conn.calls if c[0].startswith("UPDATE job_packages SET status = $3")]
-    assert res.status_code == 200 and args == ("ray_jobs", SHA, "stable", "ops")
-    assert conn.calls[-1][1] == ("ray_jobs", SHA, PackageAuditAction.PROMOTE, "ops")  # one transaction: the flip and its audit row
+def test_the_status_write_moved_to_the_target_call(call):
+    assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(), json={"status": "stable"}).status_code == 404
 
 
-def test_an_unknown_package_is_404_and_a_bad_hash_or_name_is_422(call):
-    assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=None), json={"status": "retired"}).status_code == 404
-    assert call("PUT", f"{URL}/ray_jobs/nothex/status", FakeConn(), json={"status": "stable"}).status_code == 422
-    assert call("GET", f"{URL}/other", FakeConn()).status_code == 422
+def test_a_bad_name_or_hash_is_422(call):
+    assert call("POST", f"{URL}/other/target", FakeConn(), json={"s3_key": "k"}).status_code == 422
+    assert call("POST", f"{URL}/ray_jobs/nothex/smoke", FakeConn()).status_code == 422
 
 
-def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch):
+def test_target_registers_a_new_version_as_the_actor_and_leaves_its_smoke_running(call, monkeypatch):
     seen = []
 
     async def register(name, s3_key, actor):
@@ -70,27 +65,47 @@ def test_register_hands_the_key_to_the_data_plane_as_the_actor(call, monkeypatch
         return routes.JobPackage.model_validate(package_row(name, SHA, s3_key, actor))
 
     monkeypatch.setattr(service.data_plane, "register_staged_package", register)
-    res = call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "jobs/ray-jobs-x.zip"})
-    assert res.status_code == 200 and seen == [("ray_jobs", "jobs/ray-jobs-x.zip", "ops")] and res.json()["status"] == "candidate"
-    assert call("POST", f"{URL}/ray_jobs/register", json={"s3_key": "k", "extra": 1}).status_code == 422
+    conn = FakeConn()
+    res = call("POST", f"{URL}/ray_jobs/target", conn, json={"s3_key": "jobs/ray-jobs-x.zip"})
+    assert res.status_code == 200 and seen == [("ray_jobs", "jobs/ray-jobs-x.zip", "ops")]
+    assert (res.json()["status"], res.json()["smoke_status"]) == ("candidate", "pending")
+    assert not any(c[0].startswith("UPDATE job_packages SET status") for c in conn.calls)  # no move: the poller does it
+    assert call("POST", f"{URL}/ray_jobs/target", FakeConn(), json={"s3_key": "k", "extra": 1}).status_code == 422
 
 
-def test_a_package_whose_smoke_has_not_passed_cannot_be_promoted(call):
-    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops"))  # smoke_status pending
-    res = call("PUT", f"{URL}/ray_jobs/{SHA}/status", conn, json={"status": "stable"})
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_PASSED
-    assert call("PUT", f"{URL}/ray_jobs/{SHA}/status", FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops")), json={"status": "retired"}).status_code == 200
+def test_target_of_a_version_whose_smoke_passed_moves_it_now_and_audits_the_actor(call, monkeypatch):
+    async def register(name, s3_key, actor):
+        return routes.JobPackage.model_validate(package_row(name, SHA, s3_key, actor) | {"smoke_status": SmokeStatus.PASSED})
+
+    monkeypatch.setattr(service.data_plane, "register_staged_package", register)
+    conn = FakeConn(row=package_row("ray_jobs", SHA, "jobs/x.zip", "ops", PackageStatus.RETIRED) | {"smoke_status": SmokeStatus.PASSED})
+    res = call("POST", f"{URL}/ray_jobs/target", conn, json={"s3_key": "jobs/ray-jobs-x.zip"})
+    assert res.status_code == 200
+    assert conn.calls[-1][1] == ("ray_jobs", SHA, PackageAuditAction.PROMOTE, "ops")  # the rollback: one transaction with its audit row
 
 
-def _retry_stub(monkeypatch, result):
-    seen = []
+def test_target_of_a_version_whose_smoke_failed_smokes_it_again(call, monkeypatch):
+    failed = package_row("ray_jobs", SHA, "jobs/x.zip", "ops") | {"smoke_status": SmokeStatus.FAILED, "smoke_job_id": "smoke-1"}
+    again = {**failed, "smoke_status": SmokeStatus.PENDING, "smoke_job_id": "smoke-2"}
+
+    async def register(name, s3_key, actor):
+        return routes.JobPackage.model_validate(failed)
 
     async def retry(name, sha256):
-        seen.append((name, sha256))
-        return result
+        return routes.JobPackage.model_validate(again)
+
+    monkeypatch.setattr(service.data_plane, "register_staged_package", register)
+    monkeypatch.setattr(job_package, "retry_smoke", retry)
+    res = call("POST", f"{URL}/ray_jobs/target", FakeConn(row=failed), json={"s3_key": "jobs/ray-jobs-x.zip"})
+    assert res.status_code == 200 and res.json()["smoke_job_id"] == "smoke-2"
+
+
+def test_retrying_an_unknown_package_is_404(call, monkeypatch):
+    async def retry(name, sha256):
+        return None
 
     monkeypatch.setattr(job_package, "retry_smoke", retry)
-    return seen
+    assert call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=None)).status_code == 404
 
 
 def _failed(status=PackageStatus.CANDIDATE, smoke=SmokeStatus.FAILED):
@@ -99,26 +114,23 @@ def _failed(status=PackageStatus.CANDIDATE, smoke=SmokeStatus.FAILED):
 
 def test_a_failed_candidate_is_smoked_again(call, monkeypatch):
     again = routes.JobPackage.model_validate(_failed(smoke=SmokeStatus.PENDING) | {"smoke_job_id": "smoke-2"})
-    seen = _retry_stub(monkeypatch, again)
+    seen = []
+
+    async def retry(name, sha256):
+        seen.append((name, sha256))
+        return again
+
+    monkeypatch.setattr(job_package, "retry_smoke", retry)
     res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=_failed()))
     assert res.status_code == 200 and seen == [("ray_jobs", SHA)] and res.json()["smoke_status"] == "pending" and res.json()["smoke_job_id"] == "smoke-2"
-
-
-def test_retrying_an_unknown_package_is_404(call, monkeypatch):
-    seen = _retry_stub(monkeypatch, None)
-    assert call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=None)).status_code == 404 and seen == []
-    assert call("POST", f"{URL}/ray_jobs/nothex/smoke", FakeConn()).status_code == 422
 
 
 @pytest.mark.parametrize("row", [
     _failed(PackageStatus.STABLE), _failed(PackageStatus.RETIRED), _failed(smoke=SmokeStatus.PENDING), _failed(smoke=SmokeStatus.PASSED)])
 def test_only_a_failed_candidate_can_be_retried(call, monkeypatch, row):
-    seen = _retry_stub(monkeypatch, None)
+    async def retry(name, sha256):
+        raise AssertionError("not retryable: nothing may be submitted")
+
+    monkeypatch.setattr(job_package, "retry_smoke", retry)
     res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=row))
-    assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE and seen == []
-
-
-def test_a_retry_another_request_won_is_409(call, monkeypatch):
-    _retry_stub(monkeypatch, None)  # the compare-and-set found the smoke no longer failed
-    res = call("POST", f"{URL}/ray_jobs/{SHA}/smoke", FakeConn(row=_failed()))
     assert res.status_code == 409 and res.json()["code"] == data_plane.SmokeProblem.NOT_RETRYABLE

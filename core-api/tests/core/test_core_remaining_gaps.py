@@ -214,14 +214,14 @@ def test_settling_a_smoke_returns_the_updated_package():
 
 def test_a_failed_smoke_is_reset_by_a_compare_and_set_on_candidate_and_failed():
     conn = FakeConn(row=row())
-    package = asyncio.run(job_packages.reset_failed_smoke(conn, JobPackageName.RAY_JOBS, "a" * 64))
+    package = asyncio.run(job_packages.reset_smoke(conn, JobPackageName.RAY_JOBS, "a" * 64, SmokeStatus.FAILED))
     sql, args = conn.calls[0]
     assert package.smoke_job_id is None and "smoke_job_id = NULL" in sql and "status = $3 AND smoke_status = $4" in sql
     assert args == (JobPackageName.RAY_JOBS, "a" * 64, PackageStatus.CANDIDATE, SmokeStatus.FAILED, SmokeStatus.PENDING)
 
 
-def test_a_smoke_that_is_not_failed_is_not_reset():
-    assert asyncio.run(job_packages.reset_failed_smoke(FakeConn(row=None), JobPackageName.RAY_JOBS, "a" * 64)) is None
+def test_a_smoke_that_is_not_in_the_expected_state_is_not_reset():
+    assert asyncio.run(job_packages.reset_smoke(FakeConn(row=None), JobPackageName.RAY_JOBS, "a" * 64, SmokeStatus.FAILED)) is None
 
 
 # --- metrics and tracing outside the test environment ---------------------------------------------------------------

@@ -2,9 +2,9 @@ name: Task bundles
 
 # Tests every task bundle (task-bundles/tasks/<slug>, planning/25-task-bundles.md) against this commit's ray_core, and on main
 # publishes the bundles the push changed: scripts/build-bundle.sh builds jobs/<slug>-<sha256>.zip, it is copied to the staging
-# bucket, core-api registers it as a candidate (POST /v1/admin/task-bundles/register reads it back, checks hash and manifest, and
-# submits its smoke job on Ray with the stable ray_core), and this job waits for the smoke. core-api promotes a bundle whose smoke
-# passed (auto-promote); a failed smoke fails this job. No k8s change is involved: a bundle is data, not an image.
+# bucket, and the target call for task_<slug> (POST /v1/admin/job-packages/task_<slug>/target) reads it back, checks hash and
+# manifest, and submits its smoke job on Ray with the stable ray_core. core-api makes it the task's target once that smoke passed
+# (unless the task opted out), and this job waits for the smoke; a failed smoke fails this job. No k8s change is involved: a bundle is data, not an image.
 #
 # Needs the same settings as job-packages.yml:
 #   vars.STAGING_BUCKET, vars.GCP_WORKLOAD_IDENTITY_PROVIDER, vars.GCP_SERVICE_ACCOUNT, vars.CORE_API_URL, vars.ZITADEL_ISSUER,
@@ -117,7 +117,7 @@ jobs:
             | jq -er .access_token)
           echo "::add-mask::${token}"
           echo "token=${token}" >> "$GITHUB_OUTPUT"
-      - name: Register the candidates and wait for their smoke
+      - name: Target the new versions and wait for their smoke
         if: steps.build.outputs.keys != ''
         env:
           API: ${{ vars.CORE_API_URL }}
@@ -128,13 +128,12 @@ jobs:
             curl -fsS -X "$1" "${API}$2" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" ${3:+-d "$3"}
           }
           registered=""
-          for key in $KEYS; do  # core-api reads the object back and checks it against the sha256 in the key and the manifest inside
-            row=$(call POST /v1/admin/task-bundles/register "{\"s3_key\": \"${key}\"}")
-            if [ "$(echo "$row" | jq -r .smoke_status)" = failed ]; then  # a failed smoke is sticky: run it again (the image or the core was fixed since)
-              row=$(call POST "/v1/admin/task-bundles/$(echo "$row" | jq -er '.slug + "/" + .sha256')/smoke")
-            fi
-            echo "$row" | jq -c '{slug, sha256, status, smoke_status}'
-            registered="${registered} $(echo "$row" | jq -er '.slug + "/" + .sha256')"
+          for key in $KEYS; do  # core-api reads the object back and checks it against the sha256 in the key and the manifest inside;
+            # a known version whose smoke failed is smoked again by the same call
+            slug=$(echo "$key" | sed -E 's#^jobs/(.+)-[0-9a-f]{64}\.zip$#\1#')
+            row=$(call POST "/v1/admin/job-packages/task_${slug}/target" "{\"s3_key\": \"${key}\"}")
+            echo "$row" | jq -c '{name, sha256, status, smoke_status}'
+            registered="${registered} ${slug}/$(echo "$row" | jq -er .sha256)"
           done
           failed=0
           for bundle in $registered; do

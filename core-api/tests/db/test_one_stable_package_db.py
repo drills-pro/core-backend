@@ -57,10 +57,10 @@ def test_a_lifecycle_move_leaves_its_audit_row_in_the_same_transaction(two_tenan
             await prepared(conn)
             await job_packages.promote(conn, NAME, sha(1), ACTOR)
             await job_packages.promote(conn, NAME, sha(2), ACTOR)
-            await job_packages.retire(conn, NAME, sha(2), ACTOR)
+            await job_packages.promote(conn, NAME, sha(1), ACTOR)  # a rollback is a promotion too
             trail = await conn.fetch("SELECT sha256, action FROM job_package_audit WHERE name = $1 ORDER BY id", NAME)
             assert [(r["sha256"], r["action"]) for r in trail] == [
-                (sha(1), PackageAuditAction.PROMOTE), (sha(2), PackageAuditAction.PROMOTE), (sha(2), PackageAuditAction.RETIRE)]
+                (sha(1), PackageAuditAction.PROMOTE), (sha(2), PackageAuditAction.PROMOTE), (sha(1), PackageAuditAction.PROMOTE)]
 
     two_tenants.run(scenario())
 

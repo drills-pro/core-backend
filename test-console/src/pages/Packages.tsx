@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { Badge, Stack, Tabs } from '@chakra-ui/react';
 import { useQueries } from '@tanstack/react-query';
 import { client, unwrap } from '@/api/client';
 import { packageKeys, type Pkg } from '@/api/packages';
 import { PACKAGE_ERROR_MESSAGES, PACKAGE_NAMES, PackageStatus } from '@/constants';
-import { ConfirmChange, type Change } from '@/pages/ConfirmChange';
 import { PackageList } from '@/pages/PackageList';
 import { TaskBundlesSection } from '@/pages/TaskBundles';
 import { CodedError, PageHeader, Section } from '@/ui';
@@ -16,13 +14,12 @@ export function PackagesPage() {
       queryFn: () => unwrap(client.GET('/v1/admin/job-packages/{name}', { params: { path: { name } } })),
     })),
   });
-  const [change, setChange] = useState<Change | null>(null);
 
   return (
     <Stack gap="4">
       <PageHeader
         title="Packages"
-        description="Changes here apply to every tenant. Each name has one active package, the one new runs use; promoting another retires the current one automatically. A candidate can be promoted only after its smoke job passed."
+        description="Read-only. CI sends each new version; once its smoke job passes, it becomes the active package for new runs and the one it replaces is retired. Rolling back is a manual run of the publish workflow."
       />
       <Tabs.Root defaultValue="runtime" variant="line" colorPalette="orange" lazyMount>
         <Tabs.List>
@@ -37,7 +34,7 @@ export function PackagesPage() {
               return (
                 <Section key={name} title={name} actions={active ? <Badge colorPalette="green">active {active.sha256.slice(0, 8)}</Badge> : <Badge colorPalette="orange">none active</Badge>}>
                   <CodedError error={lists[i].error} messages={PACKAGE_ERROR_MESSAGES} />
-                  <PackageList packages={packages} onAction={(a) => setChange({ ...a, replaces: active })} />
+                  <PackageList packages={packages} />
                 </Section>
               );
             })}
@@ -47,7 +44,6 @@ export function PackagesPage() {
           <TaskBundlesSection />
         </Tabs.Content>
       </Tabs.Root>
-      {change && <ConfirmChange change={change} onClose={() => setChange(null)} />}
     </Stack>
   );
 }

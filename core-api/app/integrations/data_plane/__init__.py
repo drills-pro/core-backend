@@ -18,12 +18,13 @@ from app.integrations.data_plane.data_kinds import LAYOUTS as DATA_KIND_LAYOUTS
 from app.integrations.data_plane.data_kinds import ingest_job_type
 from app.integrations.data_plane.ingest import submit_ingest
 from app.integrations.data_plane.job_catalog import JobType
+from app.integrations.data_plane.job_package import CORE as CORE_PACKAGE
 from app.integrations.data_plane.job_package import SmokeProblem
 from app.integrations.data_plane.job_package import presigned_url as presigned_package_url
 from app.integrations.data_plane.job_package import publish as publish_package
 from app.integrations.data_plane.job_package import refresh_smoke as refresh_package_smoke
 from app.integrations.data_plane.job_package import register_staged as register_staged_package
-from app.integrations.data_plane.job_package import require_smoke_passed as require_package_smoke_passed
+from app.integrations.data_plane.job_package import restart_smoke as restart_package_smoke
 from app.integrations.data_plane.job_package import resolve_stable as resolve_stable_package
 from app.integrations.data_plane.job_package import retry_failed_smoke as retry_failed_package_smoke
 from app.integrations.data_plane.job_package import start_smoke as start_package_smoke
@@ -84,8 +85,8 @@ __all__ = [
     # prediction payloads: keyed by the prediction row's own tenant, project and id (prediction_payloads.py)
     "PredictionPayload", "store_prediction_payload", "load_prediction_payload", "delete_prediction_payloads",
     # platform operations: no tenant (job packages, health)
-    "publish_package", "register_staged_package", "refresh_package_smoke", "start_package_smoke", "require_package_smoke_passed",
-    "retry_failed_package_smoke", "SmokeProblem", "resolve_stable_package", "register_staged_bundle",
+    "publish_package", "register_staged_package", "refresh_package_smoke", "start_package_smoke", "restart_package_smoke",
+    "retry_failed_package_smoke", "SmokeProblem", "CORE_PACKAGE", "resolve_stable_package", "register_staged_bundle",
     "presigned_package_url", "unknown_serving_functions", "lakefs_health", "mlflow_health", "mlflow_artifact_url",
     # ownership checks, registered by the contexts that own the tables
     "OwnedResource", "register_ownership_check",
