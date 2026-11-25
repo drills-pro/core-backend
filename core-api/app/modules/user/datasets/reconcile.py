@@ -2,13 +2,12 @@
 
 reconcile_inflight_imports  polls Ray for queued/running imports and moves them to awaiting_review or failed
 expire_stale_imports        expires uploads nobody started and reviews nobody finished, and purges their staging
-purge_deleted_datasets      removes datasets whose soft-delete retention has passed: lakeFS repo, namespace, rows
 
 Every import is handled in its own transaction, every step is a compare-and-set or an idempotent delete, so a
 crash or a second replica repeats work harmlessly. `now` is a parameter so tests can move the clock.
 """
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from app.core import audit
 from app.core.tenant_conn import TenantConn
@@ -16,7 +15,6 @@ from app.integrations import data_plane, job_lifecycle
 from app.integrations.compute import JobStatus
 from app.integrations.data_plane import ImportReport, Issue, IssueCode, Outcome, Severity
 from app.modules.user.datasets.constants import (
-    DATASET_RETENTION_DAYS,
     IMPORT_REVIEW_TTL,
     SYSTEM_ACTOR,
     AuditAction,
@@ -33,11 +31,7 @@ logger = logging.getLogger(__name__)
 _EXPIRABLE_STATUSES = (ImportStatus.AWAITING_UPLOAD, ImportStatus.AWAITING_REVIEW, ImportStatus.COMMITTING)
 
 _EXPIRED_TENANTS = "SELECT expired_import_tenant_ids($1)"
-_PURGEABLE = "SELECT tenant_id, id FROM purgeable_datasets($1)"
 _EXPIRED = "SELECT * FROM dataset_imports WHERE tenant_id = $1 AND status = ANY($2) AND expires_at < $3"
-_LOCK_PURGEABLE = "SELECT 1 FROM datasets WHERE id = $1 AND deleted_at < $2 FOR UPDATE"
-_DATASET_IMPORTS = "SELECT id FROM dataset_imports WHERE dataset_id = $1"
-_PURGE_ROWS = "SELECT purge_dataset_rows($1, $2)"
 
 
 def _failure(code: IssueCode, message: str) -> ImportReport:
@@ -116,20 +110,3 @@ async def expire_stale_imports(now: datetime | None = None) -> None:
                     await wind_down(row, stop_job=False)  # after the commit
             except Exception:  # noqa: BLE001 - a import moved by someone else (409) or a store hiccup retries next tick
                 logger.exception("failed to expire import %s", row["id"])
-
-
-async def purge_deleted_datasets(now: datetime | None = None) -> None:
-    """Delete datasets soft-deleted more than DATASET_RETENTION_DAYS ago. The dataset row stays locked from the
-    check until the rows are gone, so a restore cannot slip in between the repo delete and the row delete."""
-    cutoff = (now or datetime.now(UTC)) - timedelta(days=DATASET_RETENTION_DAYS)
-    for tenant_id, dataset_id in [(r[0], r[1]) for r in await job_lifecycle.fetch(_PURGEABLE, cutoff)]:
-        try:
-            async with TenantConn(str(tenant_id)) as conn:
-                if await conn.fetchval(_LOCK_PURGEABLE, dataset_id, cutoff) is None:
-                    continue  # restored, or purged by another replica
-                await data_plane.delete_dataset_repo(str(tenant_id), str(dataset_id))  # already gone is fine
-                for imp in await conn.fetch(_DATASET_IMPORTS, dataset_id):  # staging lives outside the repo
-                    await data_plane.purge_staging(str(tenant_id), str(dataset_id), str(imp["id"]))
-                await conn.fetchval(_PURGE_ROWS, dataset_id, cutoff)
-        except Exception:  # noqa: BLE001 - retried on the next tick
-            logger.exception("failed to purge dataset %s", dataset_id)

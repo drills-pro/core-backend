@@ -27,14 +27,6 @@ async def record(
         logger.exception("predict call of deployment %s not logged", deployment_id)
 
 
-async def purge_test_calls() -> None:
-    """Poller: drop try-it payloads older than serving.test_calls_retention_days."""
-    async with (await get_pool()).acquire() as conn:
-        dropped = await conn.fetchval("SELECT purge_test_calls($1)", settings.serving.test_calls_retention_days)
-    if dropped:
-        logger.info("purged %s test calls", dropped)
-
-
 async def purge_predict_calls() -> None:
     """Poller: drop rows older than serving.predict_calls_retention_days."""
     async with (await get_pool()).acquire() as conn:

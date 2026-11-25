@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.core.authz import Action, Role, TenantRole, Visibility
+from app.core.authz import Action, TenantRole, Visibility
 from app.modules.user.model_registry import routes, service
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 MODEL = uuid.uuid4()
 BASE = f"/v1/projects/{PROJECT}/models"
 MODEL_ROW = {"mlflow_model_name": "n", "mlflow_version": "1", "id": MODEL,
-             "publish_metadata": True, "publish_artifact": False, "created_at": datetime.now(timezone.utc),
+             "created_at": datetime.now(timezone.utc),
              "model_id": uuid.uuid4()}
 
 
@@ -35,7 +35,6 @@ def call(monkeypatch, dev_headers):
 
 ROUTES = [
     ("get", BASE, Action.MODEL_READ, {}),
-    ("patch", f"{BASE}/{MODEL}/publish", Action.PROJECT_WRITE, {"json": {"publish_metadata": True}}),
 ]
 
 
@@ -60,11 +59,6 @@ def test_child_of_another_tenant_is_404(call, method, path, action, kw):
 def test_model_of_another_project_is_404(call, method, path, action, kw):
     # Authorized against the project in the URL; the handler's AND project_id = $path finds no row.
     assert call(method, path, ADMIN, found=False, **kw).status_code == 404
-
-
-def test_model_editor_may_not_publish(call):
-    editor = access(visibility=Visibility.PRIVATE, roles=[Role.MODEL_EDITOR])
-    assert call(*ROUTES[1][:2], editor, **ROUTES[1][3]).status_code == 403
 
 
 class FakeResponse:
@@ -96,7 +90,7 @@ def test_download_streams_the_file_audits_and_closes(call, monkeypatch):
     assert seen[0][2] == "model.onnx" and resp.closed and client.closed
 
 
-def test_download_refuses_a_file_that_is_not_published(call):
+def test_download_refuses_a_file_outside_the_allowlist(call):
     assert call("get", f"{BASE}/{MODEL}/download/secrets.txt", ADMIN).status_code == 422
 
 

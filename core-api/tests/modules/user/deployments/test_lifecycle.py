@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.core.authz import Action, Role
 from app.core.settings import settings
 from app.modules.user.deployments import predict, routes, service
-from app.modules.user.deployments.constants import AuditAction, EntityType, ProblemCode, Serving
+from app.modules.user.deployments.constants import AuditAction, EntityType, ProblemCode
 from app.modules.user.deployments.status import DeploymentStatus as S
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
@@ -20,10 +20,10 @@ BASE = f"/v1/projects/{PROJECT}/deployments/{DEPLOYMENT}"
 UPDATE, SELECT = "UPDATE deployments", "FROM deployments WHERE"  # keys into FakeConn.rows
 
 
-def row(status, serving=Serving.SHARED, route_prefix=f"/predict/{DEPLOYMENT}"):
+def row(status, route_prefix=f"/predict/{DEPLOYMENT}"):
     return {
         "id": DEPLOYMENT, "tenant_id": CTX.tenant_id, "project_id": PROJECT, "training_run_id": RUN, "model_version_id": None, "status": status, "route_prefix": route_prefix,
-        "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "serving": serving, "main": False,
+        "rate_limit_per_minute": 10, "created_at": datetime.now(timezone.utc), "main": False,
     }
 
 
@@ -89,16 +89,15 @@ def test_a_missing_or_deleted_deployment_is_404(env):
 
 @pytest.mark.parametrize("current", [S.ACTIVE, S.STOPPED, S.FAILED, S.DEPLOYING])
 def test_delete_clears_the_predict_key_and_audits(env, current):
-    env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(current, Serving.LEGACY)}  # a leftover legacy row has nothing of its own to remove
+    env.conn.rows = {UPDATE: row(S.DELETED), SELECT: row(current)}
     run(service.delete_deployment(CTX, PROJECT, DEPLOYMENT))
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("UPDATE deployments SET status"))
     assert "predict_key_hash = $4" in sql and args == (DEPLOYMENT, current, S.DELETED, None)
     assert audited(env) == [(AuditAction.DELETE, EntityType.DEPLOYMENT, str(DEPLOYMENT))]
 
 
-@pytest.mark.parametrize("serving", list(Serving))
-def test_start_is_active_again_on_the_shared_apps_even_for_a_leftover_legacy_row(env, serving):
-    env.conn.rows = {UPDATE: row(S.ACTIVE, serving), SELECT: row(S.STOPPED, serving)}
+def test_start_is_active_again_on_the_shared_apps(env):
+    env.conn.rows = {UPDATE: row(S.ACTIVE), SELECT: row(S.STOPPED)}
     out = run(service.start_deployment(CTX, PROJECT, DEPLOYMENT))
     (args,) = moves(env)
     assert (out.status, args) == (S.ACTIVE, (DEPLOYMENT, S.STOPPED, S.ACTIVE))

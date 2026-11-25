@@ -18,7 +18,6 @@ DOWNLOAD_MEDIA_TYPES = {DownloadFile.MODEL: "application/octet-stream", Download
 
 class AuditAction(StrEnum):
     DOWNLOAD = "download"
-    SET_PUBLISH = "set_publish"
 
 
 class EntityType(StrEnum):

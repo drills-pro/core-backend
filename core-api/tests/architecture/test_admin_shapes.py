@@ -14,7 +14,6 @@ from app.modules.admin.activity.schemas import ActivityItem, ActivityStats
 from app.modules.admin.models.constants import ModelStatus
 from app.modules.admin.models.schemas import AdminModel, AdminModelVersion, ModelStats
 from app.modules.admin.tenants.schemas import TenantDataset, TenantMember, TenantProject
-from app.modules.user.public.schemas import PublicDataset, PublicModel, PublicProject
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 _HEADER = re.compile(r"CREATE (?:OR REPLACE )?FUNCTION (\w+)\s*\(")
@@ -67,9 +66,6 @@ SHAPES = {
     "admin_models": (AdminModel, set()),
     "admin_model_versions": (AdminModelVersion, set()),
     "admin_model_stats": (ModelStats, set()),
-    "list_public_projects": (PublicProject, set()),
-    "list_public_project_datasets": (PublicDataset, set()),
-    "list_public_project_models": (PublicModel, set()),
 }
 
 

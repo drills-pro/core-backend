@@ -5,11 +5,10 @@ import pytest
 
 from app.core.authz import DefaultAccess, Visibility
 from app.modules.user.projects import routes, service
-from app.modules.user.projects.constants import Sharing
 from tests.support import PROJECT, FakeConn, access, make_client, patch_tenant_conn
 
 PROJECT_ROW = {"id": PROJECT, "name": "p", "status": "active", "team_id": None, "task_type": "image-classification", "created_at": datetime.now(),
-               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "sharing": Sharing.PRIVATE, "gallery_published": False, "deleted_at": datetime.now()}
+               "default_test_dataset_id": None, "settings": {}, "visibility": Visibility.INTERNAL, "default_access": DefaultAccess.READ, "deleted_at": datetime.now()}
 
 
 @pytest.fixture
@@ -30,13 +29,11 @@ def test_viewer_reads_but_cannot_write_403_names_action(call):
     assert (r.status_code, r.json()["action"]) == (403, "project.write")
 
 
-def test_editor_cannot_change_visibility_default_access_or_sharing(call):
+def test_editor_cannot_change_visibility_or_default_access(call):
     row = access(default_access="edit")
     for qs in ("visibility=private", "default_access=edit"):
         r = call(row, "PATCH", f"/visibility?{qs}")
         assert (r.status_code, r.json()["action"]) == (403, "project.member.manage")
-    r = call(row, "PUT", "/sharing", json={"sharing": "gallery"})
-    assert (r.status_code, r.json()["action"]) == (403, "project.member.manage")
 
 
 def test_project_admin_changes_default_access(call):
@@ -77,19 +74,6 @@ def test_invalid_visibility_and_default_access_rejected(call):
 def test_private_unbound_and_cross_tenant_are_404(call):
     assert call(access(visibility="private"), "GET", "").status_code == 404
     assert call(access(visibility=None, default_access=None), "GET", "").status_code == 404
-
-
-def test_making_a_gallery_project_private_unpublishes_it_with_no_409(call):
-    row = access(roles=["project_admin"])
-    assert call(row, "PATCH", "/visibility?visibility=private").json()["sharing"] == "private"
-    assert call(row, "PATCH", "/visibility?default_access=edit").status_code == 200
-
-
-def test_project_admin_sets_the_sharing_level_and_a_bad_level_is_422(call):
-    row = access(roles=["project_admin"])
-    r = call(row, "PUT", "/sharing", json={"sharing": "gallery_downloads"})
-    assert (r.status_code, r.json()["id"]) == (200, str(PROJECT))
-    assert call(row, "PUT", "/sharing", json={"sharing": "public"}).status_code == 422
 
 
 def test_restore_is_project_admin_only(call):

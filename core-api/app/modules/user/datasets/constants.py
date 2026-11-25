@@ -19,9 +19,6 @@ class ImportStatus(StrEnum):
     DISCARDED = "discarded"
 
 
-DATASET_RETENTION_DAYS = 7  # a soft-deleted dataset stays restorable this long, then a sweep removes it
-
-
 S = ImportStatus
 # Legal import transitions. Everything the API does is a compare-and-set along one of these edges; the
 # reconciler (plan step 8) drives queued -> running -> awaiting_review|failed and the expiries.
@@ -48,20 +45,8 @@ IMPORT_REVIEW_TTL = timedelta(days=7)  # an import nobody committed or discarded
 SYSTEM_ACTOR = "system"  # audit actor for what the background sweeps do
 
 
-class DataCategory(StrEnum):
-    """What the customer declares a dataset holds (planning/18). Stored only. Mirrors datasets_data_categories_check."""
-
-    PERSONAL_DATA = "personal_data"
-    BIOMETRIC = "biometric"
-    OTHER_SENSITIVE = "other_sensitive"
-
-
 class AuditAction(StrEnum):
     CREATE = "create"
-    DELETE = "delete"
-    RESTORE = "restore"
-    PUBLISH = "publish"
-    UNPUBLISH = "unpublish"
     IMPORT_CREATED = "import_created"
     IMPORT_COMMITTED = "import_committed"
     IMPORT_DISCARDED = "import_discarded"
@@ -74,7 +59,6 @@ class EntityType(StrEnum):
 
 
 class ProblemCode(StrEnum):
-    NOT_DELETED = "dataset_not_deleted"
     STALE_BASE = "stale_base"
     INVALID_STATE = "invalid_import_state"
     TOO_MANY_IMPORTS = "too_many_active_imports"
@@ -84,10 +68,11 @@ class ProblemCode(StrEnum):
     TASK_TYPE_MISSING = "project_task_type_missing"
     IDEMPOTENCY_MISMATCH = "idempotency_key_reused"
     START_FAILED = "import_start_failed"
+    DATASET_EXISTS = "project_has_dataset"
 
 
 BASE_REQUIRED_DETAIL = "this dataset already has versions; set base_version_id to the latest one (there is no overwrite mode)"
-NOT_DELETED_DETAIL = "this dataset is not pending deletion, or its retention window has passed"
+DATASET_EXISTS_DETAIL = "this project already has its dataset"
 TOO_MANY_IMPORTS_DETAIL = "too many imports in progress, wait for one to finish"
 IMPORT_LOCK_PREFIX = "imports:"  # advisory-lock key prefix: serialises the cap check and insert per tenant
 START_FAILED_DETAIL = "the import could not be started; it is unchanged, try again shortly"

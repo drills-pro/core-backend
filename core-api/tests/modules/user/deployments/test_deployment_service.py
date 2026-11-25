@@ -66,7 +66,7 @@ def test_deploy_serves_the_runs_version_and_is_not_main_unless_asked(deploy_env)
     assert (out.status, out.plan_tier, out.rate_limit_per_minute, out.main) == ("active", "pro", PLAN_TIER_RATE_LIMITS[PlanTier.PRO], False)
     args = inserted(deploy_env.conn)
     assert args[1:6] == (CTX.tenant_id, PROJECT, RUN, None, f"/predict/{args[0]}")  # the route is the deployment's own id
-    assert args[11] == VERSION and args[12] is False  # the version it serves, and no main
+    assert args[10] == VERSION and args[11] is False  # the version it serves, and no main
     assert not any(sql.startswith("UPDATE deployments SET main") for sql, _ in deploy_env.conn.calls)
 
 
@@ -77,7 +77,7 @@ def test_set_main_on_deploy_clears_the_previous_main_before_it_takes_the_slot(de
     assert asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY, set_main=True)).main is True
     sqls = [sql for sql, _ in deploy_env.conn.calls]
     assert sqls.index("UPDATE deployments SET main = false WHERE project_id = $1 AND main") < next(i for i, s in enumerate(sqls) if s.startswith("INSERT INTO deployments"))
-    assert inserted(deploy_env.conn)[12] is True
+    assert inserted(deploy_env.conn)[11] is True
 
 
 def test_set_main_moves_the_flag_to_a_live_deployment_and_audits_it(deploy_env):
@@ -128,7 +128,7 @@ def test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_r
     assert e.value.status_code == 409 and e.value.code == ProblemCode.DEPLOY_RISK and not deploy_env.deployed
     deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, VERSION, KEY, acknowledge_risk=True))
-    assert deploy_env.deployed and inserted(deploy_env.conn)[10] is True  # risk_acknowledged
+    assert deploy_env.deployed and inserted(deploy_env.conn)[9] is True  # risk_acknowledged
 
 
 def stats(splits, row_count):
@@ -151,7 +151,7 @@ def test_the_gate_reads_the_test_split_from_the_runs_dataset_version_not_only_a_
             assert e.value.code == ProblemCode.DEPLOY_RISK
         else:
             asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-            assert inserted(deploy_env.conn)[10] is False  # no acknowledgement was needed
+            assert inserted(deploy_env.conn)[9] is False  # no acknowledgement was needed
 
 
 def test_a_score_under_the_task_floor_needs_acknowledge_risk(deploy_env):
@@ -163,7 +163,7 @@ def test_a_score_under_the_task_floor_needs_acknowledge_risk(deploy_env):
     deploy_env.conn.rows["FROM training_runs"] = {**SERVABLE, "metrics": {metric: floor}}  # at the floor is fine
     deploy_env.conn.rows["INSERT INTO deployments"] = {"main": False, "id": uuid.uuid4(), "status": "deploying", "route_prefix": "/predict/x", "rate_limit_per_minute": 60}
     asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    assert deploy_env.deployed and inserted(deploy_env.conn)[10] is False
+    assert deploy_env.deployed and inserted(deploy_env.conn)[9] is False
 
 
 def test_a_detection_run_deploys_with_the_class_names_its_report_lists(deploy_env):

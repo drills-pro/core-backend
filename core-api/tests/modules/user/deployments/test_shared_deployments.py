@@ -14,7 +14,6 @@ from app.modules.user.deployments import predict, service
 from app.modules.user.deployments.constants import (
     SERVE_ERROR_STATUS,
     SETTING_COMPUTE_TARGET,
-    Serving,
 )
 from app.modules.user.training import TrainingStatus
 from tests.integrations.test_serve_shared import MODEL
@@ -50,7 +49,7 @@ def test_a_shared_deployment_is_active_at_once_with_no_ray_job(shared_env):
     shared_env.rows["INSERT INTO deployments"] = {"id": uuid.uuid4(), "status": "active", "route_prefix": "/predict/x", "rate_limit_per_minute": 120, "main": False}
     out = asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
     args = inserted(shared_env)
-    assert args[4] is None and args[7:] == (Serving.SHARED, "active", KEY, False, VERSION, False) and out.status == "active"
+    assert args[4] is None and args[7:] == ("active", KEY, False, VERSION, False) and out.status == "active"
 
 
 @pytest.fixture

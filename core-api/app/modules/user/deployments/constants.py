@@ -6,13 +6,6 @@ from app.core.enums import PlanTier, TaskType
 from app.integrations.serve_client import ServeErrorCode
 
 
-class Serving(StrEnum):
-    """How a deployment is served. Mirrors the deployments_serving_check constraint."""
-
-    LEGACY = "legacy"  # retired (its own Serve app); a leftover row is answered like a shared one. Nothing branches on this
-    SHARED = "shared"  # a model the two long-lived predictor apps load by id; what every new row gets
-
-
 class ProblemCode(StrEnum):
     BODY_TOO_LARGE = "body_too_large"
     BODY_NOT_JSON = "body_not_json"

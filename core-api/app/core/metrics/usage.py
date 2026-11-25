@@ -3,7 +3,6 @@ happens so replicas sum correctly. "Who is active" is a Postgres query, not a me
 from app.core.metrics.base import counter
 
 projects_created = counter("projects.created", "Projects created, by task_type (enums.TaskType)")
-datasets_published = counter("datasets.published", "Datasets published (a re-publish counts again)")
 deployments_created = counter(
     "deployments.created", "New deployments; a 'main' re-deploy updates in place and is not counted"
 )

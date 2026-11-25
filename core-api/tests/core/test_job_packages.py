@@ -26,12 +26,6 @@ def test_the_smoke_enum_mirrors_its_check():
     assert_mirrors("job_packages", "smoke_status", SmokeStatus)
 
 
-def test_the_serving_enum_mirrors_the_deployments_check():
-    from app.modules.user.deployments.constants import Serving
-
-    assert_mirrors("deployments", "serving", Serving)
-
-
 # ---- the lifecycle: every move that changes what runs is audited, in the transaction of the change ----
 
 NAME = JobPackageName.RAY_JOBS

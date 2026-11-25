@@ -243,17 +243,6 @@ def test_tabular_output_is_allowed(owned, monkeypatch):
     assert lakefs._staged_violation([(layout.DATA_KEY, 3), (layout.SCHEMA_KEY, 1)], settings.dataset_limits) is None
 
 
-def test_delete_repo_tolerates_a_missing_repo_and_still_purges_the_namespace(owned, monkeypatch):
-    purged, secrets = [], []
-    _lakefs_stub(monkeypatch, lambda request: httpx.Response(404))
-    monkeypatch.setattr(lakefs, "_delete_prefix", lambda bucket, prefix, client: purged.append((bucket, prefix, client)))
-    monkeypatch.setattr(lakefs, "_s3", lambda secret, endpoint=None: secrets.append(secret) or secret)
-    asyncio.run(lakefs.delete_dataset_repo(TENANT, DATASET))
-    # The blockstore is purged with the `staging` credentials; docs/runtime-contract.md requires them to cover that bucket.
-    assert purged == [(settings.data_plane.lakefs_blockstore_bucket, f"{TENANT}/{DATASET}/", "staging")]
-    assert secrets == ["staging"]
-
-
 def test_purge_train_prefix_deletes_the_run_prefix_with_the_staging_credentials(owned, monkeypatch):
     purged = []
     monkeypatch.setattr(lakefs, "_delete_prefix", lambda bucket, prefix, client: purged.append((bucket, prefix, client)))

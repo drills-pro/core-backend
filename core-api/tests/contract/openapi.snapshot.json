@@ -531,34 +531,6 @@
         "title": "Body_create_tenant_v1_admin_tenants_post",
         "type": "object"
       },
-      "Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch": {
-        "properties": {
-          "publish_artifact": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Publish Artifact"
-          },
-          "publish_metadata": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Publish Metadata"
-          }
-        },
-        "title": "Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch",
-        "type": "object"
-      },
       "Body_set_tenant_status_v1_admin_tenants__tenant_id__status_post": {
         "properties": {
           "status": {
@@ -1031,10 +1003,6 @@
           "default_access": {
             "$ref": "#/components/schemas/DefaultAccess"
           },
-          "gallery_published": {
-            "title": "Gallery Published",
-            "type": "boolean"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1074,8 +1042,7 @@
           "task_type",
           "created_at",
           "visibility",
-          "default_access",
-          "gallery_published"
+          "default_access"
         ],
         "title": "CreatedProject",
         "type": "object"
@@ -1168,16 +1135,6 @@
         "title": "CreatedWebhook",
         "type": "object"
       },
-      "DataCategory": {
-        "description": "What the customer declares a dataset holds (planning/18). Stored only. Mirrors datasets_data_categories_check.",
-        "enum": [
-          "personal_data",
-          "biometric",
-          "other_sensitive"
-        ],
-        "title": "DataCategory",
-        "type": "string"
-      },
       "DataKind": {
         "enum": [
           "images",
@@ -1189,14 +1146,6 @@
       },
       "DatasetCreate": {
         "properties": {
-          "data_categories": {
-            "description": "what the dataset holds, declared by the customer",
-            "items": {
-              "$ref": "#/components/schemas/DataCategory"
-            },
-            "title": "Data Categories",
-            "type": "array"
-          },
           "name": {
             "minLength": 1,
             "title": "Name",
@@ -1332,25 +1281,6 @@
             "title": "Created At",
             "type": "string"
           },
-          "data_categories": {
-            "items": {
-              "$ref": "#/components/schemas/DataCategory"
-            },
-            "title": "Data Categories",
-            "type": "array"
-          },
-          "deleted_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deleted At"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1359,32 +1289,6 @@
           "name": {
             "title": "Name",
             "type": "string"
-          },
-          "published_version_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Published Version Id"
-          },
-          "restorable_until": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When a deleted dataset is purged for good; None while it is live.",
-            "readOnly": true,
-            "title": "Restorable Until"
           },
           "task_type": {
             "anyOf": [
@@ -1401,11 +1305,7 @@
           "id",
           "name",
           "task_type",
-          "created_at",
-          "deleted_at",
-          "published_version_id",
-          "data_categories",
-          "restorable_until"
+          "created_at"
         ],
         "title": "DatasetSummary",
         "type": "object"
@@ -1802,19 +1702,6 @@
         ],
         "title": "FailureCode",
         "type": "string"
-      },
-      "FileLink": {
-        "properties": {
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "title": "FileLink",
-        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -3698,33 +3585,6 @@
         "title": "Page[TrainingRunSummary]",
         "type": "object"
       },
-      "Page_TrashedDataset_": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/TrashedDataset"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "next_page_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Page Token"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "Page[TrashedDataset]",
-        "type": "object"
-      },
       "Page_TrashedProject_": {
         "properties": {
           "items": {
@@ -4365,9 +4225,6 @@
             "title": "Settings",
             "type": "object"
           },
-          "sharing": {
-            "$ref": "#/components/schemas/Sharing"
-          },
           "status": {
             "$ref": "#/components/schemas/ProjectStatus"
           },
@@ -4400,8 +4257,7 @@
           "default_test_dataset_id",
           "settings",
           "visibility",
-          "default_access",
-          "sharing"
+          "default_access"
         ],
         "title": "ProjectDetail",
         "type": "object"
@@ -4641,186 +4497,6 @@
         "title": "ProjectUpdated",
         "type": "object"
       },
-      "PublicDataset": {
-        "description": "A private dataset of a public project is listed with no name: \"exists\" is visible, contents are not.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "published": {
-            "title": "Published",
-            "type": "boolean"
-          },
-          "stats": {
-            "title": "Stats"
-          },
-          "version_number": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Version Number"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "published",
-          "version_number",
-          "stats"
-        ],
-        "title": "PublicDataset",
-        "type": "object"
-      },
-      "PublicModel": {
-        "description": "Likewise: an unpublished model's name and version are null.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "mlflow_model_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mlflow Model Name"
-          },
-          "mlflow_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mlflow Version"
-          },
-          "publish_artifact": {
-            "title": "Publish Artifact",
-            "type": "boolean"
-          },
-          "publish_metadata": {
-            "title": "Publish Metadata",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "mlflow_model_name",
-          "mlflow_version",
-          "publish_metadata",
-          "publish_artifact"
-        ],
-        "title": "PublicModel",
-        "type": "object"
-      },
-      "PublicProject": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "task_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Type"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "task_type",
-          "created_at"
-        ],
-        "title": "PublicProject",
-        "type": "object"
-      },
-      "PublishRequest": {
-        "properties": {
-          "version_id": {
-            "format": "uuid",
-            "title": "Version Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "version_id"
-        ],
-        "title": "PublishRequest",
-        "type": "object"
-      },
-      "PublishState": {
-        "description": "Per-version \"exclude\" switches: true (the default) lets the project's Sharing level decide, false keeps this one out.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "publish_artifact": {
-            "title": "Publish Artifact",
-            "type": "boolean"
-          },
-          "publish_metadata": {
-            "title": "Publish Metadata",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "publish_metadata",
-          "publish_artifact"
-        ],
-        "title": "PublishState",
-        "type": "object"
-      },
       "RegisterBody": {
         "additionalProperties": false,
         "properties": {
@@ -5026,50 +4702,6 @@
         ],
         "title": "Severity",
         "type": "string"
-      },
-      "Sharing": {
-        "description": "Mirrors the projects.sharing CHECK constraint: what the project shows in the public gallery.",
-        "enum": [
-          "private",
-          "gallery",
-          "gallery_downloads"
-        ],
-        "title": "Sharing",
-        "type": "string"
-      },
-      "SharingChange": {
-        "properties": {
-          "sharing": {
-            "$ref": "#/components/schemas/Sharing"
-          }
-        },
-        "required": [
-          "sharing"
-        ],
-        "title": "SharingChange",
-        "type": "object"
-      },
-      "SharingResult": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "sharing": {
-            "$ref": "#/components/schemas/Sharing"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
-          }
-        },
-        "required": [
-          "id",
-          "sharing",
-          "visibility"
-        ],
-        "title": "SharingResult",
-        "type": "object"
       },
       "SlugAvailability": {
         "properties": {
@@ -6729,50 +6361,6 @@
         "title": "TrainingRunSummary",
         "type": "object"
       },
-      "TrashedDataset": {
-        "description": "A deleted dataset in the Trash, with the project it came from.",
-        "properties": {
-          "deleted_at": {
-            "format": "date-time",
-            "title": "Deleted At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
-          },
-          "project_name": {
-            "title": "Project Name",
-            "type": "string"
-          },
-          "restorable_until": {
-            "format": "date-time",
-            "readOnly": true,
-            "title": "Restorable Until",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "project_id",
-          "project_name",
-          "deleted_at",
-          "restorable_until"
-        ],
-        "title": "TrashedDataset",
-        "type": "object"
-      },
       "TrashedProject": {
         "description": "A project in the Trash: restorable until `restorable_until`.",
         "properties": {
@@ -6978,9 +6566,6 @@
             "title": "Id",
             "type": "string"
           },
-          "sharing": {
-            "$ref": "#/components/schemas/Sharing"
-          },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
           }
@@ -6988,8 +6573,7 @@
         "required": [
           "id",
           "visibility",
-          "default_access",
-          "sharing"
+          "default_access"
         ],
         "title": "VisibilityResult",
         "type": "object"
@@ -11744,115 +11328,6 @@
         ]
       }
     },
-    "/v1/datasets/trash": {
-      "get": {
-        "operationId": "list_trash_v1_datasets_trash_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Page Size",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Page Token"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_TrashedDataset_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Trash",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
     "/v1/invitations/{token}:accept": {
       "post": {
         "operationId": "accept_invitation_v1_invitations__token__accept_post",
@@ -13494,105 +12969,6 @@
       }
     },
     "/v1/projects/{project_id}/datasets/{dataset_id}": {
-      "delete": {
-        "operationId": "delete_dataset_v1_projects__project_id__datasets__dataset_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Dataset",
-        "tags": [
-          "datasets"
-        ]
-      },
       "get": {
         "operationId": "get_dataset_v1_projects__project_id__datasets__dataset_id__get",
         "parameters": [
@@ -14620,216 +13996,6 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/datasets/{dataset_id}/published": {
-      "delete": {
-        "operationId": "unpublish_dataset_v1_projects__project_id__datasets__dataset_id__published_delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Unpublish Dataset",
-        "tags": [
-          "datasets"
-        ]
-      },
-      "put": {
-        "operationId": "publish_version_v1_projects__project_id__datasets__dataset_id__published_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Publish Version",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
     "/v1/projects/{project_id}/datasets/{dataset_id}/versions": {
       "get": {
         "operationId": "list_versions_v1_projects__project_id__datasets__dataset_id__versions_get",
@@ -14959,126 +14125,6 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/files/{path}": {
-      "get": {
-        "operationId": "version_file_v1_projects__project_id__datasets__dataset_id__versions__version_id__files__path__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Version Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "path",
-            "required": true,
-            "schema": {
-              "title": "Path",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileLink"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Version File",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
     "/v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview": {
       "get": {
         "operationId": "preview_version_v1_projects__project_id__datasets__dataset_id__versions__version_id__preview_get",
@@ -15197,107 +14243,6 @@
           }
         },
         "summary": "Preview Version",
-        "tags": [
-          "datasets"
-        ]
-      }
-    },
-    "/v1/projects/{project_id}/datasets/{dataset_id}:restore": {
-      "post": {
-        "operationId": "restore_dataset_v1_projects__project_id__datasets__dataset_id__restore_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Restore Dataset",
         "tags": [
           "datasets"
         ]
@@ -16912,116 +15857,6 @@
         ]
       }
     },
-    "/v1/projects/{project_id}/models/{model_version_id}/publish": {
-      "patch": {
-        "operationId": "publish_model_v1_projects__project_id__models__model_version_id__publish_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "model_version_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Model Version Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublishState"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Publish Model",
-        "tags": [
-          "models"
-        ]
-      }
-    },
     "/v1/projects/{project_id}/notifications": {
       "get": {
         "description": "The project's job events the caller has not marked read, newest first, with the unread count.",
@@ -17305,107 +16140,6 @@
           }
         },
         "summary": "Update Project Settings",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/v1/projects/{project_id}/sharing": {
-      "put": {
-        "operationId": "update_sharing_v1_projects__project_id__sharing_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-tenant-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SharingChange"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharingResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Sharing",
         "tags": [
           "projects"
         ]
@@ -18864,160 +17598,6 @@
         "summary": "Restore Project",
         "tags": [
           "projects"
-        ]
-      }
-    },
-    "/v1/public/projects": {
-      "get": {
-        "operationId": "list_public_projects_v1_public_projects_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PublicProject"
-                  },
-                  "title": "Response List Public Projects V1 Public Projects Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Public Projects",
-        "tags": [
-          "public"
-        ]
-      }
-    },
-    "/v1/public/projects/{project_id}/datasets": {
-      "get": {
-        "operationId": "list_public_project_datasets_v1_public_projects__project_id__datasets_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PublicDataset"
-                  },
-                  "title": "Response List Public Project Datasets V1 Public Projects  Project Id  Datasets Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Public Project Datasets",
-        "tags": [
-          "public"
-        ]
-      }
-    },
-    "/v1/public/projects/{project_id}/models": {
-      "get": {
-        "operationId": "list_public_project_models_v1_public_projects__project_id__models_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PublicModel"
-                  },
-                  "title": "Response List Public Project Models V1 Public Projects  Project Id  Models Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Public Project Models",
-        "tags": [
-          "public"
         ]
       }
     },

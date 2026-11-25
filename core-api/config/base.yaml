@@ -87,7 +87,6 @@ serving:                     # app/integrations/serve_client.py: the two shared 
   max_inflight_per_deployment: 8       # per core-api replica, not global
   max_active_deployments_per_tenant: 3 # fallback for a tier without a plan_limits row
   predict_calls_retention_days: 30
-  test_calls_retention_days: 7         # "try it" requests and responses older than this are purged
   package_url_ttl_seconds: 604800      # 7 days, S3's maximum; the apps are re-declared (new URL) after half of it
   apps:
     cpu: {min_replicas: 2, max_replicas: 4, num_cpus: 1, num_gpus: 0, resources: {cpu_pool: 0.01}}   # on the CPU pool, two replicas so one can fail
@@ -101,7 +100,6 @@ predict:                     # app/modules/user/deployments: stored predictions 
   sync_retention_hours: 24
   in_progress_wait_seconds: 10
   inline_max_bytes: 262144             # 256 KB: a larger input or output goes to the staging bucket (predictions/<tenant>/<project>/<id>/)
-  legacy_sunset: 2026-12-31T23:59:59Z  # Sunset header of the old POST /v1/predict/{deployment_id} (planning/24, migration phase 1)
 
 job_packages:                  # app/core/job_packages.py: the packages log, pruned by the job-packages-audit-purge poller
   audit_keep_per_name: 10      # newest job_package_audit rows kept per package name; older ones are deleted

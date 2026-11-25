@@ -513,13 +513,12 @@ entries:
   area: registry
   title: Publish metadata and artifact flags to the public gallery
   source: planning/05 (publish flag); planning/04 gallery
-  status: built
+  status: deferred
   old: F09
-  code: ["PATCH /v1/projects/{project_id}/models/{model_version_id}/publish", "GET /v1/public/projects/{project_id}/models", core-api/app/modules/user/public/service.py]
-  tests:
-  - core-api/tests/modules/user/model_registry/test_model_registry.py::test_model_editor_may_not_publish
-  - core-api/tests/modules/user/public/test_public_routes.py::test_an_unpublished_model_has_no_name_or_version
-  - core-api/tests/architecture/test_admin_shapes.py
+  code: []
+  tests: []
+  gap: Cut for now - publishing is removed; the per-model flags were dropped in 20261125204625_drop_publishing.sql.
+
 - id: REG-10
   area: registry
   title: A predict call with no X-Model-Id is answered by the main deployment; a deployment id names one
@@ -635,7 +634,7 @@ entries:
   status: built
   code: ["POST /v1/projects/{project_id}/deployments/{deployment_id}/start"]
   tests:
-  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_is_active_again_on_the_shared_apps_even_for_a_leftover_legacy_row
+  - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_is_active_again_on_the_shared_apps
   - core-api/tests/modules/user/deployments/test_lifecycle.py::test_start_takes_a_slot_back_so_it_is_429_when_the_plan_is_full
 - id: DEP-05
   area: deployment
@@ -949,7 +948,7 @@ entries:
   title: Inference latency and call metrics
   source: planning/11 Observability
   status: built
-  code: [core-api/app/core/metrics/inference.py, core-api/app/core/metrics/predict.py]
+  code: [core-api/app/core/metrics/inference.py]
   tests:
   - core-api/tests/core/test_metrics.py
 # ------------------------------------------------------------------ PREDICT API
@@ -1526,14 +1525,11 @@ entries:
   area: datasets
   title: Soft delete, restore, and 7-day purge of the lakeFS repo, namespace and rows
   source: planning/03 Retention; docs/datasets-plan.md
-  status: built
+  status: deferred
   old: F06
-  code: ["DELETE /v1/projects/{project_id}/datasets/{dataset_id}", "POST /v1/projects/{project_id}/datasets/{dataset_id}:restore", "GET /v1/datasets/trash", core-api/app/modules/user/datasets/reconcile.py]
-  tests:
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_restore_of_a_live_or_expired_dataset_is_409
-  - core-api/tests/modules/user/datasets/test_trash.py::test_trash_lists_deleted_datasets_with_project_and_deadline
-  - core-api/tests/modules/user/datasets/test_reconcile.py::test_purge_removes_only_datasets_past_retention
+  code: []
+  tests: []
+  gap: Cut for now - a project's delete covers its one dataset. Restoring soft delete needs the deleted_at column back; 20261125200454_one_dataset_per_project.sql dropped it.
 - id: DAT-03
   area: datasets
   title: Create an import - presigned PUT to a fixed staging key, upload never passes through the API
@@ -1632,23 +1628,19 @@ entries:
   source: planning/22 section 8
   status: built
   old: F06
-  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview", "GET /v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/files/{path}"]
+  code: ["GET /v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview"]
   tests:
   - core-api/tests/modules/user/datasets/test_preview.py::test_version_preview_returns_rows_with_urls_and_reads_only_the_index
-  - core-api/tests/modules/user/datasets/test_preview.py::test_file_link_presigns_the_object_path
   - core-api/tests/integrations/data_plane/test_gateway.py::test_presign_get_rejects_bad_paths
 - id: DAT-13
   area: datasets
   title: Publish a dataset version to the public gallery (stats only) and unpublish
   source: planning/05 (publish flag); planning/04
-  status: built
+  status: deferred
   old: F06
-  code: ["PUT /v1/projects/{project_id}/datasets/{dataset_id}/published", "DELETE /v1/projects/{project_id}/datasets/{dataset_id}/published", "GET /v1/public/projects/{project_id}/datasets"]
-  tests:
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_publish_sets_the_version_scoped_to_the_dataset_and_audits
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_gallery_function_returns_metadata_and_stats_only
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_unpublish_clears_it_and_audits
-  - core-api/tests/modules/user/public/test_public_routes.py::test_a_private_dataset_exists_but_has_no_name
+  code: []
+  tests: []
+  gap: Cut for now - publish, its public dataset listing and the published pointer were dropped in 20261125200454_one_dataset_per_project.sql.
 - id: DAT-14
   area: datasets
   title: Ingest image classification from a zip
@@ -1758,7 +1750,6 @@ entries:
   code: [core-api/app/modules/user/datasets/service.py, core-api/app/modules/user/datasets/import_service.py]
   tests:
   - core-api/tests/modules/user/datasets/test_datasets.py::test_create_audits
-  - core-api/tests/modules/user/datasets/test_datasets.py::test_delete_audits_and_restore_audits
   - core-api/tests/modules/user/datasets/test_imports.py::test_discard_purges_staging_and_audits
 - id: DAT-24
   area: datasets
@@ -1775,13 +1766,12 @@ entries:
   area: datasets
   title: datasets.data_categories declaration (personal data, faces and biometrics)
   source: planning/18 Backend responsibilities
-  status: built
+  status: deferred
   weight: 2
   old: F06
-  code: [core-api/migrations/20261111222944_datasets_data_categories.sql, core-api/app/modules/user/datasets/service.py]
-  tests:
-    - core-api/tests/modules/user/datasets/test_data_categories.py::test_the_enum_matches_the_check_constraint
-  note: Set at creation, stored and returned; it does not yet surface in audit rows.
+  code: []
+  tests: []
+  gap: Cut for now (stored only, no reader); the column was dropped in 20261125200454_one_dataset_per_project.sql, whose down step restores it.
 - id: DAT-26
   area: datasets
   title: Tombstoning dataset versions for erasure inside immutable history

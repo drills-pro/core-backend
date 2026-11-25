@@ -224,11 +224,3 @@ def test_purging_staging_removes_the_imports_prefix_only(owned, monkeypatch):
     asyncio.run(lakefs.purge_staging(TENANT, DATASET, IMPORT))
     assert s3.listed == (settings.data_plane.staging_bucket, layout.staging_prefix(TENANT, DATASET, IMPORT))
     assert s3.deleted == [(settings.data_plane.staging_bucket, ["k1"])]
-
-
-def test_a_repo_delete_lakefs_refuses_raises_and_leaves_the_namespace(owned, monkeypatch):
-    monkeypatch.setattr(lakefs, "_lakefs_api", lambda: httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda r: httpx.Response(500)), base_url="http://lf.test/api/v1"))
-    monkeypatch.setattr(lakefs, "_delete_prefix", lambda *a: pytest.fail("namespace purged after a failed delete"))
-    with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(lakefs.delete_dataset_repo(TENANT, DATASET))

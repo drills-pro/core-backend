@@ -33,7 +33,6 @@ from app.integrations.data_plane.task_bundle import register_staged as register_
 from app.integrations.data_plane.lakefs import (
     commit_staged,
     create_dataset_repo,
-    delete_dataset_repo,
     presign_get,
     presign_gets,
     presign_staging_put,
@@ -79,7 +78,7 @@ from app.integrations.data_plane.train_report import FailureCode, TrainOutcome, 
 __all__ = [
     # tenant operations: ownership is checked first (OPERATIONS)
     "create_dataset_repo", "presign_staging_put", "presign_get", "presign_gets", "read_version_sample",
-    "read_staged_sample", "read_report", "commit_staged", "purge_staging", "delete_dataset_repo", "submit_ingest",
+    "read_staged_sample", "read_report", "commit_staged", "purge_staging", "submit_ingest",
     "prepare_train_data", "submit_train", "read_train_report", "purge_train_prefix", "read_model_meta", "start_run",
     "finish_run", "publish_run_model", "run_model_url", "open_model_file", "register_model_version",
     # prediction payloads: keyed by the prediction row's own tenant, project and id (prediction_payloads.py)
@@ -114,7 +113,6 @@ OPERATIONS = (
     read_report,
     commit_staged,
     purge_staging,
-    delete_dataset_repo,
     submit_ingest,
     prepare_train_data,
     submit_train,

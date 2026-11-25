@@ -51,9 +51,6 @@ SEEDS = (
      "INSERT INTO model_versions (tenant_id, project_id, training_run_id, mlflow_model_name, mlflow_version, model_id) "
      "SELECT r.tenant_id, r.project_id, r.id, 'm', '1', m.id FROM training_runs r JOIN models m ON m.project_id = r.project_id "
      "WHERE r.tenant_id = $1"),
-    ("deployment_test_calls",
-     "INSERT INTO deployment_test_calls (tenant_id, deployment_id, request) "
-     "SELECT tenant_id, id, '{}'::jsonb FROM deployments WHERE tenant_id = $1"),
     ("predict_calls",
      "INSERT INTO predict_calls (tenant_id, deployment_id, training_run_id, status, latency_ms, request_bytes) "
      "SELECT tenant_id, id, training_run_id, 200, 1, 1 FROM deployments WHERE tenant_id = $1"),

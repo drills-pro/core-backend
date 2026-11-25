@@ -14,26 +14,17 @@ from app.modules.user.datasets.schemas import (
     DatasetPreview,
     DatasetSummary,
     DatasetVersion,
-    FileLink,
     ImportCreate,
-    PublishRequest,
-    TrashedDataset,
 )
 
 router = APIRouter(prefix="/v1/projects/{project_id}/datasets", tags=["datasets"])
-trash_router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
-
-
-@trash_router.get("/trash", response_model=Page[TrashedDataset])
-async def list_trash(ctx: AuthzContext = Depends(require(Action.PROJECT_LIST)), page: PageParams = Depends()):
-    return await service.list_trashed_datasets(ctx, page)
 
 
 @router.post("", status_code=201, response_model=DatasetSummary)
 async def create_dataset(
     project_id: uuid.UUID, body: DatasetCreate, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
 ):
-    return await service.create_dataset(ctx, project_id, body.name, body.data_categories)
+    return await service.create_dataset(ctx, project_id, body.name)
 
 
 @router.get("", response_model=Page[DatasetSummary])
@@ -48,34 +39,6 @@ async def get_dataset(
     project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_READ))
 ):
     return await service.get_dataset(ctx, project_id, dataset_id)
-
-
-@router.delete("/{dataset_id}", status_code=202, response_model=DatasetSummary)
-async def delete_dataset(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
-):
-    return await service.delete_dataset(ctx, project_id, dataset_id)
-
-
-@router.post("/{dataset_id}:restore", response_model=DatasetSummary)
-async def restore_dataset(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
-):
-    return await service.restore_dataset(ctx, project_id, dataset_id)
-
-
-@router.put("/{dataset_id}/published", response_model=DatasetSummary)
-async def publish_version(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, body: PublishRequest, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
-):
-    return await service.publish_version(ctx, project_id, dataset_id, body.version_id)
-
-
-@router.delete("/{dataset_id}/published", response_model=DatasetSummary)
-async def unpublish_dataset(
-    project_id: uuid.UUID, dataset_id: uuid.UUID, ctx: AuthzContext = Depends(require(Action.DATASET_WRITE))
-):
-    return await service.unpublish_dataset(ctx, project_id, dataset_id)
 
 
 @router.get("/{dataset_id}/versions", response_model=Page[DatasetVersion])
@@ -156,17 +119,6 @@ async def preview_version(
     ctx: AuthzContext = Depends(require(Action.DATASET_READ)),
 ):
     return await preview_service.version_preview(ctx, project_id, dataset_id, version_id, limit)
-
-
-@router.get("/{dataset_id}/versions/{version_id}/files/{path:path}", response_model=FileLink)
-async def version_file(
-    project_id: uuid.UUID,
-    dataset_id: uuid.UUID,
-    version_id: uuid.UUID,
-    path: str,
-    ctx: AuthzContext = Depends(require(Action.DATASET_READ)),
-):
-    return await preview_service.file_link(ctx, project_id, dataset_id, version_id, path)
 
 
 @router.get("/{dataset_id}/imports/{import_id}/preview", response_model=DatasetPreview)

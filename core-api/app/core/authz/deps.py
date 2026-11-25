@@ -148,5 +148,5 @@ def require(action: Action, *, allow_pending_delete: bool = False):
 
 
 def public() -> None:
-    """Mark a route that needs no tenant or project action (health, gallery, /me): a no-op dependency
+    """Mark a route that needs no tenant or project action (health, /me): a no-op dependency
     the matrix test looks for, so "unprotected" is always a decision someone wrote down."""

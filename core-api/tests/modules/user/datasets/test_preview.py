@@ -1,4 +1,4 @@
-"""Preview and files: sample rows plus presigned URLs from the parquet index, no lakeFS listing, foreign ids are 404."""
+"""Preview: sample rows plus presigned URLs from the parquet index, no lakeFS listing, foreign ids are 404."""
 import asyncio
 import io
 import uuid
@@ -80,9 +80,7 @@ def test_limit_is_bounded(call, limit):
     assert call(f"/versions/{VER}/preview?limit={limit}").status_code == 422
 
 
-def test_file_link_presigns_the_object_path(call):
-    r = call(f"/versions/{VER}/files/cat/1.jpg")
-    assert (r.status_code, r.json()) == (200, {"url": "https://files.test/objects/cat/1.jpg"})
+
 
 
 def test_import_preview_reads_the_staged_index(call):
@@ -96,7 +94,7 @@ def test_import_preview_outside_review_is_409(call):
     assert (r.status_code, r.json()["code"]) == (409, "invalid_import_state")
 
 
-@pytest.mark.parametrize("path", [f"/versions/{VER}/preview", f"/versions/{VER}/files/a.jpg", f"/imports/{IMP}/preview"])
+@pytest.mark.parametrize("path", [f"/versions/{VER}/preview", f"/imports/{IMP}/preview"])
 def test_foreign_or_missing_dataset_version_import_is_404(call, path):
     r = call(path, found=False)
     assert (r.status_code, r.json()["code"]) == (404, "not_found") and not r.gw.calls
@@ -130,7 +128,7 @@ def test_gateway_staged_sample_reads_out_index(gateway, monkeypatch):
     assert secret == secret_files.STAGING and location.endswith(f"{layout.staging_prefix(TENANT, str(DS), str(IMP))}out/index.parquet")
 
 
-PREVIEW_PATHS = [f"/versions/{VER}/preview", f"/versions/{VER}/files/a.jpg", f"/imports/{IMP}/preview"]
+PREVIEW_PATHS = [f"/versions/{VER}/preview", f"/imports/{IMP}/preview"]
 
 
 @pytest.mark.parametrize("path", PREVIEW_PATHS)

@@ -80,7 +80,7 @@ def test_a_create_that_loses_the_race_for_the_same_key_returns_the_winner(env):
 def test_the_key_is_stored_with_the_new_deployment_and_the_insert_skips_a_taken_key(env):
     out = create()
     sql, args = next((s, a) for s, a in env.conn.calls if s.startswith("INSERT INTO deployments"))
-    assert args[9] == KEY and args[11] == VERSION and "ON CONFLICT (project_id, idempotency_key)" in sql and out.id
+    assert args[8] == KEY and args[10] == VERSION and "ON CONFLICT (project_id, idempotency_key)" in sql and out.id
 
 
 def test_a_new_deployment_writes_a_create_audit_row(env):

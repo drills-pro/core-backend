@@ -36,7 +36,6 @@ from app.modules.user.deployments.constants import (
     PLAN_TIER_RATE_LIMITS,
     TOO_MANY_DEPLOYMENTS_DETAIL,
     PlanTier,
-    Serving,
 )
 from app.modules.user.deployments.schemas import (
     DeploymentSchema,
@@ -62,8 +61,8 @@ _BY_KEY = "SELECT * FROM deployments WHERE project_id = $1 AND idempotency_key =
 _VERSION_OF_RUN = "SELECT id FROM model_versions WHERE training_run_id = $1 AND project_id = $2 ORDER BY created_at DESC, id LIMIT 1"
 _INSERT = (
     "INSERT INTO deployments (id, tenant_id, project_id, training_run_id, ray_job_id, route_prefix, "
-    "rate_limit_per_minute, serving, status, idempotency_key, risk_acknowledged, model_version_id, main) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
+    "rate_limit_per_minute, status, idempotency_key, risk_acknowledged, model_version_id, main) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
     "ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING "
     "RETURNING id, status, route_prefix, rate_limit_per_minute, training_run_id, model_version_id, main"
 )
@@ -128,7 +127,7 @@ async def _write_deployment(
             row, created = await insert_capped(
                 conn, _CAP, ctx.tenant_id, (deployment_id, _QUOTA_STATUSES), _INSERT,
                 (deployment_id, ctx.tenant_id, project_id, training_run_id, None, serve_client.route_prefix_for(str(deployment_id)),
-                 rate_limit_for(plan_tier), Serving.SHARED, DeploymentStatus.ACTIVE, idempotency_key, risk_acknowledged,
+                 rate_limit_for(plan_tier), DeploymentStatus.ACTIVE, idempotency_key, risk_acknowledged,
                  model_version_id, set_main),
                 _BY_KEY, (project_id, idempotency_key),
             )
