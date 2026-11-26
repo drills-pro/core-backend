@@ -40,5 +40,5 @@ def spec_doc(arg: dict) -> dict:
         "resources": {"cpu": 1, "memory_bytes": MEMORY_BYTES, "gpu": 0, "max_runtime_s": MAX_RUNTIME_S},
         "payload": {
             "bucket": arg["bucket"], "prefix": arg["prefix"], "task": TASK, "trainer": TRAINER, "preset": "smoke",
-            "base_model": {"repo_id": "xgboost"}, "learning_rate": LEARNING_RATE, "preprocessing": {},
+            "base_model": None, "learning_rate": LEARNING_RATE, "preprocessing": {},
             "data": {"data_url": data_url(table())}, "hyperparameters": dict(HYPERPARAMETERS)}}  # a copy: callers may edit the spec

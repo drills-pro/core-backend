@@ -48,6 +48,7 @@ def test_the_smoke_spec_trains_and_exports_without_a_base_model():
     doc = load(MANIFEST["smoke"])({"job_id": "j", "bucket": "b", "prefix": "p/"})
     spec = parse_spec(json.dumps(doc))
     assert (spec.task, spec.trainer.split(".")[0]) == (MANIFEST["slug"], MANIFEST["trainer"].split(".")[0])
+    assert spec.base_model is None  # a tabular preset trains from scratch: the smoke spec says so too
     store = MemStore()
     report = run(spec, store, http_get)  # data: URLs are served by urlopen
     assert report["status"] == "succeeded", report["message"]
