@@ -5,12 +5,20 @@ smoke, target) is core/job_packages and admin/job_packages.
 from app.core import job_packages, presets, task_types
 from app.core.bundle_manifest import BundleManifest
 from app.core.db import get_pool
-from app.core.enums import PackageKind, PackageStatus, TaskType
+from http import HTTPStatus
+
+from app.core.enums import PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import JobPackage, task_package_name
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.core.settings import settings
 from app.integrations import data_plane
-from app.modules.admin.task_bundles.constants import DEFAULT_AUTO_PROMOTE, SMOKE_NOT_RETRYABLE_DETAIL
+from app.modules.admin.task_bundles.constants import (
+    BUNDLE_IS_STABLE_DETAIL,
+    DEFAULT_AUTO_PROMOTE,
+    SMOKE_NOT_PASSED_DETAIL,
+    SMOKE_NOT_RETRYABLE_DETAIL,
+    ProblemCode,
+)
 from app.core.presets import TaskPreset
 from app.core.task_types import TaskInfo
 from app.modules.admin.task_bundles.schemas import BundleSettings, CatalogTask, TaskBundle
@@ -66,6 +74,25 @@ async def retry_smoke(slug: TaskType, sha256: str) -> TaskBundle:
     async with (await get_pool()).acquire() as conn:
         bundle = await _bundle(conn, slug, sha256)
     return TaskBundle.of(await data_plane.retry_failed_package_smoke(bundle, SMOKE_NOT_RETRYABLE_DETAIL))
+
+
+async def set_status(slug: TaskType, sha256: str, status: PackageStatus, actor: str) -> TaskBundle:
+    """A manual move: promote a bundle whose smoke passed (it becomes the task's stable one, and its row and presets are rewritten
+    from its manifest), or retire one that is not stable. A manual promotion sticks until CI registers a newer bundle."""
+    async with (await get_pool()).acquire() as conn:
+        bundle = await _bundle(conn, slug, sha256)
+    if status == PackageStatus.STABLE:
+        settled = await data_plane.refresh_package_smoke(bundle)
+        if settled.smoke_status != SmokeStatus.PASSED:
+            raise Problem(HTTPStatus.CONFLICT, data_plane.SmokeProblem.NOT_PASSED, SMOKE_NOT_PASSED_DETAIL)
+        return TaskBundle.of(await promote(settled, actor))
+    if bundle.status == PackageStatus.STABLE:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.BUNDLE_IS_STABLE, BUNDLE_IS_STABLE_DETAIL)
+    async with (await get_pool()).acquire() as conn:
+        package = await job_packages.retire(conn, bundle.name, sha256, actor, status)
+    if package is None:
+        raise not_found()
+    return TaskBundle.of(package)
 
 
 async def catalog() -> list[CatalogTask]:

@@ -75,9 +75,9 @@ def call(monkeypatch):
     return run
 
 
-def test_the_bundle_lifecycle_moved_to_the_job_packages_target_call(call):
+def test_a_manual_bundle_move_takes_only_stable_or_retired(call):
     assert call("POST", f"{URL}/register", json={"s3_key": "k"}).status_code == 405  # the path exists for GET /{slug}
-    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(_passed()), json={"status": "stable"}).status_code == 404
+    assert call("PUT", f"{URL}/{SLUG}/{SHA}/status", Conn(_passed()), json={"status": "candidate"}).status_code == 422
 
 
 def test_promotion_writes_the_task_row_and_presets_with_the_package_move_in_one_go(monkeypatch):

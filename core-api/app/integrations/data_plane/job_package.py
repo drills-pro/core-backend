@@ -35,6 +35,7 @@ NO_STABLE_PACKAGE = "no_stable_package"
 
 
 class SmokeProblem(StrEnum):
+    NOT_PASSED = "smoke_not_passed"  # a package is promoted only once its smoke passed
     NOT_RETRYABLE = "smoke_not_retryable"  # only a candidate whose smoke failed is smoked again
 
 

@@ -127,6 +127,15 @@ async def promote(conn, name: str, sha256: str, actor: str) -> JobPackage | None
         return promoted
 
 
+async def retire(conn, name: str, sha256: str, actor: str, status: PackageStatus = PackageStatus.RETIRED) -> JobPackage | None:
+    """Take a package out of use (`status` retired, or back to candidate), audited. None when there is no such package."""
+    async with conn.transaction():
+        retired = await set_status(conn, name, sha256, status, actor)
+        if retired is not None:
+            await _record(conn, name, sha256, PackageAuditAction.RETIRE, actor)
+        return retired
+
+
 async def start_smoke(conn, name: JobPackageName, sha256: str, job_id: str) -> None:
     await conn.execute("UPDATE job_packages SET smoke_job_id = $3 WHERE name = $1 AND sha256 = $2 AND smoke_job_id IS NULL", name, sha256, job_id)
 

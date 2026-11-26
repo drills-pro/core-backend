@@ -1327,7 +1327,7 @@ entries:
   source: planning/06 Where code lives (zip only); docs/runtime-contract.md
   status: built
   old: F08
-  code: ["GET /v1/admin/job-packages/{name}", "POST /v1/admin/job-packages/{name}/publish", "POST /v1/admin/job-packages/{name}/target", "POST /v1/admin/job-packages/{name}/{sha256}/smoke", core-api/app/core/job_packages.py, scripts/build-job-package.py]
+  code: ["GET /v1/admin/job-packages/{name}", "POST /v1/admin/job-packages/{name}/publish", "POST /v1/admin/job-packages/{name}/target", "PUT /v1/admin/job-packages/{name}/{sha256}/status", "POST /v1/admin/job-packages/{name}/{sha256}/smoke", core-api/app/core/job_packages.py, scripts/build-job-package.py]
   tests:
   - core-api/tests/modules/admin/test_package_targets.py::test_the_newest_passed_candidate_becomes_the_target_when_there_is_none
   - core-api/tests/modules/admin/test_job_packages.py::test_target_of_a_version_whose_smoke_passed_moves_it_now_and_audits_the_actor

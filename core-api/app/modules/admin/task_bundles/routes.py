@@ -11,7 +11,7 @@ from app.core.patterns import SHA256_PATTERN
 from app.core.presets import NAME_PATTERN, TaskPreset
 from app.core.task_types import TaskInfo
 from app.modules.admin.task_bundles import service
-from app.modules.admin.task_bundles.schemas import BundleSettings, BundleSettingsBody, CatalogTask, EnabledBody, TaskBundle
+from app.modules.admin.task_bundles.schemas import BundleSettings, BundleSettingsBody, BundleStatusBody, CatalogTask, EnabledBody, TaskBundle
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,15 @@ async def put_bundle_settings(slug: TaskType, body: BundleSettingsBody, actor: s
 async def get_bundle(slug: TaskType, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
     """One bundle; CI polls this for smoke_status after its target call."""
     return await service.get_bundle(slug, sha256)
+
+
+@router.put("/{slug}/{sha256}/status", response_model=TaskBundle)
+async def set_bundle_status(slug: TaskType, body: BundleStatusBody, sha256: str = Path(pattern=SHA256_PATTERN), actor: str = Depends(get_platform_admin)):
+    """A manual move: promote a bundle whose smoke passed (409 otherwise) or retire one that is not stable. Promoting it rewrites the
+    task's row and presets from its manifest; promoting an older sha is the rollback. A manual promotion sticks until CI's next bundle."""
+    bundle = await service.set_status(slug, sha256, body.status, actor)
+    logger.info("task bundle %s %s set to %s by %s", bundle.name, sha256, body.status, actor)
+    return bundle
 
 
 @router.post("/{slug}/{sha256}/smoke", response_model=TaskBundle)
