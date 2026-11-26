@@ -42,13 +42,15 @@ _SELECT = "SELECT * FROM task_presets"
 _UPSERT = (
     "INSERT INTO task_presets (task, name, base_model_repo, base_model_revision, learning_rate, preprocessing, cpu, "
     "memory_bytes, gpu, max_runtime_s, hyperparameters, updated_by, lr_schedule, warmup_fraction, augmentation, "
-    "early_stopping_patience, vram_gb, base_model_license) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) "
+    "early_stopping_patience, vram_gb, base_model_license, display_name, description) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) "
     "ON CONFLICT (task, name) DO UPDATE SET base_model_repo = EXCLUDED.base_model_repo, "
     "base_model_revision = EXCLUDED.base_model_revision, learning_rate = EXCLUDED.learning_rate, "
     "preprocessing = EXCLUDED.preprocessing, cpu = EXCLUDED.cpu, memory_bytes = EXCLUDED.memory_bytes, gpu = EXCLUDED.gpu, vram_gb = EXCLUDED.vram_gb, base_model_license = EXCLUDED.base_model_license, "
     "max_runtime_s = EXCLUDED.max_runtime_s, hyperparameters = EXCLUDED.hyperparameters, "
     "lr_schedule = EXCLUDED.lr_schedule, warmup_fraction = EXCLUDED.warmup_fraction, augmentation = EXCLUDED.augmentation, "
-    "early_stopping_patience = EXCLUDED.early_stopping_patience, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
+    "early_stopping_patience = EXCLUDED.early_stopping_patience, display_name = EXCLUDED.display_name, description = EXCLUDED.description, "
+    "updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING *"
 )
 
 
@@ -77,7 +79,8 @@ async def put(conn, task: TaskType, name: str, body: Recipe, actor: str) -> Task
         _UPSERT, task, name, base and base.repo_id, base and base.revision, body.learning_rate,
         body.preprocessing.model_dump(mode="json") if body.preprocessing else {}, body.cpu, body.memory_bytes, body.gpu, body.max_runtime_s,
         hp if isinstance(hp, dict) else hp.model_dump(mode="json"), actor,
-        body.lr_schedule, body.warmup_fraction, body.augmentation, body.early_stopping_patience, body.vram_gb, base and base.license)
+        body.lr_schedule, body.warmup_fraction, body.augmentation, body.early_stopping_patience, body.vram_gb, base and base.license,
+        body.display_name, body.description)
     return _model(row)
 
 

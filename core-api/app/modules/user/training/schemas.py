@@ -45,6 +45,8 @@ class TrainingRunCreate(BaseModel):
 
 class PresetSummary(BaseModel):
     name: str
+    display_name: str | None = None  # the name people see; the API's `name` stays the key a run names
+    description: str | None = None
     base_model: TrainBaseModel | None  # None: trains from scratch (a tabular bundle's preset)
     learning_rate: float
     cpu: float

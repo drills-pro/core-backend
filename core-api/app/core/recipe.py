@@ -12,6 +12,9 @@ from app.core.settings import settings
 from app.core.task_catalog import TASK_AUGMENTATIONS, Augmentation, LrSchedule, Preprocessing, TextPreprocessing, TrainBaseModel
 
 REVISION = re.compile(r"^[0-9a-f]{40}$")  # a commit sha, never a branch that moves
+DISPLAY_NAME_MAX = 60  # a preset's name for people, in the console and to customers
+DESCRIPTION_MAX = 300  # what the preset is for, in plain words
+CATALOG_ONLY = frozenset({"display_name", "description"})  # what people read about a preset; no training job copies them
 
 
 class HyperparameterRange(BaseModel):
@@ -51,6 +54,8 @@ class Recipe(BaseModel):
     warmup_fraction: float = Field(default=0, ge=0, lt=1)  # of the run's steps, linear from 0 to learning_rate
     augmentation: Augmentation = Augmentation.NONE
     early_stopping_patience: int = Field(default=0, ge=0)  # epochs without a better metric before stopping; 0 = off
+    display_name: str | None = Field(default=None, min_length=1, max_length=DISPLAY_NAME_MAX)
+    description: str | None = Field(default=None, max_length=DESCRIPTION_MAX)
 
     def check_task(self, task: TaskType) -> None:
         """The recipe must be one the task's trainer implements."""
