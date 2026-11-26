@@ -104,6 +104,21 @@ A change to `config/prod.yaml`, secret file names or keys, the image's port or p
 `k8s` change (skill `k8s-contract`). Do not edit or push the `k8s` repo from here without being asked: a
 push there deploys to production.
 
+## Admin console (test-console)
+
+`test-console/` is the staff console for the `/v1/admin` API (console.drills.pro). A change here that an operator
+would see, or that the console depends on, updates the console in the same change:
+
+- **Schema.** After a change to a route, request or response model, regenerate the snapshot
+  (`cd core-api && .venv/bin/python -m tests.contract.test_openapi_snapshot --write`), then
+  `cd test-console && API_SPEC_URL=../core-api/tests/contract/openapi.snapshot.json pnpm api:gen`.
+- **New `/v1/admin` route or operator feature.** Add a screen (route in `src/router.tsx`, nav entry in
+  `src/pages/Layout.tsx`), or list the route under "Not in the console" in `test-console/README.md` with the reason
+  (CI-only routes, such as job-package and bundle `register`).
+- **Changed behaviour the console relies on** (a status code it maps, a field it sends, one dataset per project, paging):
+  fix the screen that depends on it in the same change.
+- **Check.** `cd test-console && pnpm build` (typecheck and bundle) passes.
+
 ## Auth rework
 
 Shared pool is in (ADR-021): the backend verifies the Zitadel token and reads tenant membership from

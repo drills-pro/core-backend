@@ -19,6 +19,8 @@ ELSEWHERE_OR_OPEN = {
     "OPEN POST /v1/admin/task-bundles/{slug}/{sha256}/smoke": "starts a smoke run; no row yet",
     "POST /v1/admin/job-packages/{name}/publish": "job_package_audit",
     "POST /v1/admin/job-packages/{name}/target": "job_package_audit",
+    "PUT /v1/admin/job-packages/{name}/{sha256}/status": "job_package_audit (promote and retire, core/job_packages)",
+    "PUT /v1/admin/task-bundles/{slug}/{sha256}/status": "job_package_audit (promote and retire, core/job_packages)",
     "OPEN POST /v1/admin/job-packages/{name}/{sha256}/smoke": "runtime packages; no row yet",
 }
 

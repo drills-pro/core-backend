@@ -32,6 +32,18 @@ export const DeployStatus = { DELETED: 'deleted', STOPPED: 'stopped' } as const;
 /** The only scope a project API key needs for POST /v1/predict. */
 export const PREDICT_SCOPE: Schemas['Scope'] = 'predict';
 
+/** Mirrors core-api PlanTier: the tiers the platform sets limits for, and creates tenants in. */
+export const PLAN_TIERS: Schemas['PlanTier'][] = ['free', 'pro', 'enterprise', 'internal'];
+/** Mirrors core-api ADMIN_SETTABLE_STATUSES: what the tenant status route sets. pending_delete is a tenant's own delete. */
+export const TenantStatus = { ACTIVE: 'active', SUSPENDED: 'suspended' } as const satisfies Record<string, Schemas['TenantStatus']>;
+export const IDENTITY_STATUSES: Schemas['IdentityStatus'][] = ['active', 'suspended', 'pending', 'unknown'];
+export const MODEL_STATUSES: Schemas['ModelStatus'][] = ['deployed', 'stopped', 'not_deployed'];
+export const VISIBILITIES: Schemas['Visibility'][] = ['private', 'internal'];
+/** Mirrors core-api AdminAuditEntity: what the admin audit trail records writes to. */
+export const AUDIT_ENTITIES: Schemas['AdminAuditEntity'][] = ['tenant', 'task_type', 'task_preset', 'model_catalog', 'plan_limits'];
+/** The activity feed's time windows, in days. */
+export const ACTIVITY_DAYS = [1, 7, 30];
+
 export const PackageStatus = { CANDIDATE: 'candidate', STABLE: 'stable', RETIRED: 'retired' } as const satisfies Record<
   string,
   Schemas['PackageStatus']

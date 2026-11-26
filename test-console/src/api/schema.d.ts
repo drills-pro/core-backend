@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/deps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health Deps */
+        get: operations["health_deps_health_deps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/training-runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Training Run Event
+         * @description A trainer's progress after an epoch. Authenticated by the run's token; only a running run takes events. A `seq` the
+         *     run already has answers 200 and changes nothing.
+         */
+        post: operations["post_training_run_event_internal_v1_training_runs__run_id__events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/activity": {
         parameters: {
             query?: never;
@@ -104,7 +159,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/job-packages/{name}/register": {
+    "/v1/admin/job-packages/{name}/target": {
         parameters: {
             query?: never;
             header?: never;
@@ -114,32 +169,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register Package
-         * @description Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads
-         *     the object back and checks its hash and contents.
+         * Target Package
+         * @description CI's call for a version: the staged zip is checked, registered, smoked, and becomes the target of its package once the smoke
+         *     passed (the poller moves it). A version that already passed moves at once, which is how a rollback is made. Nobody has to act
+         *     in between: a failed smoke is run again by the next call.
          */
-        post: operations["register_package_v1_admin_job_packages__name__register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/job-packages/{name}/{sha256}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Package Status
-         * @description Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
-         *     A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25.
-         */
-        put: operations["set_package_status_v1_admin_job_packages__name___sha256__status_put"];
-        post?: never;
+        post: operations["target_package_v1_admin_job_packages__name__target_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -160,6 +195,27 @@ export interface paths {
          * @description Run the smoke job again for a candidate whose smoke failed (after the Ray image was fixed). Anything else is a 409.
          */
         post: operations["retry_package_smoke_v1_admin_job_packages__name___sha256__smoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/job-packages/{name}/{sha256}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Package Status
+         * @description A manual move: promote a candidate whose smoke passed (the one it replaces is retired) or retire a package that is not the
+         *     target. A manual promotion sticks until CI registers a newer version.
+         */
+        put: operations["set_package_status_v1_admin_job_packages__name___sha256__status_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -209,23 +265,6 @@ export interface paths {
         patch: operations["update_model_v1_admin_model_catalog__model_id__patch"];
         trace?: never;
     };
-    "/v1/admin/model-catalog/{model_id}/enable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Enable Model */
-        post: operations["enable_model_v1_admin_model_catalog__model_id__enable_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/model-catalog/{model_id}/disable": {
         parameters: {
             query?: never;
@@ -237,6 +276,23 @@ export interface paths {
         put?: never;
         /** Disable Model */
         post: operations["disable_model_v1_admin_model_catalog__model_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/model-catalog/{model_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable Model */
+        post: operations["enable_model_v1_admin_model_catalog__model_id__enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -258,6 +314,29 @@ export interface paths {
          *     no second request - the same contract as the other admin listings.
          */
         get: operations["list_models_v1_admin_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/models/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Models Summary
+         * @description The totals behind the stat strip and the tabs.
+         *
+         *     Counted across every tenant rather than over the page on screen, so
+         *     they do not move when a filter does.
+         */
+        get: operations["models_summary_v1_admin_models_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -291,21 +370,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/models/summary": {
+    "/v1/admin/plan-limits": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Models Summary
-         * @description The totals behind the stat strip and the tabs.
-         *
-         *     Counted across every tenant rather than over the page on screen, so
-         *     they do not move when a filter does.
-         */
-        get: operations["models_summary_v1_admin_models_summary_get"];
+        /** List Plan Limits */
+        get: operations["list_plan_limits_v1_admin_plan_limits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -314,24 +387,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/training-presets/{task}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Presets */
-        get: operations["list_presets_v1_admin_training_presets__task__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/training-presets/{task}/{name}": {
+    "/v1/admin/plan-limits/{tier}": {
         parameters: {
             query?: never;
             header?: never;
@@ -340,33 +396,11 @@ export interface paths {
         };
         get?: never;
         /**
-         * Put Preset
-         * @description Create or replace one preset. Runs already started keep the values they were given.
+         * Put Plan Limits
+         * @description Create or replace one tier's limits; they apply to the next request of every tenant on that tier.
          */
-        put: operations["put_preset_v1_admin_training_presets__task___name__put"];
+        put: operations["put_plan_limits_v1_admin_plan_limits__tier__put"];
         post?: never;
-        /** Delete Preset */
-        delete: operations["delete_preset_v1_admin_training_presets__task___name__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/task-bundles/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Register Bundle
-         * @description Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records
-         *     a candidate and starts its smoke on the stable core.
-         */
-        post: operations["register_bundle_v1_admin_task_bundles_register_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -478,7 +512,7 @@ export interface paths {
         get: operations["get_bundle_settings_v1_admin_task_bundles__slug__settings_get"];
         /**
          * Put Bundle Settings
-         * @description auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a PUT .../status.
+         * @description auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a target call.
          */
         put: operations["put_bundle_settings_v1_admin_task_bundles__slug__settings_put"];
         post?: never;
@@ -497,31 +531,10 @@ export interface paths {
         };
         /**
          * Get Bundle
-         * @description One bundle; CI polls this for smoke_status after register.
+         * @description One bundle; CI polls this for smoke_status after its target call.
          */
         get: operations["get_bundle_v1_admin_task_bundles__slug___sha256__get"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/task-bundles/{slug}/{sha256}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Bundle Status
-         * @description Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and
-         *     presets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.
-         */
-        put: operations["set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -543,6 +556,27 @@ export interface paths {
          * @description Smoke a candidate whose smoke failed again (409 for anything else).
          */
         post: operations["retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-bundles/{slug}/{sha256}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Bundle Status
+         * @description A manual move: promote a bundle whose smoke passed (409 otherwise) or retire one that is not stable. Promoting it rewrites the
+         *     task's row and presets from its manifest; promoting an older sha is the rollback. A manual promotion sticks until CI's next bundle.
+         */
+        put: operations["set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -580,43 +614,6 @@ export interface paths {
          *     functions must exist in the serve files this build sends to the replica.
          */
         put: operations["put_task_type_v1_admin_task_types__task__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/plan-limits": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Plan Limits */
-        get: operations["list_plan_limits_v1_admin_plan_limits_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/plan-limits/{tier}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Put Plan Limits
-         * @description Create or replace one tier's limits; they apply to the next request of every tenant on that tier.
-         */
-        put: operations["put_plan_limits_v1_admin_plan_limits__tier__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -708,30 +705,17 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/projects": {
+    "/v1/admin/tenants/{tenant_id}/datasets": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Tenant Projects
-         * @description Every live project in the tenant, newest first, with what the card
-         *     shows: its datasets, and the newest model registered against it.
-         */
-        get: operations["list_tenant_projects_v1_admin_tenants__tenant_id__projects_get"];
+        /** List Tenant Datasets */
+        get: operations["list_tenant_datasets_v1_admin_tenants__tenant_id__datasets_get"];
         put?: never;
-        /**
-         * Create Tenant Project
-         * @description Create a project inside the tenant, as the tenant.
-         *
-         *     Deliberately the same rules as the user-facing POST /v1/projects - the
-         *     fixed task-type vocabulary, the tenant's oldest team as the default,
-         *     the audit row - so a project the operator creates is indistinguishable
-         *     from one the tenant created itself.
-         */
-        post: operations["create_tenant_project_v1_admin_tenants__tenant_id__projects_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -762,17 +746,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/datasets": {
+    "/v1/admin/tenants/{tenant_id}/projects": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Tenant Datasets */
-        get: operations["list_tenant_datasets_v1_admin_tenants__tenant_id__datasets_get"];
+        /**
+         * List Tenant Projects
+         * @description Every live project in the tenant, newest first, with what the card
+         *     shows: its datasets, and the newest model registered against it.
+         */
+        get: operations["list_tenant_projects_v1_admin_tenants__tenant_id__projects_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Tenant Project
+         * @description Create a project inside the tenant, as the tenant.
+         *
+         *     Deliberately the same rules as the user-facing POST /v1/projects - the
+         *     fixed task-type vocabulary, the tenant's oldest team as the default,
+         *     the audit row - so a project the operator creates is indistinguishable
+         *     from one the tenant created itself.
+         */
+        post: operations["create_tenant_project_v1_admin_tenants__tenant_id__projects_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -821,33 +818,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects": {
+    "/v1/admin/training-presets/{task}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Projects */
-        get: operations["list_projects_v1_projects_get"];
-        put?: never;
-        /** Create Project */
-        post: operations["create_project_v1_projects_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/trash": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Trash */
-        get: operations["list_trash_v1_projects_trash_get"];
+        /** List Presets */
+        get: operations["list_presets_v1_admin_training_presets__task__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -856,26 +835,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Project */
-        get: operations["get_project_v1_projects__project_id__get"];
-        put?: never;
-        post?: never;
-        /** Delete Project */
-        delete: operations["delete_project_v1_projects__project_id__delete"];
-        options?: never;
-        head?: never;
-        /** Update Project */
-        patch: operations["update_project_v1_projects__project_id__patch"];
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/settings": {
+    "/v1/admin/training-presets/{task}/{name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -883,121 +843,55 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Project Settings */
-        patch: operations["update_project_settings_v1_projects__project_id__settings_patch"];
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/visibility": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Visibility */
-        patch: operations["update_visibility_v1_projects__project_id__visibility_patch"];
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/sharing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Sharing */
-        put: operations["update_sharing_v1_projects__project_id__sharing_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}:restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Restore Project */
-        post: operations["restore_project_v1_projects__project_id__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
         /**
-         * List Events
-         * @description State changes of the project's training runs, dataset imports and deployments, oldest first.
+         * Put Preset
+         * @description Create or replace one preset. Runs already started keep the values they were given.
          */
-        get: operations["list_events_v1_projects__project_id__events_get"];
-        put?: never;
+        put: operations["put_preset_v1_admin_training_presets__task___name__put"];
         post?: never;
-        delete?: never;
+        /** Delete Preset */
+        delete: operations["delete_preset_v1_admin_training_presets__task___name__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/notifications": {
+    "/v1/api-keys": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Notifications
-         * @description The project's job events the caller has not marked read, newest first, with the unread count.
-         */
-        get: operations["list_notifications_v1_projects__project_id__notifications_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/notifications/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
+        /** List Api Keys */
+        get: operations["list_api_keys_v1_api_keys_get"];
         put?: never;
         /**
-         * Mark Notifications Read
-         * @description Moves the caller's cursor to `seq` (never backwards); events up to it stop counting as unread.
+         * Create Api Key
+         * @description The secret is in this response only; the database keeps its hash.
          */
-        post: operations["mark_notifications_read_v1_projects__project_id__notifications_read_post"];
+        post: operations["create_api_key_v1_api_keys_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Api Key
+         * @description Takes effect on the key's next request. Revoking twice keeps the first revocation time.
+         */
+        delete: operations["revoke_api_key_v1_api_keys__key_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1023,28 +917,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Webhooks */
-        get: operations["list_webhooks_v1_projects__project_id__webhooks_get"];
-        put?: never;
-        /**
-         * Create Webhook
-         * @description Sends the project's job events (see /events) to the url: signed, in order, at least once. Hears new events only.
-         */
-        post: operations["create_webhook_v1_projects__project_id__webhooks_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/webhooks/{webhook_id}": {
+    "/v1/invitations/{token}:accept": {
         parameters: {
             query?: never;
             header?: never;
@@ -1053,94 +926,23 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        /** Delete Webhook */
-        delete: operations["delete_webhook_v1_projects__project_id__webhooks__webhook_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Datasets */
-        get: operations["list_datasets_v1_projects__project_id__datasets_get"];
-        put?: never;
-        /** Create Dataset */
-        post: operations["create_dataset_v1_projects__project_id__datasets_post"];
+        /** Accept Invitation */
+        post: operations["accept_invitation_v1_invitations__token__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/datasets/{dataset_id}": {
+    "/v1/me": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset */
-        get: operations["get_dataset_v1_projects__project_id__datasets__dataset_id__get"];
-        put?: never;
-        post?: never;
-        /** Delete Dataset */
-        delete: operations["delete_dataset_v1_projects__project_id__datasets__dataset_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}:restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Restore Dataset */
-        post: operations["restore_dataset_v1_projects__project_id__datasets__dataset_id__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/published": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Publish Version */
-        put: operations["publish_version_v1_projects__project_id__datasets__dataset_id__published_put"];
-        post?: never;
-        /** Unpublish Dataset */
-        delete: operations["unpublish_dataset_v1_projects__project_id__datasets__dataset_id__published_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Versions */
-        get: operations["list_versions_v1_projects__project_id__datasets__dataset_id__versions_get"];
+        /** Me */
+        get: operations["me_v1_me_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1149,223 +951,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Imports */
-        get: operations["list_imports_v1_projects__project_id__datasets__dataset_id__imports_get"];
-        put?: never;
-        /** Create Import */
-        post: operations["create_import_v1_projects__project_id__datasets__dataset_id__imports_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Import */
-        get: operations["get_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start Import */
-        post: operations["start_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__start_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancel Import */
-        post: operations["cancel_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__cancel_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/commit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Commit Import */
-        post: operations["commit_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__commit_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/discard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Discard Import */
-        post: operations["discard_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__discard_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Preview Version */
-        get: operations["preview_version_v1_projects__project_id__datasets__dataset_id__versions__version_id__preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/files/{path}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Version File */
-        get: operations["version_file_v1_projects__project_id__datasets__dataset_id__versions__version_id__files__path__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Preview Import */
-        get: operations["preview_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/trash": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Trash */
-        get: operations["list_trash_v1_datasets_trash_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Deployments */
-        get: operations["list_deployments_v1_projects__project_id__deployments_get"];
-        put?: never;
-        /**
-         * Create Deployment
-         * @description Deploy a model version: one deployment serves exactly one. A version whose run has no test dataset is 409 deploy_risk_unacknowledged
-         *     until acknowledge_risk=true. Sending the same Idempotency-Key and version again returns that deployment (without the predict key,
-         *     which is shown once); the same key with another version is 409. `training_run_id` is deprecated (it deploys that run's newest
-         *     version): send exactly one of the two. Promoting a version to Production deploys it too.
-         */
-        post: operations["create_deployment_v1_projects__project_id__deployments_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments/{deployment_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Deployment */
-        get: operations["get_deployment_v1_projects__project_id__deployments__deployment_id__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete Deployment
-         * @description Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list.
-         */
-        delete: operations["delete_deployment_v1_projects__project_id__deployments__deployment_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments/{deployment_id}/schema": {
+    "/v1/me/email-verification": {
         parameters: {
             query?: never;
             header?: never;
@@ -1373,132 +959,36 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Deployment Schema
-         * @description What to send to POST /v1/predict and what comes back, with curl, JavaScript and Python snippets (the key is a placeholder).
+         * Email Verification Status
+         * @description Live from Zitadel, for the SPA to poll while the user opens the mail.
          */
-        get: operations["get_deployment_schema_v1_projects__project_id__deployments__deployment_id__schema_get"];
+        get: operations["email_verification_status_v1_me_email_verification_get"];
+        put?: never;
+        /**
+         * Send Email Verification
+         * @description Zitadel mails the caller a verification link, unless the email is verified already (409 email_already_verified).
+         */
+        post: operations["send_email_verification_v1_me_email_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/tenant-slug-available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tenant Slug Available
+         * @description Whether a workspace handle is free: one indexed lookup. The create still decides if another request takes it first.
+         */
+        get: operations["tenant_slug_available_v1_me_tenant_slug_available_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments/{deployment_id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop Deployment
-         * @description Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine.
-         */
-        post: operations["stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments/{deployment_id}/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start Deployment
-         * @description Serve a stopped deployment again: same row, same predict key.
-         */
-        post: operations["start_deployment_v1_projects__project_id__deployments__deployment_id__start_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/training-runs/{run_id}/lineage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Training Run Lineage
-         * @description One endpoint joining dataset commit -> training run -> model registry entry -> active deployment.
-         */
-        get: operations["get_training_run_lineage_v1_projects__project_id__training_runs__run_id__lineage_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/training-runs/{run_id}/card": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Model Card
-         * @description The model card of a run: task, preset, scores, dataset version and whether a test dataset was used.
-         */
-        get: operations["get_model_card_v1_projects__project_id__training_runs__run_id__card_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/deployments/{deployment_id}/test-calls": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Test Calls
-         * @description The try-it log: this deployment's console predictions (POST /v1/predict from a signed-in member), newest first.
-         */
-        get: operations["list_test_calls_v1_projects__project_id__deployments__deployment_id__test_calls_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/predict/{deployment_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Predict
-         * @description Deprecated (planning/24, migration phase 1): answers as before, marked Deprecation and Sunset, and counted per deployment.
-         */
-        post: operations["predict_v1_predict__deployment_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1576,15 +1066,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/me": {
+    "/v1/projects": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_v1_me_get"];
+        /** List Projects */
+        get: operations["list_projects_v1_projects_get"];
+        put?: never;
+        /** Create Project */
+        post: operations["create_project_v1_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Trash */
+        get: operations["list_trash_v1_projects_trash_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1593,76 +1101,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/me/email-verification": {
+    "/v1/projects/{project_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Email Verification Status
-         * @description Live from Zitadel, for the SPA to poll while the user opens the mail.
-         */
-        get: operations["email_verification_status_v1_me_email_verification_get"];
+        /** Get Project */
+        get: operations["get_project_v1_projects__project_id__get"];
         put?: never;
-        /**
-         * Send Email Verification
-         * @description Zitadel mails the caller a verification link, unless the email is verified already (409 email_already_verified).
-         */
-        post: operations["send_email_verification_v1_me_email_verification_post"];
-        delete?: never;
+        post?: never;
+        /** Delete Project */
+        delete: operations["delete_project_v1_projects__project_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Project */
+        patch: operations["update_project_v1_projects__project_id__patch"];
         trace?: never;
     };
-    "/v1/tenants": {
+    "/v1/projects/{project_id}/audit-log": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Create Tenant
-         * @description Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo.
-         */
-        post: operations["create_tenant_v1_tenants_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/models/{run_id}/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register Model */
-        post: operations["register_model_v1_projects__project_id__models__run_id__register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Models */
-        get: operations["list_models_v1_projects__project_id__models_get"];
+        /** Get Audit Log */
+        get: operations["get_audit_log_v1_projects__project_id__audit_log_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1671,30 +1137,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/models/{model_version_id}/promote": {
+    "/v1/projects/{project_id}/datasets": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Datasets */
+        get: operations["list_datasets_v1_projects__project_id__datasets_get"];
         put?: never;
-        /**
-         * Promote Model
-         * @description None (internal) -> Staging (candidate) is immediate. Production answers 202 with the version pending: it is deployed, and the
-         *     stage flips only when the deployment is active (the version serving until then stays Production). Poll the models list: the
-         *     version either becomes Production (the previous one Staging) or shows promotion_status `failed` with promotion_error, stages
-         *     unchanged. Promoting an older version is a rollback. A run with no test data needs acknowledge_risk=true, as a deploy does.
-         */
-        post: operations["promote_model_v1_projects__project_id__models__model_version_id__promote_post"];
+        /** Create Dataset */
+        post: operations["create_dataset_v1_projects__project_id__datasets_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/models/{model_version_id}/publish": {
+    "/v1/projects/{project_id}/datasets/{dataset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset */
+        get: operations["get_dataset_v1_projects__project_id__datasets__dataset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Imports */
+        get: operations["list_imports_v1_projects__project_id__datasets__dataset_id__imports_get"];
+        put?: never;
+        /** Create Import */
+        post: operations["create_import_v1_projects__project_id__datasets__dataset_id__imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Import */
+        get: operations["get_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1703,15 +1216,181 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Cancel Import */
+        post: operations["cancel_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit Import */
+        post: operations["commit_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__commit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard Import */
+        post: operations["discard_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Import */
+        get: operations["preview_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__preview_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Publish Model */
-        patch: operations["publish_model_v1_projects__project_id__models__model_version_id__publish_patch"];
+        patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/models/{model_version_id}/download/{file}": {
+    "/v1/projects/{project_id}/datasets/{dataset_id}/imports/{import_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Import */
+        post: operations["start_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Versions */
+        get: operations["list_versions_v1_projects__project_id__datasets__dataset_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Version */
+        get: operations["preview_version_v1_projects__project_id__datasets__dataset_id__versions__version_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deployments */
+        get: operations["list_deployments_v1_projects__project_id__deployments_get"];
+        put?: never;
+        /**
+         * Create Deployment
+         * @description Deploy a succeeded training run's model: one deployment serves exactly one run. `set_main` makes it the project's main deployment,
+         *     the one a predict call with no X-Model-Id is answered by. A run with no test dataset is 409 deploy_risk_unacknowledged until
+         *     acknowledge_risk=true. The same Idempotency-Key and run returns that deployment again.
+         */
+        post: operations["create_deployment_v1_projects__project_id__deployments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Deployment */
+        get: operations["get_deployment_v1_projects__project_id__deployments__deployment_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Deployment
+         * @description Soft delete: the row stays for lineage, the predict key is cleared and the deployment leaves the list.
+         */
+        delete: operations["delete_deployment_v1_projects__project_id__deployments__deployment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/main": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Main Deployment
+         * @description Make this deployment the project's main one; the previous main stops being it.
+         */
+        post: operations["set_main_deployment_v1_projects__project_id__deployments__deployment_id__main_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/schema": {
         parameters: {
             query?: never;
             header?: never;
@@ -1719,10 +1398,90 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download Model File
-         * @description The version's `model.onnx` or `model.json`, streamed through core-api to a signed-in project member (audited).
+         * Get Deployment Schema
+         * @description What to send to POST /v1/predict and what comes back, with curl, JavaScript and Python snippets (the key is a placeholder).
          */
-        get: operations["download_model_file_v1_projects__project_id__models__model_version_id__download__file__get"];
+        get: operations["get_deployment_schema_v1_projects__project_id__deployments__deployment_id__schema_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Deployment
+         * @description Serve a stopped deployment again: same row, same predict key.
+         */
+        post: operations["start_deployment_v1_projects__project_id__deployments__deployment_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Deployment
+         * @description Stop serving: predict and try-it answer 409, the predict key is kept. Repeating it is fine.
+         */
+        post: operations["stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/deployments/{deployment_id}/test-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Test Calls
+         * @description The try-it log: this deployment's console predictions (POST /v1/predict from a signed-in member), newest first.
+         */
+        get: operations["list_test_calls_v1_projects__project_id__deployments__deployment_id__test_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Events
+         * @description State changes of the project's training runs, dataset imports and deployments, oldest first.
+         */
+        get: operations["list_events_v1_projects__project_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1766,15 +1525,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/projects/{project_id}/audit-log": {
+    "/v1/projects/{project_id}/models": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Audit Log */
-        get: operations["get_audit_log_v1_projects__project_id__audit_log_get"];
+        /** List Models */
+        get: operations["list_models_v1_projects__project_id__models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1783,56 +1542,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/api-keys": {
+    "/v1/projects/{project_id}/models/{model_version_id}/download/{file}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Api Keys */
-        get: operations["list_api_keys_v1_api_keys_get"];
-        put?: never;
         /**
-         * Create Api Key
-         * @description The secret is in this response only; the database keeps its hash.
+         * Download Model File
+         * @description The version's `model.onnx` or `model.json`, streamed through core-api to a signed-in project member (audited).
          */
-        post: operations["create_api_key_v1_api_keys_post"];
+        get: operations["download_model_file_v1_projects__project_id__models__model_version_id__download__file__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/api-keys/{key_id}": {
+    "/v1/projects/{project_id}/notifications": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        post?: never;
         /**
-         * Revoke Api Key
-         * @description Takes effect on the key's next request. Revoking twice keeps the first revocation time.
+         * List Notifications
+         * @description The project's job events the caller has not marked read, newest first, with the unread count.
          */
-        delete: operations["revoke_api_key_v1_api_keys__key_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/public/projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Public Projects */
-        get: operations["list_public_projects_v1_public_projects_get"];
+        get: operations["list_notifications_v1_projects__project_id__notifications_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1841,286 +1582,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/public/projects/{project_id}/datasets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Public Project Datasets */
-        get: operations["list_public_project_datasets_v1_public_projects__project_id__datasets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/public/projects/{project_id}/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Public Project Models */
-        get: operations["list_public_project_models_v1_public_projects__project_id__models_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/teams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Teams */
-        get: operations["list_teams_v1_teams_get"];
-        put?: never;
-        /** Create Team */
-        post: operations["create_team_v1_teams_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/teams/{team_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Team */
-        get: operations["get_team_v1_teams__team_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Members */
-        get: operations["list_members_v1_tenants__tenant_id__members_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/members/{user_sub}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set Member Role */
-        put: operations["set_member_role_v1_tenants__tenant_id__members__user_sub__put"];
-        post?: never;
-        /** Remove Member */
-        delete: operations["remove_member_v1_tenants__tenant_id__members__user_sub__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}:leave": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Leave Tenant */
-        post: operations["leave_tenant_v1_tenants__tenant_id__leave_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/invitations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Invitations */
-        get: operations["list_invitations_v1_tenants__tenant_id__invitations_get"];
-        put?: never;
-        /** Create Invitation */
-        post: operations["create_invitation_v1_tenants__tenant_id__invitations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/invitations/{token}:accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept Invitation */
-        post: operations["accept_invitation_v1_invitations__token__accept_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/ownership-offer": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Ownership Offer */
-        get: operations["get_ownership_offer_v1_tenants__tenant_id__ownership_offer_get"];
-        put?: never;
-        /** Offer Ownership */
-        post: operations["offer_ownership_v1_tenants__tenant_id__ownership_offer_post"];
-        /** Cancel Ownership Offer */
-        delete: operations["cancel_ownership_offer_v1_tenants__tenant_id__ownership_offer_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/ownership-offer:accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept Ownership Offer */
-        post: operations["accept_ownership_offer_v1_tenants__tenant_id__ownership_offer_accept_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Tenant */
-        get: operations["get_tenant_v1_tenants__tenant_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Rename Tenant */
-        patch: operations["rename_tenant_v1_tenants__tenant_id__patch"];
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Settings */
-        get: operations["get_settings_v1_tenants__tenant_id__settings_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Settings */
-        patch: operations["update_settings_v1_tenants__tenant_id__settings_patch"];
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}:delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Delete Tenant */
-        post: operations["delete_tenant_v1_tenants__tenant_id__delete_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}:restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Restore Tenant */
-        post: operations["restore_tenant_v1_tenants__tenant_id__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/audit-log": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Audit Log */
-        get: operations["get_audit_log_v1_tenants__tenant_id__audit_log_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/internal/v1/training-runs/{run_id}/events": {
+    "/v1/projects/{project_id}/notifications/read": {
         parameters: {
             query?: never;
             header?: never;
@@ -2130,15 +1592,31 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Post Training Run Event
-         * @description A trainer's progress after an epoch. Authenticated by the run's token; only a running run takes events. A `seq` the
-         *     run already has answers 200 and changes nothing.
+         * Mark Notifications Read
+         * @description Moves the caller's cursor to `seq` (never backwards); events up to it stop counting as unread.
          */
-        post: operations["post_training_run_event_internal_v1_training_runs__run_id__events_post"];
+        post: operations["mark_notifications_read_v1_projects__project_id__notifications_read_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Project Settings */
+        patch: operations["update_project_settings_v1_projects__project_id__settings_patch"];
         trace?: never;
     };
     "/v1/projects/{project_id}/training-presets": {
@@ -2199,6 +1677,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/training-runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Training Run */
+        post: operations["cancel_training_run_v1_projects__project_id__training_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/training-runs/{run_id}/card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Card
+         * @description The model card of a run: task, preset, scores, dataset version and whether a test dataset was used.
+         */
+        get: operations["get_model_card_v1_projects__project_id__training_runs__run_id__card_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/training-runs/{run_id}/lineage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Training Run Lineage
+         * @description One endpoint joining dataset commit -> training run -> model registry entry -> active deployment.
+         */
+        get: operations["get_training_run_lineage_v1_projects__project_id__training_runs__run_id__lineage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/training-runs/{run_id}/steps": {
         parameters: {
             query?: never;
@@ -2213,23 +1748,6 @@ export interface paths {
         get: operations["get_training_run_steps_v1_projects__project_id__training_runs__run_id__steps_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{project_id}/training-runs/{run_id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancel Training Run */
-        post: operations["cancel_training_run_v1_projects__project_id__training_runs__run_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2253,15 +1771,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/usage": {
+    "/v1/projects/{project_id}/visibility": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Org Usage */
-        get: operations["org_usage_v1_usage_get"];
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Visibility */
+        patch: operations["update_visibility_v1_projects__project_id__visibility_patch"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Webhooks */
+        get: operations["list_webhooks_v1_projects__project_id__webhooks_get"];
+        put?: never;
+        /**
+         * Create Webhook
+         * @description Sends the project's job events (see /events) to the url: signed, in order, at least once. Hears new events only.
+         */
+        post: operations["create_webhook_v1_projects__project_id__webhooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Webhook */
+        delete: operations["delete_webhook_v1_projects__project_id__webhooks__webhook_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}:restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Project */
+        post: operations["restore_project_v1_projects__project_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Teams */
+        get: operations["list_teams_v1_teams_get"];
+        put?: never;
+        /** Create Team */
+        post: operations["create_team_v1_teams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team */
+        get: operations["get_team_v1_teams__team_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2287,15 +1895,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/health": {
+    "/v1/tenants": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Health */
-        get: operations["health_health_get"];
+        get?: never;
+        put?: never;
+        /**
+         * Create Tenant
+         * @description Tenant, owner membership and Default team in one transaction: nothing outside Postgres to undo.
+         */
+        post: operations["create_tenant_v1_tenants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tenant */
+        get: operations["get_tenant_v1_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename Tenant */
+        patch: operations["rename_tenant_v1_tenants__tenant_id__patch"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Audit Log */
+        get: operations["get_audit_log_v1_tenants__tenant_id__audit_log_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2304,15 +1950,173 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/health/deps": {
+    "/v1/tenants/{tenant_id}/invitations": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Health Deps */
-        get: operations["health_deps_health_deps_get"];
+        /** List Invitations */
+        get: operations["list_invitations_v1_tenants__tenant_id__invitations_get"];
+        put?: never;
+        /** Create Invitation */
+        post: operations["create_invitation_v1_tenants__tenant_id__invitations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Members */
+        get: operations["list_members_v1_tenants__tenant_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/members/{user_sub}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Member Role */
+        put: operations["set_member_role_v1_tenants__tenant_id__members__user_sub__put"];
+        post?: never;
+        /** Remove Member */
+        delete: operations["remove_member_v1_tenants__tenant_id__members__user_sub__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/ownership-offer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ownership Offer */
+        get: operations["get_ownership_offer_v1_tenants__tenant_id__ownership_offer_get"];
+        put?: never;
+        /** Offer Ownership */
+        post: operations["offer_ownership_v1_tenants__tenant_id__ownership_offer_post"];
+        /** Cancel Ownership Offer */
+        delete: operations["cancel_ownership_offer_v1_tenants__tenant_id__ownership_offer_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/ownership-offer:accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Ownership Offer */
+        post: operations["accept_ownership_offer_v1_tenants__tenant_id__ownership_offer_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_v1_tenants__tenant_id__settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Settings */
+        patch: operations["update_settings_v1_tenants__tenant_id__settings_patch"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}:delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete Tenant */
+        post: operations["delete_tenant_v1_tenants__tenant_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}:leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Leave Tenant */
+        post: operations["leave_tenant_v1_tenants__tenant_id__leave_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}:restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Tenant */
+        post: operations["restore_tenant_v1_tenants__tenant_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Org Usage */
+        get: operations["org_usage_v1_usage_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2327,11 +2131,30 @@ export interface components {
     schemas: {
         /** ActivityItem */
         ActivityItem: {
+            /** Action */
+            action: string;
+            /** Actor */
+            actor: string;
+            /** Actor Name */
+            actor_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Entity Id */
+            entity_id: string | null;
+            /** Entity Type */
+            entity_type: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Project Id */
+            project_id: string | null;
+            /** Project Name */
+            project_name: string | null;
             /**
              * Tenant Id
              * Format: uuid
@@ -2339,25 +2162,6 @@ export interface components {
             tenant_id: string;
             /** Tenant Name */
             tenant_name: string | null;
-            /** Project Id */
-            project_id: string | null;
-            /** Project Name */
-            project_name: string | null;
-            /** Actor */
-            actor: string;
-            /** Action */
-            action: string;
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Actor Name */
-            actor_name: string | null;
         };
         /** ActivityStats */
         ActivityStats: {
@@ -2383,64 +2187,64 @@ export interface components {
          * @description A row of admin_audit.
          */
         AdminAuditEntry: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            action: components["schemas"]["AdminAuditAction"];
             /** Actor */
             actor: string;
-            action: components["schemas"]["AdminAuditAction"];
-            entity_type: components["schemas"]["AdminAuditEntity"];
-            /** Entity Id */
-            entity_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /** Detail */
             detail: {
                 [key: string]: unknown;
             };
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** AdminCatalogModel */
-        AdminCatalogModel: {
+            /** Entity Id */
+            entity_id: string;
+            entity_type: components["schemas"]["AdminAuditEntity"];
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            source: components["schemas"]["CatalogSource"];
-            /** Repo Id */
-            repo_id: string;
-            /** Revision */
-            revision: string;
-            /** Display Name */
-            display_name: string;
-            /** Task */
-            task: string;
-            /** License */
-            license: string;
-            /** Params */
-            params: number | null;
-            /** Size Bytes */
-            size_bytes: number | null;
-            status: components["schemas"]["CatalogStatus"];
-            /** Created By */
-            created_by: string;
+        };
+        /** AdminCatalogModel */
+        AdminCatalogModel: {
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Updated By */
-            updated_by: string;
+            /** Created By */
+            created_by: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** License */
+            license: string;
+            /** Params */
+            params: number | null;
+            /** Repo Id */
+            repo_id: string;
+            /** Revision */
+            revision: string;
+            /** Size Bytes */
+            size_bytes: number | null;
+            source: components["schemas"]["CatalogSource"];
+            status: components["schemas"]["CatalogStatus"];
+            /** Task */
+            task: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Updated By */
+            updated_by: string;
         };
         /**
          * AdminModel
@@ -2448,27 +2252,17 @@ export interface components {
          */
         AdminModel: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Version */
-            version: string;
-            /** Stage */
-            stage: string;
-            status: components["schemas"]["ModelStatus"];
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
             /**
-             * Tenant Id
+             * Id
              * Format: uuid
              */
-            tenant_id: string;
-            /** Tenant Name */
-            tenant_name: string;
+            id: string;
+            /** Model Name */
+            model_name: string;
             /**
              * Project Id
              * Format: uuid
@@ -2476,62 +2270,72 @@ export interface components {
             project_id: string;
             /** Project Name */
             project_name: string;
+            /** Stage */
+            stage: string;
+            status: components["schemas"]["ModelStatus"];
             /** Task Type */
             task_type: string | null;
-            /** Visibility */
-            visibility: string;
-            /** Model Name */
-            model_name: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+            /** Version */
+            version: string;
             /** Version Count */
             version_count: number;
+            /** Visibility */
+            visibility: string;
         };
         /** AdminModelVersion */
         AdminModelVersion: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Version */
-            version: string;
-            /** Stage */
-            stage: string;
-            status: components["schemas"]["ModelStatus"];
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Stage */
+            stage: string;
+            status: components["schemas"]["ModelStatus"];
+            /** Version */
+            version: string;
         };
         /** Archives */
         Archives: {
-            /** Upload Max Bytes */
-            upload_max_bytes: number;
             /** Extracted Max Bytes */
             extracted_max_bytes: number;
             /** Max Files */
             max_files: number;
+            /** Upload Max Bytes */
+            upload_max_bytes: number;
         };
         /** AuditEntry */
         AuditEntry: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Actor */
-            actor: string;
             /** Action */
             action: string;
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: string;
+            /** Actor */
+            actor: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Entity Id */
+            entity_id: string;
+            /** Entity Type */
+            entity_type: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /**
          * Augmentation
@@ -2557,13 +2361,6 @@ export interface components {
             /** Zitadel Org Id */
             zitadel_org_id?: string | null;
         };
-        /** Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch */
-        Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch: {
-            /** Publish Metadata */
-            publish_metadata?: boolean | null;
-            /** Publish Artifact */
-            publish_artifact?: boolean | null;
-        };
         /** Body_set_tenant_status_v1_admin_tenants__tenant_id__status_post */
         Body_set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
             /** Status */
@@ -2574,10 +2371,10 @@ export interface components {
             /** Auto Promote */
             auto_promote: boolean;
             slug: components["schemas"]["TaskType"];
-            /** Updated By */
-            updated_by?: string | null;
             /** Updated At */
             updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
         };
         /** BundleSettingsBody */
         BundleSettingsBody: {
@@ -2600,49 +2397,49 @@ export interface components {
          * @description One enabled catalog entry: a base model pinned by commit, with the licence it was admitted under.
          */
         CatalogModel: {
+            /** Display Name */
+            display_name: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Repo Id */
-            repo_id: string;
-            /** Revision */
-            revision: string;
-            /** Display Name */
-            display_name: string;
-            /** Task */
-            task: string;
             /** License */
             license: string;
             /** Params */
             params: number | null;
+            /** Repo Id */
+            repo_id: string;
+            /** Revision */
+            revision: string;
             /** Size Bytes */
             size_bytes: number | null;
+            /** Task */
+            task: string;
         };
         /**
          * CatalogModelCreate
          * @description A model to admit. `license` is replaced by the one the Hub declares when the Hub is configured.
          */
         CatalogModelCreate: {
-            /** @default hf */
-            source: components["schemas"]["CatalogSource"];
-            /** Repo Id */
-            repo_id: string;
-            /** Revision */
-            revision: string;
             /** Display Name */
             display_name: string;
-            /** Task */
-            task: string;
             /** License */
             license: string;
             /** Params */
             params?: number | null;
+            /** Repo Id */
+            repo_id: string;
+            /** Revision */
+            revision: string;
             /** Size Bytes */
             size_bytes?: number | null;
+            /** @default hf */
+            source: components["schemas"]["CatalogSource"];
             /** @default enabled */
             status: components["schemas"]["CatalogStatus"];
+            /** Task */
+            task: string;
         };
         /**
          * CatalogModelUpdate
@@ -2651,14 +2448,14 @@ export interface components {
         CatalogModelUpdate: {
             /** Display Name */
             display_name?: string | null;
-            /** Task */
-            task?: string | null;
             /** License */
             license?: string | null;
             /** Params */
             params?: number | null;
             /** Size Bytes */
             size_bytes?: number | null;
+            /** Task */
+            task?: string | null;
         };
         /**
          * CatalogSource
@@ -2678,12 +2475,12 @@ export interface components {
          *     backs it (None for a row from before bundles) and whether a passing candidate is promoted without a person.
          */
         CatalogTask: {
-            task: components["schemas"]["TaskInfo"];
-            /** Presets */
-            presets: components["schemas"]["TaskPreset"][];
-            bundle: components["schemas"]["TaskBundle"] | null;
             /** Auto Promote */
             auto_promote: boolean;
+            bundle: components["schemas"]["TaskBundle"] | null;
+            /** Presets */
+            presets: components["schemas"]["TaskPreset"][];
+            task: components["schemas"]["TaskInfo"];
         };
         /**
          * ComputeTarget
@@ -2701,34 +2498,40 @@ export interface components {
         /** CreatedApiKey */
         CreatedApiKey: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Prefix */
-            prefix: string;
-            /** Scopes */
-            scopes: string[];
-            /** Project Ids */
-            project_ids: string[];
-            /** Model Ids */
-            model_ids: string[];
-            /** Expires At */
-            expires_at: string | null;
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Model Ids */
+            model_ids: string[];
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Project Ids */
+            project_ids: string[];
             /** Rate Limit Per Minute */
             rate_limit_per_minute?: number | null;
+            /** Scopes */
+            scopes: string[];
             /** Secret */
             secret: string;
         };
         /** CreatedProject */
         CreatedProject: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            default_access: components["schemas"]["DefaultAccess"];
             /**
              * Id
              * Format: uuid
@@ -2737,21 +2540,18 @@ export interface components {
             /** Name */
             name: string;
             status: components["schemas"]["ProjectStatus"];
+            task_type: components["schemas"]["TaskType"];
             /** Team Id */
             team_id: string | null;
-            task_type: components["schemas"]["TaskType"];
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** CreatedTenant */
+        CreatedTenant: {
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            visibility: components["schemas"]["Visibility"];
-            default_access: components["schemas"]["DefaultAccess"];
-            /** Gallery Published */
-            gallery_published: boolean;
-        };
-        /** CreatedTenant */
-        CreatedTenant: {
             /**
              * Id
              * Format: uuid
@@ -2759,26 +2559,14 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /** Zitadel Org Id */
-            zitadel_org_id: string | null;
             /** Plan Tier */
             plan_tier: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
             status: components["schemas"]["IdentityStatus"];
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
         };
         /** CreatedWebhook */
         CreatedWebhook: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Url */
-            url: string;
             /**
              * Created At
              * Format: date-time
@@ -2786,15 +2574,16 @@ export interface components {
             created_at: string;
             /** Disabled At */
             disabled_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Secret */
             secret: string;
+            /** Url */
+            url: string;
         };
-        /**
-         * DataCategory
-         * @description What the customer declares a dataset holds (planning/18). Stored only. Mirrors datasets_data_categories_check.
-         * @enum {string}
-         */
-        DataCategory: "personal_data" | "biometric" | "other_sensitive";
         /**
          * DataKind
          * @enum {string}
@@ -2804,39 +2593,34 @@ export interface components {
         DatasetCreate: {
             /** Name */
             name: string;
-            /**
-             * Data Categories
-             * @description what the dataset holds, declared by the customer
-             */
-            data_categories?: components["schemas"]["DataCategory"][];
         };
         /** DatasetImport */
         DatasetImport: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Dataset Id
-             * Format: uuid
-             */
-            dataset_id: string;
-            source: components["schemas"]["ImportSource"];
-            status: components["schemas"]["ImportStatus"];
             /** Base Version Id */
             base_version_id: string | null;
-            params: components["schemas"]["ImportParams"];
-            report: components["schemas"]["ImportReport"] | null;
-            /** Expires At */
-            expires_at: string | null;
+            /** Completed At */
+            completed_at: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Completed At */
-            completed_at: string | null;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            params: components["schemas"]["ImportParams"];
+            report: components["schemas"]["ImportReport"] | null;
+            source: components["schemas"]["ImportSource"];
+            status: components["schemas"]["ImportStatus"];
             /** Upload Url */
             upload_url?: string | null;
         };
@@ -2852,6 +2636,11 @@ export interface components {
          */
         DatasetSummary: {
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
              * Id
              * Format: uuid
              */
@@ -2859,46 +2648,30 @@ export interface components {
             /** Name */
             name: string;
             task_type: components["schemas"]["TaskType"] | null;
+        };
+        /** DatasetVersion */
+        DatasetVersion: {
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Deleted At */
-            deleted_at: string | null;
-            /** Published Version Id */
-            published_version_id: string | null;
-            /** Data Categories */
-            data_categories: components["schemas"]["DataCategory"][];
-            /**
-             * Restorable Until
-             * @description When a deleted dataset is purged for good; None while it is live.
-             */
-            readonly restorable_until: string | null;
-        };
-        /** DatasetVersion */
-        DatasetVersion: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Number */
-            number: number;
             /**
              * Import Id
              * Format: uuid
              */
             import_id: string;
+            /** Number */
+            number: number;
             /** Stats */
             stats: {
                 [key: string]: unknown;
             };
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /**
          * DefaultAccess
@@ -2908,63 +2681,59 @@ export interface components {
         /** DeleteResult */
         DeleteResult: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            status: components["schemas"]["ProjectStatus"];
-            /**
              * Deleted At
              * Format: date-time
              */
             deleted_at: string;
             /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
              * Restorable Until
              * Format: date-time
              */
             readonly restorable_until: string;
+            status: components["schemas"]["ProjectStatus"];
         };
         /**
          * DeployStrategy
          * @enum {string}
          */
         DeployStrategy: "main" | "latest";
-        /**
-         * DeploymentCreated
-         * @description predict_key is present only when a new deployment was minted (shown once); a 'main' re-deploy omits it.
-         */
+        /** DeploymentCreated */
         DeploymentCreated: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Status */
-            status: string;
-            /** Route Prefix */
-            route_prefix: string;
-            /** Rate Limit Per Minute */
-            rate_limit_per_minute: number;
+            /** Main */
+            main: boolean;
             /** Plan Tier */
             plan_tier: string | null;
-            main: boolean;
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute: number;
+            /** Route Prefix */
+            route_prefix: string;
+            /** Status */
+            status: string;
         };
         /** DeploymentDetail */
         DeploymentDetail: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Route Prefix */
-            route_prefix: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Main */
+            main: boolean;
             /** Model Version Id */
             model_version_id: string | null;
             /**
@@ -2972,49 +2741,49 @@ export interface components {
              * Format: uuid
              */
             project_id: string;
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute: number;
+            /** Route Prefix */
+            route_prefix: string;
+            /** Status */
+            status: string;
             /**
              * Training Run Id
              * Format: uuid
              */
             training_run_id: string;
-            /** Rate Limit Per Minute */
-            rate_limit_per_minute: number;
-            main: boolean;
         };
         /** DeploymentListItem */
         DeploymentListItem: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Route Prefix */
-            route_prefix: string;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Main */
+            main: boolean;
             /** Model Version Id */
             model_version_id: string | null;
-            main: boolean;
+            /** Route Prefix */
+            route_prefix: string;
+            /** Status */
+            status: string;
         };
         /**
          * DeploymentSchema
          * @description What to send to and expect from POST /v1/predict for this deployment, derived from its task type, with call snippets.
          */
         DeploymentSchema: {
-            /** Task Type */
-            task_type: string;
             /**
-             * Model Id
+             * Deployment Id
              * Format: uuid
              */
-            model_id: string;
-            /** Model Revision */
-            model_revision: string;
+            deployment_id: string;
             /** Input */
             input: {
                 [key: string]: unknown;
@@ -3024,6 +2793,8 @@ export interface components {
                 [key: string]: unknown;
             };
             snippets: components["schemas"]["DeploymentSnippets"];
+            /** Task Type */
+            task_type: string;
         };
         /** DeploymentSnippets */
         DeploymentSnippets: {
@@ -3060,10 +2831,10 @@ export interface components {
         };
         /** EventAck */
         EventAck: {
-            /** Seq */
-            seq: number;
             /** Duplicate */
             duplicate: boolean;
+            /** Seq */
+            seq: number;
         };
         /**
          * ExecutionProvider
@@ -3077,11 +2848,6 @@ export interface components {
          * @enum {string}
          */
         FailureCode: "oom" | "bad_data" | "unsupported" | "timeout" | "internal";
-        /** FileLink */
-        FileLink: {
-            /** Url */
-            url: string;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -3094,8 +2860,8 @@ export interface components {
         };
         /** HyperparameterLimits */
         HyperparameterLimits: {
-            epochs: components["schemas"]["HyperparameterRange"];
             batch_size: components["schemas"]["HyperparameterRange"];
+            epochs: components["schemas"]["HyperparameterRange"];
             image_size: components["schemas"]["HyperparameterRange"];
         };
         /**
@@ -3104,10 +2870,10 @@ export interface components {
          *     a bundle also takes the keys of the bundle's hyperparameter JSON Schema, which the request is validated against.
          */
         HyperparameterOverrides: {
-            /** Epochs */
-            epochs?: number | null;
             /** Batch Size */
             batch_size?: number | null;
+            /** Epochs */
+            epochs?: number | null;
             /** Image Size */
             image_size?: number | null;
         } & {
@@ -3117,10 +2883,10 @@ export interface components {
         HyperparameterRange: {
             /** Default */
             default: number;
-            /** Min */
-            min: number;
             /** Max */
             max: number;
+            /** Min */
+            min: number;
         };
         /**
          * IdentityStatus
@@ -3130,45 +2896,37 @@ export interface components {
         IdentityStatus: "active" | "suspended" | "pending" | "unknown";
         /** Images */
         Images: {
-            /** Image Max Dimension */
-            image_max_dimension: number;
             /** Image Max Bytes */
             image_max_bytes: number;
+            /** Image Max Dimension */
+            image_max_dimension: number;
         };
         /** ImportCreate */
         ImportCreate: {
-            source: components["schemas"]["ImportSource"];
-            task_type?: components["schemas"]["TaskType"] | null;
             /** Base Version Id */
             base_version_id?: string | null;
             /** @default {} */
             params: components["schemas"]["ImportParams"];
+            source: components["schemas"]["ImportSource"];
+            task_type?: components["schemas"]["TaskType"] | null;
         };
         /**
          * ImportParams
          * @description What the ingest job needs besides the upload. Stored as dataset_imports.params.
          */
         ImportParams: {
-            /** Target */
-            target?: string | null;
-            split?: components["schemas"]["Split"] | null;
+            /** Column */
+            column?: string | null;
             /** Repo */
             repo?: string | null;
             /** Revision */
             revision?: string | null;
-            /** Column */
-            column?: string | null;
+            split?: components["schemas"]["Split"] | null;
+            /** Target */
+            target?: string | null;
         };
         /** ImportReport */
         ImportReport: {
-            /**
-             * Schema Version
-             * @default 1
-             * @constant
-             */
-            schema_version: 1;
-            outcome: components["schemas"]["Outcome"];
-            stats?: components["schemas"]["Stats"] | null;
             /**
              * Issues
              * @default []
@@ -3179,10 +2937,18 @@ export interface components {
              * @default 0
              */
             issues_omitted: number;
-            /** Revision */
-            revision?: string | null;
             /** License */
             license?: string[] | null;
+            outcome: components["schemas"]["Outcome"];
+            /** Revision */
+            revision?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            stats?: components["schemas"]["Stats"] | null;
         };
         /**
          * ImportSource
@@ -3198,30 +2964,30 @@ export interface components {
         ImportStatus: "awaiting_upload" | "queued" | "running" | "awaiting_review" | "committing" | "succeeded" | "failed" | "cancelled" | "expired" | "discarded";
         /** Invitation */
         Invitation: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            /** Created At */
+            created_at?: string | null;
             /** Email */
             email: string;
-            role: components["schemas"]["InviteRole"];
             /**
              * Expires At
              * Format: date-time
              */
             expires_at: string;
-            /** Created At */
-            created_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            role: components["schemas"]["InviteRole"];
         };
         /** InvitationAccepted */
         InvitationAccepted: {
+            role: components["schemas"]["TenantRole"];
             /**
              * Tenant Id
              * Format: uuid
              */
             tenant_id: string;
-            role: components["schemas"]["TenantRole"];
         };
         /** InvitationBody */
         InvitationBody: {
@@ -3231,23 +2997,23 @@ export interface components {
         };
         /** InvitationCreated */
         InvitationCreated: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            /** Created At */
+            created_at?: string | null;
             /** Email */
             email: string;
-            role: components["schemas"]["InviteRole"];
+            /** Email Sent */
+            email_sent: boolean;
             /**
              * Expires At
              * Format: date-time
              */
             expires_at: string;
-            /** Created At */
-            created_at?: string | null;
-            /** Email Sent */
-            email_sent: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            role: components["schemas"]["InviteRole"];
             /** Token */
             token?: string | null;
         };
@@ -3260,11 +3026,11 @@ export interface components {
         /** Issue */
         Issue: {
             code: components["schemas"]["IssueCode"];
-            severity: components["schemas"]["Severity"];
-            /** Path */
-            path?: string | null;
             /** Message */
             message: string;
+            /** Path */
+            path?: string | null;
+            severity: components["schemas"]["Severity"];
         };
         /**
          * IssueCode
@@ -3276,55 +3042,55 @@ export interface components {
          * @description One state change of a job: `kind` is `<job>.<status>` (training.succeeded, import.failed, deployment.active).
          */
         JobEvent: {
-            /** Seq */
-            seq: number;
-            /** Kind */
-            kind: string;
             /**
              * Entity Id
              * Format: uuid
              */
             entity_id: string;
-            /** Status */
-            status: string;
+            /** Kind */
+            kind: string;
             /**
              * Occurred At
              * Format: date-time
              */
             occurred_at: string;
+            /** Seq */
+            seq: number;
+            /** Status */
+            status: string;
         };
         /** JobPackage */
         JobPackage: {
-            /** Name */
-            name: string;
             /** @default runtime */
             kind: components["schemas"]["PackageKind"];
             /** Manifest */
             manifest?: {
                 [key: string]: unknown;
             } | null;
+            /** Name */
+            name: string;
+            /** Published By */
+            published_by: string;
             /**
              * Requirements
              * @default []
              */
             requirements: string[];
-            /** Sha256 */
-            sha256: string;
             /** S3 Key */
             s3_key: string;
+            /** Sha256 */
+            sha256: string;
+            /** Smoke Job Id */
+            smoke_job_id: string | null;
+            smoke_status: components["schemas"]["SmokeStatus"];
             status: components["schemas"]["PackageStatus"];
-            /** Published By */
-            published_by: string;
-            /** Updated By */
-            updated_by: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            smoke_status: components["schemas"]["SmokeStatus"];
-            /** Smoke Job Id */
-            smoke_job_id: string | null;
+            /** Updated By */
+            updated_by: string;
         };
         /**
          * JobPackageName
@@ -3343,37 +3109,10 @@ export interface components {
             mlflow_model_name: string;
             /** Mlflow Version */
             mlflow_version: string;
-            /** Stage */
-            stage: string;
         };
         /** LineageRun */
         LineageRun: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Dataset Id */
-            dataset_id: string | null;
-            /** Dataset Version */
-            dataset_version: string | null;
-            /** Dataset Version Id */
-            dataset_version_id: string | null;
-            /** Test Dataset Id */
-            test_dataset_id: string | null;
-            /** Test Dataset Version */
-            test_dataset_version: string | null;
-            /**
-             * Has Test Split
-             * @default false
-             */
-            has_test_split: boolean;
-            /** Mlflow Run Id */
-            mlflow_run_id: string | null;
-            /** Reproduction Group Id */
-            reproduction_group_id: string | null;
+            base_model?: components["schemas"]["TrainBaseModel"] | null;
             /** Config */
             config: unknown;
             /**
@@ -3381,48 +3120,73 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Task */
-            task?: string | null;
-            /** Preset */
-            preset?: string | null;
-            /** Metrics */
-            metrics?: unknown;
-            /** Near Duplicates */
-            near_duplicates?: number | null;
-            base_model?: components["schemas"]["TrainBaseModel"] | null;
-        };
-        /** ListedApiKey */
-        ListedApiKey: {
+            /** Dataset Id */
+            dataset_id: string | null;
+            /** Dataset Version */
+            dataset_version: string | null;
+            /** Dataset Version Id */
+            dataset_version_id: string | null;
+            /**
+             * Has Test Split
+             * @default false
+             */
+            has_test_split: boolean;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Name */
-            name: string;
-            /** Prefix */
-            prefix: string;
-            /** Scopes */
-            scopes: string[];
-            /** Project Ids */
-            project_ids: string[];
-            /** Model Ids */
-            model_ids: string[];
-            /** Expires At */
-            expires_at: string | null;
+            /** Metrics */
+            metrics?: unknown;
+            /** Mlflow Run Id */
+            mlflow_run_id: string | null;
+            /** Near Duplicates */
+            near_duplicates?: number | null;
+            /** Preset */
+            preset?: string | null;
+            /** Reproduction Group Id */
+            reproduction_group_id: string | null;
+            /** Status */
+            status: string;
+            /** Task */
+            task?: string | null;
+            /** Test Dataset Id */
+            test_dataset_id: string | null;
+            /** Test Dataset Version */
+            test_dataset_version: string | null;
+        };
+        /** ListedApiKey */
+        ListedApiKey: {
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Rate Limit Per Minute */
-            rate_limit_per_minute?: number | null;
             /** Created By */
             created_by: string;
-            /** Revoked At */
-            revoked_at: string | null;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Last Used At */
             last_used_at?: string | null;
+            /** Model Ids */
+            model_ids: string[];
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Project Ids */
+            project_ids: string[];
+            /** Rate Limit Per Minute */
+            rate_limit_per_minute?: number | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Scopes */
+            scopes: string[];
         };
         /**
          * LrSchedule
@@ -3437,22 +3201,22 @@ export interface components {
         };
         /** Me */
         Me: {
-            /** Sub */
-            sub: string;
             /** Email */
             email: string | null;
             /** Email Verified */
             email_verified: boolean;
             /** Name */
             name: string | null;
+            /** Sub */
+            sub: string;
             /** Tenants */
             tenants: components["schemas"]["TenantSummary"][];
         };
         /** MemberRole */
         MemberRole: {
+            role: components["schemas"]["TenantRole"];
             /** User Sub */
             user_sub: string;
-            role: components["schemas"]["TenantRole"];
         };
         /** MemberRoles */
         MemberRoles: {
@@ -3461,57 +3225,49 @@ export interface components {
              * Format: uuid
              */
             project_id: string;
-            /** User Sub */
-            user_sub: string;
             /** Roles */
             roles: components["schemas"]["Role"][];
+            /** User Sub */
+            user_sub: string;
         };
         /**
          * ModelCard
          * @description The facts a person needs before trusting a model, assembled from its run: what it was trained on, how it was scored, what it is.
          */
         ModelCard: {
+            base_model: components["schemas"]["TrainBaseModel"] | null;
+            dataset_version: components["schemas"]["VersionRef"] | null;
+            /** Has Test Split */
+            has_test_split: boolean;
+            /** Metrics */
+            metrics: unknown;
+            model_version: components["schemas"]["LineageModel"] | null;
+            /** Near Duplicates */
+            near_duplicates: number | null;
+            /** Preset */
+            preset: string | null;
+            /** Task */
+            task: string | null;
+            /** Test Dataset Version */
+            test_dataset_version: string | null;
             /**
              * Training Run Id
              * Format: uuid
              */
             training_run_id: string;
-            /** Task */
-            task: string | null;
-            /** Preset */
-            preset: string | null;
-            base_model: components["schemas"]["TrainBaseModel"] | null;
-            /** Near Duplicates */
-            near_duplicates: number | null;
-            /** Metrics */
-            metrics: unknown;
-            dataset_version: components["schemas"]["VersionRef"] | null;
-            /** Test Dataset Version */
-            test_dataset_version: string | null;
-            /** Has Test Split */
-            has_test_split: boolean;
-            model_version: components["schemas"]["LineageModel"] | null;
         };
-        /**
-         * ModelStage
-         * @description Model Registry stages.
-         * @enum {string}
-         */
-        ModelStage: "None" | "Staging" | "Production" | "Archived";
         /** ModelStats */
         ModelStats: {
-            /** Model Count */
-            model_count: number;
             /** Deployed Count */
             deployed_count: number;
-            /** Deploying Count */
-            deploying_count: number;
-            /** Stopped Count */
-            stopped_count: number;
+            /** Model Count */
+            model_count: number;
             /** Not Deployed Count */
             not_deployed_count: number;
             /** Project Count */
             project_count: number;
+            /** Stopped Count */
+            stopped_count: number;
             /** Version Count */
             version_count: number;
         };
@@ -3520,32 +3276,14 @@ export interface components {
          * @description The statuses admin_models() derives from a model's newest deployment (a test checks the function names each).
          * @enum {string}
          */
-        ModelStatus: "deployed" | "deploying" | "stopped" | "not_deployed";
-        /** ModelVersion */
-        ModelVersion: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Mlflow Model Name */
-            mlflow_model_name: string;
-            /** Mlflow Version */
-            mlflow_version: string;
-            stage: components["schemas"]["ModelStage"];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
+        ModelStatus: "deployed" | "stopped" | "not_deployed";
         /** ModelVersionItem */
         ModelVersionItem: {
-            promotion_status?: components["schemas"]["PromotionStatus"] | null;
-            /** Promotion Error */
-            promotion_error?: string | null;
-            /** Promotion Error Code */
-            promotion_error_code?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Id
              * Format: uuid
@@ -3555,14 +3293,6 @@ export interface components {
             mlflow_model_name: string;
             /** Mlflow Version */
             mlflow_version: string;
-            stage: components["schemas"]["ModelStage"];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Customer Label */
-            customer_label: string;
             /**
              * Model Id
              * Format: uuid
@@ -3571,16 +3301,16 @@ export interface components {
         };
         /** NewApiKey */
         NewApiKey: {
-            /** Name */
-            name: string;
-            /** Scopes */
-            scopes: components["schemas"]["Scope"][];
-            /** Project Ids */
-            project_ids: string[];
             /** Expires At */
             expires_at?: string | null;
+            /** Name */
+            name: string;
+            /** Project Ids */
+            project_ids: string[];
             /** Rate Limit Per Minute */
             rate_limit_per_minute?: number | null;
+            /** Scopes */
+            scopes: components["schemas"]["Scope"][];
         };
         /** NewWebhook */
         NewWebhook: {
@@ -3589,10 +3319,10 @@ export interface components {
         };
         /** Notifications */
         Notifications: {
-            /** Unread */
-            unread: number;
             /** Items */
             items: components["schemas"]["JobEvent"][];
+            /** Unread */
+            unread: number;
         };
         /**
          * OfferStatus
@@ -3602,12 +3332,12 @@ export interface components {
         OfferStatus: "pending" | "expired";
         /** OrgOwner */
         OrgOwner: {
-            /** User Id */
-            user_id: string;
             /** Display Name */
             display_name: string | null;
             /** Login Name */
             login_name: string | null;
+            /** User Id */
+            user_id: string;
         };
         /**
          * Outcome
@@ -3616,12 +3346,6 @@ export interface components {
         Outcome: "ok" | "failed";
         /** OwnershipOffer */
         OwnershipOffer: {
-            /** From Sub */
-            from_sub: string;
-            /** To Sub */
-            to_sub: string;
-            /** Step Down */
-            step_down: boolean;
             /**
              * Created At
              * Format: date-time
@@ -3632,17 +3356,23 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /** From Sub */
+            from_sub: string;
             readonly status: components["schemas"]["OfferStatus"];
+            /** Step Down */
+            step_down: boolean;
+            /** To Sub */
+            to_sub: string;
         };
         /** OwnershipOfferBody */
         OwnershipOfferBody: {
-            /** To Sub */
-            to_sub: string;
             /**
              * Step Down
              * @default false
              */
             step_down: boolean;
+            /** To Sub */
+            to_sub: string;
         };
         /**
          * PackageKind
@@ -3747,13 +3477,6 @@ export interface components {
             /** Next Page Token */
             next_page_token?: string | null;
         };
-        /** Page[TrashedDataset] */
-        Page_TrashedDataset_: {
-            /** Items */
-            items: components["schemas"]["TrashedDataset"][];
-            /** Next Page Token */
-            next_page_token?: string | null;
-        };
         /** Page[TrashedProject] */
         Page_TrashedProject_: {
             /** Items */
@@ -3770,34 +3493,34 @@ export interface components {
         };
         /** PlanLimits */
         PlanLimits: {
-            concurrency: components["schemas"]["Concurrency"];
             archives: components["schemas"]["Archives"];
-            images: components["schemas"]["Images"];
-            tables: components["schemas"]["Tables"];
-            huggingface: components["schemas"]["HuggingFace"];
-            predict: components["schemas"]["Predict"];
+            concurrency: components["schemas"]["Concurrency"];
             deployments: components["schemas"]["Deployments"];
+            huggingface: components["schemas"]["HuggingFace"];
+            images: components["schemas"]["Images"];
             plan_tier: components["schemas"]["PlanTier"];
-            /** Updated By */
-            updated_by: string;
+            predict: components["schemas"]["Predict"];
+            tables: components["schemas"]["Tables"];
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Updated By */
+            updated_by: string;
         };
         /**
          * PlanLimitsBody
          * @description What an admin writes for one tier; each field is a jsonb column of plan_limits, its keys named like DatasetLimits's.
          */
         PlanLimitsBody: {
-            concurrency: components["schemas"]["Concurrency"];
             archives: components["schemas"]["Archives"];
-            images: components["schemas"]["Images"];
-            tables: components["schemas"]["Tables"];
-            huggingface: components["schemas"]["HuggingFace"];
-            predict: components["schemas"]["Predict"];
+            concurrency: components["schemas"]["Concurrency"];
             deployments: components["schemas"]["Deployments"];
+            huggingface: components["schemas"]["HuggingFace"];
+            images: components["schemas"]["Images"];
+            predict: components["schemas"]["Predict"];
+            tables: components["schemas"]["Tables"];
         };
         /**
          * PlanTier
@@ -3819,8 +3542,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Revision */
-            revision: string;
         };
         /** PredictUsage */
         PredictUsage: {
@@ -3831,29 +3552,29 @@ export interface components {
         };
         /** PredictionEnvelope */
         PredictionEnvelope: {
-            /** Id */
-            id: string;
-            /** @default completed */
-            status: components["schemas"]["PredictionStatus"];
-            model: components["schemas"]["PredictModelRef"];
-            /** Output */
-            output?: unknown;
-            usage: components["schemas"]["PredictUsage"];
-            /** Metadata */
-            metadata: {
-                [key: string]: unknown;
-            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             error?: components["schemas"]["PredictionError"] | null;
             /**
              * Expired
              * @default false
              */
             expired: boolean;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
+            /** Id */
+            id: string;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            model: components["schemas"]["PredictModelRef"];
+            /** Output */
+            output?: unknown;
+            /** @default completed */
+            status: components["schemas"]["PredictionStatus"];
+            usage: components["schemas"]["PredictUsage"];
         };
         /** PredictionError */
         PredictionError: {
@@ -3880,79 +3601,79 @@ export interface components {
                 number,
                 number
             ];
+            resample: components["schemas"]["Resample"];
+            /** Rescale */
+            rescale: number;
             /** Std */
             std: [
                 number,
                 number,
                 number
             ];
-            /** Rescale */
-            rescale: number;
-            resample: components["schemas"]["Resample"];
         };
         /**
          * PresetBody
          * @description What an admin writes for one preset.
          */
         PresetBody: {
-            base_model: components["schemas"]["TrainBaseModel"];
-            /** Learning Rate */
-            learning_rate: number;
-            /** Preprocessing */
-            preprocessing: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"];
-            /** Cpu */
-            cpu: number;
-            /** Memory Bytes */
-            memory_bytes: number;
-            /** Gpu */
-            gpu: number;
-            /** Vram Gb */
-            vram_gb?: number | null;
-            /** Max Runtime S */
-            max_runtime_s: number;
-            hyperparameters: components["schemas"]["HyperparameterLimits"];
-            /** @default constant */
-            lr_schedule: components["schemas"]["LrSchedule"];
-            /**
-             * Warmup Fraction
-             * @default 0
-             */
-            warmup_fraction: number;
             /** @default none */
             augmentation: components["schemas"]["Augmentation"];
+            base_model: components["schemas"]["TrainBaseModel"];
+            /** Cpu */
+            cpu: number;
             /**
              * Early Stopping Patience
              * @default 0
              */
             early_stopping_patience: number;
+            /** Gpu */
+            gpu: number;
+            hyperparameters: components["schemas"]["HyperparameterLimits"];
+            /** Learning Rate */
+            learning_rate: number;
+            /** @default constant */
+            lr_schedule: components["schemas"]["LrSchedule"];
+            /** Max Runtime S */
+            max_runtime_s: number;
+            /** Memory Bytes */
+            memory_bytes: number;
+            /** Preprocessing */
+            preprocessing: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"];
+            /** Vram Gb */
+            vram_gb?: number | null;
+            /**
+             * Warmup Fraction
+             * @default 0
+             */
+            warmup_fraction: number;
         };
         /** PresetSummary */
         PresetSummary: {
-            /** Name */
-            name: string;
+            augmentation: components["schemas"]["Augmentation"];
             base_model: components["schemas"]["TrainBaseModel"] | null;
-            /** Learning Rate */
-            learning_rate: number;
             /** Cpu */
             cpu: number;
-            /** Memory Bytes */
-            memory_bytes: number;
+            /** Early Stopping Patience */
+            early_stopping_patience: number;
             /** Gpu */
             gpu: number;
-            /** Vram Gb */
-            vram_gb?: number | null;
-            /** Max Runtime S */
-            max_runtime_s: number;
             /** Hyperparameters */
             hyperparameters: components["schemas"]["HyperparameterLimits"] | {
                 [key: string]: unknown;
             };
+            /** Learning Rate */
+            learning_rate: number;
             lr_schedule: components["schemas"]["LrSchedule"];
+            /** Max Runtime S */
+            max_runtime_s: number;
+            /** Memory Bytes */
+            memory_bytes: number;
+            /** Name */
+            name: string;
+            /** Vram Gb */
+            vram_gb?: number | null;
             /** Warmup Fraction */
             warmup_fraction: number;
-            augmentation: components["schemas"]["Augmentation"];
-            /** Early Stopping Patience */
-            early_stopping_patience: number;
         };
         /**
          * PreviewRow
@@ -3968,6 +3689,11 @@ export interface components {
         };
         /** ProgressPoint */
         ProgressPoint: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /** Epoch */
             epoch: number;
             /** Epochs */
@@ -3978,14 +3704,17 @@ export interface components {
             };
             /** Seq */
             seq: number;
+        };
+        /** ProjectDetail */
+        ProjectDetail: {
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-        };
-        /** ProjectDetail */
-        ProjectDetail: {
+            default_access: components["schemas"]["DefaultAccess"];
+            /** Default Test Dataset Id */
+            default_test_dataset_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -3993,24 +3722,15 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            status: components["schemas"]["ProjectStatus"];
-            /** Team Id */
-            team_id: string | null;
-            task_type: components["schemas"]["TaskType"];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Default Test Dataset Id */
-            default_test_dataset_id: string | null;
             /** Settings */
             settings: {
                 [key: string]: unknown;
             };
+            status: components["schemas"]["ProjectStatus"];
+            task_type: components["schemas"]["TaskType"];
+            /** Team Id */
+            team_id: string | null;
             visibility: components["schemas"]["Visibility"];
-            default_access: components["schemas"]["DefaultAccess"];
-            sharing: components["schemas"]["Sharing"];
         };
         /**
          * ProjectListItem
@@ -4018,27 +3738,27 @@ export interface components {
          */
         ProjectListItem: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            status: components["schemas"]["ProjectStatus"];
-            /** Team Id */
-            team_id: string | null;
-            task_type: components["schemas"]["TaskType"];
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
             /** Datasets */
             datasets: number;
-            /** Models */
-            models: number;
             /** Deployments */
             deployments: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Models */
+            models: number;
+            /** Name */
+            name: string;
+            status: components["schemas"]["ProjectStatus"];
+            task_type: components["schemas"]["TaskType"];
+            /** Team Id */
+            team_id: string | null;
         };
         /** ProjectSettings */
         ProjectSettings: {
@@ -4057,9 +3777,9 @@ export interface components {
          * @description Merged into the stored settings; an omitted field keeps its current value.
          */
         ProjectSettingsPatch: {
-            compute_target?: components["schemas"]["ComputeTarget"] | null;
             /** Base Model */
             base_model?: string | null;
+            compute_target?: components["schemas"]["ComputeTarget"] | null;
             deploy_strategy?: components["schemas"]["DeployStrategy"] | null;
         };
         /**
@@ -4071,24 +3791,10 @@ export interface components {
         /** ProjectSummary */
         ProjectSummary: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            status: components["schemas"]["ProjectStatus"];
-            /** Team Id */
-            team_id: string | null;
-            task_type: components["schemas"]["TaskType"];
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-        };
-        /** ProjectUpdated */
-        ProjectUpdated: {
             /**
              * Id
              * Format: uuid
@@ -4097,9 +3803,12 @@ export interface components {
             /** Name */
             name: string;
             status: components["schemas"]["ProjectStatus"];
+            task_type: components["schemas"]["TaskType"];
             /** Team Id */
             team_id: string | null;
-            task_type: components["schemas"]["TaskType"];
+        };
+        /** ProjectUpdated */
+        ProjectUpdated: {
             /**
              * Created At
              * Format: date-time
@@ -4107,115 +3816,17 @@ export interface components {
             created_at: string;
             /** Default Test Dataset Id */
             default_test_dataset_id: string | null;
-        };
-        /** PromotedVersion */
-        PromotedVersion: {
-            promotion_status?: components["schemas"]["PromotionStatus"] | null;
-            /** Promotion Error */
-            promotion_error?: string | null;
-            /** Promotion Error Code */
-            promotion_error_code?: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Mlflow Model Name */
-            mlflow_model_name: string;
-            /** Mlflow Version */
-            mlflow_version: string;
-            stage: components["schemas"]["ModelStage"];
-            /** Customer Label */
-            customer_label: string;
-        };
-        /**
-         * PromotionStatus
-         * @description Mirrors the model_versions.promotion_status CHECK constraint; no status = no promotion in flight.
-         * @enum {string}
-         */
-        PromotionStatus: "pending" | "failed";
-        /**
-         * PublicDataset
-         * @description A private dataset of a public project is listed with no name: "exists" is visible, contents are not.
-         */
-        PublicDataset: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
             /** Name */
-            name: string | null;
-            /** Published */
-            published: boolean;
-            /** Version Number */
-            version_number: number | null;
-            /** Stats */
-            stats: unknown;
-        };
-        /**
-         * PublicModel
-         * @description Likewise: an unpublished model's name and version are null.
-         */
-        PublicModel: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Mlflow Model Name */
-            mlflow_model_name: string | null;
-            /** Mlflow Version */
-            mlflow_version: string | null;
-            /** Publish Metadata */
-            publish_metadata: boolean;
-            /** Publish Artifact */
-            publish_artifact: boolean;
-        };
-        /** PublicProject */
-        PublicProject: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string | null;
-            /** Task Type */
-            task_type: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** PublishRequest */
-        PublishRequest: {
-            /**
-             * Version Id
-             * Format: uuid
-             */
-            version_id: string;
-        };
-        /**
-         * PublishState
-         * @description Per-version "exclude" switches: true (the default) lets the project's Sharing level decide, false keeps this one out.
-         */
-        PublishState: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Publish Metadata */
-            publish_metadata: boolean;
-            /** Publish Artifact */
-            publish_artifact: boolean;
-        };
-        /** RegisterBody */
-        RegisterBody: {
-            /** S3 Key */
-            s3_key: string;
+            name: string;
+            status: components["schemas"]["ProjectStatus"];
+            task_type: components["schemas"]["TaskType"];
+            /** Team Id */
+            team_id: string | null;
         };
         /**
          * Resample
@@ -4244,29 +3855,29 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Status */
-            status: string;
             /** Route Prefix */
             route_prefix: string;
+            /** Status */
+            status: string;
         };
         /**
          * RunProgress
          * @description What the run has reported so far; kept after the run ends.
          */
         RunProgress: {
-            latest: components["schemas"]["ProgressPoint"];
             /** History */
             history: components["schemas"]["ProgressPoint"][];
+            latest: components["schemas"]["ProgressPoint"];
         };
         /** RunStep */
         RunStep: {
-            key: components["schemas"]["StepKey"];
-            state: components["schemas"]["StepState"];
             /** Epoch */
             epoch?: number | null;
             /** Epochs */
             epochs?: number | null;
             failure?: components["schemas"]["FailureCode"] | null;
+            key: components["schemas"]["StepKey"];
+            state: components["schemas"]["StepState"];
         };
         /**
          * Scope
@@ -4281,11 +3892,6 @@ export interface components {
          */
         ServingParams: {
             /**
-             * Score Threshold
-             * @default 0.3
-             */
-            score_threshold: number;
-            /**
              * Max Results
              * @default 100
              */
@@ -4297,31 +3903,23 @@ export interface components {
              *     ]
              */
             providers: components["schemas"]["ExecutionProvider"][];
+            /**
+             * Score Threshold
+             * @default 0.3
+             */
+            score_threshold: number;
         };
         /**
          * Severity
          * @enum {string}
          */
         Severity: "error" | "warning";
-        /**
-         * Sharing
-         * @description Mirrors the projects.sharing CHECK constraint: what the project shows in the public gallery.
-         * @enum {string}
-         */
-        Sharing: "private" | "gallery" | "gallery_downloads";
-        /** SharingChange */
-        SharingChange: {
-            sharing: components["schemas"]["Sharing"];
-        };
-        /** SharingResult */
-        SharingResult: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            sharing: components["schemas"]["Sharing"];
-            visibility: components["schemas"]["Visibility"];
+        /** SlugAvailability */
+        SlugAvailability: {
+            /** Available */
+            available: boolean;
+            /** Slug */
+            slug: string;
         };
         /**
          * SmokeStatus
@@ -4340,12 +3938,6 @@ export interface components {
          * @description What the new version contains (after the merge). Stored as dataset_versions.stats.
          */
         Stats: {
-            /** File Count */
-            file_count: number;
-            /** Total Bytes */
-            total_bytes: number;
-            /** Row Count */
-            row_count: number;
             /**
              * Classes
              * @default {}
@@ -4354,21 +3946,34 @@ export interface components {
                 [key: string]: number;
             };
             /**
+             * Duplicates Skipped
+             * @default 0
+             */
+            duplicates_skipped: number;
+            /** File Count */
+            file_count: number;
+            /** Row Count */
+            row_count: number;
+            /**
              * Splits
              * @default {}
              */
             splits: {
                 [key: string]: number;
             };
-            /**
-             * Duplicates Skipped
-             * @default 0
-             */
-            duplicates_skipped: number;
+            /** Total Bytes */
+            total_bytes: number;
         };
-        /** StatusBody */
+        /**
+         * StatusBody
+         * @description stable promotes a candidate whose smoke passed (the one it replaces is retired); retired takes a package out of use.
+         */
         StatusBody: {
-            status: components["schemas"]["PackageStatus"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "stable" | "retired";
         };
         /**
          * StepKey
@@ -4383,10 +3988,15 @@ export interface components {
         StepState: "pending" | "active" | "done" | "failed" | "cancelled";
         /** Tables */
         Tables: {
-            /** Csv Max Rows */
-            csv_max_rows: number;
             /** Csv Max Columns */
             csv_max_columns: number;
+            /** Csv Max Rows */
+            csv_max_rows: number;
+        };
+        /** TargetBody */
+        TargetBody: {
+            /** S3 Key */
+            s3_key: string;
         };
         /**
          * TaskBundle
@@ -4394,77 +4004,77 @@ export interface components {
          *     bundle new runs of the slug use; smoke_status is settled from the smoke job on every read.
          */
         TaskBundle: {
-            /** Name */
-            name: string;
             /** @default runtime */
             kind: components["schemas"]["PackageKind"];
             /** Manifest */
             manifest?: {
                 [key: string]: unknown;
             } | null;
+            /** Name */
+            name: string;
+            /** Published By */
+            published_by: string;
             /**
              * Requirements
              * @default []
              */
             requirements: string[];
-            /** Sha256 */
-            sha256: string;
             /** S3 Key */
             s3_key: string;
+            /** Sha256 */
+            sha256: string;
+            slug: components["schemas"]["TaskType"];
+            /** Smoke Job Id */
+            smoke_job_id: string | null;
+            smoke_status: components["schemas"]["SmokeStatus"];
             status: components["schemas"]["PackageStatus"];
-            /** Published By */
-            published_by: string;
-            /** Updated By */
-            updated_by: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            smoke_status: components["schemas"]["SmokeStatus"];
-            /** Smoke Job Id */
-            smoke_job_id: string | null;
-            slug: components["schemas"]["TaskType"];
+            /** Updated By */
+            updated_by: string;
         };
         /** TaskInfo */
         TaskInfo: {
+            /** Bundle Sha256 */
+            bundle_sha256?: string | null;
             data_kind: components["schemas"]["DataKind"];
-            /** Trainer */
-            trainer?: string | null;
-            /**
-             * Servable
-             * @default false
-             */
-            servable: boolean;
-            /** Encoder */
-            encoder?: string | null;
-            /** Postprocess */
-            postprocess?: string | null;
-            /**
-             * @default {
-             *       "score_threshold": 0.3,
-             *       "max_results": 100,
-             *       "providers": [
-             *         "CPUExecutionProvider"
-             *       ]
-             *     }
-             */
-            serving: components["schemas"]["ServingParams"];
             /**
              * Enabled
              * @default true
              */
             enabled: boolean;
+            /** Encoder */
+            encoder?: string | null;
+            /** Postprocess */
+            postprocess?: string | null;
+            /**
+             * Servable
+             * @default false
+             */
+            servable: boolean;
+            /**
+             * @default {
+             *       "max_results": 100,
+             *       "providers": [
+             *         "CPUExecutionProvider"
+             *       ],
+             *       "score_threshold": 0.3
+             *     }
+             */
+            serving: components["schemas"]["ServingParams"];
             slug: components["schemas"]["TaskType"];
-            /** Bundle Sha256 */
-            bundle_sha256?: string | null;
-            /** Updated By */
-            updated_by: string;
+            /** Trainer */
+            trainer?: string | null;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Updated By */
+            updated_by: string;
         };
         /**
          * TaskPreset
@@ -4472,54 +4082,54 @@ export interface components {
          *     or preprocessing (tabular) and whose `hyperparameters` are default values its bundle's JSON Schema bounds.
          */
         TaskPreset: {
-            base_model?: components["schemas"]["TrainBaseModel"] | null;
-            /** Learning Rate */
-            learning_rate: number;
-            /** Preprocessing */
-            preprocessing?: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"] | null;
-            /** Cpu */
-            cpu: number;
-            /** Memory Bytes */
-            memory_bytes: number;
-            /** Gpu */
-            gpu: number;
-            /** Vram Gb */
-            vram_gb?: number | null;
-            /** Max Runtime S */
-            max_runtime_s: number;
-            /** Hyperparameters */
-            hyperparameters: components["schemas"]["HyperparameterLimits"] | {
-                [key: string]: unknown;
-            };
-            /** @default constant */
-            lr_schedule: components["schemas"]["LrSchedule"];
-            /**
-             * Warmup Fraction
-             * @default 0
-             */
-            warmup_fraction: number;
             /** @default none */
             augmentation: components["schemas"]["Augmentation"];
+            base_model?: components["schemas"]["TrainBaseModel"] | null;
+            /** Cpu */
+            cpu: number;
             /**
              * Early Stopping Patience
              * @default 0
              */
             early_stopping_patience: number;
-            task: components["schemas"]["TaskType"];
-            /** Name */
-            name: string;
             /**
              * Enabled
              * @default true
              */
             enabled: boolean;
-            /** Updated By */
-            updated_by: string;
+            /** Gpu */
+            gpu: number;
+            /** Hyperparameters */
+            hyperparameters: components["schemas"]["HyperparameterLimits"] | {
+                [key: string]: unknown;
+            };
+            /** Learning Rate */
+            learning_rate: number;
+            /** @default constant */
+            lr_schedule: components["schemas"]["LrSchedule"];
+            /** Max Runtime S */
+            max_runtime_s: number;
+            /** Memory Bytes */
+            memory_bytes: number;
+            /** Name */
+            name: string;
+            /** Preprocessing */
+            preprocessing?: components["schemas"]["Preprocessing"] | components["schemas"]["TextPreprocessing"] | null;
+            task: components["schemas"]["TaskType"];
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Updated By */
+            updated_by: string;
+            /** Vram Gb */
+            vram_gb?: number | null;
+            /**
+             * Warmup Fraction
+             * @default 0
+             */
+            warmup_fraction: number;
         };
         /**
          * TaskType
@@ -4534,35 +4144,40 @@ export interface components {
          */
         TaskTypeBody: {
             data_kind: components["schemas"]["DataKind"];
-            /** Trainer */
-            trainer?: string | null;
-            /**
-             * Servable
-             * @default false
-             */
-            servable: boolean;
-            /** Encoder */
-            encoder?: string | null;
-            /** Postprocess */
-            postprocess?: string | null;
-            /**
-             * @default {
-             *       "score_threshold": 0.3,
-             *       "max_results": 100,
-             *       "providers": [
-             *         "CPUExecutionProvider"
-             *       ]
-             *     }
-             */
-            serving: components["schemas"]["ServingParams"];
             /**
              * Enabled
              * @default true
              */
             enabled: boolean;
+            /** Encoder */
+            encoder?: string | null;
+            /** Postprocess */
+            postprocess?: string | null;
+            /**
+             * Servable
+             * @default false
+             */
+            servable: boolean;
+            /**
+             * @default {
+             *       "max_results": 100,
+             *       "providers": [
+             *         "CPUExecutionProvider"
+             *       ],
+             *       "score_threshold": 0.3
+             *     }
+             */
+            serving: components["schemas"]["ServingParams"];
+            /** Trainer */
+            trainer?: string | null;
         };
         /** Team */
         Team: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Id
              * Format: uuid
@@ -4570,17 +4185,25 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /**
          * TenantAuditEntry
          * @description One audit row of the tenant: tenant-level events have no project.
          */
         TenantAuditEntry: {
+            /** Action */
+            action: string;
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Entity Id */
+            entity_id: string;
+            /** Entity Type */
+            entity_type: string;
             /**
              * Id
              * Format: uuid
@@ -4588,19 +4211,6 @@ export interface components {
             id: string;
             /** Project Id */
             project_id: string | null;
-            /** Actor */
-            actor: string;
-            /** Action */
-            action: string;
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /** TenantCreate */
         TenantCreate: {
@@ -4618,10 +4228,10 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /** Slug */
-            slug: string;
             /** @default owner */
             role: components["schemas"]["TenantRole"];
+            /** Slug */
+            slug: string;
         };
         /**
          * TenantDataset
@@ -4629,10 +4239,17 @@ export interface components {
          */
         TenantDataset: {
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Import Status */
+            import_status: string | null;
             /** Name */
             name: string;
             /**
@@ -4642,13 +4259,6 @@ export interface components {
             project_id: string;
             /** Project Name */
             project_name: string;
-            /** Import Status */
-            import_status: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /** TenantDelete */
         TenantDelete: {
@@ -4658,27 +4268,27 @@ export interface components {
         /** TenantListItem */
         TenantListItem: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Zitadel Org Id */
-            zitadel_org_id: string | null;
-            /** Plan Tier */
-            plan_tier: string;
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Project Count */
-            project_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Member Count */
             member_count: number;
-            status: components["schemas"]["IdentityStatus"];
+            /** Name */
+            name: string;
             owner: components["schemas"]["OrgOwner"] | null;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Project Count */
+            project_count: number;
+            status: components["schemas"]["IdentityStatus"];
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
         };
         /**
          * TenantMember
@@ -4689,19 +4299,19 @@ export interface components {
             display_name: string | null;
             /** Email */
             email: string | null;
+            /** Joined At */
+            joined_at: string | null;
             /** Login Name */
             login_name: string | null;
+            /** Project Count */
+            project_count: number;
+            /** Projects */
+            projects: string[];
+            /** Roles */
+            roles: string[];
             status: components["schemas"]["IdentityStatus"];
             /** User Id */
             user_id: string;
-            /** Roles */
-            roles: string[];
-            /** Projects */
-            projects: string[];
-            /** Project Count */
-            project_count: number;
-            /** Joined At */
-            joined_at: string | null;
         };
         /**
          * TenantProject
@@ -4709,10 +4319,23 @@ export interface components {
          */
         TenantProject: {
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dataset Count */
+            dataset_count: number;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Model Count */
+            model_count: number;
+            /** Model Name */
+            model_name: string | null;
+            /** Model Version */
+            model_version: string | null;
             /** Name */
             name: string;
             /** Status */
@@ -4721,19 +4344,6 @@ export interface components {
             task_type: string | null;
             /** Visibility */
             visibility: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Dataset Count */
-            dataset_count: number;
-            /** Model Count */
-            model_count: number;
-            /** Model Name */
-            model_name: string | null;
-            /** Model Version */
-            model_version: string | null;
         };
         /** TenantRename */
         TenantRename: {
@@ -4754,6 +4364,11 @@ export interface components {
          */
         TenantSettings: {
             /**
+             * Allow Public Models
+             * @default false
+             */
+            allow_public_models: boolean;
+            /**
              * Members Can Create Projects
              * @default true
              */
@@ -4763,11 +4378,6 @@ export interface components {
              * @default true
              */
             require_review_before_training: boolean;
-            /**
-             * Allow Public Models
-             * @default false
-             */
-            allow_public_models: boolean;
         };
         /** TenantSettingsOut */
         TenantSettingsOut: {
@@ -4785,24 +4395,26 @@ export interface components {
         /** TenantSummary */
         TenantSummary: {
             /**
+             * Capabilities
+             * @description Tenant-level actions the role holds
+             */
+            capabilities: string[];
+            /**
              * Id
              * Format: uuid
              */
             id: string;
             /** Name */
             name: string;
+            role: components["schemas"]["TenantRole"];
             /** Slug */
             slug: string;
-            role: components["schemas"]["TenantRole"];
             status: components["schemas"]["TenantStatus"];
-            /**
-             * Capabilities
-             * @description Tenant-level actions the role holds
-             */
-            capabilities: string[];
         };
         /** TenantsSummary */
         TenantsSummary: {
+            /** Members */
+            members: number;
             /** Organizations */
             organizations: number;
             /** Organizations New 30D */
@@ -4811,8 +4423,6 @@ export interface components {
             projects: number;
             /** Projects New 30D */
             projects_new_30d: number;
-            /** Members */
-            members: number;
             /** Status Counts */
             status_counts: {
                 [key: string]: number;
@@ -4823,21 +4433,21 @@ export interface components {
          * @description One console prediction of a deployment (source=console): the try-it log is a filtered list of stored predictions.
          */
         TestCall: {
-            /** Id */
-            id: string;
-            status: components["schemas"]["PredictionStatus"];
-            /** Request */
-            request: unknown;
-            /** Response */
-            response: unknown;
-            error?: components["schemas"]["PredictionError"] | null;
-            /** Latency Ms */
-            latency_ms: number | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            error?: components["schemas"]["PredictionError"] | null;
+            /** Id */
+            id: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Request */
+            request: unknown;
+            /** Response */
+            response: unknown;
+            status: components["schemas"]["PredictionStatus"];
         };
         /**
          * TextPreprocessing
@@ -4853,75 +4463,75 @@ export interface components {
          * @description A pretrained checkpoint on the Hugging Face Hub, pinned to a commit.
          */
         TrainBaseModel: {
+            /** License */
+            license?: string | null;
             /** Repo Id */
             repo_id: string;
             /** Revision */
             revision: string;
-            /** License */
-            license?: string | null;
         };
         /**
          * TrainingRun
          * @description Every training_runs column (the detail and cancel responses).
          */
         TrainingRun: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Dataset Ref */
-            dataset_ref: string;
-            /** Dataset Version Id */
-            dataset_version_id: string | null;
-            /** Preset */
-            preset: string | null;
-            /** Ray Job Id */
-            ray_job_id: string;
-            /** Mlflow Run Id */
-            mlflow_run_id: string | null;
+            /** Completed At */
+            completed_at: string | null;
             /** Config */
             config: unknown;
-            /** Metrics */
-            metrics: unknown;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Completed At */
-            completed_at: string | null;
+            /** Dataset Id */
+            dataset_id: string | null;
+            /** Dataset Ref */
+            dataset_ref: string;
+            /** Dataset Version */
+            dataset_version: string | null;
+            /** Dataset Version Id */
+            dataset_version_id: string | null;
             /**
-             * Tenant Id
+             * Id
              * Format: uuid
              */
-            tenant_id: string;
+            id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Metrics */
+            metrics: unknown;
+            /** Mlflow Run Id */
+            mlflow_run_id: string | null;
+            /** Model Artifact */
+            model_artifact: unknown;
+            /** Preset */
+            preset: string | null;
+            progress?: components["schemas"]["RunProgress"] | null;
             /**
              * Project Id
              * Format: uuid
              */
             project_id: string;
-            /** Task */
-            task: string | null;
+            /** Ray Job Id */
+            ray_job_id: string;
             /** Report */
             report: unknown;
-            /** Idempotency Key */
-            idempotency_key: string;
-            /** Model Artifact */
-            model_artifact: unknown;
-            /** Dataset Version */
-            dataset_version: string | null;
+            /** Reproduction Group Id */
+            reproduction_group_id: string | null;
+            /** Status */
+            status: string;
+            /** Task */
+            task: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
             /** Test Dataset Id */
             test_dataset_id: string | null;
             /** Test Dataset Version */
             test_dataset_version: string | null;
-            /** Reproduction Group Id */
-            reproduction_group_id: string | null;
-            /** Dataset Id */
-            dataset_id: string | null;
-            progress?: components["schemas"]["RunProgress"] | null;
         };
         /**
          * TrainingRunCreate
@@ -4933,22 +4543,22 @@ export interface components {
              * Format: uuid
              */
             dataset_version_id: string;
+            hyperparameters?: components["schemas"]["HyperparameterOverrides"];
             /** Preset */
             preset: string;
-            task_type?: components["schemas"]["TaskType"] | null;
-            hyperparameters?: components["schemas"]["HyperparameterOverrides"];
             /**
              * Seed
              * @default 42
              */
             seed: number;
+            task_type?: components["schemas"]["TaskType"] | null;
         };
         /** TrainingRunLineage */
         TrainingRunLineage: {
-            training_run: components["schemas"]["LineageRun"];
             dataset_version: components["schemas"]["VersionRef"] | null;
-            model_version: components["schemas"]["LineageModel"] | null;
             deployment: components["schemas"]["RunDeployment"] | null;
+            model_version: components["schemas"]["LineageModel"] | null;
+            training_run: components["schemas"]["LineageRun"];
         };
         /** TrainingRunSteps */
         TrainingRunSteps: {
@@ -4959,64 +4569,34 @@ export interface components {
         };
         /** TrainingRunSummary */
         TrainingRunSummary: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Dataset Ref */
-            dataset_ref: string;
-            /** Dataset Version Id */
-            dataset_version_id: string | null;
-            /** Preset */
-            preset: string | null;
-            /** Ray Job Id */
-            ray_job_id: string;
-            /** Mlflow Run Id */
-            mlflow_run_id: string | null;
+            /** Completed At */
+            completed_at: string | null;
             /** Config */
             config: unknown;
-            /** Metrics */
-            metrics: unknown;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Completed At */
-            completed_at: string | null;
-        };
-        /**
-         * TrashedDataset
-         * @description A deleted dataset in the Trash, with the project it came from.
-         */
-        TrashedDataset: {
+            /** Dataset Ref */
+            dataset_ref: string;
+            /** Dataset Version Id */
+            dataset_version_id: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Name */
-            name: string;
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id: string;
-            /** Project Name */
-            project_name: string;
-            /**
-             * Deleted At
-             * Format: date-time
-             */
-            deleted_at: string;
-            /**
-             * Restorable Until
-             * Format: date-time
-             */
-            readonly restorable_until: string;
+            /** Metrics */
+            metrics: unknown;
+            /** Mlflow Run Id */
+            mlflow_run_id: string | null;
+            /** Preset */
+            preset: string | null;
+            /** Ray Job Id */
+            ray_job_id: string;
+            /** Status */
+            status: string;
         };
         /**
          * TrashedProject
@@ -5024,17 +4604,17 @@ export interface components {
          */
         TrashedProject: {
             /**
+             * Deleted At
+             * Format: date-time
+             */
+            deleted_at: string;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
             /** Name */
             name: string;
-            /**
-             * Deleted At
-             * Format: date-time
-             */
-            deleted_at: string;
             /**
              * Restorable Until
              * Format: date-time
@@ -5045,20 +4625,20 @@ export interface components {
         UsageEvent: {
             /** Id */
             id: number;
-            resource_type: components["schemas"]["UsageResource"];
-            /** Quantity */
-            quantity: number;
-            /** Unit */
-            unit: string;
             /**
              * Occurred At
              * Format: date-time
              */
             occurred_at: string;
-            /** Source Ref */
-            source_ref: string;
             /** Pricing Version */
             pricing_version: string;
+            /** Quantity */
+            quantity: number;
+            resource_type: components["schemas"]["UsageResource"];
+            /** Source Ref */
+            source_ref: string;
+            /** Unit */
+            unit: string;
         };
         /**
          * UsageResource
@@ -5074,23 +4654,23 @@ export interface components {
              */
             project_id: string;
             resource_type: components["schemas"]["UsageResource"];
-            /** Unit */
-            unit: string;
             /** Total Quantity */
             total_quantity: number;
+            /** Unit */
+            unit: string;
         };
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /**
          * VersionRef
@@ -5098,22 +4678,22 @@ export interface components {
          */
         VersionRef: {
             /**
-             * Id
-             * Format: uuid
+             * Created At
+             * Format: date-time
              */
-            id: string;
+            created_at: string;
             /**
              * Dataset Id
              * Format: uuid
              */
             dataset_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Number */
             number: number;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /**
          * Visibility
@@ -5122,24 +4702,16 @@ export interface components {
         Visibility: "private" | "internal";
         /** VisibilityResult */
         VisibilityResult: {
+            default_access: components["schemas"]["DefaultAccess"];
             /**
              * Id
              * Format: uuid
              */
             id: string;
             visibility: components["schemas"]["Visibility"];
-            default_access: components["schemas"]["DefaultAccess"];
-            sharing: components["schemas"]["Sharing"];
         };
         /** Webhook */
         Webhook: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Url */
-            url: string;
             /**
              * Created At
              * Format: date-time
@@ -5147,79 +4719,73 @@ export interface components {
             created_at: string;
             /** Disabled At */
             disabled_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Url */
+            url: string;
         };
         /** TenantDetail */
         app__modules__admin__tenants__schemas__TenantDetail: {
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Zitadel Org Id */
-            zitadel_org_id: string | null;
-            /** Plan Tier */
-            plan_tier: string;
-            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Project Count */
-            project_count: number;
-            /** Member Count */
-            member_count: number;
-            settings: components["schemas"]["TenantSettings"];
             /** Dataset Count */
             dataset_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Member Count */
+            member_count: number;
             /** Model Count */
             model_count: number;
-            status: components["schemas"]["IdentityStatus"];
+            /** Name */
+            name: string;
             owner: components["schemas"]["OrgOwner"] | null;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Project Count */
+            project_count: number;
+            settings: components["schemas"]["TenantSettings"];
+            status: components["schemas"]["IdentityStatus"];
+            /** Zitadel Org Id */
+            zitadel_org_id: string | null;
         };
         /** Member */
         app__modules__user__projects__schemas__Member: {
-            /** User Sub */
-            user_sub: string;
-            /** Roles */
-            roles: components["schemas"]["Role"][];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Roles */
+            roles: components["schemas"]["Role"][];
+            /** User Sub */
+            user_sub: string;
         };
         /** Member */
         app__modules__user__tenant_members__schemas__Member: {
-            /** User Sub */
-            user_sub: string;
-            role: components["schemas"]["TenantRole"];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /** Email */
-            email?: string | null;
             /** Display Name */
             display_name?: string | null;
+            /** Email */
+            email?: string | null;
+            role: components["schemas"]["TenantRole"];
+            /** User Sub */
+            user_sub: string;
         };
         /** TenantDetail */
         app__modules__user__tenants__schemas__TenantDetail: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Slug */
-            slug: string;
-            status: components["schemas"]["TenantStatus"];
-            role: components["schemas"]["TenantRole"];
-            /** Plan Tier */
-            plan_tier: string;
             /**
              * Created At
              * Format: date-time
@@ -5227,6 +4793,19 @@ export interface components {
             created_at: string;
             /** Deleted At */
             deleted_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Plan Tier */
+            plan_tier: string;
+            role: components["schemas"]["TenantRole"];
+            /** Slug */
+            slug: string;
+            status: components["schemas"]["TenantStatus"];
         };
     };
     responses: never;
@@ -5237,6 +4816,97 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    health_deps_health_deps_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_training_run_event_internal_v1_training_runs__run_id__events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Epoch */
+                    epoch: number;
+                    /** Epochs */
+                    epochs: number;
+                    /** Metrics */
+                    metrics: {
+                        [key: string]: number;
+                    };
+                    /** Seq */
+                    seq: number;
+                    /**
+                     * Type
+                     * @constant
+                     */
+                    type: "progress";
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_activity_v1_admin_activity_get: {
         parameters: {
             query?: {
@@ -5413,7 +5083,44 @@ export interface operations {
             };
         };
     };
-    register_package_v1_admin_job_packages__name__register_post: {
+    target_package_v1_admin_job_packages__name__target_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TargetBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobPackage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_package_smoke_v1_admin_job_packages__name___sha256__smoke_post: {
         parameters: {
             query?: never;
             header?: {
@@ -5421,14 +5128,11 @@ export interface operations {
             };
             path: {
                 name: components["schemas"]["JobPackageName"];
+                sha256: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterBody"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -5467,40 +5171,6 @@ export interface operations {
                 "application/json": components["schemas"]["StatusBody"];
             };
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobPackage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    retry_package_smoke_v1_admin_job_packages__name___sha256__smoke_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                name: components["schemas"]["JobPackageName"];
-                sha256: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -5693,7 +5363,7 @@ export interface operations {
             };
         };
     };
-    enable_model_v1_admin_model_catalog__model_id__enable_post: {
+    disable_model_v1_admin_model_catalog__model_id__disable_post: {
         parameters: {
             query?: never;
             header?: {
@@ -5726,7 +5396,7 @@ export interface operations {
             };
         };
     };
-    disable_model_v1_admin_model_catalog__model_id__disable_post: {
+    enable_model_v1_admin_model_catalog__model_id__enable_post: {
         parameters: {
             query?: never;
             header?: {
@@ -5769,7 +5439,7 @@ export interface operations {
                 task_type?: components["schemas"]["TaskType"] | null;
                 /** @description private | internal */
                 visibility?: string | null;
-                /** @description deployed | deploying | stopped | not_deployed */
+                /** @description deployed | stopped | not_deployed */
                 status?: string | null;
                 page_size?: number;
                 page_token?: string | null;
@@ -5789,6 +5459,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_AdminModel_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    models_summary_v1_admin_models_summary_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelStats"];
                 };
             };
             /** @description Validation Error */
@@ -5838,7 +5539,7 @@ export interface operations {
             };
         };
     };
-    models_summary_v1_admin_models_summary_get: {
+    list_plan_limits_v1_admin_plan_limits_get: {
         parameters: {
             query?: never;
             header?: {
@@ -5855,7 +5556,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelStats"];
+                    "application/json": components["schemas"]["PlanLimits"][];
                 };
             };
             /** @description Validation Error */
@@ -5869,54 +5570,20 @@ export interface operations {
             };
         };
     };
-    list_presets_v1_admin_training_presets__task__get: {
+    put_plan_limits_v1_admin_plan_limits__tier__put: {
         parameters: {
             query?: never;
             header?: {
                 "x-admin-user"?: string | null;
             };
             path: {
-                task: components["schemas"]["TaskType"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskPreset"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    put_preset_v1_admin_training_presets__task___name__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                task: components["schemas"]["TaskType"];
-                name: string;
+                tier: components["schemas"]["PlanTier"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PresetBody"];
+                "application/json": components["schemas"]["PlanLimitsBody"];
             };
         };
         responses: {
@@ -5926,74 +5593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaskPreset"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_preset_v1_admin_training_presets__task___name__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                task: components["schemas"]["TaskType"];
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    register_bundle_v1_admin_task_bundles_register_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskBundle"];
+                    "application/json": components["schemas"]["PlanLimits"];
                 };
             };
             /** @description Validation Error */
@@ -6281,7 +5881,7 @@ export interface operations {
             };
         };
     };
-    set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put: {
+    retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post: {
         parameters: {
             query?: never;
             header?: {
@@ -6293,11 +5893,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BundleStatusBody"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -6319,7 +5915,7 @@ export interface operations {
             };
         };
     };
-    retry_bundle_smoke_v1_admin_task_bundles__slug___sha256__smoke_post: {
+    set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put: {
         parameters: {
             query?: never;
             header?: {
@@ -6331,7 +5927,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundleStatusBody"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6408,74 +6008,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskInfo"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_plan_limits_v1_admin_plan_limits_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlanLimits"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    put_plan_limits_v1_admin_plan_limits__tier__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                tier: components["schemas"]["PlanTier"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlanLimitsBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlanLimits"];
                 };
             };
             /** @description Validation Error */
@@ -6628,6 +6160,72 @@ export interface operations {
             };
         };
     };
+    list_tenant_datasets_v1_admin_tenants__tenant_id__datasets_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantDataset"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tenant_members_v1_admin_tenants__tenant_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantMember"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tenant_projects_v1_admin_tenants__tenant_id__projects_get: {
         parameters: {
             query?: never;
@@ -6685,72 +6283,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatedProject"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_tenant_members_v1_admin_tenants__tenant_id__members_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantMember"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_tenant_datasets_v1_admin_tenants__tenant_id__datasets_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantDataset"][];
                 };
             };
             /** @description Validation Error */
@@ -6826,6 +6358,526 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TenantStatusOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_presets_v1_admin_training_presets__task__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                task: components["schemas"]["TaskType"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPreset"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_preset_v1_admin_training_presets__task___name__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                task: components["schemas"]["TaskType"];
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPreset"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_preset_v1_admin_training_presets__task___name__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-user"?: string | null;
+            };
+            path: {
+                task: components["schemas"]["TaskType"];
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_api_keys_v1_api_keys_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListedApiKey"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_key_v1_api_keys_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewApiKey"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedApiKey"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_api_key_v1_api_keys__key_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_catalog_models_v1_catalog_models_get: {
+        parameters: {
+            query?: {
+                /** @description a task type slug */
+                task?: string | null;
+            };
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogModel"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invitation_v1_invitations__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_v1_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    email_verification_status_v1_me_email_verification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailVerificationStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_email_verification_v1_me_email_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tenant_slug_available_v1_me_tenant_slug_available_get: {
+        parameters: {
+            query: {
+                slug: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlugAvailability"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    predict_model_v1_predict_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Model-Id"?: string | null;
+                "Idempotency-Key"?: string | null;
+                Prefer?: string | null;
+                Accept?: string | null;
+                "x-project-id"?: string | null;
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prediction_v1_predict__prediction_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-project-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_prediction_v1_predict__prediction_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-project-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictionEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prediction_events_v1_predict__prediction_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: string | null;
+                "x-project-id"?: string | null;
+            };
+            path: {
+                prediction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -7050,49 +7102,11 @@ export interface operations {
             };
         };
     };
-    update_project_settings_v1_projects__project_id__settings_patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectSettingsPatch"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectSettings"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_visibility_v1_projects__project_id__visibility_patch: {
+    get_audit_log_v1_projects__project_id__audit_log_get: {
         parameters: {
             query?: {
-                visibility?: components["schemas"]["Visibility"] | null;
-                default_access?: components["schemas"]["DefaultAccess"] | null;
+                page_size?: number;
+                page_token?: string | null;
             };
             header?: {
                 "x-tenant-id"?: string | null;
@@ -7111,328 +7125,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VisibilityResult"];
+                    "application/json": components["schemas"]["Page_AuditEntry_"];
                 };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_sharing_v1_projects__project_id__sharing_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SharingChange"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharingResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    restore_project_v1_projects__project_id__restore_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_events_v1_projects__project_id__events_get: {
-        parameters: {
-            query?: {
-                /** @description the `seq` of the last event already read */
-                after?: number;
-                limit?: number;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobEvent"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_notifications_v1_projects__project_id__notifications_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Notifications"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mark_notifications_read_v1_projects__project_id__notifications_read_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MarkRead"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_catalog_models_v1_catalog_models_get: {
-        parameters: {
-            query?: {
-                /** @description a task type slug */
-                task?: string | null;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogModel"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_webhooks_v1_projects__project_id__webhooks_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Webhook"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_webhook_v1_projects__project_id__webhooks_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewWebhook"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreatedWebhook"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_webhook_v1_projects__project_id__webhooks__webhook_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                webhook_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -7542,188 +7236,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_dataset_v1_projects__project_id__datasets__dataset_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    restore_dataset_v1_projects__project_id__datasets__dataset_id__restore_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    publish_version_v1_projects__project_id__datasets__dataset_id__published_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PublishRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    unpublish_dataset_v1_projects__project_id__datasets__dataset_id__published_delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_versions_v1_projects__project_id__datasets__dataset_id__versions_get: {
-        parameters: {
-            query?: {
-                page_size?: number;
-                page_token?: string | null;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_DatasetVersion_"];
                 };
             };
             /** @description Validation Error */
@@ -7851,42 +7363,6 @@ export interface operations {
             };
         };
     };
-    start_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__start_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-                import_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetImport"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     cancel_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__cancel_post: {
         parameters: {
             query?: never;
@@ -7995,81 +7471,6 @@ export interface operations {
             };
         };
     };
-    preview_version_v1_projects__project_id__datasets__dataset_id__versions__version_id__preview_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-                version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasetPreview"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    version_file_v1_projects__project_id__datasets__dataset_id__versions__version_id__files__path__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                dataset_id: string;
-                version_id: string;
-                path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FileLink"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     preview_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__preview_get: {
         parameters: {
             query?: {
@@ -8108,7 +7509,43 @@ export interface operations {
             };
         };
     };
-    list_trash_v1_datasets_trash_get: {
+    start_import_v1_projects__project_id__datasets__dataset_id__imports__import_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                dataset_id: string;
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetImport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_v1_projects__project_id__datasets__dataset_id__versions_get: {
         parameters: {
             query?: {
                 page_size?: number;
@@ -8118,7 +7555,10 @@ export interface operations {
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
             };
-            path?: never;
+            path: {
+                project_id: string;
+                dataset_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -8129,7 +7569,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_TrashedDataset_"];
+                    "application/json": components["schemas"]["Page_DatasetVersion_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_version_v1_projects__project_id__datasets__dataset_id__versions__version_id__preview_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                dataset_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetPreview"];
                 };
             };
             /** @description Validation Error */
@@ -8179,9 +7657,9 @@ export interface operations {
     };
     create_deployment_v1_projects__project_id__deployments_post: {
         parameters: {
-            query?: {
-                model_version_id?: string | null;
-                training_run_id?: string | null;
+            query: {
+                training_run_id: string;
+                set_main?: boolean;
                 acknowledge_risk?: boolean;
             };
             header: {
@@ -8285,6 +7763,41 @@ export interface operations {
             };
         };
     };
+    set_main_deployment_v1_projects__project_id__deployments__deployment_id__main_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_deployment_schema_v1_projects__project_id__deployments__deployment_id__schema_get: {
         parameters: {
             query?: never;
@@ -8307,42 +7820,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeploymentSchema"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "If-Match"?: string | null;
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                deployment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeploymentDetail"];
                 };
             };
             /** @description Validation Error */
@@ -8392,16 +7869,17 @@ export interface operations {
             };
         };
     };
-    get_training_run_lineage_v1_projects__project_id__training_runs__run_id__lineage_get: {
+    stop_deployment_v1_projects__project_id__deployments__deployment_id__stop_post: {
         parameters: {
             query?: never;
             header?: {
+                "If-Match"?: string | null;
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
             };
             path: {
                 project_id: string;
-                run_id: string;
+                deployment_id: string;
             };
             cookie?: never;
         };
@@ -8413,42 +7891,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRunLineage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_model_card_v1_projects__project_id__training_runs__run_id__card_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelCard"];
+                    "application/json": components["schemas"]["DeploymentDetail"];
                 };
             };
             /** @description Validation Error */
@@ -8499,339 +7942,13 @@ export interface operations {
             };
         };
     };
-    predict_v1_predict__deployment_id__post: {
+    list_events_v1_projects__project_id__events_get: {
         parameters: {
-            query?: never;
-            header: {
-                "X-Predict-Key": string;
+            query?: {
+                /** @description the `seq` of the last event already read */
+                after?: number;
+                limit?: number;
             };
-            path: {
-                deployment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    predict_model_v1_predict_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-Model-Id": string;
-                "X-Model-Revision"?: string | null;
-                "Idempotency-Key"?: string | null;
-                Prefer?: string | null;
-                Accept?: string | null;
-                "x-project-id"?: string | null;
-                "x-model-id"?: string | null;
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PredictionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_prediction_v1_predict__prediction_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-project-id"?: string | null;
-                "x-model-id"?: string | null;
-            };
-            path: {
-                prediction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PredictionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_prediction_v1_predict__prediction_id__cancel_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-project-id"?: string | null;
-                "x-model-id"?: string | null;
-            };
-            path: {
-                prediction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PredictionEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    prediction_events_v1_predict__prediction_id__events_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "Last-Event-ID"?: string | null;
-                "x-project-id"?: string | null;
-                "x-model-id"?: string | null;
-            };
-            path: {
-                prediction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    me_v1_me_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Me"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    email_verification_status_v1_me_email_verification_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EmailVerificationStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    send_email_verification_v1_me_email_verification_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_tenant_v1_tenants_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TenantCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantCreated"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    register_model_v1_projects__project_id__models__run_id__register_post: {
-        parameters: {
-            query: {
-                name: string;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelVersion"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_models_v1_projects__project_id__models_get: {
-        parameters: {
-            query?: never;
             header?: {
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
@@ -8849,119 +7966,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelVersionItem"][];
+                    "application/json": components["schemas"]["JobEvent"][];
                 };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    promote_model_v1_projects__project_id__models__model_version_id__promote_post: {
-        parameters: {
-            query: {
-                stage: string;
-                acknowledge_risk?: boolean;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                model_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PromotedVersion"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    publish_model_v1_projects__project_id__models__model_version_id__publish_patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                model_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["Body_publish_model_v1_projects__project_id__models__model_version_id__publish_patch"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublishState"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_model_file_v1_projects__project_id__models__model_version_id__download__file__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                model_version_id: string;
-                file: components["schemas"]["DownloadFile"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -9080,12 +8086,9 @@ export interface operations {
             };
         };
     };
-    get_audit_log_v1_projects__project_id__audit_log_get: {
+    list_models_v1_projects__project_id__models_get: {
         parameters: {
-            query?: {
-                page_size?: number;
-                page_token?: string | null;
-            };
+            query?: never;
             header?: {
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
@@ -9103,7 +8106,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_AuditEntry_"];
+                    "application/json": components["schemas"]["ModelVersionItem"][];
                 };
             };
             /** @description Validation Error */
@@ -9117,75 +8120,7 @@ export interface operations {
             };
         };
     };
-    list_api_keys_v1_api_keys_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListedApiKey"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_api_key_v1_api_keys_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewApiKey"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreatedApiKey"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revoke_api_key_v1_api_keys__key_id__delete: {
+    download_model_file_v1_projects__project_id__models__model_version_id__download__file__get: {
         parameters: {
             query?: never;
             header?: {
@@ -9193,14 +8128,16 @@ export interface operations {
                 "x-user-id"?: string | null;
             };
             path: {
-                key_id: string;
+                project_id: string;
+                model_version_id: string;
+                file: components["schemas"]["DownloadFile"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9217,42 +8154,13 @@ export interface operations {
             };
         };
     };
-    list_public_projects_v1_public_projects_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicProject"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_public_project_datasets_v1_public_projects__project_id__datasets_get: {
+    list_notifications_v1_projects__project_id__notifications_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
             path: {
                 project_id: string;
             };
@@ -9266,7 +8174,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicDataset"][];
+                    "application/json": components["schemas"]["Notifications"];
                 };
             };
             /** @description Validation Error */
@@ -9280,227 +8188,23 @@ export interface operations {
             };
         };
     };
-    list_public_project_models_v1_public_projects__project_id__models_get: {
+    mark_notifications_read_v1_projects__project_id__notifications_read_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
             path: {
                 project_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicModel"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_teams_v1_teams_get: {
-        parameters: {
-            query?: {
-                page_size?: number;
-                page_token?: string | null;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_Team_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_team_v1_teams_post: {
-        parameters: {
-            query: {
-                name: string;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Team"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_team_v1_teams__team_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                team_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Team"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_members_v1_tenants__tenant_id__members_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["app__modules__user__tenant_members__schemas__Member"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_member_role_v1_tenants__tenant_id__members__user_sub__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-                user_sub: string;
-            };
-            cookie?: never;
-        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RoleBody"];
+                "application/json": components["schemas"]["MarkRead"];
             };
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberRole"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    remove_member_v1_tenants__tenant_id__members__user_sub__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-                user_sub: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Successful Response */
             204: {
@@ -9520,7 +8224,7 @@ export interface operations {
             };
         };
     };
-    leave_tenant_v1_tenants__tenant_id__leave_post: {
+    update_project_settings_v1_projects__project_id__settings_patch: {
         parameters: {
             query?: never;
             header?: {
@@ -9528,320 +8232,13 @@ export interface operations {
                 "x-user-id"?: string | null;
             };
             path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_invitations_v1_tenants__tenant_id__invitations_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Invitation"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_invitation_v1_tenants__tenant_id__invitations_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
+                project_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["InvitationBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationCreated"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    accept_invitation_v1_invitations__token__accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationAccepted"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_ownership_offer_v1_tenants__tenant_id__ownership_offer_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OwnershipOffer"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    offer_ownership_v1_tenants__tenant_id__ownership_offer_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OwnershipOfferBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OwnershipOffer"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_ownership_offer_v1_tenants__tenant_id__ownership_offer_delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    accept_ownership_offer_v1_tenants__tenant_id__ownership_offer_accept_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberRole"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_tenant_v1_tenants__tenant_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rename_tenant_v1_tenants__tenant_id__patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TenantRename"];
+                "application/json": components["schemas"]["ProjectSettingsPatch"];
             };
         };
         responses: {
@@ -9851,239 +8248,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_settings_v1_tenants__tenant_id__settings_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantSettings"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_settings_v1_tenants__tenant_id__settings_patch: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TenantSettings"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantSettings"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_tenant_v1_tenants__tenant_id__delete_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TenantDelete"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    restore_tenant_v1_tenants__tenant_id__restore_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_audit_log_v1_tenants__tenant_id__audit_log_get: {
-        parameters: {
-            query?: {
-                page_size?: number;
-                page_token?: string | null;
-            };
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_TenantAuditEntry_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_training_run_event_internal_v1_training_runs__run_id__events_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Epoch */
-                    epoch: number;
-                    /** Epochs */
-                    epochs: number;
-                    /** Metrics */
-                    metrics: {
-                        [key: string]: number;
-                    };
-                    /**
-                     * Type
-                     * @constant
-                     */
-                    type: "progress";
-                    /** Seq */
-                    seq: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EventAck"];
+                    "application/json": components["schemas"]["ProjectSettings"];
                 };
             };
             /** @description Validation Error */
@@ -10242,41 +8407,6 @@ export interface operations {
             };
         };
     };
-    get_training_run_steps_v1_projects__project_id__training_runs__run_id__steps_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-tenant-id"?: string | null;
-                "x-user-id"?: string | null;
-            };
-            path: {
-                project_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrainingRunSteps"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     cancel_training_run_v1_projects__project_id__training_runs__run_id__cancel_post: {
         parameters: {
             query?: never;
@@ -10299,6 +8429,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrainingRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_card_v1_projects__project_id__training_runs__run_id__card_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCard"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_training_run_lineage_v1_projects__project_id__training_runs__run_id__lineage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunLineage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_training_run_steps_v1_projects__project_id__training_runs__run_id__steps_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunSteps"];
                 };
             };
             /** @description Validation Error */
@@ -10349,9 +8584,188 @@ export interface operations {
             };
         };
     };
-    org_usage_v1_usage_get: {
+    update_visibility_v1_projects__project_id__visibility_patch: {
+        parameters: {
+            query?: {
+                visibility?: components["schemas"]["Visibility"] | null;
+                default_access?: components["schemas"]["DefaultAccess"] | null;
+            };
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisibilityResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_webhooks_v1_projects__project_id__webhooks_get: {
         parameters: {
             query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_webhook_v1_projects__project_id__webhooks_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewWebhook"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedWebhook"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_webhook_v1_projects__project_id__webhooks__webhook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_project_v1_projects__project_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_teams_v1_teams_get: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                page_token?: string | null;
+            };
             header?: {
                 "x-tenant-id"?: string | null;
                 "x-user-id"?: string | null;
@@ -10367,7 +8781,75 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UsageTotal"][];
+                    "application/json": components["schemas"]["Page_Team_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_team_v1_teams_post: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_v1_teams__team_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
                 };
             };
             /** @description Validation Error */
@@ -10415,30 +8897,649 @@ export interface operations {
             };
         };
     };
-    health_health_get: {
+    create_tenant_v1_tenants_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantCreate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TenantCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    health_deps_health_deps_get: {
+    get_tenant_v1_tenants__tenant_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_tenant_v1_tenants__tenant_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_audit_log_v1_tenants__tenant_id__audit_log_get: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                page_token?: string | null;
+            };
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TenantAuditEntry_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invitations_v1_tenants__tenant_id__invitations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_invitation_v1_tenants__tenant_id__invitations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_v1_tenants__tenant_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__modules__user__tenant_members__schemas__Member"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_member_role_v1_tenants__tenant_id__members__user_sub__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                user_sub: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberRole"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_v1_tenants__tenant_id__members__user_sub__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                user_sub: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ownership_offer_v1_tenants__tenant_id__ownership_offer_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipOffer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    offer_ownership_v1_tenants__tenant_id__ownership_offer_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipOfferBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipOffer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_ownership_offer_v1_tenants__tenant_id__ownership_offer_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_ownership_offer_v1_tenants__tenant_id__ownership_offer_accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberRole"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_v1_tenants__tenant_id__settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_settings_v1_tenants__tenant_id__settings_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tenant_v1_tenants__tenant_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantDelete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leave_tenant_v1_tenants__tenant_id__leave_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_tenant_v1_tenants__tenant_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__modules__user__tenants__schemas__TenantDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    org_usage_v1_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-tenant-id"?: string | null;
+                "x-user-id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10450,7 +9551,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UsageTotal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

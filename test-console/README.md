@@ -40,3 +40,18 @@ pnpm dev                     # http://localhost:5174
 pnpm build                   # typecheck + bundle
 pnpm api:gen                 # regenerate src/api/schema.d.ts from the API (API_SPEC_URL for a local spec file)
 ```
+
+## Screens
+
+Every `/v1/admin` route the console uses has a screen. The root CLAUDE.md rule keeps this list in step with the API.
+
+- **Workspace:** Tenants (the internal tenants you belong to), All tenants (every tenant: search, filters, new tenant,
+  detail with members, projects, datasets, settings and suspend or reactivate).
+- **Platform:** Packages (runtime packages and task bundles, as cards, with promote, roll back, retire and smoke retry),
+  Task catalog (enable tasks, auto-promote, serving settings, presets: switch, edit, delete, new), Model catalog,
+  Plan limits.
+- **Operations:** Activity (the tenants' audit trails and the admin audit log), Models (every model, with its versions).
+- **Pipeline** (per internal tenant and project): Dataset, Training, Deploy and predict, Models and API keys.
+
+**Not in the console** (on purpose): `POST /v1/admin/job-packages/{name}/register` and `POST /v1/admin/task-bundles/register`.
+The `job-packages` and `task-bundles` CI workflows call them once a zip is in the staging bucket.

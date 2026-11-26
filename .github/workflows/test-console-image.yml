@@ -43,17 +43,43 @@ jobs:
           cache-from: type=gha,scope=test-console
           cache-to: type=gha,mode=max,scope=test-console
 
-  # Deploys apps/frontend-admin (console.drills.pro) in the k8s repo.
+  # Pins the image digest of apps/frontend-admin (console.drills.pro) in the k8s repo (Flux then rolls it out). The reusable
+  # bump-image.yml in k8s is no longer resolved from this repo ("workflow was not found"), so the same two steps run here with
+  # K8S_REPO_PAT, as docker-publish.yml does for core-api.
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-    uses: drills-pro/k8s/.github/workflows/bump-image.yml@main
-    with:
-      app: frontend-admin
-      image: ghcr.io/drills-pro/core-backend/test-console
-      digest: ${{ needs.build.outputs.digest }}
-      tag: ${{ github.sha }}
-    secrets:
-      repo-token: ${{ secrets.K8S_REPO_PAT }}
+    runs-on: ubuntu-latest
+    concurrency: bump-k8s-frontend-admin
+    permissions: {}
+    env:
+      IMAGE: ghcr.io/drills-pro/core-backend/test-console
+      DIGEST: ${{ needs.build.outputs.digest }}
+      TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: drills-pro/k8s
+          ref: main
+          token: ${{ secrets.K8S_REPO_PAT }}
+      - name: Set image digest
+        id: set
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest: $DIGEST"; exit 1; }
+          dir=apps/frontend-admin; [ -d "$dir/app" ] && dir="$dir/app"; [ -f apps/frontend-admin/image/kustomization.yaml ] && dir=apps/frontend-admin/image
+          (cd "$dir" && kustomize edit set image "$IMAGE@$DIGEST")
+          echo "file=$dir/kustomization.yaml" >> "$GITHUB_OUTPUT"
+      - name: Commit and push
+        env:
+          FILE: ${{ steps.set.outputs.file }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git diff --cached --quiet && { echo "$FILE already pins $DIGEST"; exit 0; }
+          git commit -m "chore(frontend-admin): bump image to $TAG"
+          for try in 1 2 3; do  # another app's bump may have landed in between
+            git push && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

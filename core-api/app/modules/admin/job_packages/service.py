@@ -4,15 +4,22 @@ one target per name, the core x bundle re-check, audit) are the lifecycle's (dat
 each write here is one transaction. A gateway call (Ray, S3) never runs inside a pooled connection, so a move reads the row,
 settles its smoke, then writes in a connection of its own."""
 import logging
+from http import HTTPStatus
 
 from app.core import job_packages
 from app.core.db import get_pool
 from app.core.enums import JobPackageName, PackageKind, PackageStatus, SmokeStatus, TaskType
 from app.core.job_packages import TASK_PACKAGE_PREFIX, JobPackage
-from app.core.problem import not_found
+from app.core.problem import Problem, not_found
 from app.integrations import data_plane
 from app.modules.admin import task_bundles
-from app.modules.admin.job_packages.constants import AUTO_PROMOTER, SMOKE_NOT_RETRYABLE_DETAIL
+from app.modules.admin.job_packages.constants import (
+    AUTO_PROMOTER,
+    SMOKE_NOT_PASSED_DETAIL,
+    SMOKE_NOT_RETRYABLE_DETAIL,
+    STABLE_NOT_RETIRABLE_DETAIL,
+    ProblemCode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +102,27 @@ async def promote_targets() -> None:
         if moved.status == PackageStatus.STABLE:
             current[candidate.name] = moved
             logger.info("job package %s %s became its target after its smoke passed", moved.name, moved.sha256)
+
+
+async def set_status(name: JobPackageName, sha256: str, status: PackageStatus, actor: str) -> JobPackage:
+    """A manual move: promote a candidate to stable (its smoke must have passed; the one it replaces is retired), or retire a
+    package that is not the target. A manual promotion sticks: the poller only moves the target to a candidate pushed after it."""
+    async with (await get_pool()).acquire() as conn:
+        current = await job_packages.get(conn, name, sha256)
+    if current is None:
+        raise not_found()
+    if status == PackageStatus.STABLE:
+        settled = await data_plane.refresh_package_smoke(current)
+        if settled.smoke_status != SmokeStatus.PASSED:
+            raise Problem(HTTPStatus.CONFLICT, data_plane.SmokeProblem.NOT_PASSED, SMOKE_NOT_PASSED_DETAIL)
+        return await _move(settled, actor)  # a core whose bundle targets moved is smoked again first, and that is returned
+    if current.status == PackageStatus.STABLE:
+        raise Problem(HTTPStatus.CONFLICT, ProblemCode.STABLE_NOT_RETIRABLE, STABLE_NOT_RETIRABLE_DETAIL)
+    async with (await get_pool()).acquire() as conn:
+        package = await job_packages.retire(conn, name, sha256, actor, status)
+    if package is None:
+        raise not_found()
+    return package
 
 
 async def retry_smoke(name: JobPackageName, sha256: str) -> JobPackage:

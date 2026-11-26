@@ -118,7 +118,7 @@ def test_deploy_requires_a_succeeded_servable_run(deploy_env, row):
     deploy_env.conn.rows["FROM training_runs"] = row
     with pytest.raises(HTTPException) as e:
         asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    assert e.value.status_code == 409 and not deploy_env.deployed
+    assert e.value.status_code == 409 and e.value.code == ProblemCode.NOT_DEPLOYABLE and not deploy_env.deployed
 
 
 def test_a_run_without_a_test_dataset_needs_acknowledge_risk_and_the_answer_is_recorded(deploy_env):
@@ -181,7 +181,7 @@ def test_deploy_requires_a_servable_task_whatever_the_report_carries(deploy_env,
     deploy_env.conn.vals["SELECT task_type"] = task  # a tabular classifier's report has labels too
     with pytest.raises(HTTPException) as e:
         asyncio.run(service.create_deployment(CTX, PROJECT, RUN, KEY))
-    assert e.value.status_code == 409 and not deploy_env.deployed
+    assert e.value.status_code == 409 and e.value.code == ProblemCode.TASK_NOT_SERVABLE and not deploy_env.deployed
 
 
 def test_deploy_of_another_projects_run_is_404(deploy_env):

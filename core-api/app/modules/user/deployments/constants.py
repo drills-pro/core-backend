@@ -11,6 +11,7 @@ class ProblemCode(StrEnum):
     BODY_NOT_JSON = "body_not_json"
     BODY_NOT_OBJECT = "body_not_object"
     NOT_DEPLOYABLE = "not_deployable"
+    TASK_NOT_SERVABLE = "task_not_servable"
     NOT_ACTIVE = "deployment_not_active"
     PRECONDITION_FAILED = "precondition_failed"
     STOPPED = "deployment_stopped"
@@ -90,8 +91,10 @@ METRIC_FLOORS: dict[TaskType, tuple[str, float]] = {
     TaskType.OBJECT_DETECTION: ("map50", 0.3),
 }
 NOT_DEPLOYABLE_DETAIL = (
-    "training run has no deployable model (only a succeeded run of a servable task type can be served)"
+    "training run has no deployable model: it did not finish with a model, or its model has no class names (a run trained before "
+    "class names were recorded); train it again"
 )
+TASK_NOT_SERVABLE_DETAIL = "this task type cannot be deployed yet: it is disabled, or its serving bundle is not promoted"
 
 # What a failed call to the shared predictor apps is answered with (serve_client.ServeErrorCode).
 SERVE_ERROR_STATUS = {

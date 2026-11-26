@@ -1,8 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.core.enums import TaskType
+from app.core.enums import PackageStatus, TaskType
 from app.core.job_packages import JobPackage
 from app.core.presets import TaskPreset
 from app.core.task_types import TaskInfo
@@ -23,6 +24,14 @@ class EnabledBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+
+
+class BundleStatusBody(BaseModel):
+    """stable promotes the bundle (and rewrites the task's row and presets from its manifest); retired takes it out of use."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[PackageStatus.STABLE, PackageStatus.RETIRED]
 
 
 class CatalogTask(BaseModel):

@@ -5,13 +5,27 @@ import { cfg } from '@/config';
 
 /** The console's own (non-tenant) screens, grouped: one entry per admin route. */
 const NAV = [
-  { group: 'Workspace', items: [{ to: '/', label: 'Tenants', hint: 'Internal test tenants' }] },
+  {
+    group: 'Workspace',
+    items: [
+      { to: '/', label: 'Tenants', hint: 'Internal test tenants' },
+      { to: '/all-tenants', label: 'All tenants', hint: 'Every tenant on the platform' },
+    ],
+  },
   {
     group: 'Platform',
     items: [
       { to: '/packages', label: 'Packages', hint: 'Runtime code and task bundles' },
-      { to: '/task-catalog', label: 'Task catalog', hint: 'What tenants can train' },
+      { to: '/task-catalog', label: 'Task catalog', hint: 'Tasks, serving and presets' },
       { to: '/model-catalog', label: 'Model catalog', hint: 'Base models' },
+      { to: '/plan-limits', label: 'Plan limits', hint: 'Quotas per plan tier' },
+    ],
+  },
+  {
+    group: 'Operations',
+    items: [
+      { to: '/activity', label: 'Activity', hint: 'Audit trails and admin writes' },
+      { to: '/models', label: 'Models', hint: 'Every model on the platform' },
     ],
   },
 ] as const;
