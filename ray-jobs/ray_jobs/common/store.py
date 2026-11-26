@@ -3,11 +3,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
+from urllib.error import HTTPError
 
 from ray_common.constants import CHECKSUM_ENV, CHECKSUM_WHEN_REQUIRED  # noqa: F401 - re-exported for callers and drift tests
 from ray_common.store import ResponseTooLarge, S3Store  # noqa: F401 - S3Store is re-exported: ray_jobs callers import it from here
 from ray_common.store import http_get as _http_get
-from ray_jobs.common.constants import UPLOAD_KEY, UPLOAD_MAX_PENDING, UPLOAD_THREADS
+from ray_jobs.common.constants import HF_ACCESS_STATUSES, HF_ORIGIN, UPLOAD_KEY, UPLOAD_MAX_PENDING, UPLOAD_THREADS
 from ray_jobs.common.enums import Code
 from ray_jobs.common.limits import LimitExceeded
 
@@ -57,6 +58,10 @@ def http_get(url: str, max_bytes: int | None = None) -> bytes:
         return _http_get(url, max_bytes)
     except ResponseTooLarge:
         raise LimitExceeded(Code.HF_TOO_LARGE, f"a download is over {max_bytes} bytes") from None
+    except HTTPError as e:  # only the Hub's refusals are named; a presigned URL's 403 stays a plain error
+        if url.startswith(HF_ORIGIN) and e.code in HF_ACCESS_STATUSES:
+            raise LimitExceeded(Code.HF_ACCESS_DENIED, f"Hugging Face answered {e.code}: the repo is gated or private, and imports send no token") from None
+        raise
 
 
 def fetch_upload(store, upload_max_bytes: int, tmp: Path) -> Path:

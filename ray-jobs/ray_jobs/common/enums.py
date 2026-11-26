@@ -138,5 +138,6 @@ class Code(StrEnum):
     HF_SCHEMA_MISMATCH = "hf_schema_mismatch"
     HF_TOO_LARGE = "hf_too_large"
     HF_NO_DATA_FILES = "hf_no_data_files"
+    HF_ACCESS_DENIED = "hf_access_denied"
     JOB_TIMEOUT = "job_timeout"
     INTERNAL_ERROR = "internal_error"

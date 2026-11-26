@@ -1,6 +1,7 @@
 """Constants the job shares with core-api. The layout and task slugs mirror core-api (tests/ingest_job/test_contract.py asserts equality);
 the ones every Ray package needs (SPEC_VERSION, REPORT_KEY, SMOKE_KEY, REPORT_SCHEMA_VERSION, HTTP_TIMEOUT_SECONDS) come from ray_common."""
 import re
+from http import HTTPStatus
 
 from ray_common.constants import HTTP_TIMEOUT_SECONDS, REPORT_KEY, REPORT_SCHEMA_VERSION, SMOKE_KEY, SPEC_VERSION  # noqa: F401 - shared with the other Ray packages
 from ray_common.enums import Split
@@ -37,6 +38,8 @@ RIFF_MAGIC, WEBP_MAGIC = b"RIFF", b"WEBP"
 RIFF_FORMAT_OFFSET = 8
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"})
 HF_DATA_EXTENSIONS = frozenset({".parquet", ".csv", ".jsonl"})  # never .py: no loading scripts
+HF_ORIGIN = "https://huggingface.co/"
+HF_ACCESS_STATUSES = frozenset({HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN})  # gated or private: the import sends no token
 IGNORED_DIRS = frozenset({"__MACOSX"})
 APPLEDOUBLE_PREFIX = "._"  # macOS resource-fork files that some archivers put beside the real file, outside __MACOSX
 MIN_NESTED_DEPTH = 3  # <wrapper or split>/<class>/<image>: the depth at which a first folder can be a wrapper or a split
