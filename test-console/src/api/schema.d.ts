@@ -3036,7 +3036,7 @@ export interface components {
          * IssueCode
          * @enum {string}
          */
-        IssueCode: "archive_unsafe_path" | "archive_symlink" | "archive_too_large" | "archive_too_many_files" | "archive_too_deep" | "archive_duplicate_path" | "path_too_long" | "unsupported_extension" | "corrupt_image" | "image_too_large" | "label_case_collision" | "no_data" | "coco_invalid" | "csv_no_header" | "csv_duplicate_columns" | "csv_too_few_rows" | "csv_too_many_rows" | "csv_too_many_columns" | "csv_row_too_long" | "target_missing" | "target_type_mismatch" | "text_column_missing" | "schema_mismatch" | "merge_conflict" | "duplicate_skipped" | "hf_card_mismatch" | "hf_schema_mismatch" | "hf_too_large" | "hf_no_data_files" | "job_timeout" | "internal_error";
+        IssueCode: "archive_unsafe_path" | "archive_symlink" | "archive_too_large" | "archive_too_many_files" | "archive_too_deep" | "archive_duplicate_path" | "path_too_long" | "unsupported_extension" | "corrupt_image" | "image_too_large" | "label_case_collision" | "no_data" | "coco_invalid" | "csv_no_header" | "csv_duplicate_columns" | "csv_too_few_rows" | "csv_too_many_rows" | "csv_too_many_columns" | "csv_row_too_long" | "target_missing" | "target_type_mismatch" | "text_column_missing" | "schema_mismatch" | "merge_conflict" | "duplicate_skipped" | "hf_card_mismatch" | "hf_schema_mismatch" | "hf_too_large" | "hf_no_data_files" | "hf_access_denied" | "job_timeout" | "internal_error";
         /**
          * JobEvent
          * @description One state change of a job: `kind` is `<job>.<status>` (training.succeeded, import.failed, deployment.active).

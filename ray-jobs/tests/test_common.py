@@ -24,6 +24,29 @@ def test_timeout_key_is_a_limit():
     assert TIMEOUT_LIMIT in Limits.__dataclass_fields__
 
 
+@pytest.mark.parametrize("url, status, expected", [
+    ("https://huggingface.co/api/datasets/x/revision/main", 401, Code.HF_ACCESS_DENIED),
+    ("https://huggingface.co/datasets/x/resolve/main/a.parquet", 403, Code.HF_ACCESS_DENIED),
+    ("https://huggingface.co/api/datasets/x/revision/main", 404, None),
+    ("https://bucket.example/presigned?sig=1", 403, None),
+])
+def test_http_get_names_only_a_hugging_face_refusal(monkeypatch, url, status, expected):
+    import urllib.request
+    from urllib.error import HTTPError
+
+    def refuse(u, timeout):
+        raise HTTPError(u, status, "refused", None, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    if expected is None:
+        with pytest.raises(HTTPError):
+            http_get(url)
+    else:
+        with pytest.raises(LimitExceeded) as e:
+            http_get(url)
+        assert e.value.code == expected
+
+
 def test_report_caps_issues_and_counts_the_rest():
     rep = Report()
     for _ in range(MAX_REPORT_ISSUES + 5):
