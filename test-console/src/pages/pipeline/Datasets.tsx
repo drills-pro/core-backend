@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Card, Code, Field, HStack, Input, SimpleGrid, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, client, newKey, unwrap, type Schemas } from '@/api/client';
 import { IMPORT_DONE, ImportStatus, POLL_MS } from '@/constants';
-import { CardGrid, Empty, ErrorAlert, Facts, Id, Section, Select, short, StatusBadge, when } from '@/ui';
+import { CardGrid, Empty, ErrorAlert, Facts, Id, Section, Select, StatusBadge, when } from '@/ui';
 
 type Source = Schemas['ImportSource'];
 type Params = Schemas['ImportParams'];
@@ -35,6 +35,12 @@ export function Datasets({ projectId, datasetId, onDataset }: { projectId: strin
     refetchInterval: (q) => (q.state.data?.items.some((i) => !IMPORT_DONE.includes(i.status)) ? POLL_MS : false),
   });
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['imports', datasetId] }), qc.invalidateQueries({ queryKey: ['versions', datasetId] })]);
+
+  // A project has one dataset (core-api: one live dataset per project), so once it exists it is the one this screen works on.
+  const existing = datasets.data?.items[0];
+  useEffect(() => {
+    if (existing && existing.id !== datasetId) onDataset(existing.id);
+  }, [existing?.id, datasetId, onDataset]);
 
   const [name, setName] = useState('');
   const createDataset = useMutation({
@@ -86,23 +92,27 @@ export function Datasets({ projectId, datasetId, onDataset }: { projectId: strin
 
   return (
     <Stack gap="4">
-      <Section title="Dataset" description="Pick the dataset to work on, or create a new one. The Training tab uses the one chosen here.">
-        <HStack wrap="wrap">
-          <Select
-            value={datasetId}
-            onChange={onDataset}
-            placeholder="Pick a dataset"
-            options={(datasets.data?.items ?? []).map((d) => ({ value: d.id, label: `${d.name} (${short(d.id)})` }))}
-          />
-          <Input size="sm" maxW="xs" placeholder="New dataset name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Button size="sm" disabled={!name.trim()} loading={createDataset.isPending} onClick={() => createDataset.mutate()}>
-            Create
-          </Button>
-        </HStack>
+      <Section
+        title="Dataset"
+        description={existing ? 'A project has one dataset: every import and version goes into it, and the Training tab uses it.' : 'Create the project dataset first. A project has exactly one.'}
+      >
+        {existing ? (
+          <HStack>
+            <Text fontWeight="medium">{existing.name}</Text>
+            <Id value={existing.id} />
+          </HStack>
+        ) : (
+          <HStack wrap="wrap">
+            <Input size="sm" maxW="xs" placeholder="Dataset name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Button size="sm" disabled={!name.trim()} loading={createDataset.isPending} onClick={() => createDataset.mutate()}>
+              Create
+            </Button>
+          </HStack>
+        )}
         <ErrorAlert error={datasets.error ?? createDataset.error} />
       </Section>
 
-      {!datasetId && <Empty title="No dataset selected">Pick or create a dataset above to import data into it.</Empty>}
+      {!datasetId && <Empty title="No dataset yet">Create it above; imports can start once it exists.</Empty>}
       {datasetId && (
         <>
           <Section title="New import" description="Creates the import, uploads the file when the source is one, and starts it.">

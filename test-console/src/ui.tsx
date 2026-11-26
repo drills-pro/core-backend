@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { Alert, Badge, Button, Card, Code, DataList, Dialog, EmptyState, Heading, HStack, NativeSelect, Portal, SimpleGrid, Skeleton, Stack, Text, VStack } from '@chakra-ui/react';
+import { Alert, Badge, Box, Button, Card, Code, DataList, Dialog, EmptyState, Heading, HStack, NativeSelect, Portal, SimpleGrid, Skeleton, Stack, Table, Text, VStack } from '@chakra-ui/react';
 import { ApiError } from '@/api/client';
 import { DeployStatus, statusColor } from '@/constants';
 
@@ -215,6 +215,65 @@ export function CopyButton({ text }: { text: string }) {
       }
     >
       {copied ? 'Copied' : 'Copy'}
+    </Button>
+  );
+}
+
+/** One number of a stat strip: what it counts, the value, and an optional line under it. */
+export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
+  return (
+    <Card.Root size="sm" variant="outline">
+      <Card.Body gap="0">
+        <Text fontSize="xs" color="fg.muted">
+          {label}
+        </Text>
+        <Text fontSize="2xl" fontWeight="semibold">
+          {value}
+        </Text>
+        {hint && (
+          <Text fontSize="xs" color="fg.muted">
+            {hint}
+          </Text>
+        )}
+      </Card.Body>
+    </Card.Root>
+  );
+}
+
+/** A plain table: one column per header, one row per item. The cells are the caller's, so each list says what it shows. */
+export function Rows<T>({ headers, items, rowKey, cells }: { headers: string[]; items: T[]; rowKey: (item: T) => string; cells: (item: T) => ReactNode[] }) {
+  return (
+    <Box overflowX="auto">
+      <Table.Root size="sm" variant="outline">
+        <Table.Header>
+          <Table.Row>
+            {headers.map((h) => (
+              <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+            ))}
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {items.map((item) => (
+            <Table.Row key={rowKey(item)}>
+              {cells(item).map((c, i) => (
+                <Table.Cell key={headers[i]} whiteSpace="nowrap">
+                  {c}
+                </Table.Cell>
+              ))}
+            </Table.Row>
+          ))}
+        </Table.Body>
+      </Table.Root>
+    </Box>
+  );
+}
+
+/** The foot of a keyset-paged list: fetches the next page, and is gone once there is none. */
+export function LoadMore({ hasMore, loading, onClick }: { hasMore: boolean; loading: boolean; onClick: () => void }) {
+  if (!hasMore) return null;
+  return (
+    <Button size="sm" variant="outline" alignSelf="center" loading={loading} onClick={onClick}>
+      Load more
     </Button>
   );
 }
