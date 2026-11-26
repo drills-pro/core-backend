@@ -101,14 +101,14 @@ export function Datasets({ projectId, datasetId, onDataset }: { projectId: strin
             <Text fontWeight="medium">{existing.name}</Text>
             <Id value={existing.id} />
           </HStack>
-        ) : (
+        ) : datasets.isSuccess ? (
           <HStack wrap="wrap">
             <Input size="sm" maxW="xs" placeholder="Dataset name" value={name} onChange={(e) => setName(e.target.value)} />
             <Button size="sm" disabled={!name.trim()} loading={createDataset.isPending} onClick={() => createDataset.mutate()}>
               Create
             </Button>
           </HStack>
-        )}
+        ) : null}
         <ErrorAlert error={datasets.error ?? createDataset.error} />
       </Section>
 
