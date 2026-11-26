@@ -159,7 +159,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/job-packages/{name}/register": {
+    "/v1/admin/job-packages/{name}/target": {
         parameters: {
             query?: never;
             header?: never;
@@ -169,11 +169,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register Package
-         * @description Register a zip CI already put in the staging bucket as a candidate: the body names only its key, and core-api reads
-         *     the object back and checks its hash and contents.
+         * Target Package
+         * @description CI's call for a version: the staged zip is checked, registered, smoked, and becomes the target of its package once the smoke
+         *     passed (the poller moves it). A version that already passed moves at once, which is how a rollback is made. Nobody has to act
+         *     in between: a failed smoke is run again by the next call.
          */
-        post: operations["register_package_v1_admin_job_packages__name__register_post"];
+        post: operations["target_package_v1_admin_job_packages__name__target_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -210,8 +211,8 @@ export interface paths {
         get?: never;
         /**
          * Set Package Status
-         * @description Promote a candidate to stable (new runs use the newest stable) or retire a package. Runs already created keep theirs.
-         *     A ray_training (core) smoke ran every bundle stable when it started, so passing it is the core x bundle gate of planning/25.
+         * @description A manual move: promote a candidate whose smoke passed (the one it replaces is retired) or retire a package that is not the
+         *     target. A manual promotion sticks until CI registers a newer version.
          */
         put: operations["set_package_status_v1_admin_job_packages__name___sha256__status_put"];
         post?: never;
@@ -483,27 +484,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/task-bundles/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Register Bundle
-         * @description Register a bundle CI put in the staging bucket: core-api reads it back, validates the zip and its manifest, records
-         *     a candidate and starts its smoke on the stable core.
-         */
-        post: operations["register_bundle_v1_admin_task_bundles_register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/task-bundles/{slug}": {
         parameters: {
             query?: never;
@@ -532,7 +512,7 @@ export interface paths {
         get: operations["get_bundle_settings_v1_admin_task_bundles__slug__settings_get"];
         /**
          * Put Bundle Settings
-         * @description auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a PUT .../status.
+         * @description auto_promote=false keeps a person in the loop for this task: a bundle whose smoke passed waits for a target call.
          */
         put: operations["put_bundle_settings_v1_admin_task_bundles__slug__settings_put"];
         post?: never;
@@ -551,7 +531,7 @@ export interface paths {
         };
         /**
          * Get Bundle
-         * @description One bundle; CI polls this for smoke_status after register.
+         * @description One bundle; CI polls this for smoke_status after its target call.
          */
         get: operations["get_bundle_v1_admin_task_bundles__slug___sha256__get"];
         put?: never;
@@ -592,8 +572,8 @@ export interface paths {
         get?: never;
         /**
          * Set Bundle Status
-         * @description Promote a bundle whose smoke passed (409 otherwise): it becomes the task's only stable bundle and the task's row and
-         *     presets are rewritten from its manifest. Promoting an older sha is the rollback. Retiring the stable one is a 409.
+         * @description A manual move: promote a bundle whose smoke passed (409 otherwise) or retire one that is not stable. Promoting it rewrites the
+         *     task's row and presets from its manifest; promoting an older sha is the rollback. A manual promotion sticks until CI's next bundle.
          */
         put: operations["set_bundle_status_v1_admin_task_bundles__slug___sha256__status_put"];
         post?: never;
@@ -3280,8 +3260,6 @@ export interface components {
         ModelStats: {
             /** Deployed Count */
             deployed_count: number;
-            /** Deploying Count */
-            deploying_count: number;
             /** Model Count */
             model_count: number;
             /** Not Deployed Count */
@@ -3298,7 +3276,7 @@ export interface components {
          * @description The statuses admin_models() derives from a model's newest deployment (a test checks the function names each).
          * @enum {string}
          */
-        ModelStatus: "deployed" | "deploying" | "stopped" | "not_deployed";
+        ModelStatus: "deployed" | "stopped" | "not_deployed";
         /** ModelVersionItem */
         ModelVersionItem: {
             /**
@@ -3850,11 +3828,6 @@ export interface components {
             /** Team Id */
             team_id: string | null;
         };
-        /** RegisterBody */
-        RegisterBody: {
-            /** S3 Key */
-            s3_key: string;
-        };
         /**
          * Resample
          * @description PIL resampling filter of the resize to a square `image_size` (the trainer mirrors this enum, contract-tested).
@@ -3991,9 +3964,16 @@ export interface components {
             /** Total Bytes */
             total_bytes: number;
         };
-        /** StatusBody */
+        /**
+         * StatusBody
+         * @description stable promotes a candidate whose smoke passed (the one it replaces is retired); retired takes a package out of use.
+         */
         StatusBody: {
-            status: components["schemas"]["PackageStatus"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "stable" | "retired";
         };
         /**
          * StepKey
@@ -4012,6 +3992,11 @@ export interface components {
             csv_max_columns: number;
             /** Csv Max Rows */
             csv_max_rows: number;
+        };
+        /** TargetBody */
+        TargetBody: {
+            /** S3 Key */
+            s3_key: string;
         };
         /**
          * TaskBundle
@@ -5098,20 +5083,20 @@ export interface operations {
             };
         };
     };
-    register_package_v1_admin_job_packages__name__register_post: {
+    target_package_v1_admin_job_packages__name__target_post: {
         parameters: {
             query?: never;
             header?: {
                 "x-admin-user"?: string | null;
             };
             path: {
-                name: components["schemas"]["JobPackageName"];
+                name: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RegisterBody"];
+                "application/json": components["schemas"]["TargetBody"];
             };
         };
         responses: {
@@ -5454,7 +5439,7 @@ export interface operations {
                 task_type?: components["schemas"]["TaskType"] | null;
                 /** @description private | internal */
                 visibility?: string | null;
-                /** @description deployed | deploying | stopped | not_deployed */
+                /** @description deployed | stopped | not_deployed */
                 status?: string | null;
                 page_size?: number;
                 page_token?: string | null;
@@ -5746,41 +5731,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskPreset"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    register_bundle_v1_admin_task_bundles_register_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-admin-user"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskBundle"];
                 };
             };
             /** @description Validation Error */

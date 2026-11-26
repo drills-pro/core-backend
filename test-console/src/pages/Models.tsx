@@ -35,7 +35,7 @@ export function ModelsPage() {
         <SimpleGrid minChildWidth="9rem" gap="3">
           <Stat label="Models" value={s.model_count} hint={`${s.version_count} versions`} />
           <Stat label="Projects" value={s.project_count} />
-          <Stat label="Deployed" value={s.deployed_count} hint={`${s.deploying_count} deploying`} />
+          <Stat label="Deployed" value={s.deployed_count} />
           <Stat label="Stopped" value={s.stopped_count} />
           <Stat label="Not deployed" value={s.not_deployed_count} />
         </SimpleGrid>

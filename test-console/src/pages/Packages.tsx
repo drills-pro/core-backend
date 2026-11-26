@@ -26,7 +26,7 @@ export function PackagesPage() {
     <Stack gap="8">
       <PageHeader
         title="Packages"
-        description="Changes here apply to every tenant. Promoting a package retires the one it replaces. A candidate can be promoted only after its smoke job passed."
+        description="Changes here apply to every tenant. Promoting a package retires the one it replaces, and a manual promotion sticks until CI registers a newer version. A candidate can be promoted only after its smoke job passed."
       />
       <CodedError error={error} messages={PACKAGE_ERROR_MESSAGES} />
 

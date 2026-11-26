@@ -37,7 +37,7 @@ export const PLAN_TIERS: Schemas['PlanTier'][] = ['free', 'pro', 'enterprise', '
 /** Mirrors core-api ADMIN_SETTABLE_STATUSES: what the tenant status route sets. pending_delete is a tenant's own delete. */
 export const TenantStatus = { ACTIVE: 'active', SUSPENDED: 'suspended' } as const satisfies Record<string, Schemas['TenantStatus']>;
 export const IDENTITY_STATUSES: Schemas['IdentityStatus'][] = ['active', 'suspended', 'pending', 'unknown'];
-export const MODEL_STATUSES: Schemas['ModelStatus'][] = ['deployed', 'deploying', 'stopped', 'not_deployed'];
+export const MODEL_STATUSES: Schemas['ModelStatus'][] = ['deployed', 'stopped', 'not_deployed'];
 export const VISIBILITIES: Schemas['Visibility'][] = ['private', 'internal'];
 /** Mirrors core-api AdminAuditEntity: what the admin audit trail records writes to. */
 export const AUDIT_ENTITIES: Schemas['AdminAuditEntity'][] = ['tenant', 'task_type', 'task_preset', 'model_catalog', 'plan_limits'];
