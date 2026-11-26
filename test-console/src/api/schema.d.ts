@@ -3621,6 +3621,10 @@ export interface components {
             base_model: components["schemas"]["TrainBaseModel"];
             /** Cpu */
             cpu: number;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             /**
              * Early Stopping Patience
              * @default 0
@@ -3653,6 +3657,10 @@ export interface components {
             base_model: components["schemas"]["TrainBaseModel"] | null;
             /** Cpu */
             cpu: number;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             /** Early Stopping Patience */
             early_stopping_patience: number;
             /** Gpu */
@@ -4087,6 +4095,10 @@ export interface components {
             base_model?: components["schemas"]["TrainBaseModel"] | null;
             /** Cpu */
             cpu: number;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             /**
              * Early Stopping Patience
              * @default 0

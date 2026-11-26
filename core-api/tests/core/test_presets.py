@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from app.core.bundle_manifest import ManifestPreset
 from app.core.enums import TaskType
 from app.core.presets import PresetBody
-from app.core.recipe import Recipe
+from app.core.recipe import CATALOG_ONLY, Recipe
 from app.core.settings import settings
 from app.core.task_catalog import TextPreprocessing
 from app.integrations.job_spec import Resources, TrainPayload
@@ -96,7 +96,7 @@ def test_a_job_spec_declares_every_recipe_field_it_copies_the_way_the_recipe_doe
     resources = set(Resources.model_fields)
     assert resources <= set(Recipe.model_fields)
     for name, field in Recipe.model_fields.items():
-        if name in resources:
+        if name in resources or name in CATALOG_ONLY:
             continue
         mine = TrainPayload.model_fields[name]  # a recipe field the payload lacks fails here
         if name not in _SPEC_OWN:

@@ -36,7 +36,7 @@ def test_put_writes_the_row_as_the_actor_and_audits_it():
     row = run(service.put(conn, TASK, "tiny", body(), "ops"))
     sql, args = calls_without_audit(conn)[-1]
     assert row.updated_by == "ops" and sql.startswith("INSERT INTO task_presets")
-    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None, None)
+    assert args[:2] == ("image-classification", "tiny") and args[11] == "ops" and args[12:] == ("constant", 0, "none", 0, None, None, None, None)
     [(actor, action, entity, entity_id, detail)] = audits(conn)
     assert (actor, action, entity, entity_id) == ("ops", AdminAuditAction.TASK_PRESET_PUT, AdminAuditEntity.TASK_PRESET, "image-classification/tiny")
     assert detail["learning_rate"] == BODY["learning_rate"]
@@ -122,7 +122,7 @@ def test_the_licence_the_hub_declares_is_recorded_with_the_body(hub):
     assert admitted.base_model.license == "mit" and BODY["base_model"].get("license") != "mit"
     conn = FakeConn(row=preset_row())
     run(service.put(conn, TASK, "tiny", admitted, "ops"))
-    assert calls_without_audit(conn)[-1][1][-1] == "mit"
+    assert calls_without_audit(conn)[-1][1][-3] == "mit"  # the licence, before display_name and description
 
 
 def test_a_hub_that_cannot_be_reached_is_a_502(hub):
