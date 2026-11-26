@@ -5,4 +5,5 @@
 UPDATE tenants SET settings = settings - 'allow_public_models' WHERE settings ? 'allow_public_models';
 
 -- migrate:down
--- Nothing to restore: the stripped value is not kept (ADR-031).
+-- Puts the key back with its old default for every tenant; a value a tenant had set is not kept (ADR-031).
+UPDATE tenants SET settings = settings || '{"allow_public_models": false}'::jsonb;
