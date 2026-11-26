@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Checkbox, Code, Dialog, Field, HStack, Input, Portal, Separator, Stack, Switch, Text, Textarea } from '@chakra-ui/react';
+import { Badge, Button, Card, Checkbox, Code, Dialog, Field, Fieldset, HStack, Input, Portal, Separator, Stack, Switch, Text, Textarea } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { client, unwrap, type Schemas } from '@/api/client';
 import { packageKeys, type TaskSlug } from '@/api/packages';
@@ -270,8 +270,9 @@ function ServingDialog({ task, onClose }: { task: Task; onClose: () => void }) {
                   <Field.Label>Max results (1 to {MAX_RESULTS_LIMIT})</Field.Label>
                   <Input size="sm" type="number" min={1} max={MAX_RESULTS_LIMIT} value={maxResults} onChange={(e) => setMaxResults(e.target.value)} />
                 </Field.Root>
-                <Field.Root invalid={providers.length === 0}>
-                  <Field.Label>Execution providers</Field.Label>
+                {/* Fieldset, not Field: Field gives every checkbox the same id, so a click on one label toggles the first. */}
+                <Fieldset.Root invalid={providers.length === 0}>
+                  <Fieldset.Legend>Execution providers</Fieldset.Legend>
                   <Stack gap="2">
                     {PROVIDERS.map((p) => (
                       <Checkbox.Root
@@ -285,7 +286,7 @@ function ServingDialog({ task, onClose }: { task: Task; onClose: () => void }) {
                       </Checkbox.Root>
                     ))}
                   </Stack>
-                </Field.Root>
+                </Fieldset.Root>
                 <ErrorAlert error={save.error} />
               </Stack>
             </Dialog.Body>

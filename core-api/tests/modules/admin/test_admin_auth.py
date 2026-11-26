@@ -16,7 +16,7 @@ ROUTES = [
     ("GET", f"/v1/admin/tenants/{ID}/members", None),
     ("GET", f"/v1/admin/tenants/{ID}/datasets", None),
     ("POST", f"/v1/admin/tenants/{ID}/projects", {"name": "p", "task_type": "image-classification"}),
-    ("PATCH", f"/v1/admin/tenants/{ID}/settings", {"allow_public_models": True}),
+    ("PATCH", f"/v1/admin/tenants/{ID}/settings", {"members_can_create_projects": True}),
     ("POST", f"/v1/admin/tenants/{ID}/status", {"status": "suspended"}),
     ("GET", "/v1/admin/activity", None),
     ("GET", "/v1/admin/activity/summary", None),

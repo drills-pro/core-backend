@@ -4376,11 +4376,6 @@ export interface components {
          */
         TenantSettings: {
             /**
-             * Allow Public Models
-             * @default false
-             */
-            allow_public_models: boolean;
-            /**
              * Members Can Create Projects
              * @default true
              */

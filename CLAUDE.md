@@ -73,10 +73,13 @@ A new or changed route fails `contract/` until you regenerate the snapshot (`cd 
   (`-- migrate:up` / `-- migrate:down`). Take the timestamp from `date -u +%Y%m%d%H%M%S` when you create the
   file, never a round number; it must sort after the newest existing version (if the clock is behind it, use
   newest + a few seconds). Never type a version by hand or reuse one you saw; run `date -u` at the moment you
-  create the file, in every branch and every parallel agent. After merging branches, check for duplicates with
+  create the file, in every branch and every parallel agent, and put its output in the name unchanged, seconds included:
+  never type, round or reuse a time. After merging branches, check for duplicates with
   `python3 scripts/lint-migrations.py core-api/migrations/*.sql` (it needs the file paths; with none it checks
   nothing) and rename the unpushed one. A migration that is pushed is frozen: never edit, rename or delete it, add a new one.
-  Only an unpushed migration may be amended or renamed. They run as `backend_admin` (database owner, no superuser, no
+  Only an unpushed migration may be amended or renamed. Every `-- migrate:down` must hold a real statement: the
+  backfill test (`core-api/tests/db/test_models_backfill_db.py`) runs the downs of every migration after
+  `20261109182100` in reverse, and a comment-only down fails CI. They run as `backend_admin` (database owner, no superuser, no
   BYPASSRLS) with no default privileges: grant `core_app` every new table, sequence and function, ENABLE
   (not FORCE) RLS, pin `search_path` on SECURITY DEFINER, never create roles. `docker compose up` applies
   them; check with `./scripts/migrations-check.sh` (README "Migrations").

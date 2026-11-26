@@ -14,7 +14,7 @@ ROW = {"id": uuid.UUID(TENANT), "name": NAME, "slug": "acme", "status": "active"
 
 
 def client(monkeypatch, dev_headers, role, status=TenantStatus.ACTIVE, restored=uuid.UUID(TENANT)):
-    conn = FakeConn(access(role, status=status), row=ROW, vals={"RETURNING settings": {"allow_public_models": True}, "UPDATE tenants": restored, "SELECT name": NAME, "SELECT settings": {"allow_public_models": True}})
+    conn = FakeConn(access(role, status=status), row=ROW, vals={"RETURNING settings": {"members_can_create_projects": False}, "UPDATE tenants": restored, "SELECT name": NAME, "SELECT settings": {"members_can_create_projects": False}})
     patch_tenant_conn(monkeypatch, conn, service)
     from app.modules.user.tenants.routes import router
     return make_client(router), conn
@@ -85,18 +85,18 @@ def test_audit_log_path_must_match_and_bad_token_is_400(monkeypatch, dev_headers
 
 def test_every_member_reads_settings_with_defaults_filled_in(monkeypatch, dev_headers):
     c, _ = client(monkeypatch, dev_headers, TenantRole.MEMBER)
-    assert c.get(f"{T}/settings").json() == {"members_can_create_projects": True, "require_review_before_training": True, "allow_public_models": True}
+    assert c.get(f"{T}/settings").json() == {"members_can_create_projects": False, "require_review_before_training": True}
 
 
 @pytest.mark.parametrize("role,status", [(TenantRole.OWNER, 200), (TenantRole.ADMIN, 200), (TenantRole.MEMBER, 403)])
 def test_settings_update_is_for_owner_and_admin_and_merges_only_what_was_sent(monkeypatch, dev_headers, role, status):
     c, conn = client(monkeypatch, dev_headers, role)
-    assert c.patch(f"{T}/settings", json={"allow_public_models": True}).status_code == status
+    assert c.patch(f"{T}/settings", json={"members_can_create_projects": False}).status_code == status
     merged = [a for s, a in conn.calls if "settings || $2" in s]
-    assert merged == ([(TENANT, {"allow_public_models": True})] if status == 200 else [])
+    assert merged == ([(TENANT, {"members_can_create_projects": False})] if status == 200 else [])
 
 
-@pytest.mark.parametrize("body", [{"nope": True}, {"allow_public_models": "yes"}, {"allow_public_models": None}])
+@pytest.mark.parametrize("body", [{"nope": True}, {"members_can_create_projects": "yes"}, {"members_can_create_projects": None}])
 def test_settings_update_rejects_unknown_keys_and_non_booleans(monkeypatch, dev_headers, body):
     c, conn = client(monkeypatch, dev_headers, TenantRole.OWNER)
     assert c.patch(f"{T}/settings", json=body).status_code == 422

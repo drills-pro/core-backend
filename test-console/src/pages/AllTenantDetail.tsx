@@ -11,13 +11,11 @@ const fetchTenant = (tenantId: string) => unwrap(client.GET('/v1/admin/tenants/{
 type Settings = Schemas['TenantSettings'];
 
 const SETTINGS: [keyof Settings, string][] = [
-  ['allow_public_models', 'Allow public models'],
   ['members_can_create_projects', 'Members can create projects'],
   ['require_review_before_training', 'Require review before training'],
 ];
 /** The whole settings object: the PATCH takes every switch, so a change is sent with the others as they are. */
 const allSettings = (s: Settings): Required<Settings> => ({
-  allow_public_models: s.allow_public_models ?? false,
   members_can_create_projects: s.members_can_create_projects ?? false,
   require_review_before_training: s.require_review_before_training ?? false,
 });
