@@ -5791,11 +5791,6 @@
         "additionalProperties": false,
         "description": "Per-tenant policy switches, stored in tenants.settings (jsonb); a missing key reads as its default here.\n\nAlso the body of a partial update: only the fields sent change (`model_dump(exclude_unset=True)`), an unknown\nkey or a non-boolean value is a 422.",
         "properties": {
-          "allow_public_models": {
-            "default": false,
-            "title": "Allow Public Models",
-            "type": "boolean"
-          },
           "members_can_create_projects": {
             "default": true,
             "title": "Members Can Create Projects",

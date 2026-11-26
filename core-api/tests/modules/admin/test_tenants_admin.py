@@ -214,7 +214,7 @@ def test_a_failed_cleanup_does_not_replace_the_original_error(admin, zitadel_stu
 
 # --- detail and sub-listings ------------------------------------------------------------------------------------
 
-DETAIL = dict(tenant_row(T1, "A", "o1"), settings={"allow_public_models": True}, dataset_count=4, model_count=5)
+DETAIL = dict(tenant_row(T1, "A", "o1"), settings={"members_can_create_projects": False}, dataset_count=4, model_count=5)
 
 
 def test_detail_assembles_row_status_and_owner(admin, zitadel_stub):
@@ -224,7 +224,7 @@ def test_detail_assembles_row_status_and_owner(admin, zitadel_stub):
     body = res.json()
     assert res.status_code == 200
     assert (body["status"], body["owner"]["login_name"], body["dataset_count"], body["model_count"]) == ("suspended", "ada@x", 4, 5)
-    assert body["settings"]["allow_public_models"] is True
+    assert body["settings"]["members_can_create_projects"] is False
 
 
 def test_detail_of_an_unknown_tenant_is_404(admin, zitadel_stub):
@@ -311,24 +311,24 @@ def test_create_project_in_a_tenant_without_a_team_is_409(admin):
 # --- settings and status ----------------------------------------------------------------------------------------
 
 def test_settings_patch_merges_only_the_fields_sent(admin):
-    conn = AdminConn(rows={"UPDATE tenants SET settings": {"settings": {"allow_public_models": True}}})
-    res = admin(conn).patch(f"{URL}/{T1}/settings", json={"allow_public_models": True})
+    conn = AdminConn(rows={"UPDATE tenants SET settings": {"settings": {"members_can_create_projects": False}}})
+    res = admin(conn).patch(f"{URL}/{T1}/settings", json={"members_can_create_projects": False})
     assert res.status_code == 200
-    assert res.json()["settings"] == {"members_can_create_projects": True, "require_review_before_training": True, "allow_public_models": True}
-    assert conn.calls[0][1] == (T1, {"allow_public_models": True})
-    assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_UPDATE_SETTINGS, AdminAuditEntity.TENANT, str(T1), {"allow_public_models": True})]
+    assert res.json()["settings"] == {"members_can_create_projects": False, "require_review_before_training": True}
+    assert conn.calls[0][1] == (T1, {"members_can_create_projects": False})
+    assert audits(conn) == [("ops-1", AdminAuditAction.TENANT_UPDATE_SETTINGS, AdminAuditEntity.TENANT, str(T1), {"members_can_create_projects": False})]
 
 
 def test_settings_patch_of_an_unknown_tenant_is_404(admin):
     conn = AdminConn(rows={"UPDATE tenants SET settings": None})
-    res = admin(conn).patch(f"{URL}/{T1}/settings", json={"allow_public_models": True})
+    res = admin(conn).patch(f"{URL}/{T1}/settings", json={"require_review_before_training": True})
     assert res.status_code == 404 and audits(conn) == []
 
 
 def test_settings_patch_rejects_unknown_and_non_boolean_values(admin):
     client = admin(AdminConn())
     assert client.patch(f"{URL}/{T1}/settings", json={"surprise": True}).status_code == 422
-    assert client.patch(f"{URL}/{T1}/settings", json={"allow_public_models": "yes"}).status_code == 422
+    assert client.patch(f"{URL}/{T1}/settings", json={"members_can_create_projects": "yes"}).status_code == 422
 
 
 def test_status_pending_delete_is_not_an_operator_switch(admin):

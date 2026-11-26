@@ -12,4 +12,3 @@ class TenantSettings(BaseModel):
 
     members_can_create_projects: bool = True
     require_review_before_training: bool = True
-    allow_public_models: bool = False
