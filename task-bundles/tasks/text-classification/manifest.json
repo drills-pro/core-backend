@@ -69,7 +69,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Quick",
+      "description": "Fastest to train. A good first try for a short or simple text dataset."
     },
     {
       "name": "medium",
@@ -93,13 +95,15 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Balanced",
+      "description": "A good mix of speed and accuracy for most text datasets."
     },
     {
       "name": "large",
       "base_model": {
-        "repo_id": "FacebookAI/roberta-base",
-        "revision": "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
+        "repo_id": "answerdotai/ModernBERT-base",
+        "revision": "8949b909ec900327062f0ebf497f51aef5e6f0c8"
       },
       "learning_rate": 1e-05,
       "preprocessing": {
@@ -117,7 +121,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Most accurate",
+      "description": "Takes the longest to train and is usually the most accurate. Use it when accuracy matters most."
     }
   ],
   "requires": [

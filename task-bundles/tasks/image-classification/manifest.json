@@ -50,8 +50,8 @@
     {
       "name": "small",
       "base_model": {
-        "repo_id": "microsoft/swin-tiny-patch4-window7-224",
-        "revision": "d00d478bfaf1f417d34a1186673ad4b4be264c51"
+        "repo_id": "facebook/convnextv2-tiny-1k-224",
+        "revision": "f4db009e63145e02b3c075aa64d90ce41bcca4b1"
       },
       "learning_rate": 0.0001,
       "preprocessing": {
@@ -80,13 +80,15 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Quick",
+      "description": "Fastest to train. A good first try for a small or simple dataset."
     },
     {
       "name": "medium",
       "base_model": {
-        "repo_id": "facebook/convnext-small-224",
-        "revision": "e0df91dcc78dbc0f56be8fbecff706128aee7c28"
+        "repo_id": "facebook/convnextv2-base-1k-224",
+        "revision": "90fcd1da94cc5ffabf88b0f8aee31b0893b94501"
       },
       "learning_rate": 0.0001,
       "preprocessing": {
@@ -115,7 +117,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Balanced",
+      "description": "A good mix of speed and accuracy for most datasets."
     },
     {
       "name": "large",
@@ -150,7 +154,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Most accurate",
+      "description": "Takes the longest to train and is usually the most accurate. Use it when accuracy matters most."
     }
   ],
   "requires": [
