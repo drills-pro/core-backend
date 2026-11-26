@@ -81,7 +81,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Quick",
+      "description": "Fastest to train. A good first try for a small or simple dataset."
     },
     {
       "name": "medium",
@@ -116,13 +118,15 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Balanced",
+      "description": "A good mix of speed and accuracy for most datasets."
     },
     {
       "name": "large",
       "base_model": {
-        "repo_id": "PekingU/rtdetr_v2_r50vd",
-        "revision": "282494075698cab9faa1096ae26856890030c817"
+        "repo_id": "PekingU/rtdetr_v2_r101vd",
+        "revision": "2c5dbbd2d4d8c8814827a3b42737ba1afce3cf2a"
       },
       "learning_rate": 5e-05,
       "preprocessing": {
@@ -151,7 +155,9 @@
         "epochs": 30,
         "batch_size": 16,
         "image_size": 224
-      }
+      },
+      "display_name": "Most accurate",
+      "description": "Takes the longest to train and is usually the most accurate. Use it when accuracy matters most."
     }
   ],
   "requires": [
